@@ -251,9 +251,15 @@ panel behind them:
 - Wi-Fi: the access points in range with signal and a lock for a secured one,
   a radio switch and a rescan.  Choosing a secured network asks for its
   password in the panel -- where the keyboard is -- and an empty password means
-  "use the connection NetworkManager already has".  The password is written to
-  =nmcli='s standard input, never onto its command line, where =ps= would show
-  it to every user on the machine for as long as the connection attempt runs.
+  "use the connection NetworkManager already has".  A typed password *replaces*
+  the saved one: =nmcli device wifi connect= would otherwise activate the
+  profile already on the machine and quietly drop what was typed, so the panel
+  finds the profile for that SSID first and rewrites its key.  The key is
+  written to =nmcli='s standard input -- for a new connection through =--ask=,
+  for an existing one through the interactive editor's =set= -- and never onto
+  its command line, where =ps= would show it to every user on the machine.  A
+  password that begins or ends with a space is refused rather than stored
+  trimmed, because the editor trims the value it is given.
 - Bluetooth: the adapter switch and the paired devices, each a click away from
   connect or disconnect.
 

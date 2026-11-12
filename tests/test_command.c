@@ -47,6 +47,49 @@ static void test_empty_input_closes_stdin(void) {
   g_assert_cmpstr(out, ==, "0");
 }
 
+typedef struct {
+  GMainLoop *loop;
+  char *output;
+  int status;
+} StatusCapture;
+
+static void on_done_status(const char *text, int status, gpointer user_data) {
+  StatusCapture *capture = user_data;
+
+  capture->output = g_strdup(text);
+  capture->status = status;
+  g_main_loop_quit(capture->loop);
+}
+
+static void test_status_reports_failure(void) {
+  StatusCapture capture = {g_main_loop_new(NULL, FALSE), NULL, 0};
+
+  whelk_command_run_input_status("cat >/dev/null; exit 3", "ignored",
+                                 on_done_status, &capture);
+  g_main_loop_run(capture.loop);
+
+  /* The status is the answer a translated message cannot give: this is what
+   * tells the Wi-Fi panel that saving the key failed. */
+  g_assert_cmpint(capture.status, ==, 3);
+  g_assert_cmpstr(capture.output, ==, "");
+
+  g_free(capture.output);
+  g_main_loop_unref(capture.loop);
+}
+
+static void test_status_reports_success(void) {
+  StatusCapture capture = {g_main_loop_new(NULL, FALSE), NULL, -1};
+
+  whelk_command_run_input_status("cat", "ok\n", on_done_status, &capture);
+  g_main_loop_run(capture.loop);
+
+  g_assert_cmpint(capture.status, ==, 0);
+  g_assert_cmpstr(capture.output, ==, "ok");
+
+  g_free(capture.output);
+  g_main_loop_unref(capture.loop);
+}
+
 static void test_plain_run_still_works(void) {
   g_autofree char *out = run_and_wait("printf 'still here'", NULL);
 
@@ -59,6 +102,8 @@ int main(int argc, char *argv[]) {
   g_test_add_func("/command/input", test_input_reaches_the_program);
   g_test_add_func("/command/empty-input", test_empty_input_closes_stdin);
   g_test_add_func("/command/plain", test_plain_run_still_works);
+  g_test_add_func("/command/status-failure", test_status_reports_failure);
+  g_test_add_func("/command/status-success", test_status_reports_success);
 
   return g_test_run();
 }

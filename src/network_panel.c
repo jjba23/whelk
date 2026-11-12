@@ -12,6 +12,7 @@
 #include "style.h"
 #include "surface.h"
 #include "util/command.h"
+#include "util/nmcli.h"
 
 /* =========================================================================
  * THE NETWORK PANEL
@@ -102,33 +103,6 @@ static void clear_box(GtkWidget *box) {
     gtk_box_remove(GTK_BOX(box), child);
 }
 
-/* Splits one line of `nmcli -t' output, honouring its backslash escapes. */
-static GPtrArray *split_terse(const char *line) {
-  GPtrArray *fields = g_ptr_array_new_with_free_func(g_free);
-  GString *current = g_string_new(NULL);
-
-  for (const char *p = line; *p; p++) {
-    if (*p == '\\' && p[1] != '\0') {
-      g_string_append_c(current, p[1]);
-      p++;
-      continue;
-    }
-
-    if (*p == ':') {
-      g_ptr_array_add(fields, g_strdup(current->str));
-      g_string_truncate(current, 0);
-      continue;
-    }
-
-    g_string_append_c(current, *p);
-  }
-
-  g_ptr_array_add(fields, g_strdup(current->str));
-  g_string_free(current, TRUE);
-
-  return fields;
-}
-
 static void schedule_refresh(WhelkNetworkPanel *self, guint delay_ms);
 
 /* =========================================================================
@@ -184,21 +158,159 @@ static void wifi_target_free(gpointer data, GClosure *closure) {
   g_free(target);
 }
 
+/* =========================================================================
+ * A TYPED KEY REPLACES THE SAVED ONE
+ * =========================================================================
+ * =nmcli device wifi connect= prefers a profile the machine already has: it
+ * activates it with the key stored inside, and a password typed in the panel
+ * would be dropped on the floor.  So a typed key first finds the profile for
+ * the SSID, rewrites its secret through the interactive editor's standard
+ * input -- never its command line, where `ps` would read it -- and only then
+ * activates the profile, which now holds the key the user typed.
+ */
+
+typedef struct {
+  WhelkNetworkPanel *self;
+  char *profile;
+} KeyWrite;
+
+static void wifi_activate_profile(WhelkNetworkPanel *self,
+                                  const char *profile) {
+  g_autofree char *quoted = g_shell_quote(profile);
+  g_autofree char *command =
+      g_strdup_printf("nmcli --wait 30 connection up %s", quoted);
+
+  wifi_run(self, command);
+}
+
+static void wifi_key_written(const char *text, int status, gpointer user_data) {
+  KeyWrite *write = user_data;
+
+  /* The editor's words are translated and start with a banner; its exit
+   * status is neither, so that is what decides. */
+  if (status != 0)
+    wifi_action_done(text, write->self);
+  else
+    wifi_activate_profile(write->self, write->profile);
+
+  g_free(write->profile);
+  g_free(write);
+}
+
+static void wifi_write_key(WhelkNetworkPanel *self, const char *profile,
+                           const char *key) {
+  g_autofree char *script = whelk_nmcli_key_update_script(key);
+
+  if (!script) {
+    if (self->wifi_status)
+      gtk_label_set_text(GTK_LABEL(self->wifi_status),
+                         "That password cannot be saved: it starts or ends "
+                         "with a space.");
+
+    schedule_refresh(self, 2500);
+    return;
+  }
+
+  g_autofree char *quoted = g_shell_quote(profile);
+  g_autofree char *command =
+      g_strdup_printf("nmcli connection edit %s 2>&1", quoted);
+
+  KeyWrite *write = g_new0(KeyWrite, 1);
+
+  write->self = self;
+  write->profile = g_strdup(profile);
+
+  if (self->wifi_status)
+    gtk_label_set_text(GTK_LABEL(self->wifi_status),
+                       "Saving the new password\u2026");
+
+  whelk_command_run_input_status(command, script, wifi_key_written, write);
+}
+
+typedef struct {
+  WhelkNetworkPanel *self;
+  char *ssid;
+  char *key;
+  GPtrArray *names;
+  guint index;
+} ProfileSearch;
+
+static void profile_search_free(ProfileSearch *search) {
+  if (!search)
+    return;
+
+  g_free(search->ssid);
+  g_free(search->key);
+  g_clear_pointer(&search->names, g_ptr_array_unref);
+  g_free(search);
+}
+
+static void probe_profile(ProfileSearch *search);
+
+static void on_profile_ssid(const char *text, gpointer user_data) {
+  ProfileSearch *search = user_data;
+  g_autofree char *value = g_strdup(text ? text : "");
+
+  g_strstrip(value);
+
+  if (g_strcmp0(value, search->ssid) == 0) {
+    wifi_write_key(search->self,
+                   g_ptr_array_index(search->names, search->index),
+                   search->key);
+    profile_search_free(search);
+    return;
+  }
+
+  search->index++;
+  probe_profile(search);
+}
+
+static void probe_profile(ProfileSearch *search) {
+  if (search->index >= search->names->len) {
+    /* No profile yet: nmcli creates one, and --ask reads the key from the
+     * standard input wifi_run_input() provides. */
+    g_autofree char *quoted = g_shell_quote(search->ssid);
+    g_autofree char *command =
+        g_strdup_printf("nmcli --ask --wait 20 device wifi connect %s",
+                        quoted);
+
+    wifi_run_input(search->self, command, search->key);
+    profile_search_free(search);
+    return;
+  }
+
+  g_autofree char *quoted =
+      g_shell_quote(g_ptr_array_index(search->names, search->index));
+  g_autofree char *command = g_strdup_printf(
+      "nmcli -t -g 802-11-wireless.ssid connection show %s 2>/dev/null",
+      quoted);
+
+  whelk_command_run(command, on_profile_ssid, search);
+}
+
+static void on_profile_list(const char *text, gpointer user_data) {
+  ProfileSearch *search = user_data;
+
+  search->names = whelk_nmcli_wifi_profile_names(text);
+  probe_profile(search);
+}
+
 static void wifi_connect_with_password(WhelkNetworkPanel *self,
                                        const char *ssid,
                                        const char *password) {
-  g_autofree char *quoted_ssid = g_shell_quote(ssid);
-
   if (password && *password) {
-    /* --ask makes nmcli read the missing key from its standard input, which is
-     * where wifi_run_input() puts it. */
-    g_autofree char *command = g_strdup_printf(
-        "nmcli --ask --wait 20 device wifi connect %s", quoted_ssid);
+    ProfileSearch *search = g_new0(ProfileSearch, 1);
 
-    wifi_run_input(self, command, password);
+    search->self = self;
+    search->ssid = g_strdup(ssid);
+    search->key = g_strdup(password);
+
+    whelk_command_run("nmcli -t -f NAME,TYPE connection show 2>/dev/null",
+                      on_profile_list, search);
   } else {
-    g_autofree char *command = g_strdup_printf(
-        "nmcli --wait 20 device wifi connect %s", quoted_ssid);
+    g_autofree char *quoted_ssid = g_shell_quote(ssid);
+    g_autofree char *command =
+        g_strdup_printf("nmcli --wait 20 device wifi connect %s", quoted_ssid);
 
     wifi_run(self, command);
   }
@@ -331,7 +443,7 @@ static void on_wifi_state(const char *text, gpointer user_data) {
     if (*lines[i] == '\0')
       continue;
 
-    g_autoptr(GPtrArray) fields = split_terse(lines[i]);
+    g_autoptr(GPtrArray) fields = whelk_nmcli_split_terse(lines[i]);
 
     if (fields->len < 3)
       continue;

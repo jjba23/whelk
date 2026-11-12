@@ -154,6 +154,7 @@ whelk_sources = files(
   'src/util/format.c',
   'src/util/fuzzy.c',
   'src/util/json.c',
+  'src/util/nmcli.c',
   'src/util/sysfs.c',
 )
 
@@ -195,6 +196,10 @@ unit_tests = [
   {
     'id': 'command',
     'sources': ['src/util/command.c', 'src/util/format.c'],
+  },
+  {
+    'id': 'nmcli',
+    'sources': ['src/util/nmcli.c'],
   },
 ]
 

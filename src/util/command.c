@@ -16,6 +16,7 @@
 
 typedef struct {
   WhelkCommandCallback callback;
+  WhelkCommandStatusCallback status_callback;
   gpointer user_data;
 } RunContext;
 
@@ -35,18 +36,26 @@ static void on_communicate(GObject *source, GAsyncResult *result,
     stdout_text = NULL;
   }
 
-  if (ctx->callback) {
-    char *plain = g_strdup(stdout_text ? stdout_text : "");
-    whelk_str_strip_newline(plain);
-    ctx->callback(plain, ctx->user_data);
-    g_free(plain);
-  }
+  char *plain = g_strdup(stdout_text ? stdout_text : "");
+  const int status = g_subprocess_get_if_exited(process)
+                         ? g_subprocess_get_exit_status(process)
+                         : -1;
 
+  whelk_str_strip_newline(plain);
+
+  if (ctx->status_callback)
+    ctx->status_callback(plain, status, ctx->user_data);
+  else if (ctx->callback)
+    ctx->callback(plain, ctx->user_data);
+
+  g_free(plain);
   run_context_free(ctx);
 }
 
 static void run_impl(const char *command_line, const char *input,
-                     WhelkCommandCallback callback, gpointer user_data) {
+                     WhelkCommandCallback callback,
+                     WhelkCommandStatusCallback status_callback,
+                     gpointer user_data) {
   if (!command_line || *command_line == '\0') {
     if (callback)
       callback(NULL, user_data);
@@ -72,6 +81,7 @@ static void run_impl(const char *command_line, const char *input,
 
   RunContext *ctx = g_new0(RunContext, 1);
   ctx->callback = callback;
+  ctx->status_callback = status_callback;
   ctx->user_data = user_data;
 
   g_subprocess_communicate_utf8_async(process, has_input ? input : NULL, NULL,
@@ -81,12 +91,19 @@ static void run_impl(const char *command_line, const char *input,
 
 void whelk_command_run(const char *command_line, WhelkCommandCallback callback,
                        gpointer user_data) {
-  run_impl(command_line, NULL, callback, user_data);
+  run_impl(command_line, NULL, callback, NULL, user_data);
 }
 
 void whelk_command_run_input(const char *command_line, const char *input,
                              WhelkCommandCallback callback, gpointer user_data) {
-  run_impl(command_line, input, callback, user_data);
+  run_impl(command_line, input, callback, NULL, user_data);
+}
+
+void whelk_command_run_input_status(const char *command_line,
+                                    const char *input,
+                                    WhelkCommandStatusCallback callback,
+                                    gpointer user_data) {
+  run_impl(command_line, input, NULL, callback, user_data);
 }
 
 /* =========================================================================

@@ -57,6 +57,33 @@ void whelk_command_run_input(const char *command_line, const char *input,
                              WhelkCommandCallback callback, gpointer user_data);
 
 /**
+ * WhelkCommandStatusCallback:
+ * @stdout_text: (nullable): the program's standard output, trailing newline
+ *   removed.  NULL when the program could not be started.
+ * @status: the program's exit status, or -1 when it did not exit normally.
+ * @user_data: the pointer given to whelk_command_run_input_status().
+ */
+typedef void (*WhelkCommandStatusCallback)(const char *stdout_text, int status,
+                                           gpointer user_data);
+
+/**
+ * whelk_command_run_input_status:
+ * @command_line: a shell command line.
+ * @input: (nullable): text written to the program's standard input.
+ * @callback: (nullable) (scope notified): called on the main loop when the
+ *   program has finished.
+ * @user_data: passed to @callback.
+ *
+ * whelk_command_run_input(), with the exit status: a program's *answer* is not
+ * always a sentence to show, and its words are in whatever language the
+ * machine speaks.  "Did it fail?" is the status, and it needs no translating.
+ */
+void whelk_command_run_input_status(const char *command_line,
+                                    const char *input,
+                                    WhelkCommandStatusCallback callback,
+                                    gpointer user_data);
+
+/**
  * whelk_command_spawn:
  * @command_line: a shell command line.
  *
