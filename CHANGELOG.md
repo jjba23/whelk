@@ -8,6 +8,10 @@ project follows [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.6.0] - 2026-11-12
+
 ### Added
 
 - The menu dictionary answers to a settings file: `add-menu-app` appends an
@@ -20,8 +24,6 @@ project follows [Semantic Versioning][semver].
 - Ten more applications in the dictionary: Konsole, Ghostty, image viewers,
   music players, video players, Kdenlive, Ardour, Obsidian, Zed and Sublime
   Text -- fifty applications, a hundred and fifty-five ids.
-
-_No changes yet._
 
 ## [0.5.0] - 2026-11-12
 
