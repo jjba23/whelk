@@ -45,6 +45,8 @@
    #:left (list
            (custom-module #:exec "printf '\\uf005'"
                           #:interval 0
+                          #:icon "\uf005"
+                          #:format "{icon}"
                           #:tooltip "Heks GNU/Linux — the machine's own menu
 Click: open it · Right-click: the session menu"
                           #:on-click (rofi-relaunch "heks-system-menu")
