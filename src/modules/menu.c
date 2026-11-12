@@ -5,6 +5,7 @@
 
 #include "modules/modules.h"
 
+#include "logger.h"
 #include "util/desktop.h"
 #include "util/session.h"
 
@@ -151,7 +152,25 @@ static void fill_popover(WhelkModule *module, GtkPopover *popover,
       continue;
     }
 
-    GtkWidget *button = gtk_button_new_with_label(entry->label);
+    GtkWidget *button = gtk_button_new();
+
+    /* A shortcut entry shows the chord it types where a menu shows one: on
+     * the right, dim, and out of the way of the label. */
+    if (entry->accel) {
+      GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
+      GtkWidget *label = gtk_label_new(entry->label);
+      GtkWidget *accel = gtk_label_new(entry->accel);
+
+      gtk_widget_set_hexpand(label, TRUE);
+      gtk_widget_set_halign(label, GTK_ALIGN_START);
+      gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+      gtk_widget_add_css_class(accel, "whelk-menu-accel");
+      gtk_box_append(GTK_BOX(row), label);
+      gtk_box_append(GTK_BOX(row), accel);
+      gtk_button_set_child(GTK_BUTTON(button), row);
+    } else {
+      gtk_button_set_child(GTK_BUTTON(button), gtk_label_new(entry->label));
+    }
 
     gtk_widget_add_css_class(button, "flat");
     gtk_widget_add_css_class(button, "whelk-menu-item");
@@ -252,6 +271,8 @@ static void on_start_reply(GObject *source, GAsyncResult *result,
       GPtrArray *menus = whelk_menubar_from_gtk(parameters, 0, 0);
 
       if (menus->len > 0) {
+        LOG_C_DEBUG("Menu", "%s exports a menubar: %u menu(s) from D-Bus",
+                    data->app_id ? data->app_id : "(anonymous)", menus->len);
         replace_menus(probe->module, menus);
         adopted = TRUE;
       } else {
@@ -317,6 +338,7 @@ static void probe_menus(WhelkModule *module) {
                   g_strdup_printf("%s/menus/menubar", data->app_path));
   g_ptr_array_add(probe->paths,
                   g_strdup_printf("%s/menus/AppMenu", data->app_path));
+  g_ptr_array_add(probe->paths, g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
 
   probe_next(probe);
 }
@@ -386,12 +408,18 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
   const WhelkSession session = whelk_session_detect();
   g_autofree char *close_command = whelk_session_close_window_command(session);
 
+  const char *source = NULL;
+
   replace_menus(module,
-                whelk_menubar_synthesize(action_ids, action_labels,
-                                         action_count, close_command,
-                                         data->show_shortcuts
-                                             ? data->shortcut_tool
-                                             : NULL));
+                whelk_menubar_for_app(data->app_id, action_ids, action_labels,
+                                      action_count, close_command,
+                                      data->show_shortcuts ? data->shortcut_tool
+                                                           : NULL,
+                                      &source));
+
+  if (source)
+    LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
+                source);
 
   probe_menus(module);
 }

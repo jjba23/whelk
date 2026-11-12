@@ -55,19 +55,16 @@
    #:radius 0
 
    ;; ---------------------------------------------------------------- left --
-   ;; The machine's own menu, in Font Awesome's empty star, then what is in
+   ;; The shell's own menu, in Font Awesome's empty star, then what is in
    ;; front of you, then what can be done to it.
    #:left (list
-           (custom-module #:exec "printf '\\uf005'"
-                          #:interval 0
-                          #:icon "\uf005"
-                          #:format "{icon}"
-                          #:tooltip "Heks GNU/Linux — the machine's own menu
-Click: open it · Right-click: the session menu"
-                          #:on-click (rofi-relaunch "heks-system-menu")
-                          #:on-click-right
-                          (rofi-relaunch
-                           "rofi -show power -theme-str 'entry { enabled: false; } mode-switcher { enabled: false; } inputbar { enabled: false; }"))
+           ;; The shell's own menu, natively: one glyph, and behind it the
+           ;; launcher, the panels, a reload and the way out.  No rofi, no
+           ;; subprocess to hand the click to -- the popover is GTK and every
+           ;; entry in it is the shell's own.
+           (start-module #:label "\uf005"
+                         #:tooltip "whelk — the shell's own menu
+Click: the launcher, the panels, a reload and the way out")
            (window-module #:format "{title}"
                           #:max-length 50
                           #:interval 1

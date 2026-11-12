@@ -32,11 +32,12 @@
 
 (define built-in (default-bar))
 
-;; The reference's left half, plus the global menu after the window: whose
-;; window you are in, then what can be done to it.
-(check "the left half reads menu, window, menu-bar"
+;; The reference's left half, plus the global menu after the window: the
+;; shell's own menu (native, not a rofi script), whose window you are in, then
+;; what can be done to it.
+(check "the left half reads start, window, menu-bar"
        (equal? (kinds (bar-config-modules-left built-in))
-               '(custom window menu)))
+               '(start window menu)))
 
 ;; The reference's right half, in its order: the media and desktop items, the
 ;; hardware readouts, the status icons, then search and the clock.

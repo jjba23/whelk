@@ -5,6 +5,8 @@
 
 #include "util/menutree.h"
 
+#include "util/menudict.h"
+
 #include <string.h>
 
 #define WHELK_MENU_MAX_DEPTH 8
@@ -18,6 +20,7 @@ static void menu_entry_free(WhelkMenuEntry *entry) {
     return;
 
   g_free(entry->label);
+  g_free(entry->accel);
   g_free(entry->action);
   g_free(entry->target);
   g_free(entry->command);
@@ -300,9 +303,14 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu) {
  * =========================================================================
  * An application that exports nothing still has a File menu's worth of
  * actions: the ones its desktop entry declares, plus closing its window, which
- * the compositor does itself.  Edit and View are the shortcuts every
- * application shares, and they are only offered when a tool can type them --
- * a menu entry that cannot work is worse than an absent one.
+ * the compositor does itself.  Beyond that the menus come from what is known
+ * about the application: the documented shortcuts of the applications in the
+ * dictionary, or -- for an application nobody has written down yet -- the
+ * shortcuts every application shares.
+ *
+ * Every entry made from a shortcut shows the chord it types on the right, and
+ * is only offered when a tool can type it -- a menu entry that cannot work is
+ * worse than an absent one.
  */
 
 char *whelk_shortcut_command(const char *tool, const char *modifiers,
@@ -342,20 +350,107 @@ char *whelk_shortcut_command(const char *tool, const char *modifiers,
                          modifiers);
 }
 
-static void add_shortcut(WhelkMenu *menu, const char *label, const char *tool,
-                         const char *modifiers, const char *key) {
+static void add_shortcut(WhelkMenu *menu, const char *label, const char *accel,
+                         const char *tool, const char *modifiers,
+                         const char *key) {
   WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
 
+  entry->accel = g_strdup(accel);
   entry->command = whelk_shortcut_command(tool, modifiers, key);
   entry->enabled = entry->command != NULL;
 }
 
-GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
-                                    const char *const *action_labels,
-                                    guint action_count,
-                                    const char *close_command,
-                                    const char *shortcut_tool) {
+/* Is an entry of this name already in the menu?  A desktop entry and the
+ * dictionary both know "New Window", and a menu says it once. */
+static gboolean has_label(GPtrArray *entries, const char *label) {
+  for (guint i = 0; i < entries->len; i++) {
+    const WhelkMenuEntry *entry = g_ptr_array_index(entries, i);
+
+    if (entry->label && g_ascii_strcasecmp(entry->label, label) == 0)
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+/* One curated menu's items, leaving out the ones the File menu already has. */
+static void append_dict_menu(WhelkMenu *menu, const WhelkDictMenu *dict,
+                             const char *tool) {
+  for (guint i = 0; i < dict->n_items; i++) {
+    const WhelkDictItem *item = &dict->items[i];
+
+    if (has_label(menu->entries, item->label))
+      continue;
+
+    add_shortcut(menu, item->label, item->accel, tool, item->modifiers,
+                 item->key);
+  }
+}
+
+/* A rule between two groups, and never two in a row or one at the end. */
+static void separate(WhelkMenu *menu) {
+  if (menu->entries->len == 0)
+    return;
+
+  const WhelkMenuEntry *last =
+      g_ptr_array_index(menu->entries, menu->entries->len - 1);
+
+  if (last->kind != WHELK_MENU_SEPARATOR)
+    whelk_menu_add_separator(menu);
+}
+
+static gboolean has_item(WhelkMenu *menu) {
+  for (guint i = 0; i < menu->entries->len; i++) {
+    const WhelkMenuEntry *entry = g_ptr_array_index(menu->entries, i);
+
+    if (entry->kind == WHELK_MENU_ENTRY)
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+/* The shortcuts every application shares.  Edit and View, and nothing that
+ * claims to be the application's own File menu. */
+static void append_shared_menus(GPtrArray *bar, const char *tool) {
+  WhelkMenu *edit = whelk_menu_new("Edit");
+
+  add_shortcut(edit, "Undo", "Ctrl+Z", tool, "ctrl", "z");
+  add_shortcut(edit, "Redo", "Ctrl+Shift+Z", tool, "ctrl shift", "z");
+  whelk_menu_add_separator(edit);
+  add_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x");
+  add_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c");
+  add_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v");
+  add_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a");
+  whelk_menu_add_separator(edit);
+  add_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f");
+
+  g_ptr_array_add(bar, edit);
+
+  WhelkMenu *view = whelk_menu_new("View");
+
+  add_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus");
+  add_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus");
+  add_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0");
+  whelk_menu_add_separator(view);
+  add_shortcut(view, "Full Screen", "F11", tool, NULL, "F11");
+
+  g_ptr_array_add(bar, view);
+}
+
+GPtrArray *whelk_menubar_for_app(const char *app_id,
+                                 const char *const *action_ids,
+                                 const char *const *action_labels,
+                                 guint action_count,
+                                 const char *close_command,
+                                 const char *shortcut_tool,
+                                 const char **out_source) {
   GPtrArray *bar = whelk_menubar_new();
+  const WhelkDictApp *dict = whelk_menudict_for_app(app_id);
+  const gboolean can_type = shortcut_tool && *shortcut_tool != '\0';
+
+  if (out_source)
+    *out_source = (dict && can_type) ? dict->name : NULL;
 
   WhelkMenu *file = whelk_menu_new("File");
 
@@ -372,41 +467,44 @@ GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
     entry->action = g_strdup_printf("desktop:%s", action_ids[i]);
   }
 
-  if (action_count > 0)
-    whelk_menu_add_separator(file);
+  if (dict && can_type) {
+    /* The dictionary's File is the application's own; its other menus follow
+     * it in the order they are written. */
+    for (guint i = 0; i < dict->n_menus; i++)
+      if (g_strcmp0(dict->menus[i].label, "File") == 0) {
+        separate(file);
+        append_dict_menu(file, &dict->menus[i], shortcut_tool);
+      }
+  }
 
   /* Closing a window is the compositor's job, and its name differs per session;
    * a session that cannot close windows gets no entry rather than a dead one. */
   if (close_command && *close_command) {
+    separate(file);
+
     WhelkMenuEntry *close = whelk_menu_add_entry(file, "Close Window");
 
     close->command = g_strdup(close_command);
   }
 
-  g_ptr_array_add(bar, file);
+  /* A File with nothing in it is not a menu. */
+  if (has_item(file))
+    g_ptr_array_add(bar, file);
+  else
+    whelk_menu_free(file);
 
-  if (shortcut_tool && *shortcut_tool) {
-    WhelkMenu *edit = whelk_menu_new("Edit");
+  if (dict && can_type) {
+    for (guint i = 0; i < dict->n_menus; i++) {
+      if (g_strcmp0(dict->menus[i].label, "File") == 0)
+        continue;
 
-    add_shortcut(edit, "Undo", shortcut_tool, "ctrl", "z");
-    add_shortcut(edit, "Redo", shortcut_tool, "ctrl shift", "z");
-    whelk_menu_add_separator(edit);
-    add_shortcut(edit, "Cut", shortcut_tool, "ctrl", "x");
-    add_shortcut(edit, "Copy", shortcut_tool, "ctrl", "c");
-    add_shortcut(edit, "Paste", shortcut_tool, "ctrl", "v");
-    add_shortcut(edit, "Select All", shortcut_tool, "ctrl", "a");
+      WhelkMenu *menu = whelk_menu_new(dict->menus[i].label);
 
-    g_ptr_array_add(bar, edit);
-
-    WhelkMenu *view = whelk_menu_new("View");
-
-    add_shortcut(view, "Zoom In", shortcut_tool, "ctrl", "plus");
-    add_shortcut(view, "Zoom Out", shortcut_tool, "ctrl", "minus");
-    add_shortcut(view, "Actual Size", shortcut_tool, "ctrl", "0");
-    whelk_menu_add_separator(view);
-    add_shortcut(view, "Full Screen", shortcut_tool, NULL, "F11");
-
-    g_ptr_array_add(bar, view);
+      append_dict_menu(menu, &dict->menus[i], shortcut_tool);
+      g_ptr_array_add(bar, menu);
+    }
+  } else if (!dict && can_type) {
+    append_shared_menus(bar, shortcut_tool);
   }
 
   return bar;

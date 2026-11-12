@@ -8,6 +8,7 @@
 #include "shell.h"
 #include "style.h"
 #include "util/command.h"
+#include "util/format.h"
 
 /* =========================================================================
  * THE SHELL'S OWN MENU
@@ -73,6 +74,19 @@ static void add_item(GtkWidget *box, const char *label, const char *action) {
   gtk_box_append(GTK_BOX(box), button);
 }
 
+/* A menu button's hover text belongs to the button, not to the menu: while the
+ * menu is open the tooltip either covers the first entry or follows the
+ * pointer down the list.  It is switched off for as long as the popover is up. */
+static void on_popover_show(GtkWidget *popover, gpointer user_data) {
+  (void)popover;
+  gtk_widget_set_has_tooltip(GTK_WIDGET(user_data), FALSE);
+}
+
+static void on_popover_hide(GtkWidget *popover, gpointer user_data) {
+  (void)popover;
+  gtk_widget_set_has_tooltip(GTK_WIDGET(user_data), TRUE);
+}
+
 WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
                                     const WhelkBarConfig *bar) {
   WhelkModule *module = whelk_module_base_new("start", spec, bar);
@@ -83,9 +97,15 @@ WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
 
   gtk_widget_add_css_class(button, "flat");
   gtk_widget_add_css_class(button, "whelk-start-button");
-  gtk_menu_button_set_child(
-      GTK_MENU_BUTTON(button),
-      gtk_label_new(whelk_spec_str(spec, "label", "\xf0\x9f\x90\x9a")));
+  /* #:label is a glyph, so it is drawn in the bar's icon font: a star, a
+   * snail or a grid only exists in the face the configuration named. */
+  const char *glyph = whelk_spec_str(spec, "label", "\xf0\x9f\x90\x9a");
+  g_autofree char *markup =
+      whelk_icon_markup(glyph, bar ? bar->icon_font : NULL);
+  GtkWidget *label = gtk_label_new(NULL);
+
+  gtk_label_set_markup(GTK_LABEL(label), markup);
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(button), label);
   gtk_widget_set_tooltip_text(button,
                               whelk_spec_str(spec, "tooltip", "whelk"));
 
@@ -106,6 +126,8 @@ WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
                       module->bar);
 
   gtk_popover_set_child(GTK_POPOVER(popover), box);
+  g_signal_connect(popover, "show", G_CALLBACK(on_popover_show), button);
+  g_signal_connect(popover, "hide", G_CALLBACK(on_popover_hide), button);
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
 
   gtk_box_append(GTK_BOX(module->root), button);

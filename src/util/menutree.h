@@ -32,6 +32,9 @@ typedef struct WhelkMenu WhelkMenu;
 typedef struct {
   WhelkMenuKind kind;
   char *label;
+  /* The chord this entry types, e.g. "Ctrl+N": shown dim on the right of the
+   * label, and NULL for an entry that is not a shortcut. */
+  char *accel;
   gboolean enabled;
   /* One of these says what activating the entry does. */
   char *action;  /* an org.gtk.Actions name, "app.save" or "win.copy" */
@@ -71,7 +74,8 @@ GPtrArray *whelk_menubar_new(void);
 GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
 
 /**
- * whelk_menubar_synthesize:
+ * whelk_menubar_for_app:
+ * @app_id: (nullable): the focused window's application id.
  * @action_ids: (array length=action_count): the application's desktop actions.
  * @action_labels: (array length=action_count): their labels.
  * @action_count: how many there are.
@@ -79,19 +83,31 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
  *   this session; NULL leaves the entry out.
  * @shortcut_tool: (nullable): the program that types keys, "wtype" on Wayland
  *   and "xdotool" on X11; NULL when neither is installed, which leaves the
- *   synthesized menus to the entries that do not need one.
+ *   menus to the entries that do not need one.
+ * @out_source: (out caller-allocates) (optional): what the menus were made
+ *   from, for the log: the dictionary's name for the application, or NULL
+ *   when the generic menus were used.
  *
- * The menubar an application without a menubar gets: File with its desktop
- * actions and a Close Window, Edit and View built from the shortcuts every
- * application shares.  Nothing pretends to know an application's own menu.
+ * The menubar an application that exports nothing gets.  File always carries
+ * the actions its desktop entry declares and a Close Window; then:
+ *
+ * - an application the dictionary knows gets its own menus -- the documented
+ *   shortcuts of that application, each entry showing its chord and typing it;
+ * - everything else gets Edit and View built from the shortcuts every
+ *   application shares.
+ *
+ * Nothing pretends to know an application's own menu: a menu entry appears
+ * only if something can carry it out.
  *
  * Returns: (transfer full): a GPtrArray of WhelkMenu.
  */
-GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
-                                    const char *const *action_labels,
-                                    guint action_count,
-                                    const char *close_command,
-                                    const char *shortcut_tool);
+GPtrArray *whelk_menubar_for_app(const char *app_id,
+                                 const char *const *action_ids,
+                                 const char *const *action_labels,
+                                 guint action_count,
+                                 const char *close_command,
+                                 const char *shortcut_tool,
+                                 const char **out_source);
 
 /* The command that types a chord, "wtype -M ctrl -k z -m ctrl". */
 char *whelk_shortcut_command(const char *tool, const char *modifiers,

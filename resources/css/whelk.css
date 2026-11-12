@@ -303,6 +303,13 @@ window.whelk-surface {
   font-weight: 600;
 }
 
+/* The chord on the right of a shortcut entry: present, and never the thing
+ * the eye lands on first. */
+.whelk-menu-accel {
+  opacity: 0.55;
+  font-size: 0.9em;
+}
+
 .whelk-start-button,
 .whelk-start-button button {
   background: transparent;

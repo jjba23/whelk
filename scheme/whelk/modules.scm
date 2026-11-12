@@ -180,16 +180,18 @@ have no window; #:format is the label ({index} or {name})."
 
 (define* (start-module #:rest kv)
   "The shell's own menu: the launcher, the panels, the settings and quitting,
-behind one glyph.  #:label is the glyph (a snail shell by default); #:tooltip
-hover text."
+behind one glyph.  The menu is a GTK popover the shell builds itself -- no rofi,
+no subprocess.  #:label is the glyph (a snail shell by default), drawn in the
+bar's icon font; #:tooltip is its hover text."
   (apply module 'start kv))
 
 (define* (menu-module #:rest kv)
-  "The global menu: the focused application's File/Edit/View menus, read from
-its D-Bus menubar when it exports one and synthesized from its desktop actions
-and the shortcuts every application shares when it does not.  The base keys
-apply; #:shortcuts (default on) offers the synthesized Edit and View, and
-#:shortcut-tool names the program that types a chord (wtype)."
+  "The global menu: the focused application's File/Edit/View menus.  Read from
+its D-Bus menubar where it exports one; otherwise from the dictionary's menus
+for the applications whose shortcuts are documented; otherwise from the
+shortcuts every application shares.  The base keys apply; #:shortcuts (default
+on) offers the shortcut menus at all, and #:shortcut-tool names the program
+that types a chord (wtype on Wayland, xdotool on X11)."
   (apply module 'menu kv))
 
 (define* (language-module #:rest kv)

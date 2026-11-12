@@ -6,6 +6,43 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Added
+
+- **A dictionary of shortcut menus for the global menu.**
+  `src/util/menudict.c` holds the documented menus of nine applications --
+  Firefox, the Chromium family, VS Code and its forks, LibreOffice Writer,
+  GNOME's text editors, the file managers, a dozen terminal emulators,
+  Thunderbird and GIMP -- each entry a label, the chord it shows and the chord
+  it types.  An application that publishes no menubar now gets File, Edit and
+  the rest that are really its own, and one that is not in the table gets the
+  shared Edit and View instead of an invented File menu.
+- `tests/test_menudict.c`, plus four cases in `tests/test_menutree.c`: lookup by
+  id, by bare name, by `WM_CLASS` and by `.desktop` id, every table entry
+  complete, the de-duplication against the desktop entry's actions, the xdotool
+  chords, and the case where nothing can type.
+
+### Changed
+
+- **The star is a native GTK menu.** The default bar wears `(start-module)`
+  rather than a `custom-module` that called `rofi -show heks-system-menu`: one
+  glyph, and a popover with the launcher, the network panel, the notification
+  centre, a reload and Quit, with no program spawned to draw it.  The glyph is
+  drawn in the bar's icon font, so `#:label` is the glyph the configuration
+  names and not whatever the text face has at that code point.
+- The global menu asks D-Bus first, then the dictionary, then the shared
+  shortcuts -- and asks GTK's anonymous application for a menubar too, which is
+  where a non-unique application publishes one.
+- A shortcut entry shows its chord on the right, dim, the way a menu does.
+
+### Fixed
+
+- The start menu's tooltip covered its first entry; hover text is switched off
+  while the popover is up.
+- A File menu with nothing in it is not offered any more, and a separator is
+  emitted only between two groups -- never twice, never at the end.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

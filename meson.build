@@ -176,6 +176,7 @@ whelk_sources = files(
   'src/util/format.c',
   'src/util/fuzzy.c',
   'src/util/json.c',
+  'src/util/menudict.c',
   'src/util/menutree.c',
   'src/util/session.c',
   'src/util/desktop.c',
@@ -219,8 +220,12 @@ unit_tests = [
     'sources': ['src/util/filesearch.c'],
   },
   {
+    'id': 'menudict',
+    'sources': ['src/util/menudict.c'],
+  },
+  {
     'id': 'menutree',
-    'sources': ['src/util/menutree.c'],
+    'sources': ['src/util/menutree.c', 'src/util/menudict.c'],
   },
   {
     'id': 'session',
