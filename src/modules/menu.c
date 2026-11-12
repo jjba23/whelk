@@ -294,7 +294,8 @@ static void probe_menus(WhelkModule *module) {
   MenuData *data = module->data;
 
   g_autoptr(GError) error = NULL;
-  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+  g_autoptr(GDBusConnection) bus =
+      g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
 
   if (!bus || !data->bus_name || *data->bus_name == '\0')
     return;
@@ -353,30 +354,34 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
   const char *const *action_ids = NULL;
   const char *const *action_labels = NULL;
 
-  g_auto(GStrv) ids = NULL;
+  /* The action list belongs to the app info -- listing it hands out its own
+   * storage, not a copy -- so it is read and never freed: freeing it here left
+   * the app info to free what was already gone on its next unref.  The labels
+   * are ours, and are freed when this function returns. */
   g_auto(GStrv) labels = NULL;
 
   if (data->desktop) {
-    ids = (GStrv)g_desktop_app_info_list_actions(data->desktop);
+    action_ids = g_desktop_app_info_list_actions(data->desktop);
 
-    if (ids) {
-      const guint count = g_strv_length(ids);
+    if (action_ids) {
+      const guint count = g_strv_length((char **)action_ids);
 
       labels = g_new0(char *, count + 1);
 
       for (guint i = 0; i < count; i++) {
-        char *name = g_desktop_app_info_get_action_name(data->desktop, ids[i]);
+        char *name =
+            g_desktop_app_info_get_action_name(data->desktop, action_ids[i]);
 
-        labels[i] = g_strdup(name ? name : ids[i]);
+        labels[i] = g_strdup(name ? name : action_ids[i]);
         g_free(name);
       }
 
-      action_ids = (const char *const *)ids;
       action_labels = (const char *const *)labels;
     }
   }
 
-  const guint action_count = action_ids ? g_strv_length((char **)action_ids) : 0;
+  const guint action_count =
+      action_ids ? g_strv_length((char **)action_ids) : 0;
 
   const WhelkSession session = whelk_session_detect();
   g_autofree char *close_command = whelk_session_close_window_command(session);
