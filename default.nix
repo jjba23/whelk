@@ -29,7 +29,17 @@ stdenv.mkDerivation (finalAttrs: {
   strictDeps = true;
   __structuredAttrs = true;
 
-  src = ./.;
+  # `build/' is not source: a tree that has been built here would otherwise be
+  # unpacked into the sandbox and Meson would find a configured directory from
+  # another Meson version inside it.
+  src = lib.cleanSourceWith {
+    src = ./.;
+    filter = path: type:
+      let base = baseNameOf (toString path);
+      in !(builtins.elem base [ "build" "build-asan" "build-release" "result"
+                                ".direnv" ])
+         && lib.cleanSourceFilter path type;
+  };
 
   nativeBuildInputs = [
     meson
@@ -37,6 +47,9 @@ stdenv.mkDerivation (finalAttrs: {
     pkg-config
     glib
     wrapGAppsHook4
+    # The theme tests are a Guile script, and Meson only registers them when it
+    # finds `guile' at configure time.
+    guile
   ];
 
   buildInputs = [

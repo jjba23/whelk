@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.3.0
+Version:        0.3.1
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -70,6 +70,9 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.3.1
+- The Nix expression runs the Guile theme test too, and ignores build dirs.
+
 * Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.3.0
 - A session layer: niri, sway and X11 focus, menus and closing, and graceful
   degradation where layer-shell is missing.

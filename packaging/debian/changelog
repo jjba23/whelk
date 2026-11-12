@@ -1,3 +1,10 @@
+whelk (0.3.1-1) unstable; urgency=medium
+
+  * The Nix expression runs the Guile theme test too, and refuses to package a
+    tree that already carries a build directory.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 21:00:00 +0100
+
 whelk (0.3.0-1) unstable; urgency=medium
 
   * A session layer: niri, sway and X11 each answer "what is in front" and

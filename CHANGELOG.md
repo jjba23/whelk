@@ -6,6 +6,17 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.1] - 2026-11-12
+
+### Fixed
+
+- The Nix expression lists `guile` in `nativeBuildInputs`, so Meson finds it at
+  configure time and registers the Guile theme test: the Nix build runs all ten
+  suites rather than nine.
+- Its source tree filters `build/`, `result*` and `.direnv`, so packaging a tree
+  that has already been built does not unpack a `build/` directory configured by
+  another Meson version.
+
 ## [0.3.0] - 2026-11-12
 
 ### Added
