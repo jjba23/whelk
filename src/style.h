@@ -49,4 +49,15 @@ GtkCssProvider *whelk_style_apply(const char *widget_id,
 /* Removes and frees a provider installed by whelk_style_apply(). */
 void whelk_style_detach(GtkCssProvider *provider, GdkDisplay *display);
 
+/**
+ * whelk_style_popover:
+ * @popover: a popover opened from a bar or one of its modules.
+ * @config: the bar whose palette the popover wears.
+ *
+ * A menu that drops out of the bar is part of the bar, so it wears the bar's
+ * material rather than whatever the desktop theme calls a popover.  It also
+ * loses the little arrow: a menubar's menus do not point at anything.
+ */
+void whelk_style_popover(GtkPopover *popover, const WhelkBarConfig *config);
+
 #endif // WHELK_STYLE_H

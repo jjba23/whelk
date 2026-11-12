@@ -37,10 +37,14 @@ WhelkModule *whelk_language_module_new(const WhelkModuleSpec *spec,
                                        const WhelkBarConfig *bar);
 WhelkModule *whelk_memory_module_new(const WhelkModuleSpec *spec,
                                      const WhelkBarConfig *bar);
+WhelkModule *whelk_menu_module_new(const WhelkModuleSpec *spec,
+                                   const WhelkBarConfig *bar);
 WhelkModule *whelk_notifications_module_new(const WhelkModuleSpec *spec,
                                             const WhelkBarConfig *bar);
 WhelkModule *whelk_power_profile_module_new(const WhelkModuleSpec *spec,
                                             const WhelkBarConfig *bar);
+WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
+                                    const WhelkBarConfig *bar);
 WhelkModule *whelk_tray_module_new(const WhelkModuleSpec *spec,
                                    const WhelkBarConfig *bar);
 WhelkModule *whelk_wifi_module_new(const WhelkModuleSpec *spec,

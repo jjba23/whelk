@@ -60,7 +60,9 @@
             wifi-module
             bluetooth-module
             notifications-module
-            tray-module))
+            tray-module
+            start-module
+            menu-module))
 
 ;; =============================================================================
 ;; The record
@@ -175,6 +177,20 @@ have no window; #:format is the label ({index} or {name})."
   "The focused window's title.  #:format uses {title} and {app-id};
 #:max-length truncates the title (0 = no limit)."
   (apply module 'window kv))
+
+(define* (start-module #:rest kv)
+  "The shell's own menu: the launcher, the panels, the settings and quitting,
+behind one glyph.  #:label is the glyph (a snail shell by default); #:tooltip
+hover text."
+  (apply module 'start kv))
+
+(define* (menu-module #:rest kv)
+  "The global menu: the focused application's File/Edit/View menus, read from
+its D-Bus menubar when it exports one and synthesized from its desktop actions
+and the shortcuts every application shares when it does not.  The base keys
+apply; #:shortcuts (default on) offers the synthesized Edit and View, and
+#:shortcut-tool names the program that types a chord (wtype)."
+  (apply module 'menu kv))
 
 (define* (language-module #:rest kv)
   "The active keyboard layout.  #:codes is the comma-separated XKB code list

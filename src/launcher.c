@@ -13,6 +13,7 @@
 #include "surface.h"
 #include "util/calc.h"
 #include "util/command.h"
+#include "util/filesearch.h"
 #include "util/format.h"
 #include "util/fuzzy.h"
 #include "util/json.h"
@@ -30,6 +31,11 @@
 #define WHELK_LAUNCHER_RESULT_LIMIT 40
 #define WHELK_LAUNCHER_DEBOUNCE_MS 120
 #define WHELK_LAUNCHER_FILE_DEBOUNCE_MS 260
+
+/* Walking the home directory takes about a second; ranking a walk does not.
+ * Each query is served from the last walk until it gets this old, so typing a
+ * name costs one walk instead of one per keystroke. */
+#define WHELK_LAUNCHER_WALK_MAX_AGE_US (30 * G_TIME_SPAN_SECOND)
 
 #define WHELK_WEB_SEARCH_DEFAULT "https://duckduckgo.com/?q="
 
@@ -85,6 +91,8 @@ struct _WhelkLauncher {
   gboolean commands_loaded;
   guint windows_generation;
   guint files_generation;
+  char *files_walk; /* the last home-directory walk, before ranking */
+  gint64 files_walk_at;
   guint query_timeout;
 };
 
@@ -401,48 +409,57 @@ static void add_result(WhelkLauncher *self, LauncherItem *item) {
  * FILES
  * ========================================================================= */
 
-static void on_files(WhelkLauncher *self, guint generation, const char *text) {
+static void on_files(WhelkLauncher *self, guint generation, const char *query,
+                     const char *text) {
   if (generation != self->files_generation)
     return; /* a newer query has already replaced this one */
 
   g_ptr_array_set_size(self->files, 0);
 
-  if (!text || *text == '\0')
+  if (!query || *query == '\0' || !text)
     return;
 
-  g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
+  /* The walk hands back every path it met; the ranking decides which ones the
+   * query actually meant. */
+  g_autoptr(GPtrArray) paths = whelk_file_search_rank(
+      query, text, WHELK_LAUNCHER_RESULT_LIMIT);
 
-  for (guint i = 0; lines[i]; i++) {
-    if (*lines[i] == '\0')
-      continue;
+  for (guint i = 0; i < paths->len; i++) {
+    const char *path = g_ptr_array_index(paths, i);
+    const char *base = strrchr(path, '/');
+    const gboolean is_directory = g_file_test(path, G_FILE_TEST_IS_DIR);
+    g_autofree char *name = g_strdup_printf(
+        "%s%s", base ? base + 1 : path, is_directory ? "/" : "");
 
-    const char *base = strrchr(lines[i], '/');
+    LauncherItem *item = item_new(ITEM_FILE, name, path);
 
-    LauncherItem *item = item_new(ITEM_FILE, base ? base + 1 : lines[i],
-                                  lines[i]);
-
-    item->action = g_strdup(lines[i]);
+    item->action = g_strdup(path);
     g_ptr_array_add(self->files, item);
-
-    if (self->files->len >= WHELK_LAUNCHER_RESULT_LIMIT)
-      break;
   }
 }
 
 typedef struct {
   WhelkLauncher *self;
   guint generation;
+  char *query;
 } FileRequest;
 
 static void on_files_command(const char *text, gpointer user_data) {
   FileRequest *request = user_data;
 
-  on_files(request->self, request->generation, text);
+  on_files(request->self, request->generation, request->query, text);
+
+  if (text) {
+    g_free(request->self->files_walk);
+    request->self->files_walk = g_strdup(text);
+    request->self->files_walk_at = g_get_monotonic_time();
+  }
 
   if (g_strcmp0(request->self->mode, "file") == 0 &&
       request->generation == request->self->files_generation)
     refresh_results(request->self);
 
+  g_free(request->query);
   g_free(request);
 }
 
@@ -456,17 +473,26 @@ static void search_files(WhelkLauncher *self, const char *query) {
   if (!query || *query == '\0')
     return;
 
-  g_autofree char *pattern = g_strdup_printf("*%s*", query);
-  g_autofree char *quoted = g_shell_quote(pattern);
-  g_autofree char *command = g_strdup_printf(
-      "find \"$HOME\" -maxdepth 6 -type f -iname %s -print 2>/dev/null | "
-      "head -n %d",
-      quoted, WHELK_LAUNCHER_RESULT_LIMIT);
+  if (self->files_walk &&
+      g_get_monotonic_time() - self->files_walk_at <
+          WHELK_LAUNCHER_WALK_MAX_AGE_US) {
+    /* Ranking a walk we already have: the caller refreshes the list from
+     * self->files when this returns. */
+    on_files(self, generation, query, self->files_walk);
+    return;
+  }
+
+  /* Every file and directory under the home, minus the trees nobody means to
+   * search.  The query is not part of the walk: it is ranked afterwards, so a
+   * file buried deep is still found, and find order never decides the order of
+   * the results. */
+  g_autofree char *command = whelk_file_search_command(g_get_home_dir(), 6);
 
   FileRequest *request = g_new0(FileRequest, 1);
 
   request->self = self;
   request->generation = generation;
+  request->query = g_strdup(query);
 
   whelk_command_run(command, on_files_command, request);
 }
@@ -682,7 +708,11 @@ static void refresh_results(WhelkLauncher *self) {
     if (query && *query && wants_files(self, query))
       search_files(self, query);
 
-    rank_into(self, self->files, query ? query : "");
+    /* The file search has already ranked what it found, by the whole path and
+     * the name; ranking the basenames again here would undo that and drop the
+     * files that matched further up their path. */
+    for (guint i = 0; i < self->files->len; i++)
+      add_result(self, g_ptr_array_index(self->files, i));
   } else if (g_strcmp0(mode, "menu") == 0) {
     rank_into(self, self->menu, query ? query : "");
   } else {
@@ -1093,6 +1123,7 @@ static void whelk_launcher_dispose(GObject *object) {
   g_free(self->mode);
   g_free(self->menu_command);
   g_free(self->last_file_query);
+  g_free(self->files_walk);
 
   G_OBJECT_CLASS(whelk_launcher_parent_class)->dispose(object);
 }

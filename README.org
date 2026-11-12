@@ -20,7 +20,7 @@ a launcher that replaces rofi.
 |----------------------------+------------------------------------------------------------------|
 | Build system, Guile engine | working: Meson, =scm_boot_guile=, Scheme-primitive registration   |
 | Configuration DSL          | working: bars, modules, hot reload, optional REPL                 |
-| Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray |
+| Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu |
 | Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |
 | Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
 | Launcher                   | working: applications, windows, commands, calculator, files, web, menus |
@@ -150,7 +150,7 @@ A configuration is one call:
 | =#:name=          | the bar's name; also its CSS id and its log label                      |
 | =#:position=      | ='top=, ='bottom=, ='left=, ='right= (strings accepted too)               |
 | =#:monitor=       | ="all"= (one bar per output), ="default"=, or a connector such as ="DP-1"= |
-| =#:height=        | thickness: the row's height, or a vertical bar's width                  |
+| =#:height=        | thickness: the row's height, or a vertical bar's width; a vertical bar widens to its widest module and reserves that width |
 | =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
 | =#:exclusive?=    | reserve the thickness so maximised windows stop at the bar              |
 | =#:spacing=       | pixels between modules                                                  |
@@ -200,9 +200,84 @@ of the binary.
 | =bluetooth-module=    | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}=                |
 | =notifications-module=| the notification store's count                   | ={count}=, ={state}= (left click: centre, right: DND)    |
 | =tray-module=         | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:hide= (fragments to leave out)            |
+| =start-module=        | the shell's own menu                             | =#:label= (the glyph), =#:tooltip=                        |
+| =menu-module=         | the focused application's menubar                | =#:shortcuts?=, =#:shortcut-tool=                         |
 
 A worked example of the whole set is in =settings/settings.scm=, which also has
 a commented-out workspace switcher for the centre of the bar.
+
+** Bar themes
+
+A bar can wear a palette instead of spelling out four colours.  The names are
+materials and years, not products: the look is the point, and nobody's mark is.
+
+#+begin_src scheme
+(bar #:name 'main #:theme 'tinted-2024 #:height 30
+     #:left (list (start-module) (menu-module)))
+#+end_src
+
+| Theme            | What it is                                                |
+|------------------+-----------------------------------------------------------|
+| =glass-2001=     | pale pinstriped plastic, a hairline along the bottom      |
+| =metal-2003=     | brushed alloy, square corners                             |
+| =gloss-2007=     | black glass with a highlight across the top               |
+| =flat-2014=      | one flat sheet and one hairline                           |
+| =dark-2020=      | dark, rounded, no material                                |
+| =tinted-2024=    | pale tinted glass, generous corners, a soft shadow        |
+| =frost=          | cool blue-grey                                            |
+| =ember=          | warm dark, amber accent                                   |
+| =mocha=          | soft pastel dark                                          |
+| =midnight=       | deep blue night                                           |
+| =sandstone=      | paper light                                               |
+| =void=           | black, white ink, no accent                               |
+
+A theme sets the background, the ink, the accent, the hairline colour, the
+corner radius and the few rules a palette cannot express (a gradient, an inset
+highlight).  Any colour the bar sets itself wins over the theme's, =(themes)=
+lists what the build has, and a name the build does not know leaves the bar's
+own colours alone with one warning.
+
+** The shell menu and the global menu
+
+=start-module= is the first thing on a macOS-shaped bar: one glyph, and behind
+it the launcher, the network panel, the notification centre, a reload and the
+way out.  Nothing in it is hard-wired to a command -- a settings file can set
+=#:label= to any glyph its icon font has.
+
+=menu-module= puts the application in front's own menus next to it.  Two
+producers, in that order:
+
+- an application that exports its menubar over D-Bus is read,
+  =org.gtk.Menus=, which is what GTK's =gtk_application_set_menubar()= publishes.
+  Its labels and its actions are the application's own.
+- everything else gets a menubar the shell synthesizes: the actions its desktop
+  entry declares, closing its window through the compositor, and -- when
+  =wtype= is installed -- Edit and View built from the shortcuts every
+  application shares, typed into the focused window.
+
+The second is not a placeholder.  A Wayland shell learns a GTK application's
+menu paths from the compositor's =gtk-shell= protocol, which niri does not
+implement, so on niri most applications will get the synthesized menus; orbit's
+global menu ends up in the same place on GNOME, with a curated corpus instead of
+a shortcut table.  Nothing is invented: an entry appears only if something can
+carry it out.
+
+#+begin_src scheme
+(bar #:name 'main #:theme 'tinted-2024 #:height 30
+     #:left   (list (start-module) (menu-module))
+     #:center (list (window-module #:format "{title}"))
+     #:right  (list (wifi-module #:format "{icon}")
+                    (battery-module #:format "{capacity}%")
+                    (clock-module)))
+#+end_src
+
+*** What it does not do yet
+
+A menu that changes while it is open is only re-read when the focus moves, a
+window action (=win.*=) is sent to the application's first window object, and
+the D-Bus menubar is probed at the two conventional object paths under the
+application id rather than discovered.  The panels, the toasts and the menus
+open on the compositor's first monitor; a bar's =#:monitor= is its own.
 
 /*/ Hot reload and the REPL
 
@@ -290,7 +365,7 @@ entry, =Enter= opens it, =Esc= closes, the arrows move the selection.
 | =window=   | niri's open windows                               | =@=      |
 | =run=      | a command, plus completions from =$PATH=           | =>=      |
 | =calc=     | arithmetic; =Enter= copies the result              | ===      |
-| =file=     | files under =$HOME=                                | =/=      |
+| =file=     | files and folders under =$HOME=, caches skipped    | =/=      |
 | =web=      | the default browser (=WHELK_WEB_SEARCH= overrides)  | =?=      |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu= |
 
@@ -459,8 +534,15 @@ the same commands.
   ignored (an =image-path= is used), and sounds are not played.
 - The panels and the launcher wear the palette read at startup; a colour edited
   later reaches the bars on reload, the panels on the next start.
-- The launcher's file mode is =find= under =$HOME=, six levels deep and
-  capped -- a name filter, not a search index.
+- The launcher's file mode walks =$HOME= six levels deep for each new query,
+  skipping caches, repositories and package trees (=\.cache=, =\.git=,
+  =node_modules=, ...), and reuses that walk for thirty seconds so typing does
+  not cost one walk per key.  Matches are ranked in C -- the name first, then
+  the shallower path, files before folders of the same name -- rather than in
+  the order =find= printed them.  The query is a plain substring, not a glob.
+- Bars follow =#:monitor=.  The panels, the toasts and the launcher open on the
+  first monitor the compositor reports; nothing ties them to the focused output
+  yet.
 - Wi-Fi and Bluetooth are read with =nmcli= and =bluetoothctl=; without them the
   modules say "off" and the panel lists nothing, rather than pretending.
 - Connecting to a *new* secured network changes the system's network settings,

@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.1.0
+Version:        0.2.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -70,6 +70,10 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
-* Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.1.0
+* Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.2.0
+- A macOS-shaped bar: the shell's own menu and a D-Bus global menu
+- Brand-free bar themes
+- The launcher searches all of $HOME, pruned and ranked
+- Vertical bars reserve the width they paint
 - Initial release: bars on any edge, the launcher, the notification daemon
   with its centre and toasts, and the Wi-Fi and Bluetooth panel

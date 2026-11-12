@@ -95,7 +95,12 @@ WhelkSurface *whelk_surface_new(GtkApplication *app, const char *name) {
 
   gtk_widget_add_css_class(GTK_WIDGET(self->window), "whelk-surface");
   gtk_window_set_decorated(self->window, FALSE);
-  gtk_window_set_resizable(self->window, FALSE);
+  /* A layer surface is sized by the compositor: an exclusive zone from another
+   * bar, a scale change or a margin all shrink or grow it without our asking.
+   * A non-resizable window ignores those configure events and keeps laying out
+   * at its first size, which is how a vertical bar's last group ends up below
+   * the surface's bottom edge, painted nowhere. */
+  gtk_window_set_resizable(self->window, TRUE);
   gtk_window_set_title(self->window, self->name);
 
   return self;

@@ -188,6 +188,24 @@ static void build_layout(WhelkBar *bar) {
                               horizontal ? bar->config->height : -1);
 }
 
+/* The thickness a bar really needs.
+ *
+ * A module is laid out flat whatever the bar's orientation, so a vertical bar
+ * with a clock in it is wider than the configured height: the height is the
+ * floor, the widest module is the truth.  The exclusive zone has to be that
+ * same number, or the compositor reserves less than the bar covers and tiled
+ * windows slide under it. */
+static int bar_thickness(WhelkBar *bar) {
+  const GtkOrientation orientation = whelk_surface_is_horizontal(bar->surface)
+                                         ? GTK_ORIENTATION_VERTICAL
+                                         : GTK_ORIENTATION_HORIZONTAL;
+  int minimum = 0;
+
+  gtk_widget_measure(bar->root, orientation, -1, &minimum, NULL, NULL, NULL);
+
+  return MAX(bar->config->height, minimum);
+}
+
 static void whelk_bar_dispose(GObject *object) {
   WhelkBar *self = WHELK_BAR(object);
 
@@ -240,7 +258,6 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
     g_object_ref(bar->display);
 
   whelk_surface_set_edge(bar->surface, bar->config->edge);
-  whelk_surface_set_thickness(bar->surface, bar->config->height);
   whelk_surface_set_margins(bar->surface, bar->config->margin_top,
                             bar->config->margin_right,
                             bar->config->margin_bottom,
@@ -264,6 +281,7 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
   add_modules(bar, bar->config->right, bar->end_box);
 
   whelk_surface_set_child(bar->surface, bar->root);
+  whelk_surface_set_thickness(bar->surface, bar_thickness(bar));
   whelk_surface_present(bar->surface);
 
   LOG_C_INFO("Bar", "'%s' on the %s edge: %u module(s)", bar->config->name,

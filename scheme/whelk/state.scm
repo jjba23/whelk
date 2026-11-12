@@ -23,6 +23,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (whelk logger)
   #:use-module (whelk modules)
+  #:use-module (whelk themes)
   #:export (<bar-config>
             bar-config?
             make-bar-config
@@ -167,11 +168,12 @@ in CSS order (top right bottom left)."
               (font #f)
               (font-size #f)
               (icon-font #f)
+              (theme #f)
               (foreground #f)
               (background #f)
               (accent #f)
               (border-color #f)
-              (radius 0)
+              (radius #f)
               (css #f)
               (left '())
               (center '())
@@ -190,7 +192,11 @@ bar rather than an overlay.  LEFT, CENTER and RIGHT are lists of modules from
 The four colours and the fonts are #f by default, which means \"use the
 structural stylesheet's colour\": a machine that sets nothing still gets a
 readable bar."
-  (let ((margins (normalize-margins margin)))
+  (let* ((margins (normalize-margins margin))
+         (palette (theme-palette theme))
+         ;; A theme is a starting point: whatever the bar sets itself wins.
+         (from-theme (lambda (key explicit)
+                       (if explicit explicit (assq-ref palette key)))))
     (when (and (not (list? left)) (not (list? center)) (not (list? right)))
       (log-warn "State" "Bar ~a: module lists should be lists" name))
     (make-bar-config name
@@ -209,12 +215,12 @@ readable bar."
                      font
                      font-size
                      icon-font
-                     foreground
-                     background
-                     accent
-                     border-color
-                     (as-int radius 0)
-                     css
+                     (from-theme 'foreground foreground)
+                     (from-theme 'background background)
+                     (from-theme 'accent accent)
+                     (from-theme 'border-color border-color)
+                     (as-int (from-theme 'radius radius) 0)
+                     (from-theme 'css css)
                      (if (list? left) left '())
                      (if (list? center) center '())
                      (if (list? right) right '()))))

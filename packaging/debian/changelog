@@ -1,3 +1,15 @@
+whelk (0.2.0-1) unstable; urgency=medium
+
+  * A macOS-shaped bar: the shell's own menu and a global menu that reads an
+    application's menubar over D-Bus and synthesizes one when it exports none.
+  * Bar themes: era-inspired and community palettes, brand-free names.
+  * The launcher searches every file and folder under $HOME, caches and
+    repositories skipped, ranked by name and path.
+  * A vertical bar keeps its last group on screen and reserves the width it
+    paints.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 19:10:00 +0100
+
 whelk (0.1.0-1) unstable; urgency=medium
 
   * Initial release: bars on any edge with status, media, system and tray

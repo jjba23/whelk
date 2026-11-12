@@ -22,7 +22,8 @@ G_BEGIN_DECLS
  *   window  the open windows niri knows about
  *   run     a command, or a program found on PATH
  *   calc    an arithmetic expression, copied to the clipboard
- *   file    a file under $HOME
+ *   file    any file or directory under $HOME, caches and repositories
+ *           skipped, the query ranked by name and by path
  *   web     the default browser, with the query
  *   menu    any program that prints "label<TAB>command" lines
  *

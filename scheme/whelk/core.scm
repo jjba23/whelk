@@ -24,6 +24,7 @@
   #:use-module (whelk logger)
   #:use-module (whelk modules)
   #:use-module (whelk state)
+  #:use-module (whelk themes)
   #:use-module (whelk loader)
   #:re-export (<shell-module>
                shell-module?
@@ -48,6 +49,8 @@
                bluetooth-module
                notifications-module
                tray-module
+               start-module
+               menu-module
                <bar-config>
                bar-config?
                make-bar-config
@@ -75,6 +78,9 @@
                bar-config-modules-center
                bar-config-modules-right
                bar
+               themes
+               theme-palette
+               theme-exists?
                configure-shell!
                get-shell-config
                get-shell-bars

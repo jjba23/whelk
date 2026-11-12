@@ -112,3 +112,63 @@ void whelk_style_detach(GtkCssProvider *provider, GdkDisplay *display) {
 
   g_object_unref(provider);
 }
+
+void whelk_style_popover(GtkPopover *popover, const WhelkBarConfig *config) {
+  if (!popover)
+    return;
+
+  gtk_popover_set_has_arrow(popover, FALSE);
+  gtk_widget_add_css_class(GTK_WIDGET(popover), "whelk-popover");
+
+  if (!config)
+    return;
+
+  const int radius = config->radius > 0 ? config->radius : 8;
+  GString *css = g_string_new("popover.whelk-popover > contents {\n");
+
+  if (config->background && *config->background)
+    g_string_append_printf(css, "  background-color: %s;\n",
+                           config->background);
+
+  if (config->foreground && *config->foreground)
+    g_string_append_printf(css, "  color: %s;\n", config->foreground);
+
+  if (config->border_color && *config->border_color)
+    g_string_append_printf(css, "  border: 1px solid %s;\n",
+                           config->border_color);
+
+  g_string_append_printf(css,
+                         "  border-radius: %dpx;\n"
+                         "  padding: 4px;\n"
+                         "}\n",
+                         radius);
+
+  if (config->foreground && *config->foreground) {
+    g_string_append_printf(
+        css,
+        "popover.whelk-popover button {\n"
+        "  color: %s;\n"
+        "  background: transparent;\n"
+        "  border: none;\n"
+        "  box-shadow: none;\n"
+        "}\n"
+        "popover.whelk-popover button:hover {\n"
+        "  background-color: alpha(%s, 0.14);\n"
+        "}\n",
+        config->foreground, config->foreground);
+  }
+
+  GtkCssProvider *provider = gtk_css_provider_new();
+
+  gtk_css_provider_load_from_string(provider, css->str);
+
+  GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(popover));
+
+  if (display)
+    gtk_style_context_add_provider_for_display(
+        display, GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+  g_object_unref(provider);
+  g_string_free(css, TRUE);
+}

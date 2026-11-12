@@ -295,3 +295,17 @@ window.whelk-surface {
 .whelk-notifications.dnd .whelk-label {
   opacity: 0.5;
 }
+
+/* --- menubar labels ------------------------------------------------------- */
+
+.whelk-menu-button,
+.whelk-start-button {
+  font-weight: 600;
+}
+
+.whelk-start-button,
+.whelk-start-button button {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}

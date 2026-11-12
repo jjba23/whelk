@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.1.0',
+  version: '0.2.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -141,8 +141,10 @@ whelk_sources = files(
   'src/modules/keyboard.c',
   'src/modules/language.c',
   'src/modules/memory.c',
+  'src/modules/menu.c',
   'src/modules/notifications.c',
   'src/modules/power_profile.c',
+  'src/modules/start.c',
   'src/modules/tray.c',
   'src/modules/wifi.c',
   'src/modules/window.c',
@@ -151,9 +153,11 @@ whelk_sources = files(
   'src/util/calc.c',
   'src/util/click.c',
   'src/util/command.c',
+  'src/util/filesearch.c',
   'src/util/format.c',
   'src/util/fuzzy.c',
   'src/util/json.c',
+  'src/util/menutree.c',
   'src/util/nmcli.c',
   'src/util/sysfs.c',
 )
@@ -190,6 +194,14 @@ unit_tests = [
     'sources': ['src/util/fuzzy.c', 'src/util/calc.c'],
   },
   {
+    'id': 'filesearch',
+    'sources': ['src/util/filesearch.c'],
+  },
+  {
+    'id': 'menutree',
+    'sources': ['src/util/menutree.c'],
+  },
+  {
     'id': 'applets',
     'sources': ['src/util/applets.c'],
   },
@@ -213,3 +225,20 @@ foreach t : unit_tests
   )
   test(t['id'] + '_unit_tests', exe, env: test_env)
 endforeach
+
+# The configuration engine is Scheme, and so is its share of the tests: a
+# settings file is read without a display or a running shell.
+guile = find_program('guile', required: false)
+
+if guile.found()
+  test(
+    'themes_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_themes.scm'),
+    ],
+    env: test_env,
+  )
+endif
