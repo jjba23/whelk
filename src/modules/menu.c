@@ -5,6 +5,7 @@
 
 #include "modules/modules.h"
 
+#include "util/desktop.h"
 #include "util/session.h"
 
 #include "style.h"
@@ -298,6 +299,13 @@ static void probe_menus(WhelkModule *module) {
   if (!bus || !data->bus_name || *data->bus_name == '\0')
     return;
 
+  /* An application id is not a bus name: sway reports alacritty's as
+   * "Alacritty", which has no dot and is not a valid D-Bus name, so asking the
+   * bus for it is a programming error that GLib answers with a critical.  Such
+   * an application gets the synthesized menu, and the bus is not troubled. */
+  if (!g_dbus_is_name(data->bus_name))
+    return;
+
   MenuProbe *probe = g_new0(MenuProbe, 1);
 
   probe->module = module;
@@ -314,19 +322,6 @@ static void probe_menus(WhelkModule *module) {
 
 /* --- the application in front --------------------------------------------- */
 
-static GDesktopAppInfo *desktop_for(const char *app_id) {
-  if (!app_id || *app_id == '\0')
-    return NULL;
-
-  g_autofree char *with_suffix = g_strdup_printf("%s.desktop", app_id);
-  GDesktopAppInfo *info = g_desktop_app_info_new(with_suffix);
-
-  if (info)
-    return info;
-
-  return g_desktop_app_info_new(app_id);
-}
-
 static void build_for_app(WhelkModule *module, const char *app_id) {
   MenuData *data = module->data;
 
@@ -336,7 +331,7 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
   data->app_id = g_strdup(app_id ? app_id : "");
 
   g_clear_object(&data->desktop);
-  data->desktop = desktop_for(data->app_id);
+  data->desktop = whelk_desktop_for_app_id(data->app_id);
 
   g_free(data->bus_name);
   data->bus_name = g_strdup(data->app_id);

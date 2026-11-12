@@ -169,6 +169,7 @@ whelk_sources = files(
   'src/util/json.c',
   'src/util/menutree.c',
   'src/util/session.c',
+  'src/util/desktop.c',
   'src/util/nmcli.c',
   'src/util/sysfs.c',
 )
@@ -215,6 +216,10 @@ unit_tests = [
   {
     'id': 'session',
     'sources': ['src/util/session.c', 'src/util/json.c'],
+  },
+  {
+    'id': 'desktop',
+    'sources': ['src/util/desktop.c'],
   },
   {
     'id': 'applets',
