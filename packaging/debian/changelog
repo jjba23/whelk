@@ -1,3 +1,11 @@
+whelk (0.3.2-1) unstable; urgency=medium
+
+  * Session detection asks the compositor when no variable names one, so a bar
+    started by a service unit or a login shell keeps its window and menu modules.
+  * The detected session, and what proved it, is logged once at startup.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 22:00:00 +0100
+
 whelk (0.3.1-1) unstable; urgency=medium
 
   * The Nix expression runs the Guile theme test too, and refuses to package a

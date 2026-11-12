@@ -69,11 +69,26 @@ places:
   session gets the same window presented as a real dock: =_NET_WM_WINDOW_TYPE_DOCK=,
   =_NET_WM_STRUT_PARTIAL= for the bar's edge, =_NET_WM_STATE= above/sticky/skip-taskbar,
   and =_NET_WM_DESKTOP= on every workspace.
-- *Knowing what is in front* comes from =NIRI_SOCKET= (niri's own IPC),
-  =SWAYSOCK= (sway's tree), or EWMH on X11.  Those three produce the same two
-  strings, so =window-module= and the global menu's File/Edit/View work on all
-  three.  GNOME's Wayland session deliberately offers no such channel
-  (=Shell.Eval= is gone), so there the module stays empty.
+- *Knowing what is in front* comes from niri's own IPC, sway's window tree, or
+  EWMH on X11.  Those three produce the same two strings, so =window-module= and
+  the global menu's File/Edit/View work on all three.  GNOME's Wayland session
+  deliberately offers no such channel (=Shell.Eval= is gone), so there the
+  module stays empty.
+
+  The compositor is *asked*, not inferred from the environment alone.
+  =NIRI_SOCKET= and =SWAYSOCK= are the first answer, and a fast one, but a bar
+  started by a service unit or from a login shell inherits neither -- and
+  =niri msg= works without it, because niri resolves its default socket by path.
+  So when no variable names a session, whelk runs =niri msg -j version= and then
+  =swaymsg -t get_version= (discovering sway's socket in =$XDG_RUNTIME_DIR= when
+  =SWAYSOCK= is missing) with a 400 ms timeout, and takes the first compositor
+  that answers.  Either way the answer is in the log:
+
+  #+begin_example
+  [INFO][whelk][C:Session] niri, from niri msg -j version answered
+  [INFO][whelk][C:Session] sway, from SWAYSOCK
+  [WARN][whelk][C:Session] no compositor answered (niri msg, swaymsg); the window and menu modules stay empty until one does
+  #+end_example
 - *Closing a window and typing a shortcut* follow the same split:
   =niri msg action close-window=, =swaymsg kill= or =wmctrl= on X11; =wtype= on
   Wayland, =xdotool= on X11.  A session with no tool for it gets no menu entry

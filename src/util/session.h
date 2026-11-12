@@ -20,6 +20,14 @@
  * the same information in `xprop'.  GNOME's Wayland session offers a shell
  * none of this (Shell.Eval is gone), so that session is named honestly and the
  * modules that need a compositor go quiet instead of printing errors.
+ *
+ * The environment is the first guess, never the verdict: NIRI_SOCKET and
+ * SWAYSOCK are set for the processes a compositor spawns, and absent for one
+ * started by a service unit, a login shell or another compositor's session.
+ * When they are missing, the compositor is asked instead -- `niri msg' finds
+ * its own default socket without the variable, and sway's socket is found in
+ * the runtime directory -- because a bar that goes blank because a variable was
+ * not exported is a bar that has forgotten what it can do.
  */
 
 typedef enum {
@@ -29,8 +37,37 @@ typedef enum {
   WHELK_SESSION_WAYLAND, /* a Wayland compositor with no shell-facing IPC */
 } WhelkSession;
 
-/* Detected once, from NIRI_SOCKET, SWAYSOCK and the session's own variables. */
+/* Detected once, by the environment and then by asking the compositor; logged
+ * either way, so a session that ends up unsupported says so. */
 WhelkSession whelk_session_detect(void);
+
+/* The environment's answer alone, without touching the compositor: NIRI_SOCKET,
+ * SWAYSOCK, XDG_SESSION_TYPE, DISPLAY.  WAYLAND means "the environment does not
+ * name one". */
+WhelkSession whelk_session_from_environment(void);
+
+/**
+ * whelk_session_from_probe:
+ * @answers: called with each probe command in turn; TRUE when it succeeded.
+ *
+ * The compositor's answer from a probe, for callers that supply their own
+ * transport (and for the tests).  WAYLAND when nothing answers.
+ */
+WhelkSession whelk_session_from_probe(gboolean (*answers)(const char *command));
+
+/* The command that proves a compositor is reachable, or NULL for sessions that
+ * have nothing to ask. */
+const char *whelk_session_probe_command(WhelkSession session);
+
+/**
+ * whelk_session_command_answers:
+ * @command: a shell command line.
+ * @timeout_ms: how long to wait before killing it.
+ *
+ * Runs @command and reports whether it exited zero.  Output is discarded: the
+ * exit status is the whole answer.
+ */
+gboolean whelk_session_command_answers(const char *command, guint timeout_ms);
 
 /* "niri", "sway", "x11" or "wayland". */
 const char *whelk_session_name(WhelkSession session);

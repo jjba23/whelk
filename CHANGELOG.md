@@ -6,6 +6,26 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.2] - 2026-11-12
+
+### Fixed
+
+- **Session detection no longer depends on an exported variable.** `NIRI_SOCKET`
+  and `SWAYSOCK` are inherited only by the processes a compositor spawned, and
+  `niri msg` works regardless because niri resolves its default socket by path —
+  so a bar started by a service unit, a login shell or a nested session went
+  blank where it used to work. Detection now probes the compositor
+  (`niri msg -j version`, then `swaymsg -t get_version`) with a 400 ms timeout
+  when no variable names a session, and takes the first one that answers.
+- sway's focused-window and close commands discover `$XDG_RUNTIME_DIR/sway-ipc.*.sock`
+  when `SWAYSOCK` is absent, so they work in those sessions too.
+
+### Added
+
+- The detected session is logged once, with its evidence: `niri, from
+  NIRI_SOCKET`, `niri, from niri msg -j version answered`, or a warning that no
+  compositor answered and the window and menu modules stay empty.
+
 ## [0.3.1] - 2026-11-12
 
 ### Fixed

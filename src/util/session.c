@@ -5,29 +5,175 @@
 
 #include "util/session.h"
 
+#include "logger.h"
 #include "util/json.h"
 
-#include <stdlib.h>
+#include <signal.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+/* sway's CLI takes the socket from the environment, and a sway started by a
+ * service unit exports SWAYSOCK only to the processes it spawned.  The socket
+ * itself sits in the runtime directory, newest first -- the same one swaymsg
+ * would have used. */
+#define SWAY_SOCKET_DISCOVERY                                                  \
+  "if [ -z \"$SWAYSOCK\" ]; then "                                             \
+  "SWAYSOCK=$(ls -t \"$XDG_RUNTIME_DIR\"/sway-ipc.*.sock 2>/dev/null | "        \
+  "head -1); [ -n \"$SWAYSOCK\" ] && export SWAYSOCK; fi; "
+
+typedef struct {
+  WhelkSession session;
+  const char *command;
+  const char *evidence;
+} SessionProbe;
+
+/* Cheap, side-effect free, and answerable without the environment: niri finds
+ * its own default socket by path, sway's is found by the prefix above. */
+static const SessionProbe probes[] = {
+    {WHELK_SESSION_NIRI, "niri msg -j version",
+     "niri msg -j version answered"},
+    {WHELK_SESSION_SWAY, SWAY_SOCKET_DISCOVERY "swaymsg -t get_version",
+     "swaymsg -t get_version answered"},
+};
+
+gboolean whelk_session_command_answers(const char *command, guint timeout_ms) {
+  if (!command || *command == '\0')
+    return FALSE;
+
+  char *argv[] = {(char *)"/bin/sh", (char *)"-c", (char *)command, NULL};
+  GPid pid = 0;
+  g_autoptr(GError) error = NULL;
+
+  /* Nothing is read from the probe: its exit status is the answer, and a
+   * compositor that hangs must not hang the bar. */
+  if (!g_spawn_async(NULL, argv, NULL,
+                     G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH |
+                         G_SPAWN_STDOUT_TO_DEV_NULL |
+                         G_SPAWN_STDERR_TO_DEV_NULL,
+                     NULL, NULL, &pid, &error))
+    return FALSE;
+
+  const gint64 deadline = g_get_monotonic_time() + (gint64)timeout_ms * 1000;
+  gboolean answered = FALSE;
+
+  for (;;) {
+    int status = 0;
+    const pid_t waited = waitpid(pid, &status, WNOHANG);
+
+    if (waited == pid) {
+      answered = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+      break;
+    }
+
+    if (waited < 0)
+      break;
+
+    if (g_get_monotonic_time() >= deadline) {
+      kill(pid, SIGKILL);
+      waitpid(pid, &status, 0);
+      break;
+    }
+
+    g_usleep(10 * 1000);
+  }
+
+  g_spawn_close_pid(pid);
+
+  return answered;
+}
+
+static WhelkSession from_environment(const char **evidence) {
+  const char *niri = g_getenv("NIRI_SOCKET");
+  const char *sway = g_getenv("SWAYSOCK");
+  const char *display = g_getenv("DISPLAY");
+  const char *wayland = g_getenv("WAYLAND_DISPLAY");
+  const char *type = g_getenv("XDG_SESSION_TYPE");
+
+  if (niri && *niri) {
+    if (evidence)
+      *evidence = "NIRI_SOCKET";
+
+    return WHELK_SESSION_NIRI;
+  }
+
+  if (sway && *sway) {
+    if (evidence)
+      *evidence = "SWAYSOCK";
+
+    return WHELK_SESSION_SWAY;
+  }
+
+  if (type && g_ascii_strcasecmp(type, "x11") == 0) {
+    if (evidence)
+      *evidence = "XDG_SESSION_TYPE=x11";
+
+    return WHELK_SESSION_X11;
+  }
+
+  if ((!wayland || !*wayland) && display && *display) {
+    if (evidence)
+      *evidence = "DISPLAY without WAYLAND_DISPLAY";
+
+    return WHELK_SESSION_X11;
+  }
+
+  return WHELK_SESSION_WAYLAND;
+}
+
+WhelkSession whelk_session_from_environment(void) {
+  return from_environment(NULL);
+}
+
+const char *whelk_session_probe_command(WhelkSession session) {
+  for (guint i = 0; i < G_N_ELEMENTS(probes); i++)
+    if (probes[i].session == session)
+      return probes[i].command;
+
+  return NULL;
+}
+
+WhelkSession whelk_session_from_probe(gboolean (*answers)(const char *command)) {
+  if (!answers)
+    return WHELK_SESSION_WAYLAND;
+
+  for (guint i = 0; i < G_N_ELEMENTS(probes); i++)
+    if (answers(probes[i].command))
+      return probes[i].session;
+
+  return WHELK_SESSION_WAYLAND;
+}
 
 WhelkSession whelk_session_detect(void) {
   static gsize detected = 0;
   static WhelkSession session = WHELK_SESSION_WAYLAND;
 
   if (g_once_init_enter(&detected)) {
-    const char *niri = g_getenv("NIRI_SOCKET");
-    const char *sway = g_getenv("SWAYSOCK");
-    const char *display = g_getenv("DISPLAY");
-    const char *wayland = g_getenv("WAYLAND_DISPLAY");
-    const char *type = g_getenv("XDG_SESSION_TYPE");
+    const char *evidence = NULL;
+    WhelkSession found = from_environment(&evidence);
 
-    if (niri && *niri)
-      session = WHELK_SESSION_NIRI;
-    else if (sway && *sway)
-      session = WHELK_SESSION_SWAY;
-    else if ((type && g_ascii_strcasecmp(type, "x11") == 0) ||
-             ((!wayland || !*wayland) && display && *display))
-      session = WHELK_SESSION_X11;
+    /* No variable: ask the compositor itself.  A bar started by a service unit
+     * or from a login shell inherits none of them, and neither niri nor sway
+     * needs one to answer -- their CLIs resolve the socket by path. */
+    if (!evidence) {
+      for (guint i = 0; i < G_N_ELEMENTS(probes); i++) {
+        if (whelk_session_command_answers(probes[i].command, 400)) {
+          found = probes[i].session;
+          evidence = probes[i].evidence;
+          break;
+        }
+      }
+    }
+
+    session = found;
+
+    if (evidence)
+      LOG_C_INFO("Session", "%s, from %s", whelk_session_name(session),
+                 evidence);
+    else
+      LOG_C_WARN("Session",
+                 "no compositor answered (niri msg, swaymsg); the window and "
+                 "menu modules stay empty until one does");
 
     g_once_init_leave(&detected, 1);
   }
@@ -55,7 +201,7 @@ char *whelk_session_focused_window_command(WhelkSession session) {
   case WHELK_SESSION_NIRI:
     return g_strdup("niri msg -j focused-window");
   case WHELK_SESSION_SWAY:
-    return g_strdup("swaymsg -t get_tree");
+    return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg -t get_tree");
   case WHELK_SESSION_X11:
     /* EWMH: the active window's id, then that window's name and class. */
     return g_strdup(
@@ -74,7 +220,7 @@ char *whelk_session_close_window_command(WhelkSession session) {
   case WHELK_SESSION_NIRI:
     return g_strdup("niri msg action close-window");
   case WHELK_SESSION_SWAY:
-    return g_strdup("swaymsg kill");
+    return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg kill");
   case WHELK_SESSION_X11:
     /* Whichever of the two EWMH clients the desktop happens to ship. */
     return g_strdup("wmctrl -c :ACTIVE: 2>/dev/null || "
