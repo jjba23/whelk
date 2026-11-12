@@ -619,13 +619,14 @@ producers, in that order:
   application, which is where a program that runs more than one instance
   publishes.
 - *The dictionary.*  Most applications publish nothing, so their menus are
-  written from their documented shortcuts: nine applications -- Firefox, the
-  Chromium family, VS Code and its forks, LibreOffice Writer, GNOME's text
-  editors, the file managers, a dozen terminal emulators, Thunderbird and GIMP
-  -- each with the menus it really has.  Every entry shows its chord on the
-  right and types it into the focused window when it is chosen (=wtype= on
-  Wayland, =xdotool= on X11).  An application the dictionary does not know is
-  not given a File menu it might not have.
+  written from their documented shortcuts: forty applications answering to a
+  hundred and twenty ids -- the browsers, terminals, editors, file managers,
+  office suites, mail clients, graphics tools, media players, PDF readers, chat
+  clients and developer tools a desktop actually has -- each with the menus it
+  really has.  Every entry shows its chord on the right and types it into the
+  focused window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
+  application the dictionary does not know is not given a File menu it might
+  not have.
 - *The shared Edit and View.*  For everything else, the shortcuts every
   application shares, in the same shape and with the same chords on the right.
 
@@ -640,8 +641,10 @@ The dictionary is not a placeholder.  A Wayland shell learns a GTK
 application's menu paths from the compositor's =gtk-shell= protocol, which niri
 does not implement, so on niri most applications will be served by it; orbit's
 global menu ends up in the same place on GNOME, with a curated corpus in place
-of a shortcut table.  Adding an application to whelk's is one entry in
-=src/util/menudict.c= -- its ids, then its menus -- and nothing else.
+of a shortcut table.  The dictionary is Scheme, in =scheme/whelk/menudict.scm=:
+adding an application is one form -- its name, the ids it answers to, then its
+menus -- and nothing else.  The shell reads the table once at startup, so a
+settings change does not need a rebuild, let alone a C table.
 
 #+begin_src scheme
   (bar #:name 'main #:theme 'tinted-2024 #:height 30
@@ -660,7 +663,7 @@ of a shortcut table.  Adding an application to whelk's is one entry in
 A menu that changes while it is open is only re-read when the focus moves, a
 window action (=win.*=) is sent to the application's first window object, and
 the D-Bus menubar is probed at the conventional object paths rather than
-discovered.  The dictionary covers nine applications and their documented
+discovered.  The dictionary covers forty applications and their documented
 shortcuts: it is a curated list, not a guess, and an application that is not in
 it gets the shared Edit and View.  The panels, the toasts and the menus
 open on the compositor's first monitor; a bar's =#:monitor= is its own.

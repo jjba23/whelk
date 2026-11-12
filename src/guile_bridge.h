@@ -7,6 +7,7 @@
 #define WHELK_GUILE_BRIDGE_H
 
 #include "config.h"
+#include "util/menudict.h"
 
 #include <glib.h>
 
@@ -22,6 +23,17 @@
  * plain structs and strings, both owned by the caller, so a bar's description
  * cannot be invalidated by a garbage collection or by the next reload.
  */
+
+/**
+ * whelk_bridge_start_guile:
+ * Brings the interpreter up for a process that is not the shell.
+ *
+ * The shell hands Guile the whole process through `scm_boot_guile'; a test
+ * harness is a plain C program that wants to read the Scheme modules, so it
+ * asks for the interpreter here instead.  Idempotent, and never needed by
+ * main.c.
+ */
+void whelk_bridge_start_guile(void);
 
 /**
  * whelk_bridge_setup_load_path:
@@ -64,5 +76,18 @@ void whelk_bridge_start_repl(const char *path);
  * or an empty array when the Scheme side has none.
  */
 GPtrArray *whelk_bridge_bars(const char *path);
+
+/**
+ * whelk_bridge_menudict:
+ *
+ * The global menu's dictionary, from `(whelk menudict)': the menus written for
+ * the applications that publish none.  A module that cannot be loaded is a
+ * warning and an empty table, never an abort -- the shell then offers the
+ * shared Edit and View and says so in the log.
+ *
+ * Returns: (transfer full) (element-type WhelkDictApp): the table, ready for
+ *   whelk_menudict_load().
+ */
+GPtrArray *whelk_bridge_menudict(void);
 
 #endif // WHELK_GUILE_BRIDGE_H

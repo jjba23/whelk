@@ -17,14 +17,11 @@
  * second source: menus written from each application's documented keyboard
  * shortcuts, typed into the focused window when an entry is chosen.
  *
- * The table below is that source.  It is data, not logic: an application is a
- * list of identifiers it answers to, and a list of menus whose items name a
- * label, the chord on its right, and the chord to type.  Adding an application
- * is one entry; there is nothing else to change.
- *
- * Nothing here is a guess about what an application's own menu says.  Every
- * chord is the one its documentation gives, and an application with no entry
- * gets the generic Edit and View instead of an invented File menu.
+ * The dictionary itself is Scheme, in `(whelk menudict)': it is configuration
+ * data, and the configuration language of this shell is Scheme.  This file is
+ * the runtime half -- it holds the table the bridge loaded at startup, and
+ * answers which application a compositor's app id belongs to.  Nothing here
+ * knows an application; adding one is one form in the Scheme module.
  */
 
 /* One entry: what the menu says, what it shows on the right, and what it types. */
@@ -37,18 +34,42 @@ typedef struct {
 
 typedef struct {
   const char *label;
-  const WhelkDictItem *items;
+  WhelkDictItem *items;
   guint n_items;
 } WhelkDictMenu;
 
 typedef struct {
   const char *name; /* for the log: "Firefox" */
   /* App ids, desktop ids, or the names compositors report; matched with or
-   * without their dotted prefix, and case-insensitively. */
-  const char *const *ids;
-  const WhelkDictMenu *menus;
+   * without their dotted prefix, and case-insensitively.  NULL-terminated. */
+  char **ids;
+  WhelkDictMenu *menus;
   guint n_menus;
 } WhelkDictApp;
+
+/* Builders, for the Guile bridge and for tests.  The table owns every string
+ * and array it is given: hand over copies, and never free them again. */
+WhelkDictApp *whelk_dict_app_new(const char *name, char **ids,
+                                 WhelkDictMenu *menus, guint n_menus);
+WhelkDictMenu *whelk_dict_menus_new(guint n_menus);
+WhelkDictItem *whelk_dict_items_new(guint n_items);
+
+/**
+ * whelk_menudict_table_new:
+ *
+ * Returns: (transfer full) (element-type WhelkDictApp): an empty table with the
+ *   right free function, ready for the bridge to fill.
+ */
+GPtrArray *whelk_menudict_table_new(void);
+
+/**
+ * whelk_menudict_load:
+ * @table: (transfer full) (nullable): the dictionary, or NULL to clear it.
+ *
+ * Replaces the dictionary with @table, taking ownership.  Called once, at
+ * startup, with what the Scheme module described.
+ */
+void whelk_menudict_load(GPtrArray *table);
 
 /**
  * whelk_menudict_for_app:
@@ -71,7 +92,7 @@ guint whelk_menudict_size(void);
  * @index: 0 to whelk_menudict_size() - 1.
  *
  * The table in order.  The shell itself looks applications up by id; this is
- * how the suite checks that every entry is complete.
+ * how the suite walks every entry.
  *
  * Returns: (transfer none) (nullable): the application at @index.
  */

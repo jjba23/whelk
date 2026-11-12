@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.4.0',
+  version: '0.5.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -201,6 +201,9 @@ whelk_exe = executable('whelk',
 # the format substitution every module renders through.
 test_env = environment()
 test_env.set('GSETTINGS_BACKEND', 'memory')
+# The C tests ask the bridge for the Scheme modules, so they have to find them.
+test_env.set('GUILE_LOAD_PATH',
+             join_paths(meson.project_source_root(), 'scheme'))
 
 unit_tests = [
   {
@@ -219,13 +222,27 @@ unit_tests = [
     'id': 'filesearch',
     'sources': ['src/util/filesearch.c'],
   },
+  # The dictionary itself is Scheme, so these two ask the bridge for the real
+  # one: they fail if the module is missing, malformed or no longer matches what
+  # a compositor reports.
   {
     'id': 'menudict',
-    'sources': ['src/util/menudict.c'],
+    'sources': [
+      'src/util/menudict.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+    ],
   },
   {
     'id': 'menutree',
-    'sources': ['src/util/menutree.c', 'src/util/menudict.c'],
+    'sources': [
+      'src/util/menutree.c',
+      'src/util/menudict.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+    ],
   },
   {
     'id': 'session',
@@ -272,6 +289,19 @@ if guile.found()
       '--no-auto-compile',
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_themes.scm'),
+    ],
+    env: test_env,
+  )
+
+  # The menu dictionary is data, and data can be wrong in ways C cannot see:
+  # an id claimed twice, an entry without its chord.
+  test(
+    'menudict_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_menudict.scm'),
     ],
     env: test_env,
   )

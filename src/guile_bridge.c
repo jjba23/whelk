@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "logger.h"
+#include "util/menudict.h"
 
 /* =========================================================================
  * CALLING INTO SCHEME
@@ -250,6 +251,16 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
  * THE PUBLIC BRIDGE
  * ========================================================================= */
 
+void whelk_bridge_start_guile(void) {
+  static gboolean started = FALSE;
+
+  if (started)
+    return;
+
+  scm_init_guile();
+  started = TRUE;
+}
+
 void whelk_bridge_setup_load_path(void) {
   /* The checkout's own modules first: running from the build tree must read
    * the tree, not a stale copy installed under the Guile site directory. */
@@ -262,7 +273,7 @@ void whelk_bridge_setup_load_path(void) {
 }
 
 /* Loads the module; a missing or broken one is a warning, not a crash. */
-static SCM use_core_thunk(void *data) {
+static SCM use_module_thunk(void *data) {
   scm_c_use_module((const char *)data);
   return SCM_BOOL_T;
 }
@@ -280,7 +291,7 @@ static SCM on_use_core_error(void *data, SCM tag, SCM args) {
 }
 
 gboolean whelk_bridge_use_core(void) {
-  scm_internal_catch(SCM_BOOL_T, use_core_thunk, (void *)"whelk core",
+  scm_internal_catch(SCM_BOOL_T, use_module_thunk, (void *)"whelk core",
                      on_use_core_error, NULL);
 
   return public_proc("whelk core", "init-shell!") != SCM_BOOL_F;
@@ -335,4 +346,117 @@ GPtrArray *whelk_bridge_bars(const char *path) {
   }
 
   return bars;
+}
+
+/* =========================================================================
+ * THE MENU DICTIONARY
+ * =========================================================================
+ * Scheme holds the applications (scheme/whelk/menudict.scm); this is the one
+ * walk over the alists it exports, at startup.  Everything here becomes plain
+ * C strings and structs owned by the table, so no Scheme value outlives the
+ * call.
+ */
+
+static SCM on_use_module_error(void *data, SCM tag, SCM args) {
+  (void)tag;
+  (void)args;
+
+  LOG_C_WARN("Guile", "could not load (%s): what it describes is missing",
+             (const char *)data);
+
+  return SCM_BOOL_F;
+}
+
+static gboolean load_module(const char *name) {
+  SCM result = scm_internal_catch(SCM_BOOL_T, use_module_thunk, (void *)name,
+                                  on_use_module_error, (void *)name);
+
+  return scm_is_true(result);
+}
+
+static guint scheme_list_length(SCM list) {
+  guint length = 0;
+
+  for (SCM cursor = list; scm_is_pair(cursor); cursor = SCM_CDR(cursor))
+    length++;
+
+  return length;
+}
+
+static SCM scheme_list_ref(SCM list, guint index) {
+  for (guint i = 0; i < index && scm_is_pair(list); i++)
+    list = SCM_CDR(list);
+
+  return scm_is_pair(list) ? SCM_CAR(list) : SCM_BOOL_F;
+}
+
+/* A list of strings as the NULL-terminated array the lookup walks.  A missing
+ * word keeps its place as an empty string rather than cutting the list short. */
+static char **scheme_text_list(SCM list) {
+  guint length = scheme_list_length(list);
+  char **words = g_new0(char *, length + 1);
+
+  for (guint i = 0; i < length; i++) {
+    char *text = scm_text(scheme_list_ref(list, i));
+
+    words[i] = text ? text : g_strdup("");
+  }
+
+  return words;
+}
+
+/* (label accel modifiers key), with #f for a bare key. */
+static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
+  guint length = scheme_list_length(list);
+  WhelkDictItem *items = whelk_dict_items_new(length);
+
+  for (guint i = 0; i < length; i++) {
+    SCM spec = scheme_list_ref(list, i);
+
+    items[i].label = scm_text(scheme_list_ref(spec, 0));
+    items[i].accel = scm_text(scheme_list_ref(spec, 1));
+    items[i].modifiers = scm_text(scheme_list_ref(spec, 2));
+    items[i].key = scm_text(scheme_list_ref(spec, 3));
+  }
+
+  *n_items = length;
+  return items;
+}
+
+/* (label item ...), in the order the Scheme wrote them. */
+static WhelkDictMenu *scheme_menus(SCM list, guint *n_menus) {
+  guint length = scheme_list_length(list);
+  WhelkDictMenu *menus = whelk_dict_menus_new(length);
+
+  for (guint i = 0; i < length; i++) {
+    SCM entry = scheme_list_ref(list, i);
+
+    menus[i].label = scm_text(scheme_list_ref(entry, 0));
+    menus[i].items = scheme_items(scm_is_pair(entry) ? SCM_CDR(entry) : SCM_EOL,
+                                  &menus[i].n_items);
+  }
+
+  *n_menus = length;
+  return menus;
+}
+
+GPtrArray *whelk_bridge_menudict(void) {
+  GPtrArray *table = whelk_menudict_table_new();
+
+  if (!load_module("whelk menudict"))
+    return table;
+
+  SCM list = call0("whelk menudict", "menudict->alists");
+
+  for (SCM cursor = list; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    SCM entry = SCM_CAR(cursor);
+    char *name = alist_text(entry, "name", "unnamed");
+    char **ids = scheme_text_list(alist_get(entry, "ids"));
+    guint n_menus = 0;
+    WhelkDictMenu *menus = scheme_menus(alist_get(entry, "menus"), &n_menus);
+
+    g_ptr_array_add(table, whelk_dict_app_new(name, ids, menus, n_menus));
+  }
+
+  return table;
 }

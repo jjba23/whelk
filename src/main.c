@@ -4,6 +4,7 @@
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #include "guile_bridge.h"
+#include "util/menudict.h"
 #include "logger.h"
 #include "shell.h"
 
@@ -164,6 +165,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
     LOG_C_WARN("Main",
                "the Scheme configuration engine did not load: running on the "
                "C defaults");
+
+  /* The global menu's dictionary is configuration data, so it is Scheme: read
+   * it once, here, and the menu module looks applications up in plain C. */
+  whelk_menudict_load(whelk_bridge_menudict());
 
   setup_guile_primitives();
   add_actions(app);

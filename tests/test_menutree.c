@@ -5,6 +5,9 @@
 
 #include "util/menutree.h"
 
+#include "guile_bridge.h"
+#include "util/menudict.h"
+
 #include <glib.h>
 
 /* The menubar's two halves: what an application exports over D-Bus, and what
@@ -258,6 +261,12 @@ static void test_gtk_nothing(void) {
 
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
+
+  /* The dictionary is Scheme's; load it the way the shell does, so these tests
+   * see the menus an installed whelk would show. */
+  whelk_bridge_start_guile();
+  whelk_bridge_setup_load_path();
+  whelk_menudict_load(whelk_bridge_menudict());
 
   g_test_add_func("/menutree/synthesize/file", test_synthesize_file_menus);
   g_test_add_func("/menutree/synthesize/shortcuts", test_synthesize_shortcuts);
