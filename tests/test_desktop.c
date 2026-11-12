@@ -11,15 +11,28 @@
  * in: a temporary applications/ directory stands in for the machine's.  GIO
  * reads that environment once per process, so the cases share one test. */
 
+/* Exec has to name a program that exists: GIO refuses an entry it cannot
+ * resolve.  /bin/true is missing on a Guix System and in the package's build
+ * sandbox, so the fixture asks PATH for one instead. */
+static const char *fixture_program(void) {
+  static char *program = NULL;
+
+  if (!program) {
+    g_autofree char *found = g_find_program_in_path("true");
+
+    program = found ? g_strdup(found) : g_strdup("/bin/true");
+  }
+
+  return program;
+}
+
 static void write_entry(const char *directory, const char *file_name,
                         const char *name, const char *extra) {
   g_autofree char *path = g_build_filename(directory, file_name, NULL);
-  /* Exec has to be a program that exists: GIO refuses an entry it cannot
-   * resolve, which is why the fixture names /bin/true and not the app. */
   g_autofree char *contents =
       g_strdup_printf("[Desktop Entry]\nType=Application\nName=%s\n"
-                      "Exec=/bin/true\nNoDisplay=true\n%s",
-                      name, extra ? extra : "");
+                      "Exec=%s\nNoDisplay=true\n%s",
+                      name, fixture_program(), extra ? extra : "");
 
   g_assert_true(g_file_set_contents(path, contents, -1, NULL));
 }
@@ -27,14 +40,16 @@ static void write_entry(const char *directory, const char *file_name,
 static void test_resolves_app_id(void) {
   g_autofree char *root = g_dir_make_tmp("whelk-desktop-XXXXXX", NULL);
   g_autofree char *apps = g_build_filename(root, "applications", NULL);
+  g_autofree char *new_action =
+      g_strdup_printf("Actions=New\n[Desktop Action New]\nName=New Window\n"
+                      "Exec=%s --new\n",
+                      fixture_program());
 
   g_assert_nonnull(root);
   g_assert_cmpint(g_mkdir_with_parents(apps, 0700), ==, 0);
 
   write_entry(apps, "Bar.desktop", "Bar", NULL);
-  write_entry(apps, "org.example.Foo.desktop", "Foo",
-              "Actions=New\n[Desktop Action New]\nName=New Window\n"
-              "Exec=/bin/true --new\n");
+  write_entry(apps, "org.example.Foo.desktop", "Foo", new_action);
 
   g_setenv("XDG_DATA_HOME", root, TRUE);
   g_setenv("XDG_DATA_DIRS", root, TRUE);

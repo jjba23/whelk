@@ -37,11 +37,26 @@ static const SessionProbe probes[] = {
      "swaymsg -t get_version answered"},
 };
 
+/* The probe's shell is looked up rather than assumed: a Guix System and the
+ * package's build sandbox have no /bin/sh, only the store's bash. */
+static const char *probe_shell(void) {
+  static gsize shell = 0;
+
+  if (g_once_init_enter(&shell)) {
+    g_autofree char *found = g_find_program_in_path("sh");
+
+    g_once_init_leave(&shell, (gsize)(found ? g_strdup(found)
+                                           : g_strdup("/bin/sh")));
+  }
+
+  return (const char *)shell;
+}
+
 gboolean whelk_session_command_answers(const char *command, guint timeout_ms) {
   if (!command || *command == '\0')
     return FALSE;
 
-  char *argv[] = {(char *)"/bin/sh", (char *)"-c", (char *)command, NULL};
+  char *argv[] = {(char *)probe_shell(), (char *)"-c", (char *)command, NULL};
   GPid pid = 0;
   g_autoptr(GError) error = NULL;
 
