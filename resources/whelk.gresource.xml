@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+
+     SPDX-License-Identifier: MIT
+     Copyright © Josep Bigorra <jjbigorra@gmail.com> -->
+
+<gresources>
+  <gresource prefix="/org/jointhefreeworld/whelk">
+    <!-- Structural stylesheet: layout, module classes and state colours -->
+    <file>css/whelk.css</file>
+  </gresource>
+</gresources>

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Whelk
+GenericName=Wayland Shell
+Comment=A Wayland shell -- status bar, launcher and desktop widgets, configured in Guile Scheme
+Exec=whelk
+Icon=preferences-system
+Terminal=false
+Categories=System;Utility;
+Keywords=bar;panel;status;shell;wayland;guile;scheme;
+StartupNotify=false

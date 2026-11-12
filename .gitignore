@@ -1,0 +1,13 @@
+# Meson build directories
+build/
+build-*/
+subprojects/packagecache/
+
+# Editor / tooling state
+.ccls-cache/
+.cache/
+compile_commands.json
+.nrepl-port
+
+# Local overrides
+*.local.scm

@@ -1,0 +1,431 @@
+#+TITLE: whelk
+#+SUBTITLE: a Wayland shell written in C, GTK4 and GNU Guile Scheme
+#+OPTIONS: toc:2
+
+Whelk is a Wayland shell: a status bar today, a launcher, a notification
+daemon and floating desktop widgets in time.  It is written in C against GTK4
+and =gtk4-layer-shell=, and it is configured declaratively in GNU Guile Scheme,
+in S-expressions rather than JSON plus CSS.
+
+It is a 1:1 replacement for the Waybar setup in
+[[file:~/Hacking/heks-linux][heks-linux]]: the same modules, in the same order,
+with the same clicks.  It also carries what those modules used to defer to
+other programs: an =org.freedesktop.Notifications= daemon with a grouped
+notification centre, a Wi-Fi and Bluetooth panel that replaces the applets, and
+a launcher that replaces rofi.
+
+* Status
+
+| Area                       | State                                                            |
+|----------------------------+------------------------------------------------------------------|
+| Build system, Guile engine | working: Meson, =scm_boot_guile=, Scheme-primitive registration   |
+| Configuration DSL          | working: bars, modules, hot reload, optional REPL                 |
+| Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray |
+| Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |
+| Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
+| Launcher                   | working: applications, windows, commands, calculator, files, web, menus |
+| Floating widgets           | designed for, not implemented yet (see [[Architecture]]) |
+
+* Requirements
+
+  - GTK 4 (>= 4.10 for =gdk_monitor_get_connector=; developed against 4.24)
+  - =gtk4-layer-shell= (0.x)
+  - GNU Guile 3.0 (development headers)
+  - Meson, Ninja, a C17 compiler, =pkg-config=
+  - Wayland: niri is the compositor the niri modules talk to
+
+The Guix manifest pins the whole toolchain:
+
+#+begin_src sh
+  guix shell -m manifest.scm
+#+end_src
+
+(=guix.scm= defines whelk as a package, for =guix install -f guix.scm= or for
+a =guix shell -D -f guix.scm= development environment.)
+
+* Build and run
+
+#+begin_src sh
+  meson setup build
+  ninja -C build
+  meson test -C build          # the C unit tests
+  ./build/whelk
+#+end_src
+
+Whelk must be started *from the project root* (or installed): the Guile engine
+resolves its modules through the relative =scheme/= directory as well as the
+installation path baked in at configure time.  A build without an install finds
+=scheme/whelk/*.scm= by looking in the current directory.
+
+Install it with:
+
+#+begin_src sh
+  meson setup build --prefix=/usr
+  ninja -C build install
+#+end_src
+
+If your environment forces the X11 backend (=GDK_BACKEND=x11=), a layer surface
+cannot be created and whelk falls back to a plain window.  Start it inside the
+Wayland session instead:
+
+#+begin_src sh
+  GDK_BACKEND=wayland whelk
+#+end_src
+
+Quit with =Ctrl+C= in its terminal, =whelk --quit=, or
+=gapplication quit org.jointhefreeworld.whelk=.
+
+** Talking to the running shell
+
+The second =whelk= is not a second shell: GApplication forwards its arguments to
+the first one.  That is how a keybinding opens a surface:
+
+#+begin_src sh
+  whelk --launcher                      # applications
+  whelk --launcher --launcher-mode=window
+  whelk --menu "power-menu --plain"     # label<TAB>command lines
+  whelk --notifications                 # open/close the centre
+  whelk --dnd                           # do not disturb on/off
+  whelk --network wifi                  # or: --network bluetooth
+  whelk --reload
+  whelk --quit
+#+end_src
+
+The same entry points exist as application actions:
+
+#+begin_src sh
+  gapplication action org.jointhefreeworld.whelk launcher window
+  gapplication action org.jointhefreeworld.whelk notifications
+#+end_src
+
+** Configuration
+
+Copy the example and edit it:
+
+#+begin_src sh
+  mkdir -p ~/.config/whelk
+  cp settings/settings.scm ~/.config/whelk/settings.scm
+#+end_src
+
+The file is read at startup and *again whenever it changes* (the directory is
+watched, with a 250 ms debounce), so editing the bar is instant.  With no
+settings file at all, whelk draws a built-in bar with a clock, load, memory and
+the tray, so a fresh machine is never left without a shell.
+
+The DSL
+=======
+
+A configuration is one call:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars
+   (list
+    (bar #:name 'main
+         #:position 'top
+         #:monitor "all"
+         #:height 32
+         #:margin 0
+         #:exclusive? #t
+         #:spacing 6
+         #:padding 12
+         #:font "Inter"
+         #:font-size "11pt"
+         #:icon-font "Font Awesome 6 Free Solid"
+         #:foreground "#f2f3f5"
+         #:background "rgba(27, 27, 29, 0.82)"
+         #:accent "#8fd16a"
+         #:border-color "rgba(255, 255, 255, 0.10)"
+         #:radius 0
+         #:css "/* free-form CSS for this bar only */"
+         #:left   (list (window-module))
+         #:center '()
+         #:right  (list (cpu-module) (clock-module)))))
+#+end_src
+
+=bar= keys:
+
+| Key             | Meaning                                                                 |
+|-----------------+-------------------------------------------------------------------------|
+| =#:name=          | the bar's name; also its CSS id and its log label                      |
+| =#:position=      | ='top=, ='bottom=, ='left=, ='right= (strings accepted too)               |
+| =#:monitor=       | ="all"= (one bar per output), ="default"=, or a connector such as ="DP-1"= |
+| =#:height=        | thickness: the row's height, or a vertical bar's width                  |
+| =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
+| =#:exclusive?=    | reserve the thickness so maximised windows stop at the bar              |
+| =#:spacing=       | pixels between modules                                                  |
+| =#:padding=       | pixels between the bar's ends and its first/last module                 |
+| =#:font=, =#:font-size=, =#:icon-font= | the text face, its size, and the face glyphs are drawn from |
+| =#:foreground=, =#:background=, =#:accent=, =#:border-color=, =#:radius= | the bar's material |
+| =#:css=           | free-form CSS appended to the bar's generated skin                      |
+| =#:left=, =#:center=, =#:right= | lists of modules                                             |
+
+Every colour, font and radius is optional: leave one out and the structural
+stylesheet's colour applies, so a bare =(bar)= is still readable.
+
+Modules
+=======
+
+All constructors are the same shape -- a kind plus keyword options -- and all
+accept the shared options:
+
+| Option                           | Meaning                                                       |
+|----------------------------------+---------------------------------------------------------------|
+| =#:icon=                           | a glyph, drawn from the bar's =#:icon-font=                    |
+| =#:format=                         | how the reading is rendered; ={icon}= is the glyph             |
+| =#:interval=                       | seconds between refreshes (0 = render once)                    |
+| =#:tooltip=                        | hover text; ={text}= is the current reading                    |
+| =#:on-click=, =#:on-click-right=, =#:on-click-middle= | shell commands on the mouse buttons     |
+| =#:on-scroll-up=, =#:on-scroll-down= | shell commands on the wheel                                  |
+| =#:css-class=                      | an extra CSS class on the module's own widget                  |
+
+Unknown options are ignored rather than rejected: a settings file can be ahead
+of the binary.
+
+| Module              | Reading                                          | Options of its own                                   |
+|---------------------+--------------------------------------------------+------------------------------------------------------|
+| =clock-module=        | strftime(3) on the local time                    | =#:format=, and ={calendar}= in the tooltip            |
+| =cpu-module=          | /proc/stat, as a difference between samples      | ={usage}=                                              |
+| =memory-module=       | /proc/meminfo                                    | ={percentage}=, ={used}=, ={total}=, ={avail}=, ={swap-used}=, ={swap-total}= |
+| =battery-module=      | /sys/class/power_supply                          | =#:device=, =#:charging-format=, =#:charging-icon=, =#:warning=, =#:critical=, ={capacity}=, ={state}= |
+| =backlight-module=    | /sys/class/backlight                             | =#:device=, ={percent}=                                 |
+| =audio-module=        | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, ={volume}=            |
+| =power-profile-module=| powerprofilesctl                                 | ={profile}=                                             |
+| =workspaces-module=   | niri IPC, one button per workspace               | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
+| =window-module=       | niri IPC, the focused window                     | =#:max-length=, ={title}=, ={app-id}=                    |
+| =language-module=     | niri's keyboard layouts                          | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
+| =keyboard-module=     | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
+| =custom-module=       | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
+| =wifi-module=         | nmcli: the radio and the active access point     | =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
+| =bluetooth-module=    | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}=                |
+| =notifications-module=| the notification store's count                   | ={count}=, ={state}= (left click: centre, right: DND)    |
+| =tray-module=         | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:hide= (fragments to leave out)            |
+
+A worked example of the whole set is in =settings/settings.scm=, which also has
+a commented-out workspace switcher for the centre of the bar.
+
+/*/ Hot reload and the REPL
+
+Saving the settings file rebuilds every bar.  A bar holds no state that outlives
+its configuration, so there is nothing to reconcile: the bars are destroyed and
+built again from the new description.
+
+For changes without touching the file, a settings file can ask for a REPL:
+
+#+begin_src scheme
+  (configure-shell! #:bars (list ...) #:enable-repl? #t
+                    #:repl-socket-path "/tmp/whelk-repl.sock")
+#+end_src
+
+#+begin_src sh
+  echo '(reload-shell!)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock
+#+end_src
+
+Everything the configuration has is available there: =(get-shell-bars)=,
+=(load-shell-config! "...")=, =(bar ...)=, the module constructors.
+
+* Notifications, the network and the launcher
+
+** Notifications
+
+whelk owns =org.freedesktop.Notifications= when no other daemon has it (a
+running mako is left alone, with one line in the log saying so).  It advertises
+=body-markup=, =actions=, =icon-static= and =persistence=, keeps the history,
+and shows a notification twice:
+
+- as a toast, top right, three at most, leaving on the application's timeout
+  (a transient notification also leaves the store then);
+- in the centre, a panel on the right edge, *grouped by the application that
+  sent it*, newest first, with the application's actions as buttons, a dismiss
+  per notification, =Clear all= and do-not-disturb.
+
+The bell (=notifications-module=) counts what is stored: a left click opens the
+centre, a right click toggles do-not-disturb.  With DND on, notifications are
+still stored and counted; they simply do not raise a toast.
+
+** The network panel
+
+=wifi-module= and =bluetooth-module= are the readings; a left click opens the
+panel behind them:
+
+- Wi-Fi: the access points in range with signal and a lock for a secured one,
+  a radio switch and a rescan.  Choosing a secured network asks for its
+  password in the panel -- where the keyboard is -- and an empty password means
+  "use the connection NetworkManager already has".  The password is written to
+  =nmcli='s standard input, never onto its command line, where =ps= would show
+  it to every user on the machine for as long as the connection attempt runs.
+- Bluetooth: the adapter switch and the paired devices, each a click away from
+  connect or disconnect.
+
+Both speak =nmcli= and =bluetoothctl=, the command-line clients those projects
+ship as their scripting surface: no private D-Bus API, no secret agent to keep
+alive, and the same results a terminal would give.
+
+Because the bar reads the network itself, the tray drops the applets that would
+say it twice: with =wifi-module= present, =nm-applet=, =nm-tray=,
+=network-manager-applet= and GNOME's and KDE's network applets are hidden; with
+=bluetooth-module=, =blueman=, =blueman-tray=, =blueberry= and KDE's Bluetooth
+applets are.  The rule looks at the item's StatusNotifierItem *Id*, the whole
+id and nothing but the id: a title that merely mentions "network" is the
+application's own words, and hiding that icon would be hiding somebody else's.
+=#:hide "fragment, fragment"= on =tray-module= overrides the list, and does
+match titles, because there the configuration asked for words.
+
+** The launcher
+
+=whelk --launcher= opens one overlay with one entry, and matches fuzzily -- the
+query's characters in order, a word start worth more than a match in the
+middle, a short name over a long one.  =Tab= completes the selection into the
+entry, =Enter= opens it, =Esc= closes, the arrows move the selection.
+
+| Mode     | What it searches                                  | Prefix |
+|----------+---------------------------------------------------+--------|
+| =app=      | every =.desktop= entry on the system (default)     |        |
+| =window=   | niri's open windows                               | =@=      |
+| =run=      | a command, plus completions from =$PATH=           | =>=      |
+| =calc=     | arithmetic; =Enter= copies the result              | ===      |
+| =file=     | files under =$HOME=                                | =/=      |
+| =web=      | the default browser (=WHELK_WEB_SEARCH= overrides)  | =?=      |
+| =menu=     | a command's =label<TAB>command= lines               | =--menu= |
+
+The menu mode is the rofi-script replacement: a generated menu that prints
+"label<TAB>command" works unchanged once its rofi invocation becomes
+=whelk --menu "the-same-generator"=.
+
+* Architecture
+
+#+begin_src text
+  settings.scm            the configuration, in Scheme
+       |
+  scheme/whelk/           core.scm      entry points, fallback bar, REPL
+                          loader.scm    isolated evaluation of a settings file
+                          state.scm     bar records, the shell table, alists
+                          modules.scm   module records and constructors
+                          logger.scm    diagnostics on stderr
+       |
+  src/guile_bridge.c      the only file that speaks SCM: reads the alists and
+                          hands C plain structs (src/config.h)
+       |
+  src/shell.c             which settings file, which bars, when to rebuild,
+                          config-directory watching, monitor hotplug
+       |
+  src/bar.c               a bar = a surface + three module rows + generated CSS
+  src/surface.c           a generic anchored layer surface: bars, the panels,
+                          the toasts and the launcher are all this object
+  src/notifications.c     the notification service and its store
+  src/notification_center.c  the toast stack and the grouped centre
+  src/network_panel.c     the Wi-Fi and Bluetooth pages
+  src/launcher.c          the overlay, its modes and its ranking
+  src/style.c             the generated skin every surface wears
+       |
+  src/module.c            the factory table, the refresh timer, rendering
+  src/modules/*.c         one file per reading
+  src/util/*              commands, sysfs, JSON, text, mouse actions
+#+end_src
+
+The boundaries are the design:
+
+- *No SCM escapes the bridge.*  =src/guile_bridge.h= has no Scheme type in any
+  signature, and nothing outside =guile_bridge.c= calls =scm_*=.  The rest of
+  the shell builds and is tested from plain structs, and the built-in fallback
+  bar is built the same way, with no Scheme at all.
+- *A module is a value, not a subclass.*  A kind, a root widget, an =update=
+  function, a =destroy= function, and the factory table in =module.c=.  Adding
+  one is three steps: a =.c= file with a factory, its prototype in
+  =src/modules/modules.h=, and a row in the table.  Nothing else changes.
+- *A bar is a surface, and a surface is not a bar.*  =src/surface.c= owns the
+  layer-shell plumbing (edge, anchors, margins, exclusive zone, monitor,
+  namespace).  A notification stack is the same object with a different child;
+  that is why the next surface does not have to re-learn layer-shell.
+- *CSS is structure plus skin.*  =resources/css/whelk.css= is the structure:
+  module layout, hover, workspace states, the battery's warning colours.  The
+  skin -- this bar's colours, fonts and radius -- is generated from the
+  configuration and scoped to the bar's window id, so two bars can wear two
+  materials.
+
+*/ Where the next pieces go
+
+- *Floating widgets*: a =WhelkSurface= with =#:exclusive? #f= and margins on one
+  corner, plus a module.  No new engine -- the notification toasts already prove
+  the shape.
+- *Tray menus*: the DBusMenu interface an item's own menu lives on.  Until
+  then a right click asks the item to show its menu itself.
+- *Configured surfaces*: =bar->alist= in =state.scm= is the pattern; a record
+  for the launcher or the panels would be the same trick applied once more.
+
+* Parity with the heks-linux Waybar bar
+
+| Waybar module                  | Whelk                                                     |
+|--------------------------------+-----------------------------------------------------------|
+| =custom/heks-system-menu=        | =custom-module= with a glyph and =#:on-click=                |
+| =niri/window=                    | =window-module=                                            |
+| =custom/media=                   | =custom-module= + playerctl                                |
+| =custom/heks-clipboard=          | =custom-module= + clipman                                  |
+| =custom/heks-password=           | =custom-module=                                            |
+| =custom/mako-dnd=                | =custom-module= + makoctl (until the notification daemon)   |
+| =custom/heks-language=           | =language-module= (native niri read)                       |
+| =custom/heks-palette/wallpaper/docs/capture/keys= | =custom-module=                            |
+| =cpu=, =memory=                    | =cpu-module=, =memory-module=                                |
+| =backlight=                      | =backlight-module=                                         |
+| =pulseaudio=                     | =audio-module=                                             |
+| =keyboard-state=                 | =keyboard-module= (Caps Lock, from the LED)                 |
+| =battery= (BAT0/BAT1)            | =battery-module=, one per =#:device=                         |
+| =power-profiles-daemon=          | =power-profile-module=                                     |
+| =tray=                           | =tray-module=                                              |
+| =clock=                          | =clock-module=                                             |
+| =style.css=                      | =bar= keys plus =#:css=                                       |
+| =config.jsonc=                   | =settings.scm=                                              |
+
+There is no =modules-center= in the reference bar; =workspaces-module= exists
+for it and is commented out in the example settings.
+
+* Testing
+
+#+begin_src sh
+  meson test -C build --print-errorlogs
+#+end_src
+
+Five suites cover the pure halves of the shell:
+
+- =tests/test_json.c= -- the JSON reader against niri's real answer shapes
+  (workspaces, focused window), including escapes, surrogate pairs and the
+  malformed documents niri never sends but a broken IPC call does.
+- =tests/test_config.c= -- option parsing (=5=, ="5"=, =2px= is not a number),
+  text substitution, escaping, truncation, and the deep copy that lets a bar
+  outlive its configuration.
+- =tests/test_launcher.c= -- the fuzzy matcher's ordering (a prefix beats a
+  buried match, case is irrelevant, a query that is not a subsequence does not
+  match) and the calculator's grammar and refusals (=1 / 0=, =2x=, =1 +=).
+- =tests/test_applets.c= -- the exact tray ids: =nm-applet= and =blueman= hide,
+  the loose word "network", a longer id that merely starts with an applet's,
+  and one radio's applet in the other radio's list do not.
+- =tests/test_command.c= -- the stdin path the Wi-Fi key takes: the program
+  receives the line it was sent, an absent answer is an end of file rather than
+  a hang, and a plain run still returns its output.
+
+* Known limits
+
+- The tray hosts StatusNotifierItems (icon, tooltip, Activate, ContextMenu
+  request).  It does not host the DBusMenu an item's own menu lives on yet, so a
+  right click asks the item to show its menu itself.
+- Caps Lock is read from the input LED: the only compositor-independent state a
+  Wayland client can see.
+- Workspaces are addressed by index, which is what niri's
+  =focus-workspace= takes.
+- A module that hides itself when its hardware is absent (battery, backlight,
+  power profile) reserves no space -- that is deliberate.
+- =#:icon= needs a face that carries the glyph: set =#:icon-font= (the example
+  settings use "Font Awesome 6 Free Solid").
+- Notifications: body markup is passed to Pango, =image-data= attachments are
+  ignored (an =image-path= is used), and sounds are not played.
+- The panels and the launcher wear the palette read at startup; a colour edited
+  later reaches the bars on reload, the panels on the next start.
+- The launcher's file mode is =find= under =$HOME=, six levels deep and
+  capped -- a name filter, not a search index.
+- Wi-Fi and Bluetooth are read with =nmcli= and =bluetoothctl=; without them the
+  modules say "off" and the panel lists nothing, rather than pretending.
+- Connecting to a *new* secured network changes the system's network settings,
+  which NetworkManager polices: where no polkit agent is running, =nmcli= falls
+  back to asking for root's password and the panel shows that refusal.  A
+  network the machine already has a profile for connects without any of this, so
+  the everyday case -- the network you live on -- needs no agent.

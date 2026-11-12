@@ -1,0 +1,297 @@
+/* whelk -- structural stylesheet
+ *
+ * SPDX-License-Identifier: MIT
+ * Copyright © Josep Bigorra <jjbigorra@gmail.com>
+ *
+ * This file is the structure, not the skin: the colours, font and corner
+ * radius of each bar are generated from its Guile configuration (see
+ * src/bar.c) and loaded on top of this one.  Everything here is what a bar
+ * and its modules need in order to be a bar at all.
+ */
+
+window.whelk-surface {
+  background-color: transparent;
+}
+
+.whelk-bar {
+  padding: 0 12px;
+}
+
+.whelk-bar-box {
+  min-height: 1px;
+}
+
+/* A module is one glyph or one number or one word, with air around it. */
+.whelk-module {
+  padding: 0 6px;
+  border-radius: 6px;
+  transition: background-color 120ms ease-in-out;
+}
+
+.whelk-module:hover {
+  background-color: alpha(currentColor, 0.10);
+}
+
+.whelk-label {
+  font-feature-settings: "tnum";
+}
+
+/* Icons are drawn from the icon font named by the bar's `icon-font`, not by
+ * Pango's per-character fallback: a private-use codepoint is claimed by several
+ * faces and the fallback is not always the one the configuration meant. */
+.whelk-icon {
+  font-size: 1em;
+}
+
+/* --- niri workspaces ------------------------------------------------------ */
+
+.whelk-workspaces {
+  padding: 0 2px;
+}
+
+.whelk-workspace {
+  padding: 1px 8px;
+  margin: 0 1px;
+  border-radius: 5px;
+  font-feature-settings: "tnum";
+  min-width: 8px;
+}
+
+.whelk-workspace.active {
+  background-color: alpha(currentColor, 0.20);
+  font-weight: bold;
+}
+
+.whelk-workspace.inactive {
+  opacity: 0.55;
+}
+
+.whelk-workspace.empty {
+  opacity: 0.35;
+}
+
+.whelk-workspace.urgent {
+  color: #ff5f56;
+  opacity: 1;
+}
+
+/* --- hardware readouts ---------------------------------------------------- */
+
+.whelk-battery.warning {
+  color: #ffb340;
+}
+
+.whelk-battery.critical {
+  color: #ff5f56;
+  font-weight: bold;
+}
+
+.whelk-battery.charging {
+  color: #8fd16a;
+}
+
+.welk-hidden {
+  opacity: 0;
+}
+
+/* --- the window title ----------------------------------------------------- */
+
+.whelk-window {
+  font-weight: bold;
+}
+
+.whelk-window:backdrop {
+  opacity: 0.6;
+}
+
+/* --- tray ----------------------------------------------------------------- */
+
+.whelk-tray-box {
+  padding: 0 2px;
+}
+
+.whelk-tray-item {
+  padding: 0 1px;
+  border-radius: 4px;
+}
+
+.whelk-tray-item:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+
+.whelk-tray-item image {
+  -gtk-icon-size: 16px;
+}
+
+.whelk-tray-item.empty {
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+ * Panels, launcher and notifications
+ * ---------------------------------------------------------------------------
+ * The generated skin (src/style.c) paints each surface's palette; these rules
+ * are the structure they share, so a panel looks like a panel whether it came
+ * from the notification centre, the network panel or the launcher.
+ */
+
+.whelk-panel {
+  border-radius: 14px;
+}
+
+.whelk-panel-title {
+  font-weight: 700;
+  font-size: 1.05em;
+}
+
+.whelk-panel-button {
+  padding: 4px;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.whelk-panel-button:hover {
+  background: alpha(currentColor, 0.12);
+}
+
+.whelk-panel-button:checked {
+  background: alpha(currentColor, 0.18);
+}
+
+.whelk-panel-empty {
+  opacity: 0.6;
+  padding: 12px 4px;
+}
+
+/* --- notifications ------------------------------------------------------- */
+
+.whelk-group-title {
+  font-weight: 600;
+}
+
+.whelk-group-count {
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
+.whelk-card {
+  padding: 10px;
+  border-radius: 10px;
+  background: alpha(currentColor, 0.06);
+}
+
+.whelk-notification.critical {
+  border-left: 3px solid #e01b24;
+}
+
+.whelk-notification-summary {
+  font-weight: 600;
+}
+
+.whelk-notification-body {
+  opacity: 0.85;
+  font-size: 0.95em;
+}
+
+.whelk-notification-time {
+  opacity: 0.5;
+  font-size: 0.85em;
+}
+
+.whelk-notification-action {
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.whelk-toast-stack .whelk-card {
+  background: alpha(currentColor, 0.1);
+}
+
+/* --- launcher ------------------------------------------------------------ */
+
+.whelk-launcher {
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.whelk-launcher-entry {
+  font-size: 1.15em;
+  min-height: 38px;
+}
+
+.whelk-launcher-mode {
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+
+.whelk-launcher-hint {
+  opacity: 0.45;
+  font-size: 0.8em;
+}
+
+.whelk-launcher-list {
+  background: transparent;
+}
+
+.whelk-launcher-list row {
+  padding: 0;
+  background: transparent;
+}
+
+.whelk-launcher-row {
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.whelk-launcher-list row:selected .whelk-launcher-row {
+  background: alpha(currentColor, 0.14);
+}
+
+.whelk-launcher-name {
+  font-weight: 600;
+}
+
+.whelk-launcher-detail {
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
+/* --- network panel ------------------------------------------------------- */
+
+.whelk-network-item {
+  padding: 8px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.whelk-network-item:hover {
+  background: alpha(currentColor, 0.08);
+}
+
+.whelk-network-name {
+  font-weight: 500;
+}
+
+.whelk-network-detail,
+.whelk-network-status,
+.whelk-network-hint {
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+
+.whelk-network-button {
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.whelk-wifi.off,
+.whelk-bluetooth.off,
+.whelk-notifications.empty {
+  opacity: 0.55;
+}
+
+.whelk-notifications.dnd .whelk-label {
+  opacity: 0.5;
+}

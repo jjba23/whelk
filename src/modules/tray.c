@@ -1,0 +1,524 @@
+// whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+//
+// SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+#include "modules/modules.h"
+
+#include <gio/gio.h>
+#include <string.h>
+
+#include "logger.h"
+#include "util/applets.h"
+
+/* =========================================================================
+ * TRAY
+ * =========================================================================
+ * Other programs' status icons, over the StatusNotifierItem protocol: the only
+ * tray a Wayland client can host, and the one Waybar's `tray` module speaks.
+ *
+ * The watcher owns the list.  This module watches org.kde.StatusNotifierWatcher
+ * on the session bus, asks it for RegisteredStatusItems, and follows the
+ * Registered/Unregistered signals from then on; every item is a GDBusProxy of
+ * its own, with its icon read from the proxy's cached properties and a left
+ * click calling Activate.
+ *
+ * Known limit, stated rather than hidden: an item's own menu lives on the
+ * DBusMenu interface, which this module does not host yet -- a right click asks
+ * the item for its context menu instead, which Items that implement it show
+ * themselves.
+ */
+
+typedef struct {
+  char *entry;
+  GDBusProxy *proxy;
+  GtkWidget *image;
+} TrayItem;
+
+typedef struct {
+  GDBusConnection *bus;
+  GDBusProxy *watcher;
+  guint watcher_id;
+  GPtrArray *items;
+  GtkWidget *box;
+
+  /* "id, title fragments to leave out", as configured; and the two applets a
+   * bar with its own Wi-Fi and Bluetooth readings does not need. */
+  char *hide;
+  gboolean hide_network;
+  gboolean hide_bluetooth;
+} TrayState;
+
+static void tray_add_entry(TrayState *state, const char *entry);
+
+/* =========================================================================
+ * WHAT NOT TO SHOW
+ * =========================================================================
+ * A bar that reads the network itself does not also need an applet that reads
+ * it, and two controls for one radio is how a user loses confidence in both.
+ * The rule is the bar's: it knows which modules it built, and it says so in
+ * WhelkBarConfig.native_network / native_bluetooth (src/bar.c).
+ *
+ * An explicit #:hide overrides the automatic list: a configuration that names
+ * what it wants hidden is not second-guessed.
+ *
+ * The automatic list names applets by their StatusNotifierItem **Id**, matched
+ * whole and case-insensitively.  Matching title words instead was too eager:
+ * it hid a tray item whose tooltip happened to mention "network", and a bar
+ * that hides an icon it was not asked to hide looks broken.  An item whose id
+ * is not one of these applets stays, whatever its title says.
+ */
+
+/* A configured #:hide names words, not ids: it looks for them anywhere. */
+static gboolean contains_fragment(const char *text, const char *fragments) {
+  if (!text || !fragments)
+    return FALSE;
+
+  g_auto(GStrv) parts = g_strsplit(fragments, ",", -1);
+
+  for (guint i = 0; parts[i]; i++) {
+    const char *fragment = g_strstrip(parts[i]);
+
+    if (*fragment == '\0')
+      continue;
+
+    g_autofree char *lower_text = g_ascii_strdown(text, -1);
+    g_autofree char *lower_fragment = g_ascii_strdown(fragment, -1);
+
+    if (strstr(lower_text, lower_fragment))
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+static gboolean tray_should_hide(TrayState *state, const char *id,
+                                 const char *title) {
+  /* A configured fragment still looks at the title too: #:hide is the user's
+   * own rule, and they asked for words, not ids. */
+  if (state->hide && *state->hide)
+    return contains_fragment(id, state->hide) ||
+           contains_fragment(title, state->hide);
+
+  if (state->hide_network && whelk_applet_is_network(id))
+    return TRUE;
+
+  if (state->hide_bluetooth && whelk_applet_is_bluetooth(id))
+    return TRUE;
+
+  return FALSE;
+}
+
+/* =========================================================================
+ * ITEMS
+ * ========================================================================= */
+
+static void tray_item_free(gpointer data) {
+  TrayItem *item = data;
+
+  if (!item)
+    return;
+
+  if (item->image && gtk_widget_get_parent(item->image))
+    gtk_widget_unparent(item->image);
+
+  g_clear_object(&item->proxy);
+  g_free(item->entry);
+  g_free(item);
+}
+
+/* Builds a paintable out of an item's ARGB32 pixmap ("a(iiay)"). */
+static GdkPaintable *paintable_from_pixmaps(GVariant *pixmaps) {
+  if (!pixmaps || g_variant_n_children(pixmaps) == 0)
+    return NULL;
+
+  g_autoptr(GVariant) first = g_variant_get_child_value(pixmaps, 0);
+  gint32 width = 0;
+  gint32 height = 0;
+  g_autoptr(GVariant) bytes = NULL;
+
+  g_variant_get(first, "(ii@ay)", &width, &height, &bytes);
+
+  if (width <= 0 || height <= 0)
+    return NULL;
+
+  const gsize expected = (gsize)width * (gsize)height * 4;
+
+  if (g_variant_get_size(bytes) < expected)
+    return NULL;
+
+  /* The protocol's pixmap is ARGB32 in network byte order. */
+  const guchar *data = g_variant_get_data(bytes);
+  guchar *rgba = g_malloc(expected);
+
+  for (gsize i = 0; i < (gsize)width * (gsize)height; i++) {
+    rgba[i * 4 + 0] = data[i * 4 + 1]; /* R */
+    rgba[i * 4 + 1] = data[i * 4 + 2]; /* G */
+    rgba[i * 4 + 2] = data[i * 4 + 3]; /* B */
+    rgba[i * 4 + 3] = data[i * 4 + 0]; /* A */
+  }
+
+  GBytes *shared = g_bytes_new_take(rgba, expected);
+  GdkTexture *texture = gdk_memory_texture_new(
+      width, height, GDK_MEMORY_R8G8B8A8_PREMULTIPLIED, shared,
+      (gsize)width * 4);
+
+  g_bytes_unref(shared);
+
+  return texture ? GDK_PAINTABLE(texture) : NULL;
+}
+
+static void tray_item_refresh(TrayItem *item) {
+  if (!item || !item->proxy)
+    return;
+
+  g_autoptr(GVariant) icon_name =
+      g_dbus_proxy_get_cached_property(item->proxy, "IconName");
+  g_autoptr(GVariant) icon_pixmap =
+      g_dbus_proxy_get_cached_property(item->proxy, "IconPixmap");
+
+  const char *name = icon_name ? g_variant_get_string(icon_name, NULL) : NULL;
+
+  if (name && *name) {
+    gtk_image_set_from_icon_name(GTK_IMAGE(item->image), name);
+  } else {
+    GdkPaintable *paintable = paintable_from_pixmaps(icon_pixmap);
+
+    if (paintable)
+      gtk_image_set_from_paintable(GTK_IMAGE(item->image), paintable);
+    else
+      gtk_image_set_from_icon_name(GTK_IMAGE(item->image),
+                                   "application-x-executable");
+  }
+
+  g_autoptr(GVariant) title =
+      g_dbus_proxy_get_cached_property(item->proxy, "Title");
+  g_autoptr(GVariant) id = g_dbus_proxy_get_cached_property(item->proxy, "Id");
+
+  const char *label = title && *g_variant_get_string(title, NULL)
+                          ? g_variant_get_string(title, NULL)
+                          : (id ? g_variant_get_string(id, NULL) : NULL);
+
+  gtk_widget_set_tooltip_text(item->image, label ? label : "");
+}
+
+static void tray_item_call(TrayItem *item, const char *method) {
+  if (!item || !item->proxy)
+    return;
+
+  g_dbus_proxy_call(item->proxy, method, g_variant_new("(ii)", 0, 0),
+                    G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
+}
+
+static void on_item_click(GtkGestureClick *gesture, int n_press, double x,
+                          double y, gpointer user_data) {
+  (void)gesture;
+  (void)n_press;
+  (void)x;
+  (void)y;
+
+  tray_item_call(user_data, "Activate");
+}
+
+static void on_item_right_click(GtkGestureClick *gesture, int n_press, double x,
+                                double y, gpointer user_data) {
+  (void)gesture;
+  (void)n_press;
+  (void)x;
+  (void)y;
+
+  tray_item_call(user_data, "ContextMenu");
+}
+
+static void on_item_properties(GDBusProxy *proxy, GVariant *changed,
+                               GStrv invalidated, gpointer user_data) {
+  (void)proxy;
+  (void)changed;
+  (void)invalidated;
+
+  tray_item_refresh(user_data);
+}
+
+static void on_item_signal(GDBusProxy *proxy, const char *sender_name,
+                           const char *signal_name, GVariant *parameters,
+                           gpointer user_data) {
+  (void)proxy;
+  (void)sender_name;
+  (void)parameters;
+
+  if (g_strcmp0(signal_name, "NewIcon") == 0 ||
+      g_strcmp0(signal_name, "NewTitle") == 0 ||
+      g_strcmp0(signal_name, "NewToolTip") == 0 ||
+      g_strcmp0(signal_name, "NewStatus") == 0)
+    tray_item_refresh(user_data);
+}
+
+/* Splits "service:/object/path" into its two halves; a bare bus name means the
+ * protocol's default object path. */
+static void split_entry(const char *entry, char **service, char **path) {
+  const char *slash = strchr(entry, '/');
+
+  if (slash) {
+    *service = g_strndup(entry, (gsize)(slash - entry));
+    *path = g_strdup(slash);
+  } else {
+    *service = g_strdup(entry);
+    *path = g_strdup("/StatusNotifierItem");
+  }
+}
+
+typedef struct {
+  TrayState *state;
+  char *entry;
+} ItemRequest;
+
+static void item_request_free(ItemRequest *request) {
+  g_free(request->entry);
+  g_free(request);
+}
+
+static void on_item_proxy_ready(GObject *source, GAsyncResult *result,
+                                gpointer user_data) {
+  ItemRequest *request = user_data;
+  g_autoptr(GError) error = NULL;
+  GDBusProxy *proxy =
+      g_dbus_proxy_new_finish(result, &error);
+
+  (void)source;
+
+  if (!proxy) {
+    LOG_C_DEBUG("Tray", "item %s is not reachable: %s", request->entry,
+                error->message);
+    item_request_free(request);
+    return;
+  }
+
+  /* Ids are what the protocol says to match on; a Title is a fallback for the
+   * applets that only fill that in. */
+  g_autoptr(GVariant) item_id =
+      g_dbus_proxy_get_cached_property(proxy, "Id");
+  g_autoptr(GVariant) item_title =
+      g_dbus_proxy_get_cached_property(proxy, "Title");
+  const char *id = item_id ? g_variant_get_string(item_id, NULL) : NULL;
+  const char *title = item_title ? g_variant_get_string(item_title, NULL) : NULL;
+
+  if (tray_should_hide(request->state, id, title)) {
+    LOG_C_INFO("Tray", "hiding '%s': whelk reads this itself",
+               id ? id : (title ? title : request->entry));
+    g_object_unref(proxy);
+    item_request_free(request);
+    return;
+  }
+
+  TrayItem *item = g_new0(TrayItem, 1);
+  item->entry = g_strdup(request->entry);
+  item->proxy = proxy;
+  item->image = gtk_image_new();
+
+  gtk_widget_add_css_class(item->image, "whelk-tray-item");
+  gtk_image_set_pixel_size(GTK_IMAGE(item->image), 16);
+
+  GtkGesture *left = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(left), GDK_BUTTON_PRIMARY);
+  g_signal_connect(left, "pressed", G_CALLBACK(on_item_click), item);
+
+  GtkGesture *right = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right), GDK_BUTTON_SECONDARY);
+  g_signal_connect(right, "pressed", G_CALLBACK(on_item_right_click), item);
+
+  gtk_widget_add_controller(item->image, GTK_EVENT_CONTROLLER(left));
+  gtk_widget_add_controller(item->image, GTK_EVENT_CONTROLLER(right));
+
+  g_signal_connect(proxy, "g-properties-changed",
+                   G_CALLBACK(on_item_properties), item);
+  g_signal_connect(proxy, "g-signal", G_CALLBACK(on_item_signal), item);
+
+  tray_item_refresh(item);
+
+  g_ptr_array_add(request->state->items, item);
+  gtk_box_append(GTK_BOX(request->state->box), item->image);
+
+  item_request_free(request);
+}
+
+/* =========================================================================
+ * THE WATCHER
+ * ========================================================================= */
+
+static TrayItem *find_item(TrayState *state, const char *entry) {
+  for (guint i = 0; i < state->items->len; i++) {
+    TrayItem *item = g_ptr_array_index(state->items, i);
+
+    if (g_strcmp0(item->entry, entry) == 0)
+      return item;
+  }
+
+  return NULL;
+}
+
+static void tray_add_entry(TrayState *state, const char *entry) {
+  if (!state || !entry || *entry == '\0' || find_item(state, entry))
+    return;
+
+  char *service = NULL;
+  char *path = NULL;
+
+  split_entry(entry, &service, &path);
+
+  ItemRequest *request = g_new0(ItemRequest, 1);
+  request->state = state;
+  request->entry = g_strdup(entry);
+
+  g_dbus_proxy_new(state->bus, G_DBUS_PROXY_FLAGS_NONE, NULL, service, path,
+                   "org.kde.StatusNotifierItem", NULL, on_item_proxy_ready,
+                   request);
+
+  g_free(service);
+  g_free(path);
+}
+
+static void tray_remove_entry(TrayState *state, const char *entry) {
+  for (guint i = 0; i < state->items->len; i++) {
+    TrayItem *item = g_ptr_array_index(state->items, i);
+
+    if (g_strcmp0(item->entry, entry) != 0)
+      continue;
+
+    g_ptr_array_remove_index(state->items, i);
+    return;
+  }
+}
+
+static void on_watcher_signal(GDBusProxy *proxy, const char *sender_name,
+                              const char *signal_name, GVariant *parameters,
+                              gpointer user_data) {
+  (void)proxy;
+  (void)sender_name;
+
+  TrayState *state = user_data;
+  const char *entry = NULL;
+
+  g_variant_get(parameters, "(&s)", &entry);
+
+  if (g_strcmp0(signal_name, "StatusNotifierItemRegistered") == 0)
+    tray_add_entry(state, entry);
+  else if (g_strcmp0(signal_name, "StatusNotifierItemUnregistered") == 0)
+    tray_remove_entry(state, entry);
+}
+
+static void on_watcher_ready(GObject *source, GAsyncResult *result,
+                             gpointer user_data) {
+  TrayState *state = user_data;
+  g_autoptr(GError) error = NULL;
+  GDBusProxy *watcher = g_dbus_proxy_new_finish(result, &error);
+
+  (void)source;
+
+  if (!watcher) {
+    LOG_C_DEBUG("Tray", "StatusNotifierWatcher is not reachable: %s",
+                error->message);
+    return;
+  }
+
+  state->watcher = watcher;
+
+  g_signal_connect(watcher, "g-signal", G_CALLBACK(on_watcher_signal), state);
+
+  g_autoptr(GVariant) items =
+      g_dbus_proxy_get_cached_property(watcher, "RegisteredStatusItems");
+
+  if (items) {
+    GVariantIter iter;
+    const char *entry;
+
+    g_variant_iter_init(&iter, items);
+    while (g_variant_iter_next(&iter, "&s", &entry))
+      tray_add_entry(state, entry);
+  }
+}
+
+static void on_watcher_appeared(GDBusConnection *connection, const char *name,
+                                const char *owner, gpointer user_data) {
+  (void)owner;
+
+  TrayState *state = user_data;
+
+  LOG_C_DEBUG("Tray", "%s appeared (%s)", name, owner ? owner : "?");
+
+  g_dbus_proxy_new(connection, G_DBUS_PROXY_FLAGS_NONE, NULL, name,
+                   "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher",
+                   NULL, on_watcher_ready, state);
+}
+
+static void on_watcher_vanished(GDBusConnection *connection, const char *name,
+                                gpointer user_data) {
+  (void)connection;
+
+  TrayState *state = user_data;
+
+  LOG_C_DEBUG("Tray", "%s vanished", name);
+
+  g_clear_object(&state->watcher);
+  g_ptr_array_set_size(state->items, 0);
+}
+
+/* =========================================================================
+ * THE MODULE
+ * ========================================================================= */
+
+static void tray_destroy(WhelkModule *module) {
+  TrayState *state = module->data;
+
+  if (!state)
+    return;
+
+  if (state->watcher_id != 0)
+    g_bus_unwatch_name(state->watcher_id);
+
+  g_clear_object(&state->watcher);
+  g_clear_pointer(&state->items, g_ptr_array_unref);
+  g_clear_object(&state->bus);
+  g_free(state->hide);
+  g_free(state);
+
+  module->data = NULL;
+}
+
+WhelkModule *whelk_tray_module_new(const WhelkModuleSpec *spec,
+                                   const WhelkBarConfig *bar) {
+  WhelkModule *module = whelk_module_base_new("tray", spec, bar);
+  TrayState *state = g_new0(TrayState, 1);
+  g_autoptr(GError) error = NULL;
+
+  state->box = module->root;
+  state->items = g_ptr_array_new_with_free_func(tray_item_free);
+  state->hide = g_strdup(whelk_spec_str(spec, "hide", NULL));
+  state->hide_network = bar ? bar->native_network : FALSE;
+  state->hide_bluetooth = bar ? bar->native_bluetooth : FALSE;
+
+  gtk_box_set_spacing(GTK_BOX(module->root),
+                      whelk_spec_int(spec, "spacing", 6));
+  gtk_widget_add_css_class(module->root, "whelk-tray-box");
+
+  state->bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+
+  if (!state->bus) {
+    LOG_C_WARN("Tray", "no session bus, so there is no tray: %s",
+               error->message);
+    module->data = state;
+    module->destroy = tray_destroy;
+    whelk_module_install(module, 0);
+    return module;
+  }
+
+  state->watcher_id = g_bus_watch_name_on_connection(
+      state->bus, "org.kde.StatusNotifierWatcher",
+      G_BUS_NAME_WATCHER_FLAGS_NONE, on_watcher_appeared, on_watcher_vanished,
+      state, NULL);
+
+  module->data = state;
+  module->destroy = tray_destroy;
+  whelk_module_install(module, 0);
+
+  return module;
+}

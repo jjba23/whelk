@@ -1,0 +1,210 @@
+# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+#
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+# ------------------------------------------------------------------------------
+# Project Initialization & Build Options
+# ------------------------------------------------------------------------------
+project('whelk', 'c',
+  version: '0.1.0',
+  meson_version: '>= 0.62.0',
+  default_options: [
+    'c_std=gnu17',            # Target standard C17 with GNU extensions
+    'warning_level=3',        # -Wall, -Wextra, -Wpedantic
+    'werror=true',            # Treat compiler warnings as fatal errors
+    'b_lto=true',             # Link-Time Optimization
+    'b_pie=true',             # Position-Independent Executable
+    'buildtype=release',
+    'strip=true'
+  ]
+)
+
+gnome = import('gnome')
+cc = meson.get_compiler('c')
+
+# ------------------------------------------------------------------------------
+# Strict Compiler Warning Flags
+# ------------------------------------------------------------------------------
+desired_warning_flags = [
+  '-Wpedantic',
+  '-Wshadow',
+  '-Wstrict-prototypes',
+  '-Wmissing-prototypes',
+  '-Wredundant-decls',
+  '-Wimplicit-fallthrough',
+  '-Wvla',
+  '-Wundef',
+  '-Wformat=2',
+  '-Wformat-security',
+  '-Werror=implicit-function-declaration',
+  '-Werror=incompatible-pointer-types',
+  '-Werror=int-conversion',
+  '-Wno-overlength-strings',
+]
+
+add_project_arguments(
+  cc.get_supported_arguments(desired_warning_flags),
+  language: 'c'
+)
+
+# Expose GNU extensions in standard system C headers (strdup, asprintf, ...)
+add_project_arguments('-D_GNU_SOURCE', language: 'c')
+
+# ------------------------------------------------------------------------------
+# Third-Party Library Dependencies
+# ------------------------------------------------------------------------------
+gtk_dep = dependency('gtk4', include_type: 'system')
+guile_dep = dependency('guile-3.0', include_type: 'system')
+layer_shell_dep = dependency('gtk4-layer-shell-0', include_type: 'system')
+wayland_client_dep = dependency('wayland-client', include_type: 'system')
+# g_desktop_app_info_new_from_filename() lives in gio-unix; the launcher reads
+# the machine's .desktop entries with it.
+gio_unix_dep = dependency('gio-unix-2.0', include_type: 'system')
+
+# libm: the workspace bar and the metric readouts use round()/fabs().
+libm_dep = cc.find_library('m', required: false)
+
+whelk_deps = [
+  gtk_dep,
+  guile_dep,
+  layer_shell_dep,
+  wayland_client_dep,
+  gio_unix_dep,
+  libm_dep,
+]
+
+# ------------------------------------------------------------------------------
+# GLib Resource Compilation
+# ------------------------------------------------------------------------------
+# The structural stylesheet is embedded in the binary. The per-bar skin is
+# generated from the Guile configuration at runtime (see src/bar.c).
+whelk_resources = gnome.compile_resources(
+  'whelk-resources',
+  'resources/whelk.gresource.xml',
+  source_dir: 'resources',
+  c_name: 'whelk',
+)
+
+# ------------------------------------------------------------------------------
+# Installation Paths & C Preprocessor Macros
+# ------------------------------------------------------------------------------
+datadir = get_option('prefix') / get_option('datadir')
+scheme_install_path = datadir / 'guile/site/3.0'
+
+add_project_arguments(
+  '-DWHELK_SCHEME_DIR="' + scheme_install_path + '"',
+  '-DDEFAULT_GSK_RENDERER="gl"',
+  '-DPACKAGE_VERSION="' + meson.project_version() + '"',
+  language: 'c'
+)
+
+# The Scheme modules that implement the configuration DSL.
+install_subdir('scheme/whelk', install_dir: scheme_install_path)
+
+# ------------------------------------------------------------------------------
+# Desktop Integration
+# ------------------------------------------------------------------------------
+whelk_app_id = 'org.jointhefreeworld.whelk'
+
+whelk_desktop_file = files('data' / whelk_app_id + '.desktop')
+install_data(
+  whelk_desktop_file,
+  install_dir: get_option('datadir') / 'applications',
+)
+
+# ------------------------------------------------------------------------------
+# Source Code Definitions & Executable Build
+# ------------------------------------------------------------------------------
+inc = include_directories('src')
+
+whelk_sources = files(
+  'src/main.c',
+  'src/bar.c',
+  'src/config.c',
+  'src/guile_bridge.c',
+  'src/launcher.c',
+  'src/module.c',
+  'src/network_panel.c',
+  'src/notification_center.c',
+  'src/notifications.c',
+  'src/shell.c',
+  'src/style.c',
+  'src/surface.c',
+  'src/modules/audio.c',
+  'src/modules/backlight.c',
+  'src/modules/battery.c',
+  'src/modules/bluetooth.c',
+  'src/modules/clock.c',
+  'src/modules/cpu.c',
+  'src/modules/custom.c',
+  'src/modules/keyboard.c',
+  'src/modules/language.c',
+  'src/modules/memory.c',
+  'src/modules/notifications.c',
+  'src/modules/power_profile.c',
+  'src/modules/tray.c',
+  'src/modules/wifi.c',
+  'src/modules/window.c',
+  'src/modules/workspaces.c',
+  'src/util/applets.c',
+  'src/util/calc.c',
+  'src/util/click.c',
+  'src/util/command.c',
+  'src/util/format.c',
+  'src/util/fuzzy.c',
+  'src/util/json.c',
+  'src/util/sysfs.c',
+)
+
+whelk_exe = executable('whelk',
+  whelk_sources,
+  whelk_resources,
+  include_directories: inc,
+  dependencies: whelk_deps,
+  gnu_symbol_visibility: 'hidden',
+  install: true,
+)
+
+# ------------------------------------------------------------------------------
+# Test Suite Configuration
+# ------------------------------------------------------------------------------
+# The pure halves of the shell are tested without a display: the JSON reader
+# that parses niri's IPC answers, the option tables the Guile bridge fills, and
+# the format substitution every module renders through.
+test_env = environment()
+test_env.set('GSETTINGS_BACKEND', 'memory')
+
+unit_tests = [
+  {
+    'id': 'json',
+    'sources': ['src/util/json.c'],
+  },
+  {
+    'id': 'config',
+    'sources': ['src/config.c', 'src/util/format.c'],
+  },
+  {
+    'id': 'launcher',
+    'sources': ['src/util/fuzzy.c', 'src/util/calc.c'],
+  },
+  {
+    'id': 'applets',
+    'sources': ['src/util/applets.c'],
+  },
+  {
+    'id': 'command',
+    'sources': ['src/util/command.c', 'src/util/format.c'],
+  },
+]
+
+foreach t : unit_tests
+  exe = executable(
+    'test_' + t['id'],
+    'tests/test_' + t['id'] + '.c',
+    t['sources'],
+    include_directories: inc,
+    dependencies: whelk_deps,
+  )
+  test(t['id'] + '_unit_tests', exe, env: test_env)
+endforeach
