@@ -5,6 +5,8 @@
 
 #include "modules/modules.h"
 
+#include "util/session.h"
+
 #include "style.h"
 #include "util/command.h"
 #include "util/json.h"
@@ -381,9 +383,12 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   const guint action_count = action_ids ? g_strv_length((char **)action_ids) : 0;
 
+  const WhelkSession session = whelk_session_detect();
+  g_autofree char *close_command = whelk_session_close_window_command(session);
+
   replace_menus(module,
                 whelk_menubar_synthesize(action_ids, action_labels,
-                                         action_count,
+                                         action_count, close_command,
                                          data->show_shortcuts
                                              ? data->shortcut_tool
                                              : NULL));
@@ -395,26 +400,33 @@ static void on_focused_window(WhelkModule *module, const char *text,
                               gpointer user_data) {
   (void)user_data;
 
-  g_autoptr(GError) error = NULL;
-  WhelkJson *root = whelk_json_parse(text, &error);
   MenuData *data = module->data;
+  char *title = NULL;
+  char *app_id = NULL;
 
-  if (!root) {
+  if (!whelk_session_parse_focused(whelk_session_detect(), text, &title,
+                                   &app_id)) {
     build_for_app(module, "");
     return;
   }
 
-  const char *app_id = whelk_json_object_string(root, "app_id");
-
   if (g_strcmp0(app_id, data->app_id) != 0)
     build_for_app(module, app_id);
 
-  whelk_json_free(root);
+  g_free(title);
+  g_free(app_id);
 }
 
 static void menu_update(WhelkModule *module) {
-  whelk_module_command(module, "niri msg -j focused-window", on_focused_window,
-                       NULL);
+  g_autofree char *command =
+      whelk_session_focused_window_command(whelk_session_detect());
+
+  if (!command) {
+    build_for_app(module, "");
+    return;
+  }
+
+  whelk_module_command(module, command, on_focused_window, NULL);
 }
 
 /* --- lifecycle ------------------------------------------------------------ */
@@ -443,8 +455,12 @@ WhelkModule *whelk_menu_module_new(const WhelkModuleSpec *spec,
   data->menus = whelk_menubar_new();
   data->show_shortcuts = whelk_spec_bool(spec, "shortcuts", TRUE);
 
-  g_autofree char *tool = g_find_program_in_path(
-      whelk_spec_str(spec, "shortcut-tool", "wtype"));
+  /* wtype types on Wayland, xdotool on X11; #:shortcut-tool overrides the
+   * choice, and a session with neither simply gets no shortcut entries. */
+  const char *requested = whelk_spec_str(spec, "shortcut-tool", NULL);
+  g_autofree char *tool =
+      requested ? g_find_program_in_path(requested)
+                : whelk_session_shortcut_tool(whelk_session_detect());
 
   data->shortcut_tool = tool ? g_strdup(tool) : NULL;
 

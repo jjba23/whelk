@@ -6,6 +6,41 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.0] - 2026-11-12
+
+### Added
+
+- **A session layer, so the shell knows where it runs.** `src/util/session.c`
+  detects niri, sway, an X11 desktop or a Wayland session with no
+  shell-facing IPC, and answers the two questions the modules actually ask: what
+  is in front, and how to close it. `NIRI_SOCKET` and `SWAYSOCK` identify their
+  compositors; EWMH (`xprop`) supplies the same two strings on X11.
+- **The focused window and the global menu work on sway and on X11.**
+  `window-module` and `menu-module` parse niri's focused-window JSON, sway's
+  window tree, or `WM_NAME`/`WM_CLASS` from `xprop`, instead of calling
+  `niri msg`. The menu's Close entry uses the session's own command
+  (`niri msg action close-window`, `swaymsg kill`, `wmctrl`), and a session that
+  cannot close windows gets no entry rather than a dead one.
+- **Shortcuts are typed with the session's tool**: `wtype` on Wayland,
+  `xdotool key ctrl+shift+z` on X11.
+- **An X11 dock fallback.** With `libx11` present at build time, a bar on an
+  X11 desktop is a real panel: `_NET_WM_WINDOW_TYPE_DOCK`,
+  `_NET_WM_STRUT_PARTIAL` and `_NET_WM_STRUT` for its edge, above/sticky/skip-
+  taskbar/skip-pager states, and `_NET_WM_DESKTOP` on every workspace.
+- **Graceful degradation without layer-shell.** GNOME's Wayland session (and
+  KDE's) has no `wlr-layer-shell`: whelk now presents its surfaces as ordinary
+  windows, logs one clear line explaining why, and keeps the launcher,
+  notifications and panels usable instead of failing.
+- `tests/test_session.c`: the three parsers, the command table and the
+  no-command sessions.
+- A "Compositors and desktops" table in the README, and a packaging
+  `default.nix`.
+
+### Changed
+
+- `whelk_menubar_synthesize()` takes the session's close command, so the menu
+  model no longer names a compositor.
+
 ## [0.2.0] - 2026-11-12
 
 ### Added

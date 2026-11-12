@@ -75,9 +75,11 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
  * @action_ids: (array length=action_count): the application's desktop actions.
  * @action_labels: (array length=action_count): their labels.
  * @action_count: how many there are.
- * @shortcut_tool: (nullable): the program that types keys, "wtype" when it is
- *   installed; NULL when it is not, which leaves the synthesized menus to the
- *   entries that do not need one.
+ * @close_command: (nullable): the command that closes the focused window on
+ *   this session; NULL leaves the entry out.
+ * @shortcut_tool: (nullable): the program that types keys, "wtype" on Wayland
+ *   and "xdotool" on X11; NULL when neither is installed, which leaves the
+ *   synthesized menus to the entries that do not need one.
  *
  * The menubar an application without a menubar gets: File with its desktop
  * actions and a Close Window, Edit and View built from the shortcuts every
@@ -88,6 +90,7 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
 GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
                                     const char *const *action_labels,
                                     guint action_count,
+                                    const char *close_command,
                                     const char *shortcut_tool);
 
 /* The command that types a chord, "wtype -M ctrl -k z -m ctrl". */

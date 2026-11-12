@@ -310,6 +310,31 @@ char *whelk_shortcut_command(const char *tool, const char *modifiers,
   if (!tool || *tool == '\0' || !key || *key == '\0')
     return NULL;
 
+  /* wtype presses and releases; xdotool is told the whole chord at once. */
+  if (g_str_has_suffix(tool, "xdotool")) {
+    g_autofree char *chord = NULL;
+
+    if (!modifiers || *modifiers == '\0') {
+      chord = g_strdup(key);
+    } else {
+      g_auto(GStrv) parts = g_strsplit(modifiers, " ", -1);
+      GString *built = g_string_new(NULL);
+
+      for (guint i = 0; parts[i]; i++) {
+        if (*parts[i] == '\0')
+          continue;
+
+        g_string_append(built, parts[i]);
+        g_string_append_c(built, '+');
+      }
+
+      g_string_append(built, key);
+      chord = g_string_free(built, FALSE);
+    }
+
+    return g_strdup_printf("%s key %s", tool, chord);
+  }
+
   if (!modifiers || *modifiers == '\0')
     return g_strdup_printf("%s -k %s", tool, key);
 
@@ -328,6 +353,7 @@ static void add_shortcut(WhelkMenu *menu, const char *label, const char *tool,
 GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
                                     const char *const *action_labels,
                                     guint action_count,
+                                    const char *close_command,
                                     const char *shortcut_tool) {
   GPtrArray *bar = whelk_menubar_new();
 
@@ -349,9 +375,13 @@ GPtrArray *whelk_menubar_synthesize(const char *const *action_ids,
   if (action_count > 0)
     whelk_menu_add_separator(file);
 
-  WhelkMenuEntry *close = whelk_menu_add_entry(file, "Close Window");
+  /* Closing a window is the compositor's job, and its name differs per session;
+   * a session that cannot close windows gets no entry rather than a dead one. */
+  if (close_command && *close_command) {
+    WhelkMenuEntry *close = whelk_menu_add_entry(file, "Close Window");
 
-  close->command = g_strdup("niri msg action close-window");
+    close->command = g_strdup(close_command);
+  }
 
   g_ptr_array_add(bar, file);
 

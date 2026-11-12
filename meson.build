@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.2.0',
+  version: '0.3.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -65,6 +65,11 @@ gio_unix_dep = dependency('gio-unix-2.0', include_type: 'system')
 # libm: the workspace bar and the metric readouts use round()/fabs().
 libm_dep = cc.find_library('m', required: false)
 
+# Xlib: on an X11 desktop a bar reserves its edge the EWMH way, with a dock
+# window type and struts, because there is no layer-shell to ask.  Optional: a
+# Wayland-only build simply has no X11 fallback compiled into it.
+x11_dep = dependency('x11', include_type: 'system', required: false)
+
 whelk_deps = [
   gtk_dep,
   guile_dep,
@@ -73,6 +78,11 @@ whelk_deps = [
   gio_unix_dep,
   libm_dep,
 ]
+
+if x11_dep.found()
+  whelk_deps += x11_dep
+  add_project_arguments('-DHAVE_X11', language: 'c')
+endif
 
 # ------------------------------------------------------------------------------
 # GLib Resource Compilation
@@ -158,6 +168,7 @@ whelk_sources = files(
   'src/util/fuzzy.c',
   'src/util/json.c',
   'src/util/menutree.c',
+  'src/util/session.c',
   'src/util/nmcli.c',
   'src/util/sysfs.c',
 )
@@ -200,6 +211,10 @@ unit_tests = [
   {
     'id': 'menutree',
     'sources': ['src/util/menutree.c'],
+  },
+  {
+    'id': 'session',
+    'sources': ['src/util/session.c', 'src/util/json.c'],
   },
   {
     'id': 'applets',

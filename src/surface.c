@@ -8,6 +8,12 @@
 #include "config.h"
 #include "logger.h"
 
+#ifdef HAVE_X11
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <gdk/x11/gdkx.h>
+#endif
+
 struct _WhelkSurface {
   GObject parent_instance;
 
@@ -255,12 +261,154 @@ static void apply_default_size(WhelkSurface *surface) {
   gtk_window_set_default_size(surface->window, width, height);
 }
 
+#ifdef HAVE_X11
+/* The EWMH way to reserve an edge: a dock window type plus the strut that says
+ * which strip of the screen it occupies.  Every X11 desktop reads these --
+ * XFCE, MATE, Cinnamon, i3, openbox -- and a bar that sets them is a panel
+ * there, not a window that floats over the applications. */
+static void apply_x11_dock_hints(WhelkSurface *surface) {
+  /* GTK 4.18 deprecated the whole gdkx.h surface in favour of a backend-neutral
+   * API that has no way to speak EWMH: window types, struts and the atom table
+   * are X11's own vocabulary.  The calls still work, so they are used inside the
+   * one place that needs them rather than spread through the shell. */
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+
+  GdkSurface *gdk_surface = gtk_native_get_surface(GTK_NATIVE(surface->window));
+
+  if (!gdk_surface || !GDK_IS_X11_SURFACE(gdk_surface))
+    return;
+
+  GdkDisplay *display = gdk_surface_get_display(gdk_surface);
+  Display *xdisplay = gdk_x11_display_get_xdisplay(display);
+  const Window xid = gdk_x11_surface_get_xid(gdk_surface);
+
+  if (!xdisplay || xid == None)
+    return;
+
+  const Atom window_type =
+      gdk_x11_get_xatom_by_name_for_display(display, "_NET_WM_WINDOW_TYPE");
+  const Atom dock =
+      gdk_x11_get_xatom_by_name_for_display(display,
+                                            "_NET_WM_WINDOW_TYPE_DOCK");
+  const Atom state_atom =
+      gdk_x11_get_xatom_by_name_for_display(display, "_NET_WM_STATE");
+  const char *state_names[] = {"_NET_WM_STATE_ABOVE", "_NET_WM_STATE_STICKY",
+                               "_NET_WM_STATE_SKIP_TASKBAR",
+                               "_NET_WM_STATE_SKIP_PAGER"};
+  const guint state_count = G_N_ELEMENTS(state_names);
+  Atom states[G_N_ELEMENTS(state_names)];
+
+  for (guint i = 0; i < state_count; i++)
+    states[i] = gdk_x11_get_xatom_by_name_for_display(display, state_names[i]);
+
+  XChangeProperty(xdisplay, xid, window_type, XA_ATOM, 32, PropModeReplace,
+                  (const unsigned char *)&dock, 1);
+  XChangeProperty(xdisplay, xid, state_atom, XA_ATOM, 32, PropModeReplace,
+                  (const unsigned char *)states, (int)state_count);
+
+  /* Only a bar reserves an edge; a launcher or a notification stack is a
+   * floating window and must not push the desktop aside. */
+  if (surface->exclusive && !surface->explicit_anchors &&
+      surface->thickness > 0) {
+    const long thickness = surface->thickness;
+    long struts[12] = {0};
+
+    GdkDisplay *gdk_display = gdk_surface_get_display(gdk_surface);
+    GdkMonitor *monitor =
+        gdk_display_get_monitor_at_surface(gdk_display, gdk_surface);
+
+    if (!monitor)
+      monitor = g_list_model_get_item(G_LIST_MODEL(gdk_display_get_monitors(
+                                          gdk_display)),
+                                      0);
+
+    GdkRectangle geometry = {0};
+
+    if (monitor)
+      gdk_monitor_get_geometry(monitor, &geometry);
+
+    const long width = MAX(geometry.width, 1);
+    const long height = MAX(geometry.height, 1);
+
+    if (surface->edge == GTK_LAYER_SHELL_EDGE_TOP) {
+      struts[2] = thickness;
+      struts[8] = 0;
+      struts[9] = width - 1;
+    } else if (surface->edge == GTK_LAYER_SHELL_EDGE_BOTTOM) {
+      struts[3] = thickness;
+      struts[10] = 0;
+      struts[11] = width - 1;
+    } else if (surface->edge == GTK_LAYER_SHELL_EDGE_LEFT) {
+      struts[0] = thickness;
+      struts[4] = 0;
+      struts[5] = height - 1;
+    } else if (surface->edge == GTK_LAYER_SHELL_EDGE_RIGHT) {
+      struts[1] = thickness;
+      struts[6] = 0;
+      struts[7] = height - 1;
+    }
+
+    XChangeProperty(
+        xdisplay, xid,
+        gdk_x11_get_xatom_by_name_for_display(display,
+                                              "_NET_WM_STRUT_PARTIAL"),
+        XA_CARDINAL, 32, PropModeReplace, (const unsigned char *)struts, 12);
+    XChangeProperty(xdisplay, xid,
+                    gdk_x11_get_xatom_by_name_for_display(display,
+                                                          "_NET_WM_STRUT"),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (const unsigned char *)struts, 4);
+
+    /* On every desktop at once: a panel has no workspace of its own. */
+    const Atom desktop =
+        gdk_x11_get_xatom_by_name_for_display(display, "_NET_WM_DESKTOP");
+    const long all_desktops = 0xFFFFFFFFL;
+
+    XChangeProperty(xdisplay, xid, desktop, XA_CARDINAL, 32, PropModeReplace,
+                    (const unsigned char *)&all_desktops, 1);
+  }
+
+  XFlush(xdisplay);
+
+  G_GNUC_END_IGNORE_DEPRECATIONS
+}
+#endif
+
+/* A session without wlr-layer-shell -- GNOME's Wayland session above all --
+ * cannot place a shell's surfaces: there is no protocol to say "pin this to the
+ * top edge and keep the windows below it".  Degrading means presenting the
+ * surface as an ordinary window anyway, so the launcher and the panels stay
+ * usable as windows, and saying once, plainly, why they are not docked.  On
+ * X11 the same window can still be a real dock, which the hints above do. */
+static void present_floating(WhelkSurface *surface) {
+  static gboolean explained = FALSE;
+
+  if (!explained) {
+    explained = TRUE;
+    LOG_C_INFO("Surface",
+               "this session does not support wlr-layer-shell: presenting "
+               "whelk's surfaces as ordinary windows");
+  }
+
+  apply_default_size(surface);
+  gtk_window_present(surface->window);
+
+#ifdef HAVE_X11
+  apply_x11_dock_hints(surface);
+#endif
+}
+
 void whelk_surface_present(WhelkSurface *surface) {
   if (!surface || !surface->window)
     return;
 
   GtkWindow *window = surface->window;
   const gboolean horizontal = whelk_surface_is_horizontal(surface);
+
+  if (!gtk_layer_is_supported()) {
+    present_floating(surface);
+    return;
+  }
 
   gtk_layer_init_for_window(window);
   gtk_layer_set_namespace(window, surface->namespace_name);

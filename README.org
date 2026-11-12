@@ -32,7 +32,10 @@ a launcher that replaces rofi.
   - =gtk4-layer-shell= (0.x)
   - GNU Guile 3.0 (development headers)
   - Meson, Ninja, a C17 compiler, =pkg-config=
-  - Wayland: niri is the compositor the niri modules talk to
+  - Optional, found at build time: =libx11= (the X11 dock fallback)
+  - Optional, found at run time: =niri= or =swaymsg= (compositor IPC),
+    =xprop= (X11 window focus), =wtype= or =xdotool= (typing a menu shortcut),
+    =nmcli=, =bluetoothctl=, =wlsunset=
 
 The Guix manifest pins the whole toolchain:
 
@@ -42,6 +45,45 @@ The Guix manifest pins the whole toolchain:
 
 (=guix.scm= defines whelk as a package, for =guix install -f guix.scm= or for
 a =guix shell -D -f guix.scm= development environment.)
+
+* Compositors and desktops
+
+  Whelk asks the session what it can do and does that much; nothing is assumed
+  from the name, and the parts a session cannot support go quiet rather than
+  print errors.
+
+| Session                                  | Bars                                  | Panels, toasts, launcher | Focused window, global menu | Workspaces |
+|------------------------------------------+---------------------------------------+--------------------------+-----------------------------+------------|
+| niri                                     | layer-shell, exclusive zone           | layer-shell              | niri IPC                    | niri IPC   |
+| sway                                     | layer-shell, exclusive zone           | layer-shell              | sway's window tree          | --         |
+| X11 (XFCE, MATE, Cinnamon, i3, openbox, GNOME on X11, ...) | dock window with EWMH struts | dock/floating window | EWMH via =xprop= | -- |
+| GNOME Wayland, KDE Wayland, other Wayland | ordinary windows: no layer-shell      | ordinary windows         | -- (no shell-facing IPC)    | --         |
+
+Three capabilities are detected separately, because they come from different
+places:
+
+- *Placing a bar* needs =wlr-layer-shell=, which niri and sway implement and
+  GNOME and KDE do not.  Without it every surface is presented as an ordinary
+  undecorated window -- the launcher and the panels stay usable, and one line in
+  the log says why they are not docked.  With =libx11= at build time an X11
+  session gets the same window presented as a real dock: =_NET_WM_WINDOW_TYPE_DOCK=,
+  =_NET_WM_STRUT_PARTIAL= for the bar's edge, =_NET_WM_STATE= above/sticky/skip-taskbar,
+  and =_NET_WM_DESKTOP= on every workspace.
+- *Knowing what is in front* comes from =NIRI_SOCKET= (niri's own IPC),
+  =SWAYSOCK= (sway's tree), or EWMH on X11.  Those three produce the same two
+  strings, so =window-module= and the global menu's File/Edit/View work on all
+  three.  GNOME's Wayland session deliberately offers no such channel
+  (=Shell.Eval= is gone), so there the module stays empty.
+- *Closing a window and typing a shortcut* follow the same split:
+  =niri msg action close-window=, =swaymsg kill= or =wmctrl= on X11; =wtype= on
+  Wayland, =xdotool= on X11.  A session with no tool for it gets no menu entry
+  rather than an entry that does nothing.
+
+GNOME's Wayland session is the one place where whelk cannot be a shell: Mutter
+exposes neither layer-shell nor a way to read focus.  Whelk still starts, still
+draws its bars as windows, and the launcher, notifications and network panel
+work -- that is the graceful degradation, and it is what the table's last row
+means.
 
 * Build and run
 
@@ -191,9 +233,9 @@ of the binary.
 | =backlight-module=    | /sys/class/backlight                             | =#:device=, ={percent}=                                 |
 | =audio-module=        | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, ={volume}=            |
 | =power-profile-module=| powerprofilesctl                                 | ={profile}=                                             |
-| =workspaces-module=   | niri IPC, one button per workspace               | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
-| =window-module=       | niri IPC, the focused window                     | =#:max-length=, ={title}=, ={app-id}=                    |
-| =language-module=     | niri's keyboard layouts                          | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
+| =workspaces-module=   | niri IPC, one button per workspace (niri only)   | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
+| =window-module=       | the focused window, niri/sway/X11                | =#:max-length=, ={title}=, ={app-id}=                    |
+| =language-module=     | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
 | =keyboard-module=     | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
 | =custom-module=       | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
 | =wifi-module=         | nmcli: the radio and the active access point     | =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
@@ -524,8 +566,14 @@ the same commands.
   right click asks the item to show its menu itself.
 - Caps Lock is read from the input LED: the only compositor-independent state a
   Wayland client can see.
-- Workspaces are addressed by index, which is what niri's
-  =focus-workspace= takes.
+- Workspaces and the keyboard layout are niri's own modules: niri IPC is the
+  only compositor interface for them whelk speaks, and on other sessions those
+  modules render nothing.  Workspaces are addressed by index, which is what
+  niri's =focus-workspace= takes.
+- With no =wlr-layer-shell= (GNOME, KDE) the bars are ordinary windows.  They
+  are not docked, do not reserve space and can be covered; the launcher and the
+  panels still work.  There is no protocol a Wayland client can use to place
+  itself on an edge there, so this is the honest ceiling, not a missing flag.
 - A module that hides itself when its hardware is absent (battery, backlight,
   power profile) reserves no space -- that is deliberate.
 - =#:icon= needs a face that carries the glyph: set =#:icon-font= (the example

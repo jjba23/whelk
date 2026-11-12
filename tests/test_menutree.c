@@ -22,7 +22,8 @@ static void test_synthesize_file_menus(void) {
   const char *ids[] = {"new-window", "new-private"};
   const char *labels[] = {"New Window", "New Private Window"};
 
-  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(ids, labels, 2, NULL);
+  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(ids, labels, 2,
+                                    "niri msg action close-window", NULL);
 
   g_assert_cmpuint(bar->len, ==, 1);
 
@@ -41,7 +42,7 @@ static void test_synthesize_file_menus(void) {
 }
 
 static void test_synthesize_shortcuts(void) {
-  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(NULL, NULL, 0, "wtype");
+  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(NULL, NULL, 0, NULL, "wtype");
 
   g_assert_cmpuint(bar->len, ==, 3);
   g_assert_cmpstr(menu_at(bar, 1)->label, ==, "Edit");
@@ -60,7 +61,7 @@ static void test_synthesize_shortcuts(void) {
 
 static void test_synthesize_without_tool(void) {
   /* No program can type a chord, so no menu offers one. */
-  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(NULL, NULL, 0, NULL);
+  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(NULL, NULL, 0, NULL, NULL);
 
   g_assert_cmpuint(bar->len, ==, 1);
   g_assert_cmpstr(menu_at(bar, 0)->label, ==, "File");
@@ -72,6 +73,23 @@ static void test_shortcut_command(void) {
   g_assert_cmpstr(chord, ==, "wtype -M ctrl shift -k p -m ctrl shift");
   g_assert_null(whelk_shortcut_command(NULL, "ctrl", "p"));
   g_assert_null(whelk_shortcut_command("wtype", "ctrl", ""));
+
+  /* On X11 the same chord is one xdotool call. */
+  g_autofree char *x11 = whelk_shortcut_command("xdotool", "ctrl shift", "z");
+
+  g_assert_cmpstr(x11, ==, "xdotool key ctrl+shift+z");
+
+  g_autofree char *plain = whelk_shortcut_command("xdotool", NULL, "F11");
+
+  g_assert_cmpstr(plain, ==, "xdotool key F11");
+}
+
+static void test_synthesize_without_close_command(void) {
+  /* A session that cannot close windows gets no dead entry. */
+  g_autoptr(GPtrArray) bar = whelk_menubar_synthesize(NULL, NULL, 0, NULL, NULL);
+  WhelkMenu *file = menu_at(bar, 0);
+
+  g_assert_cmpuint(file->entries->len, ==, 0);
 }
 
 static GVariant *parse(const char *text) {
@@ -147,6 +165,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/menutree/synthesize/file", test_synthesize_file_menus);
   g_test_add_func("/menutree/synthesize/shortcuts", test_synthesize_shortcuts);
   g_test_add_func("/menutree/synthesize/no-tool", test_synthesize_without_tool);
+  g_test_add_func("/menutree/synthesize/no-close",
+                  test_synthesize_without_close_command);
   g_test_add_func("/menutree/shortcut-command", test_shortcut_command);
   g_test_add_func("/menutree/gtk/menubar", test_gtk_menubar);
   g_test_add_func("/menutree/gtk/sections", test_gtk_sections_inside_a_menu);

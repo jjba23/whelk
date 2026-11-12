@@ -1,3 +1,14 @@
+whelk (0.3.0-1) unstable; urgency=medium
+
+  * A session layer: niri, sway and X11 each answer "what is in front" and
+    "close it" in their own way, and the focused window, the global menu and
+    its shortcuts work on all three.
+  * An X11 dock fallback: a bar reserves its edge with EWMH struts.
+  * Graceful degradation where layer-shell is missing (GNOME Wayland): surfaces
+    are ordinary windows and the launcher, panels and notifications still work.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 20:00:00 +0100
+
 whelk (0.2.0-1) unstable; urgency=medium
 
   * A macOS-shaped bar: the shell's own menu and a global menu that reads an
