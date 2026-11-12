@@ -22,6 +22,14 @@ window.whelk-surface {
 }
 
 /* A module is one glyph or one number or one word, with air around it. */
+/* The toolkit's theme sets a colour of its own on buttons, which would cut the
+ * bar's ink off at every one of them: inside the bar a button inherits the
+ * bar's colour, so a glyph or a mark on it is as bright as the labels beside
+ * it.  An accent button still sets its own. */
+.whelk-bar button {
+  color: inherit;
+}
+
 .whelk-module {
   padding: 0 6px;
   border-radius: 6px;
@@ -301,6 +309,11 @@ window.whelk-surface {
 .whelk-menu-button,
 .whelk-start-button {
   font-weight: 600;
+  /* The mark is drawn to the button's padding box, so the button adds nothing
+   * of its own: the shell sits as tall as the bar allows. */
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* The chord on the right of a shortcut entry: present, and never the thing

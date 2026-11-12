@@ -25,12 +25,17 @@ project follows [Semantic Versioning][semver].
 
 ### Changed
 
-- **The star is a native GTK menu.** The default bar wears `(start-module)`
-  rather than a `custom-module` that called `rofi -show heks-system-menu`: one
-  glyph, and a popover with the launcher, the network panel, the notification
-  centre, a reload and Quit, with no program spawned to draw it.  The glyph is
-  drawn in the bar's icon font, so `#:label` is the glyph the configuration
-  names and not whatever the text face has at that code point.
+- **The start menu wears a whelk.** The mark at the left of the default bar is
+  no longer Font Awesome's empty star: it is the shell the shell is named after,
+  one ribbon spiralling from a thin spire out to a wide lip.  It is drawn from a
+  formula in the bar's own foreground, so it needs no icon theme, no icon file
+  and no icon font, and it stays sharp at any `#:icon-size` (18 by default) and
+  any bar height.  `#:label` still swaps it for a glyph.
+- **The start menu is a native GTK menu.** The default bar wears
+  `(start-module)` rather than a `custom-module` that called
+  `rofi -show heks-system-menu`: one mark, and a popover with the launcher, the
+  network panel, the notification centre, a reload and Quit, with no program
+  spawned to draw it.
 - The global menu asks D-Bus first, then the dictionary, then the shared
   shortcuts -- and asks GTK's anonymous application for a menubar too, which is
   where a non-unique application publishes one.
@@ -38,6 +43,9 @@ project follows [Semantic Versioning][semver].
 
 ### Fixed
 
+- The start menu's mark was drawn in the theme's text colour rather than the
+  bar's, so on a dark bar it was nearly invisible; the glyph beside it had the
+  same fault.  Both now take the bar's configured foreground.
 - The start menu's tooltip covered its first entry; hover text is switched off
   while the popover is up.
 - A File menu with nothing in it is not offered any more, and a separator is

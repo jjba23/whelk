@@ -180,9 +180,10 @@ have no window; #:format is the label ({index} or {name})."
 
 (define* (start-module #:rest kv)
   "The shell's own menu: the launcher, the panels, the settings and quitting,
-behind one glyph.  The menu is a GTK popover the shell builds itself -- no rofi,
-no subprocess.  #:label is the glyph (a snail shell by default), drawn in the
-bar's icon font; #:tooltip is its hover text."
+behind one mark.  The menu is a GTK popover the shell builds itself -- no rofi,
+no subprocess.  It wears the whelk, drawn in the bar's ink; #:label replaces it
+with a glyph from the bar's icon font, #:icon-size sets the mark's pixels (18 by
+default), and #:tooltip is its hover text."
   (apply module 'start kv))
 
 (define* (menu-module #:rest kv)

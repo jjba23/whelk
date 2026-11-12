@@ -105,9 +105,10 @@ the documented one -- see [[#configuration][Configuration]].
   file may define procedures of its own.
 - *Hot reload, and a REPL.* The settings directory is watched; saving rebuilds
   every bar.  Ask for a socket REPL and evaluate forms in the running shell.
-- *A shell menu that is the shell's own.* One glyph, and behind it a GTK
-  popover with the launcher, the network panel, the notification centre, a
-  reload and the way out -- not a click handed to =rofi=.
+- *A shell menu that is the shell's own.* The whelk the shell is named after,
+  and behind it a GTK popover with the launcher, the network panel, the
+  notification centre, a reload and the way out -- not a click handed to
+  =rofi=.
 - *The focused application's menus.* Its own =File=/=Edit=/=View= where it
   publishes a menubar over D-Bus; otherwise the documented shortcuts of nine
   applications, each entry showing its chord and typing it; otherwise the
@@ -289,7 +290,7 @@ and save again, and it moves.  With no settings file at all you get the built-in
 default bar, which is the heks-linux Waybar bar plus the global menu, so the
 first start is never a blank screen and never a stand-in for the documented one.
 
-Click things while you are there: the glyph at the far left opens the shell's
+Click things while you are there: the whelk at the far left opens the shell's
 own menu, a notification bell opens the centre, a Wi-Fi reading opens the network
 panel, and =whelk --launcher= opens the launcher from any keybinding you give
 it.
@@ -538,7 +539,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}=                |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (left click: centre, right: DND)    |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:hide= (fragments to leave out)            |
-| =start-module=         | the shell's own menu                             | =#:label= (the glyph), =#:tooltip=                        |
+| =start-module=         | the shell's own menu                             | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip=   |
 | =menu-module=          | the focused application's menubar                | =#:shortcuts?=, =#:shortcut-tool=                         |
 
 A worked example of the whole set is in =settings/settings.scm=, which also has a
@@ -597,11 +598,15 @@ own colours alone with one warning.
 :CUSTOM_ID: menus
 :END:
 
-=start-module= is the first thing on a macOS-shaped bar: one glyph, and behind it
-a GTK popover -- the launcher, the network panel, the notification centre, a
-reload and the way out.  No program is called to draw it, and nothing in it is
-hard-wired: a settings file sets =#:label= to any glyph its icon font has, and
-the glyph is drawn in that font.
+=start-module= is the first thing on a macOS-shaped bar: the whelk the shell is
+named after, and behind it a GTK popover -- the launcher, the network panel, the
+notification centre, a reload and the way out.  No program is called to draw it,
+and no icon file or icon theme is needed for the mark either: it is one ribbon
+spiralling from a thin spire out to a wide lip, drawn from a formula in the
+bar's own ink, at =#:icon-size= pixels (18 by default).  That makes it as sharp
+as the bar is tall and exactly as coloured as the glyphs beside it.  A
+configuration that wants a different mark sets =#:label= to any glyph its icon
+font has, and that glyph is drawn in that font.
 
 =menu-module= puts the application in front's menus next to it.  Three
 producers, in that order:

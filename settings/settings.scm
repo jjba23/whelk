@@ -41,14 +41,14 @@
 
    ;; ---------------------------------------------------------------- left --
    ;; A menu bar's left half is the shell's own menu and what is in front of
-   ;; you.  The glyph is Font Awesome's empty star, the reference's mark.
+   ;; you.  The mark is the whelk, drawn in the bar's own ink; #:label swaps it
+   ;; for any glyph the icon font has.
    #:left (list
            ;; The shell's own menu, natively: one glyph, and behind it the
            ;; launcher, the panels, a reload and the way out.  No rofi, no
            ;; subprocess to hand the click to -- the popover is GTK and every
            ;; entry in it is the shell's own.
-           (start-module #:label "\uf005"
-                         #:tooltip "whelk — the shell's own menu
+           (start-module #:tooltip "whelk — the shell's own menu
 Click: the launcher, the panels, a reload and the way out")
            (window-module #:format "{title}"
                           #:max-length 50
