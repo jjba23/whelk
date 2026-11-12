@@ -64,6 +64,7 @@ Wayfire.
 %doc README.org
 %{_bindir}/whelk
 %{_datadir}/applications/org.jointhefreeworld.whelk.desktop
+%{_datadir}/icons/hicolor/*/apps/org.jointhefreeworld.whelk.*
 %dir %{_datadir}/guile
 %dir %{_datadir}/guile/site
 %dir %{_datadir}/guile/site/3.0

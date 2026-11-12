@@ -123,6 +123,15 @@ install_data(
   install_dir: get_option('datadir') / 'applications',
 )
 
+# The application icon, a whelk shell drawn for it in the Tela idiom: a
+# hicolor tree so the desktop entry and the shell's own windows resolve it by
+# the application id, and a scalable source beside the rendered sizes.
+install_subdir(
+  'data/icons',
+  install_dir: get_option('datadir') / 'icons',
+  strip_directory: true,
+)
+
 # ------------------------------------------------------------------------------
 # Source Code Definitions & Executable Build
 # ------------------------------------------------------------------------------
@@ -258,6 +267,19 @@ if guile.found()
       '--no-auto-compile',
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_themes.scm'),
+    ],
+    env: test_env,
+  )
+
+  # The built-in bar and the shipped example have to stay the same bar.
+  test(
+    'defaults_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_defaults.scm'),
+      join_paths(meson.project_source_root(), 'settings', 'settings.scm'),
     ],
     env: test_env,
   )

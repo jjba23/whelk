@@ -11,9 +11,10 @@
 ;; (`init-shell!', `load-shell-config!', `start-repl!').
 ;;
 ;; This is also where the fallback configuration lives.  A shell with no
-;; settings file still has to be a shell, and a bar with a clock, the machine's
-;; load and a tray is the smallest honest one -- the same courtesy lambdock pays
-;; a fresh installation.
+;; settings file still has to be a shell, and the one it gets is the built-in
+;; bar from (whelk defaults): the heks-linux Waybar bar, the global menu
+;; included, so a fresh machine lands on the bar the rest of the desktop is
+;; documented against rather than on a placeholder.
 
 ;;; Code:
 
@@ -21,6 +22,7 @@
   #:declarative? #f
   #:use-module (ice-9 threads)
   #:use-module (system repl server)
+  #:use-module (whelk defaults)
   #:use-module (whelk logger)
   #:use-module (whelk modules)
   #:use-module (whelk state)
@@ -87,7 +89,8 @@
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path
-               load-settings-file!)
+               load-settings-file!
+               default-bar)
   #:export (init-shell! load-shell-config! default-shell! start-repl!))
 
 ;; =============================================================================
@@ -107,20 +110,13 @@ compositor."
     loaded?))
 
 (define (default-shell!)
-  "Register the fallback bar: clock, load, memory, battery and tray.
+  "Register the built-in bar as the fallback configuration.
 
-The order is the one a new machine can actually use: what time it is, how hard
-it is working, what is left, and the status icons of everything else."
-  (configure-shell!
-   #:config-path 'default
-   #:bars (list (bar #:name 'main
-                     #:position 'top
-                     #:height 32
-                     #:right (list (cpu-module #:interval 2)
-                                   (memory-module #:interval 5)
-                                   (battery-module #:interval 30)
-                                   (tray-module)
-                                   (clock-module #:interval 1))))))
+It is the bar settings/settings.scm hands out -- (default-bar) from (whelk
+defaults), which is the heks-linux Waybar bar plus the global menu -- so an
+installation with no settings file still gets the bar this project documents,
+not a stripped-down stand-in for it."
+  (default-configuration!))
 
 (define (init-shell!)
   "Entry point invoked by the C runtime once Guile is up.

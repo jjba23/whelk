@@ -2,6 +2,8 @@
 #+SUBTITLE: a Wayland shell written in C, GTK4 and GNU Guile Scheme
 #+OPTIONS: toc:2
 
+#+HTML: <p align="center"><img src="data/icons/hicolor/scalable/apps/org.jointhefreeworld.whelk.svg" alt="The whelk icon: a whelk shell in the Tela idiom" width="128" height="128"></p>
+
 Whelk is a Wayland shell: a status bar today, a launcher, a notification
 daemon and floating desktop widgets in time.  It is written in C against GTK4
 and =gtk4-layer-shell=, and it is configured declaratively in GNU Guile Scheme,
@@ -172,8 +174,15 @@ Copy the example and edit it:
 
 The file is read at startup and *again whenever it changes* (the directory is
 watched, with a 250 ms debounce), so editing the bar is instant.  With no
-settings file at all, whelk draws a built-in bar with a clock, load, memory and
-the tray, so a fresh machine is never left without a shell.
+settings file at all, whelk draws the same bar this example describes --
+=(default-bar)= from =(whelk defaults)=, the heks-linux Waybar bar with the
+global menu after the window -- so a fresh machine is never left without a
+shell, and never starts on a stand-in for the documented one.  A settings file
+that wants that bar and nothing else says:
+
+#+begin_src scheme
+  (configure-shell! #:bars (list (default-bar)))
+#+end_src
 
 The DSL
 =======
@@ -521,7 +530,11 @@ The boundaries are the design:
 | =config.jsonc=                   | =settings.scm=                                              |
 
 There is no =modules-center= in the reference bar; =workspaces-module= exists
-for it and is commented out in the example settings.
+for it and is commented out in the default bar.
+
+The default bar adds one module the reference has no counterpart for:
+=menu-module= after the window, so the application in front's File/Edit/View
+sit where a menu bar puts them.
 
 * Testing
 

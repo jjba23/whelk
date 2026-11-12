@@ -3,9 +3,11 @@
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 ;;
-;; A 1:1 replacement for the heks-linux Waybar bar: the machine's own menu and
-;; the focused window on the left, the status items on the right, in the order
-;; the reference keeps them.
+;; A 1:1 replacement for the heks-linux Waybar bar: the machine's own menu, the
+;; focused window and the global menu on the left, the status items on the
+;; right, in the order the reference keeps them.  This is the same bar whelk
+;; builds with no settings file -- (default-bar) from (whelk defaults) -- so a
+;; fresh machine starts here instead of on a placeholder.
 ;;
 ;; Copy this file to ~/.config/whelk/settings.scm and change it there; whelk
 ;; reloads the bar when the file is saved.
@@ -54,7 +56,11 @@ Click: open it · Right-click: the session menu"
                           #:interval 1
                           #:tooltip "{app-id}
 {title}"
-                          #:on-click "niri msg action focus-workspace-next"))
+                          #:on-click "niri msg action focus-workspace-next")
+           ;; The global menu: the application in front's own File, Edit and
+           ;; View, from its D-Bus menubar where it exports one and from its
+           ;; desktop actions and the shared shortcuts where it does not.
+           (menu-module #:shortcuts #t))
 
    ;; -------------------------------------------------------------- center --
    ;; The reference keeps no centre: a menu bar is two halves.  A workspace
