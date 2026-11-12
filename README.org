@@ -79,7 +79,7 @@ re-learn layer-shell.
 :END:
 
 #+name: whelk-bar
-#+caption: No settings file, so this is the built-in (default-bar): the machine's own menu, the focused window, the global menu's File, then the heks-linux status items in the reference order, and the clock.  Captured from a 1920x1080 X server with the stock defaults.
+#+caption: No settings file, so this is the built-in (default-bar): the shell's own menu, the focused window, the global menu's File/Edit/View, then the heks-linux status items in the reference order, and the clock.  Captured from a 1920x1080 X server with the stock defaults; the focused window is a small demo application and the Wi-Fi reading a stand-in, so the picture carries nothing from the machine it was taken on.
 [[file:resources/img/whelk-bar.png]]
 
 The left half says *whose window you are in and what can be done to it*; the
@@ -105,10 +105,13 @@ the documented one -- see [[#configuration][Configuration]].
   file may define procedures of its own.
 - *Hot reload, and a REPL.* The settings directory is watched; saving rebuilds
   every bar.  Ask for a socket REPL and evaluate forms in the running shell.
-- *The focused application's menus.* The shell menu (one glyph, everything the
-  shell can do) and the global menu -- the application in front's own
-  =File=/=Edit=/=View=, read over =org.gtk.Menus= or synthesized from its desktop
-  entry when it publishes none.
+- *A shell menu that is the shell's own.* One glyph, and behind it a GTK
+  popover with the launcher, the network panel, the notification centre, a
+  reload and the way out -- not a click handed to =rofi=.
+- *The focused application's menus.* Its own =File=/=Edit=/=View= where it
+  publishes a menubar over D-Bus; otherwise the documented shortcuts of nine
+  applications, each entry showing its chord and typing it; otherwise the
+  shortcuts every application shares.  Never an invented menu.
 - *A notification daemon.* whelk owns =org.freedesktop.Notifications= when
   nothing else does: toasts top right, a centre grouped by application, actions
   as buttons, persistence, and do-not-disturb.
@@ -286,8 +289,8 @@ and save again, and it moves.  With no settings file at all you get the built-in
 default bar, which is the heks-linux Waybar bar plus the global menu, so the
 first start is never a blank screen and never a stand-in for the documented one.
 
-Click things while you are there: the glyph at the far left opens the shell
-menu, a notification bell opens the centre, a Wi-Fi reading opens the network
+Click things while you are there: the glyph at the far left opens the shell's
+own menu, a notification bell opens the centre, a Wi-Fi reading opens the network
 panel, and =whelk --launcher= opens the launcher from any keybinding you give
 it.
 
@@ -595,27 +598,45 @@ own colours alone with one warning.
 :END:
 
 =start-module= is the first thing on a macOS-shaped bar: one glyph, and behind it
-the launcher, the network panel, the notification centre, a reload and the way
-out.  Nothing in it is hard-wired to a command -- a settings file can set
-=#:label= to any glyph its icon font has.
+a GTK popover -- the launcher, the network panel, the notification centre, a
+reload and the way out.  No program is called to draw it, and nothing in it is
+hard-wired: a settings file sets =#:label= to any glyph its icon font has, and
+the glyph is drawn in that font.
 
-=menu-module= puts the application in front's own menus next to it.  Two
+=menu-module= puts the application in front's menus next to it.  Three
 producers, in that order:
 
-- an application that exports its menubar over D-Bus is read, =org.gtk.Menus=,
-  which is what GTK's =gtk_application_set_menubar()= publishes.  Its labels and
-  its actions are the application's own.
-- everything else gets a menubar the shell synthesizes: the actions its desktop
-  entry declares, closing its window through the compositor, and -- when
-  =wtype= is installed -- =Edit= and =View= built from the shortcuts every
-  application shares, typed into the focused window.
+- *The application's own menubar, over D-Bus.*  GTK's
+  =gtk_application_set_menubar()= publishes it through =org.gtk.Menus= on the
+  application's bus name, so the labels, the actions, the checkmarks and the
+  greyed-out items are the application's own.  It is asked for at the two
+  conventional paths under the application id, and at GTK's anonymous
+  application, which is where a program that runs more than one instance
+  publishes.
+- *The dictionary.*  Most applications publish nothing, so their menus are
+  written from their documented shortcuts: nine applications -- Firefox, the
+  Chromium family, VS Code and its forks, LibreOffice Writer, GNOME's text
+  editors, the file managers, a dozen terminal emulators, Thunderbird and GIMP
+  -- each with the menus it really has.  Every entry shows its chord on the
+  right and types it into the focused window when it is chosen (=wtype= on
+  Wayland, =xdotool= on X11).  An application the dictionary does not know is
+  not given a File menu it might not have.
+- *The shared Edit and View.*  For everything else, the shortcuts every
+  application shares, in the same shape and with the same chords on the right.
 
-The second is not a placeholder.  A Wayland shell learns a GTK application's
-menu paths from the compositor's =gtk-shell= protocol, which niri does not
-implement, so on niri most applications will get the synthesized menus; orbit's
-global menu ends up in the same place on GNOME, with a curated corpus instead of
-a shortcut table.  Nothing is invented: an entry appears only if something can
-carry it out.
+Both fallbacks are only offered when something can type a chord: with neither
+=wtype= nor =xdotool= installed, an application that declares no desktop
+actions and exports no menubar gets no menus at all, rather than entries that
+could not work.  In every case the actions the application's desktop entry
+declares come first in File, and Close Window -- which the compositor does --
+comes last.
+
+The dictionary is not a placeholder.  A Wayland shell learns a GTK
+application's menu paths from the compositor's =gtk-shell= protocol, which niri
+does not implement, so on niri most applications will be served by it; orbit's
+global menu ends up in the same place on GNOME, with a curated corpus in place
+of a shortcut table.  Adding an application to whelk's is one entry in
+=src/util/menudict.c= -- its ids, then its menus -- and nothing else.
 
 #+begin_src scheme
   (bar #:name 'main #:theme 'tinted-2024 #:height 30
@@ -633,8 +654,10 @@ carry it out.
 
 A menu that changes while it is open is only re-read when the focus moves, a
 window action (=win.*=) is sent to the application's first window object, and
-the D-Bus menubar is probed at the two conventional object paths under the
-application id rather than discovered.  The panels, the toasts and the menus
+the D-Bus menubar is probed at the conventional object paths rather than
+discovered.  The dictionary covers nine applications and their documented
+shortcuts: it is a curated list, not a guess, and an application that is not in
+it gets the shared Edit and View.  The panels, the toasts and the menus
 open on the compositor's first monitor; a bar's =#:monitor= is its own.
 
 ** Hot reload and the REPL
@@ -748,7 +771,7 @@ means.
 
 | Waybar module                  | Whelk                                                     |
 |--------------------------------+-----------------------------------------------------------|
-| =custom/heks-system-menu=        | =custom-module= with a glyph and =#:on-click=                |
+| =custom/heks-system-menu=        | =start-module= (a GTK popover, no rofi)                      |
 | =niri/window=                    | =window-module=                                            |
 | =custom/media=                   | =custom-module= + playerctl                                |
 | =custom/heks-clipboard=          | =custom-module= + clipman                                  |
