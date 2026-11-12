@@ -67,8 +67,14 @@ places:
   undecorated window -- the launcher and the panels stay usable, and one line in
   the log says why they are not docked.  With =libx11= at build time an X11
   session gets the same window presented as a real dock: =_NET_WM_WINDOW_TYPE_DOCK=,
-  =_NET_WM_STRUT_PARTIAL= for the bar's edge, =_NET_WM_STATE= above/sticky/skip-taskbar,
-  and =_NET_WM_DESKTOP= on every workspace.
+  =_NET_WM_STATE= above/sticky/skip-taskbar, =_NET_WM_DESKTOP= on every
+  workspace, and =_NET_WM_STRUT_PARTIAL= (plus the four-value =_NET_WM_STRUT=
+  older panels read) for the bar's edge.  The strut is taken from the window as
+  it was actually laid out, not from the configured height -- GTK can make a bar
+  a pixel or two taller than asked -- and from its translated position, so a bar
+  with a margin reserves only its own strip; it is refreshed whenever the window
+  is resized.  The launcher, the notifications and the toasts are docks without
+  struts: they float and must not push the desktop aside.
 - *Knowing what is in front* comes from niri's own IPC, sway's window tree, or
   EWMH on X11.  Those three produce the same two strings, so =window-module= and
   the global menu's File/Edit/View work on all three.  GNOME's Wayland session
@@ -585,6 +591,9 @@ the same commands.
   only compositor interface for them whelk speaks, and on other sessions those
   modules render nothing.  Workspaces are addressed by index, which is what
   niri's =focus-workspace= takes.
+- On X11 the dock hints are what a window manager reads; started on a bare X
+  server with no window manager (Xvfb on its own), the properties are set but
+  nothing places the bar or honours the struts, so the bars sit at the origin.
 - With no =wlr-layer-shell= (GNOME, KDE) the bars are ordinary windows.  They
   are not docked, do not reserve space and can be covered; the launcher and the
   panels still work.  There is no protocol a Wayland client can use to place

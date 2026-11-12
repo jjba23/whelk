@@ -6,6 +6,33 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.3] - 2026-11-12
+
+### Fixed
+
+- **The X11 fallback, now exercised on a real X server.** Under X11
+  `gtk_layer_is_supported()` provoked a GLib assertion (`init_and_get_layer_shell_global:
+  GDK_IS_WAYLAND_DISPLAY(gdk_display)`) because it asks the display for a
+  Wayland one; the layer question is now asked only of Wayland, and X11 goes
+  straight to the dock path.
+- **Struts describe the window that exists.** A top bar reserved 34 px while
+  painting 36: the strut used the configured thickness, which GTK can exceed
+  when it lays the bar out. It now uses the window's actual size and its
+  position translated to the root, so a bar with a margin reserves only its own
+  strip, and a resize refreshes it.
+- `_NET_WM_STRUT` (the four-value property older panels read) is written
+  alongside `_NET_WM_STRUT_PARTIAL`, and only bars reserve an edge: the
+  launcher and the toasts stay docks without struts.
+
+### Verified
+
+- On Xvfb with a 1920x1080 screen: `_NET_WM_WINDOW_TYPE_DOCK`, the four
+  above/sticky/skip states, `_NET_WM_DESKTOP = 0xFFFFFFFF`, and struts
+  `top 30@0..1919`, `bottom 24@0..1919`, `left 40@0..1079`, `right 138@0..1079`
+  for bars on each edge, each equal to the window it describes.
+- `window-module` on X11 reads `WM_NAME`/`WM_CLASS` through `xprop` and shows
+  the focused application's title.
+
 ## [0.3.2] - 2026-11-12
 
 ### Fixed

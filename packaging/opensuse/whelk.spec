@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.3.2
+Version:        0.3.3
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -70,6 +70,9 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.3.3
+- The X11 dock hints are exercised on a real X server: struts match the bar.
+
 * Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.3.2
 - Session detection probes niri and sway when NIRI_SOCKET/SWAYSOCK are absent.
 

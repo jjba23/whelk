@@ -1,3 +1,11 @@
+whelk (0.3.3-1) unstable; urgency=medium
+
+  * The X11 dock fallback works on a real X server: no GLib assertion, struts
+    that match the painted bar, positions taken from the window, and the four
+    value _NET_WM_STRUT written too.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 23:00:00 +0100
+
 whelk (0.3.2-1) unstable; urgency=medium
 
   * Session detection asks the compositor when no variable names one, so a bar
