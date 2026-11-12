@@ -8,20 +8,30 @@ project follows [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.5.0] - 2026-11-12
+
 ### Added
 
-- **A dictionary of shortcut menus for the global menu.**
-  `src/util/menudict.c` holds the documented menus of nine applications --
-  Firefox, the Chromium family, VS Code and its forks, LibreOffice Writer,
-  GNOME's text editors, the file managers, a dozen terminal emulators,
-  Thunderbird and GIMP -- each entry a label, the chord it shows and the chord
-  it types.  An application that publishes no menubar now gets File, Edit and
-  the rest that are really its own, and one that is not in the table gets the
-  shared Edit and View instead of an invented File menu.
-- `tests/test_menudict.c`, plus four cases in `tests/test_menutree.c`: lookup by
-  id, by bare name, by `WM_CLASS` and by `.desktop` id, every table entry
-  complete, the de-duplication against the desktop entry's actions, the xdotool
-  chords, and the case where nothing can type.
+- **A dictionary of shortcut menus for the global menu, in Scheme.**
+  `scheme/whelk/menudict.scm` holds the documented menus of forty
+  applications -- a hundred and twenty ids: the browsers, terminals, editors,
+  file managers, office suites, mail clients, graphics tools, media players,
+  PDF readers, chat clients and developer tools installed on a real desktop --
+  each entry a label, the chord it shows and the chord it types.  An
+  application that publishes no menubar now gets File, Edit and the rest that
+  are really its own, and one that is not in the table gets the shared Edit and
+  View instead of an invented File menu.  Adding an application is one form; it
+  is read once at startup, so nothing is compiled in and nothing needs a
+  rebuild.
+- `tests/test_menudict.scm` reads the table: every application named and given
+  ids, no id claimed twice, no menu without items, no item without its chord,
+  and no two entries in one menu typing the same keys.  `tests/test_menudict.c`
+  and four cases in `tests/test_menutree.c` load the real dictionary through
+  the bridge: lookup by id, by bare name, by `WM_CLASS` and by `.desktop` id,
+  every entry complete, the de-duplication against the desktop entry's actions,
+  the xdotool chords, and the case where nothing can type.
 
 ### Changed
 
