@@ -1,0 +1,9 @@
+whelk (0.1.0-1) unstable; urgency=medium
+
+  * Initial release: bars on any edge with status, media, system and tray
+    modules; a launcher with app, window, run, calc, file, web and menu modes;
+    an org.freedesktop.Notifications daemon with toasts and a notification
+    centre; and a Wi-Fi and Bluetooth panel whose typed password replaces the
+    saved key without ever appearing on a command line.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 18:30:00 +0000

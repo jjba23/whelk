@@ -409,6 +409,39 @@ Five suites cover the pure halves of the shell:
   receives the line it was sent, an absent answer is an end of file rather than
   a hang, and a plain run still returns its output.
 
+* Packaging and distribution
+
+=maak= runs the project's common operations; =maak= with no argument lists the
+tasks it finds.
+
+#+begin_src sh
+  maak run          # run whelk inside the pinned Guix environment
+  maak test         # rebuild from scratch and run the suite in that environment
+  maak meson-build  # plain meson + ninja in the current shell
+  maak add-libs     # regenerate .ccls for the LSP from the Guix store paths
+  maak debug-run    # meson build, then gdb
+  maak deb-build    # .deb, built from packaging/debian
+  maak arch-build   # Arch package, built from packaging/arch/PKGBUILD
+  maak rpm-build    # RPM for openSUSE and Fedora, from packaging/opensuse
+#+end_src
+
+The Guix tasks read =channels.scm= and =manifest.scm=, so they run in the
+pinned toolchain; =meson-build= and =debug-run= use whatever meson the shell
+already has.
+
+Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=)
+and =opensuse/= (spec file, rpmlint filters and the OBS =_service=).  A packaged
+whelk installs three things: =/usr/bin/whelk=, the desktop entry at
+=/usr/share/applications/org.jointhefreeworld.whelk.desktop=, and the Scheme
+modules under =/usr/share/guile/site/3.0/whelk/= -- the path baked into the
+binary at configure time from the install prefix, so a package built with
+=--prefix=/usr= finds its own modules without being started from the source
+tree.
+
+CI runs the same suite through the same task: =.github/workflows/ci.yml= calls
+Byggsteg with =tasks: maak-test=, so a green CI run and a green =maak test= are
+the same commands.
+
 * Known limits
 
 - The tray hosts StatusNotifierItems (icon, tooltip, Activate, ContextMenu

@@ -7,7 +7,9 @@
              (gnu)
              (gnu packages guile)
              (gnu packages admin)
-             (gnu packages ninja)
+             ;; `meson' and `ninja' live here, not in (gnu packages ninja).
+             (gnu packages build-tools)
+             (gnu packages compression)
              (gnu packages pkg-config)
              (gnu packages linux)
              (gnu packages gtk)

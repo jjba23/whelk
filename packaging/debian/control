@@ -1,0 +1,24 @@
+Source: whelk
+Section: x11
+Priority: optional
+Maintainer: Josep Bigorra <jjbigorra@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               meson (>= 0.62.0),
+               ninja-build,
+               pkg-config,
+               libgtk-4-dev,
+               libgtk4-layer-shell-dev,
+               guile-3.0-dev,
+               libwayland-dev,
+               libglib2.0-dev-bin
+Standards-Version: 4.6.2
+Homepage: https://github.com/jjba23/whelk
+
+Package: whelk
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, guile-3.0
+Description: Wayland shell configured in GNU Guile Scheme
+ Whelk is a Wayland shell built with a C core, GTK4 and gtk4-layer-shell.  Its
+ status bars, launcher, notification daemon and network panel are described in
+ GNU Guile Scheme: a bar is a list of modules, and every module is a reading
+ plus the mouse actions on it.
