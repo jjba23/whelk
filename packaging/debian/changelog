@@ -1,3 +1,15 @@
+whelk (0.4.0-1) unstable; urgency=medium
+
+  * The documented bar is the built-in bar: scheme/whelk/defaults.scm holds it,
+    the global menu sits after the focused window, and the example settings
+    cannot drift from the fallback.
+  * The global menu no longer frees the app info's own action list, which
+    crashed a bar with the default module set.
+  * The machine-menu glyph is drawn in the icon font instead of the text face.
+  * The suite passes where /bin/sh and /bin/true do not exist.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 12 Nov 2026 23:00:00 +0100
+
 whelk (0.3.3-1) unstable; urgency=medium
 
   * The X11 dock fallback works on a real X server: no GLib assertion, struts

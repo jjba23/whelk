@@ -6,6 +6,46 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.4.0] - 2026-11-12
+
+### Added
+
+- **The bar whelk starts with is the bar it documents.** `(default-bar)` and
+  `(default-configuration!)` now live in `scheme/whelk/defaults.scm`: the
+  heks-linux Waybar bar, one module for one, with the global menu after the
+  focused window. `default-shell!` falls back to them, so a machine with no
+  settings file gets the documented bar rather than a stand-in for it, and
+  `tests/test_defaults.scm` pins the module layout and asserts that
+  `settings/settings.scm` and the built-in bar are the same bar.
+- `menu-module` is part of `settings/settings.scm`, so the copyable example
+  carries the menu bar too.
+- `README.org` is rewritten: what whelk is at a glance, a screenshot of the
+  built-in bar, installation per ecosystem, a five-command quick start, the
+  configuration reference grouped by what you are trying to do, and the session
+  and Waybar-parity tables kept intact.
+
+### Fixed
+
+- **A crash while building the global menu.** `build_for_app` handed
+  `g_desktop_app_info_list_actions()`'s result to `g_auto(GStrv)`, which frees
+  strings the app info still owns. A build with the 26-module default bar
+  crashed on 2 of 3 starts under AddressSanitizer and is clean on 6 of 6 after
+  the fix; the `probe_menus` bus is an autoptr as well.
+- **The machine-menu glyph is drawn in the bar's icon font.** The custom module
+  carried U+F005 as `#:exec` output, which the text face has no glyph for; it is
+  now `#:icon` plus `#:format "{icon}"`, like every other icon on the bar.
+- **The suite passes where `/bin/sh` and `/bin/true` do not exist.** The session
+  probe resolves `sh` through `g_find_program_in_path` instead of assuming the
+  path, and the desktop-entry fixture runs a `true` found on `PATH` instead of
+  `/bin/true` -- which is what a Guix build sandbox has.
+
+### Verified
+
+- `guix build -f guix.scm`, sandboxed check phase included, passes.
+- `meson test` 12/12 and `maak run` stays up: `1 bar(s) up`, 26 modules.
+- The README screenshot is the built-in bar itself, captured from a 1920x1080 X
+  server.
+
 ## [0.3.3] - 2026-11-12
 
 ### Fixed
