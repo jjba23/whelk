@@ -619,10 +619,11 @@ producers, in that order:
   application, which is where a program that runs more than one instance
   publishes.
 - *The dictionary.*  Most applications publish nothing, so their menus are
-  written from their documented shortcuts: forty applications answering to a
-  hundred and twenty ids -- the browsers, terminals, editors, file managers,
+  written from their documented shortcuts: fifty applications answering to a
+  hundred and fifty-five ids -- the browsers, terminals, editors, file managers,
   office suites, mail clients, graphics tools, media players, PDF readers, chat
-  clients and developer tools a desktop actually has -- each with the menus it
+  clients, video editors, DAWs, note-taking applications and developer tools a
+  desktop actually has -- each with the menus it
   really has.  Every entry shows its chord on the right and types it into the
   focused window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
   application the dictionary does not know is not given a File menu it might
@@ -643,17 +644,38 @@ does not implement, so on niri most applications will be served by it; orbit's
 global menu ends up in the same place on GNOME, with a curated corpus in place
 of a shortcut table.  The dictionary is Scheme, in =scheme/whelk/menudict.scm=:
 adding an application is one form -- its name, the ids it answers to, then its
-menus -- and nothing else.  The shell reads the table once at startup, so a
-settings change does not need a rebuild, let alone a C table.
+menus -- and nothing else.  The shell reads the table at startup and after every
+reload, so a settings change does not need a rebuild, let alone a C table.
+
+=add-menu-app= appends an application the table does not know, and
+=replace-menu-app= puts yours in the place of the entry that answers to an id --
+the entry claiming that id is dropped, so a wrong chord or a whole wrong menu is
+corrected without giving up the rest of the table.  Both are available in a
+settings file and at the REPL:
 
 #+begin_src scheme
-  (bar #:name 'main #:theme 'tinted-2024 #:height 30
-       #:left   (list (start-module) (menu-module))
-       #:center (list (window-module #:format "{title}"))
-       #:right  (list (wifi-module #:format "{icon}")
-                      (battery-module #:format "{capacity}%")
-                      (clock-module)))
+  ;; An application the table does not know: name, ids, menus.
+  (add-menu-app "Steam" '("steam" "com.valvesoftware.Steam")
+                '(("File" ("Settings" "Ctrl+," "ctrl" "comma"))
+                  ("View" ("Full Screen" "F11" #f "F11"))))
+
+  ;; The built-in Firefox, with the menus you want instead.
+  (replace-menu-app "firefox" "Firefox"
+                    '("firefox" "org.mozilla.firefox")
+                    '(("File" ("Open" "Ctrl+O" "ctrl" "o"))
+                      ("Edit" ("Undo" "Ctrl+Z" "ctrl" "z"))))
 #+end_src
+
+An item is =(label chord modifiers key)=, =modifiers= =#f= when the key is typed
+alone; the chord is what the menu shows, the rest is what gets typed.  Neither
+form trusts its argument: an entry whose item has no chord, whose menu is empty,
+or whose two items type the same chord is refused and logged with the reason --
+=[WARN][whelk][Scheme:Menus] Broken is not a menu application: an item needs a
+label, the chord shown, the modifiers and the key= -- because a dictionary that
+silently drops what you wrote is worse than one that says why.  Replacing an id
+the table does not answer to is reported too, and added rather than lost.  A
+reload starts from the built-in table again, so saving the file replaces your
+edits instead of stacking another copy of them in front.
 
 *** What the menus do not do yet
 :PROPERTIES:
@@ -665,7 +687,7 @@ window action (=win.*=) is sent to the application's first window object, and
 the D-Bus menubar is probed at the conventional object paths rather than
 discovered.  The dictionary covers forty applications and their documented
 shortcuts: it is a curated list, not a guess, and an application that is not in
-it gets the shared Edit and View.  The panels, the toasts and the menus
+it gets the shared Edit and View -- unless a settings file adds it.  The panels, the toasts and the menus
 open on the compositor's first monitor; a bar's =#:monitor= is its own.
 
 ** Hot reload and the REPL

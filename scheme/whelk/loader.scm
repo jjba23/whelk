@@ -16,6 +16,7 @@
 
 (define-module (whelk loader)
   #:use-module (whelk logger)
+  #:use-module (whelk menudict)
   #:export (get-config-path
             default-config-dir
             load-settings-file!))
@@ -53,6 +54,10 @@ still asks for the bars afterwards rather than aborting the shell."
      #f)
     (else
      (log-info "Loader" "Reading settings from ~a" file-path)
+     ;; The menu dictionary starts from the built-in table on every load: a
+     ;; reload must replace what the last version of the file added, not stack
+     ;; another copy of it in front.
+     (reset-menu-edits!)
      (let ((anon (fresh-settings-module)))
        (catch #t
               (lambda ()

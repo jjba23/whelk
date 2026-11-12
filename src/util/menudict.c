@@ -7,6 +7,8 @@
 
 #include <string.h>
 
+#include "logger.h"
+
 /* =========================================================================
  * THE TABLE AT RUNTIME
  * =========================================================================
@@ -83,6 +85,12 @@ void whelk_menudict_load(GPtrArray *table) {
 
   if (dictionary)
     g_ptr_array_set_free_func(dictionary, dict_app_free);
+
+  /* What the configuration left the dictionary: the built-in table, plus what
+   * a settings file added or replaced.  Nothing to do when it is empty -- an
+   * installed shell without Guile still gets the shared Edit and View. */
+  if (dictionary)
+    LOG_C_INFO("MenuDict", "%u application(s) in the dictionary", dictionary->len);
 }
 
 /* =========================================================================

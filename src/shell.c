@@ -162,6 +162,7 @@ static gboolean on_reload_timeout(gpointer user_data) {
   if (!whelk_bridge_load(shell->config_path))
     LOG_C_WARN("Shell", "the settings file could not be evaluated");
 
+  whelk_menudict_load(whelk_bridge_menudict());
   build_bars(shell);
   whelk_bridge_start_repl(shell->config_path);
 
@@ -256,6 +257,11 @@ void whelk_shell_start(WhelkShell *shell) {
   whelk_notifications_start(shell->notifications, &notification_error);
 
   whelk_bridge_init();
+
+  /* The dictionary is Scheme, and the settings file may have added to it or
+   * overridden an entry: read it after the configuration, before the bars. */
+  whelk_menudict_load(whelk_bridge_menudict());
+
   build_bars(shell);
 
   if (!shell->style) {
@@ -302,6 +308,7 @@ void whelk_shell_reload(WhelkShell *shell) {
   if (!whelk_bridge_load(shell->config_path))
     LOG_C_WARN("Shell", "the settings file could not be evaluated");
 
+  whelk_menudict_load(whelk_bridge_menudict());
   build_bars(shell);
   whelk_bridge_start_repl(shell->config_path);
 }

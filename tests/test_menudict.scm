@@ -9,7 +9,8 @@
 ;; the same table and asks it what a compositor would; this one reads it.
 
 (use-modules (whelk menudict)
-             (srfi srfi-1))
+             (srfi srfi-1)
+             (srfi srfi-13))
 
 (define failures 0)
 
@@ -78,6 +79,142 @@
      (check (format #f "~a has menus" name) (pair? menus))
      (for-each (lambda (menu) (check-menu app (car menu) menu)) menus)))
  apps)
+
+
+;; ============================================================================
+;; What a settings file may add or replace
+;; ============================================================================
+
+;; Every settings file starts from the built-in table.
+(reset-menu-edits!)
+
+(check "with no edits the table is the built-in one"
+       (= (length (menudict->alists)) (length menudict)))
+
+;; --- an addition ------------------------------------------------------------
+;; An installed application the table does not know is appended, and found by
+;; the id a compositor would report for it.
+
+(define steam (add-menu-app "Steam" '("steam" "com.valvesoftware.Steam")
+                            '(("File" ("Settings" "Ctrl+," "ctrl" "comma"))
+                              ("View" ("Full Screen" "F11" #f "F11")))))
+
+(check "a settings file can add an application" (not (eq? steam #f)))
+(check "the addition answers to its id" (eq? (menudict-for-id "steam") steam))
+(check "the addition answers to its flatpak id as well"
+       (eq? (menudict-for-id "com.valvesoftware.Steam") steam))
+(check "the addition is appended after the built-in table"
+       (= (length (menudict->alists)) (+ (length menudict) 1)))
+(check "the addition is the last entry"
+       (eq? (last (menudict->alists)) steam))
+
+;; --- an override ------------------------------------------------------------
+;; A chord the table gets wrong is corrected by replacing the entry: what comes
+;; back for the id is the settings file's, the built-in one is gone, and the
+;; table does not grow a second Firefox.
+
+(define built-in-firefox (menudict-for-id "org.mozilla.firefox"))
+
+(define mine (replace-menu-app "firefox" "Firefox (mine)"
+                               '("firefox" "org.mozilla.firefox")
+                               '(("File" ("Open" "Ctrl+O" "ctrl" "o"))
+                                 ("Edit" ("Undo" "Ctrl+Z" "ctrl" "z")))))
+
+(check "the replacement answers to the id it replaced"
+       (eq? (menudict-for-id "firefox") mine))
+(check "the replacement answers to the entry's other ids too"
+       (eq? (menudict-for-id "org.mozilla.firefox") mine))
+(check "the replacement is not the built-in entry"
+       (not (eq? mine built-in-firefox)))
+(check "the built-in entry is gone, not shadowed"
+       (not (any (lambda (app) (eq? app built-in-firefox))
+                 (menudict->alists))))
+(check "an override does not lengthen the table"
+       (= (length (menudict->alists)) (+ (length menudict) 1)))
+(check "the override's menus are the ones the settings file wrote"
+       (equal? (map car (assq-ref (menudict-for-id "firefox") 'menus))
+               '("File" "Edit")))
+(check "the override's items are the ones the settings file wrote"
+       (equal? (assq-ref (menudict-for-id "firefox") 'menus)
+               '(("File" ("Open" "Ctrl+O" "ctrl" "o"))
+                 ("Edit" ("Undo" "Ctrl+Z" "ctrl" "z")))))
+
+;; Replacing again for the same id replaces the first replacement: the settings
+;; file's last word wins, as it does for the rest of the configuration.
+(define second (replace-menu-app "firefox" "Firefox (twice)"
+                                 '("firefox") '(("File" ("Quit" "Ctrl+Q" "ctrl" "q")))))
+(check "the last replacement for an id wins"
+       (eq? (menudict-for-id "firefox") second))
+(check "replacing twice still does not lengthen the table"
+       (= (length (menudict->alists)) (+ (length menudict) 1)))
+
+;; --- a bad entry ------------------------------------------------------------
+;; "An entry that types the wrong chord is worse than no entry": one that types
+;; nothing is refused, and the refusal says why instead of vanishing.
+
+(define (reported thunk)
+  "What THUNK logs while it runs, and what it returned."
+  (let ((port (open-output-string)))
+    (let ((value (parameterize ((current-error-port port)) (thunk))))
+      (cons value (get-output-string port)))))
+
+(define bad-entry
+  (reported (lambda ()
+              (add-menu-app "Broken" '("broken") '(("File" ("No chord")))))))
+(define bad-entry-log (cdr bad-entry))
+
+(check "an entry whose item has no chord is refused" (eq? (car bad-entry) #f))
+(check "the refusal names the application" (string-contains bad-entry-log "Broken"))
+(check "the refusal says what is wrong"
+       (string-contains bad-entry-log "an item needs a label, the chord shown"))
+(check "the refused entry is not in the table"
+       (eq? (menudict-for-id "broken") #f))
+(check "the refused entry leaves the table its size"
+       (= (length (menudict->alists)) (+ (length menudict) 1)))
+
+;; A menu whose two items type the same chord is refused for the same reason.
+(define duplicate-chord
+  (reported (lambda ()
+              (add-menu-app "Duplicate" '("duplicate")
+                            '(("Edit" ("Copy" "Ctrl+C" "ctrl" "c")
+                               ("Paste" "Ctrl+V" "ctrl" "v")
+                               ("Copy again" "Ctrl+C" "ctrl" "c")))))))
+(check "two items typing one chord are refused" (eq? (car duplicate-chord) #f))
+(check "the duplicate is reported"
+       (string-contains (cdr duplicate-chord) "two entries typing Ctrl+C"))
+
+;; An entry with no ids cannot ever be looked up, so it is refused too.
+(define no-ids
+  (reported (lambda () (add-menu-app "Nameless ids" '() '(("File" ("Quit" "Ctrl+Q" "ctrl" "q")))))))
+(check "an entry with no ids is refused" (eq? (car no-ids) #f))
+(check "the missing ids are reported"
+       (string-contains (cdr no-ids) "it answers to no ids"))
+
+;; --- a replacement for something the table does not know ---------------------
+;; That is an addition wearing the wrong form: report it, and add it rather
+;; than lose what the settings file wrote.
+
+(define orphan
+  (reported (lambda ()
+              (replace-menu-app "nosuchapp" "No Such App" '("nosuchapp")
+                                '(("File" ("Quit" "Ctrl+Q" "ctrl" "q")))))))
+
+(check "replacing an unknown id is reported"
+       (string-contains (cdr orphan) "nothing in the built-in table answers to nosuchapp"))
+(check "replacing an unknown id still adds it"
+       (not (eq? (menudict-for-id "nosuchapp") #f)))
+
+;; --- reloading --------------------------------------------------------------
+;; A reload must start from the built-in table again, or the entries would
+;; stack up every time the settings file is saved.
+
+(reset-menu-edits!)
+(check "resetting forgets the additions" (eq? (menudict-for-id "steam") #f))
+(check "resetting restores the built-in entries"
+       (and (not (eq? (menudict-for-id "firefox") #f))
+            (string=? (assq-ref (menudict-for-id "firefox") 'name) "Firefox")))
+(check "resetting leaves the table its built-in size"
+       (= (length (menudict->alists)) (length menudict)))
 
 (if (> failures 0)
     (begin

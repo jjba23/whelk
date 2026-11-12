@@ -29,8 +29,14 @@
 ;;; Code:
 
 (define-module (whelk menudict)
+  #:use-module (whelk logger)
+  #:use-module (srfi srfi-1)
   #:export (menudict
-            menudict->alists))
+            menudict->alists
+            menudict-for-id
+            add-menu-app
+            replace-menu-app
+            reset-menu-edits!))
 
 (define (dict-app name ids menus)
   "One application: the name for the log, the ids it answers to, its menus.
@@ -913,6 +919,216 @@ modifiers means a bare key, like F11."
       ("Fit Selection" "Ctrl+E" "ctrl" "e")
       ("Fit Project" "Ctrl+F" "ctrl" "f")))))
 
+
+;;; --- more terminals --------------------------------------------------------
+
+(define konsole
+  (dict-app
+   "Konsole"
+   '("konsole" "org.kde.konsole")
+   '(("File"
+      ("New Tab" "Ctrl+Shift+T" "ctrl shift" "t")
+      ("New Window" "Ctrl+Shift+N" "ctrl shift" "n")
+      ("Close Tab" "Ctrl+Shift+W" "ctrl shift" "w")
+      ("Quit" "Ctrl+Shift+Q" "ctrl shift" "q"))
+     ("Edit"
+      ("Copy" "Ctrl+Shift+C" "ctrl shift" "c")
+      ("Paste" "Ctrl+Shift+V" "ctrl shift" "v")
+      ("Select All" "Ctrl+Shift+A" "ctrl shift" "a")
+      ("Find" "Ctrl+Shift+F" "ctrl shift" "f"))
+     ("View"
+      ("Zoom In" "Ctrl++" "ctrl" "plus")
+      ("Zoom Out" "Ctrl+-" "ctrl" "minus")
+      ("Normal Size" "Ctrl+0" "ctrl" "0")
+      ("Full Screen" "Ctrl+Shift+F11" "ctrl shift" "F11")))))
+
+(define ghostty
+  (dict-app
+   "Ghostty"
+   '("ghostty" "com.mitchellh.ghostty")
+   '(("File"
+      ("New Tab" "Ctrl+Shift+T" "ctrl shift" "t")
+      ("New Window" "Ctrl+Shift+N" "ctrl shift" "n")
+      ("Close Tab" "Ctrl+Shift+W" "ctrl shift" "w")
+      ("Quit" "Ctrl+Shift+Q" "ctrl shift" "q"))
+     ("Edit"
+      ("Copy" "Ctrl+Shift+C" "ctrl shift" "c")
+      ("Paste" "Ctrl+Shift+V" "ctrl shift" "v")
+      ("Search" "Ctrl+Shift+F" "ctrl shift" "f"))
+     ("View"
+      ("Zoom In" "Ctrl+Shift+=" "ctrl shift" "equal")
+      ("Zoom Out" "Ctrl+Shift+-" "ctrl shift" "minus")
+      ("Reset Size" "Ctrl+Shift+0" "ctrl shift" "0")))))
+
+;;; --- image viewers ---------------------------------------------------------
+
+(define image_viewer
+  (dict-app
+   "Image Viewer"
+   '("org.gnome.Loupe" "loupe" "org.gnome.eog" "eog" "org.kde.gwenview"
+     "gwenview")
+   '(("File"
+      ("Open" "Ctrl+O" "ctrl" "o")
+      ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
+      ("Print" "Ctrl+P" "ctrl" "p")
+      ("Close" "Ctrl+W" "ctrl" "w")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("View"
+      ("Zoom In" "Ctrl++" "ctrl" "plus")
+      ("Zoom Out" "Ctrl+-" "ctrl" "minus")
+      ("Full Screen" "F11" #f "F11")
+      ("Slideshow" "F5" #f "F5")))))
+
+;;; --- music players ---------------------------------------------------------
+
+(define music
+  (dict-app
+   "Music"
+   '("org.gnome.Music" "gnome-music" "io.bassi.Amberol" "amberol"
+     "org.kde.elisa" "elisa" "lollypop" "rhythmbox")
+   '(("File"
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Playback"
+      ("Play/Pause" "Space" #f "space")
+      ("Next" "Ctrl+Right" "ctrl" "Right")
+      ("Previous" "Ctrl+Left" "ctrl" "Left"))
+     ("View"
+      ("Search" "Ctrl+F" "ctrl" "f")))))
+
+;;; --- video players ---------------------------------------------------------
+
+(define video
+  (dict-app
+   "Video"
+   '("io.github.celluloid_player.Celluloid" "celluloid" "org.kde.haruna"
+     "haruna" "com.github.rafostar.Clapper" "clapper")
+   '(("File"
+      ("Open" "Ctrl+O" "ctrl" "o")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Playback"
+      ("Play/Pause" "Space" #f "space")
+      ("Fullscreen" "F11" #f "F11")
+      ("Mute" "M" #f "m")))))
+
+;;; --- video editing ---------------------------------------------------------
+
+(define kdenlive
+  (dict-app
+   "Kdenlive"
+   '("org.kde.kdenlive" "kdenlive")
+   '(("File"
+      ("New" "Ctrl+N" "ctrl" "n")
+      ("Open" "Ctrl+O" "ctrl" "o")
+      ("Save" "Ctrl+S" "ctrl" "s")
+      ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
+      ("Render" "Ctrl+Return" "ctrl" "Return")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Edit"
+      ("Undo" "Ctrl+Z" "ctrl" "z")
+      ("Redo" "Ctrl+Shift+Z" "ctrl shift" "z")
+      ("Cut" "Ctrl+X" "ctrl" "x")
+      ("Copy" "Ctrl+C" "ctrl" "c")
+      ("Paste" "Ctrl+V" "ctrl" "v")
+      ("Select All" "Ctrl+A" "ctrl" "a"))
+     ("Project"
+      ("Add Clip" "Ctrl+I" "ctrl" "i")))))
+
+(define ardour
+  (dict-app
+   "Ardour"
+   '("ardour9" "ardour")
+   '(("Session"
+      ("Save" "Ctrl+S" "ctrl" "s")
+      ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
+      ("Export" "Ctrl+E" "ctrl" "e")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Edit"
+      ("Undo" "Ctrl+Z" "ctrl" "z")
+      ("Redo" "Ctrl+Shift+Z" "ctrl shift" "z")
+      ("Cut" "Ctrl+X" "ctrl" "x")
+      ("Copy" "Ctrl+C" "ctrl" "c")
+      ("Paste" "Ctrl+V" "ctrl" "v")
+      ("Select All" "Ctrl+A" "ctrl" "a"))
+     ("Transport"
+      ("Play/Stop" "Space" #f "space")))))
+
+;;; --- note-taking -----------------------------------------------------------
+
+(define obsidian
+  (dict-app
+   "Obsidian"
+   '("md.obsidian.Obsidian" "obsidian")
+   '(("File"
+      ("New Note" "Ctrl+N" "ctrl" "n")
+      ("Quick Switcher" "Ctrl+O" "ctrl" "o")
+      ("Close" "Ctrl+W" "ctrl" "w")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Edit"
+      ("Undo" "Ctrl+Z" "ctrl" "z")
+      ("Redo" "Ctrl+Shift+Z" "ctrl shift" "z")
+      ("Cut" "Ctrl+X" "ctrl" "x")
+      ("Copy" "Ctrl+C" "ctrl" "c")
+      ("Paste" "Ctrl+V" "ctrl" "v")
+      ("Select All" "Ctrl+A" "ctrl" "a")
+      ("Find" "Ctrl+F" "ctrl" "f"))
+     ("View"
+      ("Command Palette" "Ctrl+P" "ctrl" "p")
+      ("Reading View" "Ctrl+E" "ctrl" "e")))))
+
+;;; --- more editors ----------------------------------------------------------
+
+(define zed
+  (dict-app
+   "Zed"
+   '("dev.zed.Zed" "zed")
+   '(("File"
+      ("New" "Ctrl+N" "ctrl" "n")
+      ("Open" "Ctrl+O" "ctrl" "o")
+      ("Save" "Ctrl+S" "ctrl" "s")
+      ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
+      ("Close Editor" "Ctrl+W" "ctrl" "w")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Edit"
+      ("Undo" "Ctrl+Z" "ctrl" "z")
+      ("Redo" "Ctrl+Shift+Z" "ctrl shift" "z")
+      ("Cut" "Ctrl+X" "ctrl" "x")
+      ("Copy" "Ctrl+C" "ctrl" "c")
+      ("Paste" "Ctrl+V" "ctrl" "v")
+      ("Select All" "Ctrl+A" "ctrl" "a")
+      ("Find" "Ctrl+F" "ctrl" "f")
+      ("Replace" "Ctrl+H" "ctrl" "h"))
+     ("View"
+      ("File Finder" "Ctrl+P" "ctrl" "p")
+      ("Project Search" "Ctrl+Shift+F" "ctrl shift" "f")
+      ("Command Palette" "Ctrl+Shift+P" "ctrl shift" "p")
+      ("Zoom In" "Ctrl+=" "ctrl" "equal")
+      ("Zoom Out" "Ctrl+-" "ctrl" "minus")))))
+
+(define sublime_text
+  (dict-app
+   "Sublime Text"
+   '("sublime_text" "subl" "com.sublimetext.4")
+   '(("File"
+      ("New" "Ctrl+N" "ctrl" "n")
+      ("Open" "Ctrl+O" "ctrl" "o")
+      ("Save" "Ctrl+S" "ctrl" "s")
+      ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
+      ("Close File" "Ctrl+W" "ctrl" "w")
+      ("Quit" "Ctrl+Q" "ctrl" "q"))
+     ("Edit"
+      ("Undo" "Ctrl+Z" "ctrl" "z")
+      ("Redo" "Ctrl+Shift+Z" "ctrl shift" "z")
+      ("Cut" "Ctrl+X" "ctrl" "x")
+      ("Copy" "Ctrl+C" "ctrl" "c")
+      ("Paste" "Ctrl+V" "ctrl" "v")
+      ("Select All" "Ctrl+A" "ctrl" "a")
+      ("Find" "Ctrl+F" "ctrl" "f")
+      ("Replace" "Ctrl+H" "ctrl" "h"))
+     ("View"
+      ("Goto Anything" "Ctrl+P" "ctrl" "p")
+      ("Goto Symbol" "Ctrl+R" "ctrl" "r")
+      ("Full Screen" "F11" #f "F11")))))
+
 ;;; --- the table -------------------------------------------------------------
 
 ;; Every application the dictionary knows, in the order it is written.
@@ -956,12 +1172,214 @@ modifiers means a bare key, like F11."
         slack
         wireshark
         keepassxc
-        audacity))
+        audacity
+        konsole
+        ghostty
+        image_viewer
+        music
+        video
+        kdenlive
+        ardour
+        obsidian
+        zed
+        sublime_text))
+
+;;; =========================================================================
+;;; WHAT A SETTINGS FILE MAY ADD
+;;; =========================================================================
+;; The built-in table is a starting point, not a law.  An application it does
+;; not know can be added, and an entry it gets wrong can be replaced, from any
+;; settings file: both are ordinary forms, and the runtime reads the result the
+;; same way it reads the table.
+;;
+;; Neither trusts its argument.  An entry that would show an entry it cannot
+;; type is refused and logged, because a dictionary that silently drops what
+;; you wrote is worse than one that says why it did.
+
+;; Replacements, as (selector . entry): the selector is the id the settings
+;; file named, and the entry takes the place of whatever claims that id.
+(define *replacements* '())
+
+;; Validated entries, in the order the settings file wrote them.
+(define *additions* '())
+
+(define (string-non-empty? value)
+  (and (string? value) (not (string-null? value))))
+
+(define (strip-desktop-suffix id)
+  (if (string-suffix? ".desktop" id)
+      (substring id 0 (- (string-length id) (string-length ".desktop")))
+      id))
+
+(define (normalize-id id)
+  (string-downcase (strip-desktop-suffix id)))
+
+;; The same rule the C lookup applies: equal after normalising, or one a dotted
+;; suffix of the other ("firefox" and "org.mozilla.firefox" are one application).
+(define (id-answers-to? id candidate)
+  (let ((question (normalize-id id))
+        (name (normalize-id candidate)))
+    (cond
+      ((string=? question name) #t)
+      ((> (string-length question) (string-length name))
+       (string-suffix? (string-append "." name) question))
+      ((> (string-length name) (string-length question))
+       (string-suffix? (string-append "." question) name))
+      (else #f))))
+
+(define (entry-answers-to? app id)
+  (any (lambda (app-id) (id-answers-to? id app-id))
+       (or (assq-ref app 'ids) '())))
+
+;; --- what makes an entry bad ----------------------------------------------
+
+(define (item-problem item)
+  (cond
+    ((not (list? item)) "an item is not a list")
+    ((not (= (length item) 4))
+     "an item needs a label, the chord shown, the modifiers and the key")
+    ((not (string-non-empty? (list-ref item 0))) "an item has no label")
+    ((not (string-non-empty? (list-ref item 1)))
+     (simple-format #f "~a shows no chord" (list-ref item 0)))
+    ((not (or (eq? (list-ref item 2) #f) (string-non-empty? (list-ref item 2))))
+     (simple-format #f "~a has neither modifiers nor #f for none"
+                    (list-ref item 0)))
+    ((not (string-non-empty? (list-ref item 3)))
+     (simple-format #f "~a types no key" (list-ref item 0)))
+    (else #f)))
+
+(define (same-chord? a b)
+  (and (equal? (list-ref a 2) (list-ref b 2))
+       (equal? (list-ref a 3) (list-ref b 3))))
+
+(define (duplicate-chord rest)
+  "The first item in REST that types what another item in REST types."
+  (cond
+    ((null? rest) #f)
+    ((any (lambda (other) (same-chord? (car rest) other)) (cdr rest)) (car rest))
+    (else (duplicate-chord (cdr rest)))))
+
+(define (menu-problem menu)
+  (cond
+    ((not (list? menu)) "a menu is not a list")
+    ((not (pair? menu)) "a menu has no label")
+    ((not (string-non-empty? (car menu))) "a menu has no label")
+    ((not (pair? (cdr menu)))
+     (simple-format #f "menu ~a has no items" (car menu)))
+    (else
+     (or (any item-problem (cdr menu))
+         (let ((twice (duplicate-chord (cdr menu))))
+           (and twice
+                (simple-format #f "~a has two entries typing ~a"
+                               (car menu) (list-ref twice 1))))))))
+
+(define (entry-problem app)
+  "Why APP cannot be a menu application, or #f when it can."
+  (let ((name (assq-ref app 'name))
+        (ids (assq-ref app 'ids))
+        (menus (assq-ref app 'menus)))
+    (cond
+      ((not (string-non-empty? name)) "it has no name")
+      ((not (and (list? ids) (pair? ids))) "it answers to no ids")
+      ((any (lambda (id) (not (string-non-empty? id))) ids)
+       "one of its ids is not a string")
+      ((not (and (list? menus) (pair? menus))) "it has no menus")
+      (else (any menu-problem menus)))))
+
+(define (refuse! name problem)
+  (log-warn "Menus" "~a is not a menu application: ~a" name problem)
+  #f)
+
+;; --- the two forms a settings file calls ----------------------------------
+
+(define (add-menu-app name ids menus)
+  "Add an application to the dictionary, after the built-in entries.
+
+NAME is what the log calls it, IDS are the ids a compositor or a desktop entry
+reports, and MENUS are its menus, in the shape of the table above.  Returns the
+entry, or #f when it could not be used -- in which case the reason is logged."
+
+  (let ((app (dict-app name ids menus))
+        (problem (entry-problem (dict-app name ids menus))))
+    (if problem
+        (refuse! name problem)
+        (begin
+          ;; An id already answered cannot be reached through the built-in
+          ;; entry in front of it: say so, rather than pretend otherwise.
+          (for-each
+           (lambda (id)
+             (let ((clash (find (lambda (other) (entry-answers-to? other id))
+                                (menudict->alists))))
+               (when clash
+                 (log-warn "Menus"
+                           "~a answers to ~a, which ~a already answers: use (replace-menu-app "~a" ...) to override it"
+                           name id (assq-ref clash 'name) id))))
+           ids)
+          (set! *additions* (append *additions* (list app)))
+          app))))
+
+(define (replace-menu-app id name ids menus)
+  "Put an application of your own in the place of the one that answers to ID.
+
+The built-in entry claiming ID is dropped; the entry built from NAME, IDS and
+MENUS takes its place in the table, so a settings file can correct a chord or a
+whole menu without giving up the runtime's.  An ID the built-in table does not
+know is reported and added instead.  Returns the entry, or #f when it could not
+be used -- in which case the reason is logged."
+
+  (let ((app (dict-app name ids menus))
+        (problem (entry-problem (dict-app name ids menus))))
+    (cond
+      (problem (refuse! name problem))
+      (else
+       (unless (find (lambda (other) (entry-answers-to? other id)) menudict)
+         (log-warn "Menus"
+                   "nothing in the built-in table answers to ~a: adding ~a instead"
+                   id name))
+       (set! *replacements*
+             (cons (cons id app)
+                   (remove (lambda (other) (id-answers-to? id (car other)))
+                           *replacements*)))
+       app))))
+
+(define (reset-menu-edits!)
+  "Forget everything a previous settings file added or replaced.
+
+Called before each load, so editing the file replaces the additions instead of
+appending to them again."
+
+  (set! *additions* '())
+  (set! *replacements* '()))
+
+;; --- the table as the runtime reads it ------------------------------------
 
 (define (menudict->alists)
-  "The dictionary as the C runtime reads it.
+  "The dictionary as the C runtime reads it: the built-in table with each
+replacement in the place of the entry it names, then the settings file's
+additions, oldest first.
 
 An alist per application, as (name . string), (ids . list of strings) and
 (menus . list of (label items ...)), each item a list of label, accel,
-modifiers and key.  The runtime walks it once, at startup."
-  menudict)
+modifiers and key.  The runtime walks it once, at startup and after a reload."
+
+  (append
+   ;; In place: the entry claiming the id is dropped, the replacement stands
+   ;; where it stood.
+   (map (lambda (app)
+          (let ((replacement (find (lambda (pair)
+                                     (entry-answers-to? app (car pair)))
+                                   *replacements*)))
+            (if replacement (cdr replacement) app)))
+        menudict)
+   ;; A replacement for an id nothing claims was reported when the file asked
+   ;; for it; here it is simply an addition.
+   (map cdr
+        (remove (lambda (pair)
+                  (any (lambda (app) (entry-answers-to? app (car pair)))
+                       menudict))
+                *replacements*))
+   *additions*))
+
+(define (menudict-for-id id)
+  "The entry that answers to ID, as the runtime would find it, or #f."
+  (find (lambda (app) (entry-answers-to? app id)) (menudict->alists)))

@@ -10,7 +10,9 @@
 (use-modules (whelk defaults)
              (whelk modules)
              (whelk state)
-             (whelk loader))
+             (whelk loader)
+             (whelk menudict)
+             (srfi srfi-13))
 
 (define failures 0)
 
@@ -61,6 +63,50 @@
 (check "the example configures one bar" (= (length bars) 1))
 (check "the example is the default bar" (equal? (shape (car bars))
                                                  (shape built-in)))
+
+
+;; ============================================================================
+;; The dictionary from a settings file
+;; ============================================================================
+;; The dictionary is Scheme, so a settings file configures it the same way it
+;; configures the bar: one load, no rebuild.  This writes the file a user would
+;; write, loads it through the loader, and asks the same question the runtime
+;; asks.
+
+(define menu-settings
+  (string-append (or (getenv "TMPDIR") "/tmp") "/whelk-menu-settings-test.scm"))
+
+(call-with-output-file menu-settings
+  (lambda (port)
+    (display "(add-menu-app \"Steam\" '(\"steam\")\n" port)
+    (display "              '((\"File\" (\"Settings\" \"Ctrl+,\" \"ctrl\" \"comma\"))))\n" port)
+    (display "(replace-menu-app \"firefox\" \"Firefox, mine\"\n" port)
+    (display "                  '(\"firefox\" \"org.mozilla.firefox\")\n" port)
+    (display "                  '((\"File\" (\"Open\" \"Ctrl+O\" \"ctrl\" \"o\"))))\n" port)
+    (display "(add-menu-app \"Broken\" '(\"broken\") '((\"File\" (\"No chord\"))))\n" port)))
+
+(check "a settings file with menu entries loads" (load-settings-file! menu-settings))
+
+(check "the file's addition is in the dictionary"
+       (not (eq? (menudict-for-id "steam") #f)))
+(check "the file's override wins"
+       (let ((app (menudict-for-id "org.mozilla.firefox")))
+         (and app (string=? (assq-ref app 'name) "Firefox, mine"))))
+(check "the file's bad entry is not in the dictionary"
+       (eq? (menudict-for-id "broken") #f))
+
+;; Reported, not dropped in silence: the load says which entry it refused and
+;; why, on stderr, where the runtime's other diagnostics go.
+(define menu-report
+  (let ((port (open-output-string)))
+    (parameterize ((current-error-port port)) (load-settings-file! menu-settings))
+    (get-output-string port)))
+
+(check "the load reports the bad entry" (string-contains menu-report "Broken"))
+(check "the report is a warning"
+       (string-contains menu-report "[WARN][whelk][Scheme:Menus]"))
+
+(delete-file menu-settings)
 
 (if (zero? failures)
     (begin (display "ok defaults\n") (exit 0))

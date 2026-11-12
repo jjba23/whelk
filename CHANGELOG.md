@@ -8,6 +8,19 @@ project follows [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+### Added
+
+- The menu dictionary answers to a settings file: `add-menu-app` appends an
+  application the built-in table does not know, `replace-menu-app` puts an entry
+  of your own where the one answering to an id stood, and the runtime reads the
+  result at startup and after every reload. A bad entry -- an item with no
+  chord, a menu with nothing in it, two items typing one chord -- is refused and
+  logged with the reason rather than dropped in silence, and a replacement for
+  an id nothing answers to is reported and added.
+- Ten more applications in the dictionary: Konsole, Ghostty, image viewers,
+  music players, video players, Kdenlive, Ardour, Obsidian, Zed and Sublime
+  Text -- fifty applications, a hundred and fifty-five ids.
+
 _No changes yet._
 
 ## [0.5.0] - 2026-11-12

@@ -24,6 +24,7 @@
   #:use-module (system repl server)
   #:use-module (whelk defaults)
   #:use-module (whelk logger)
+  #:use-module (whelk menudict)
   #:use-module (whelk modules)
   #:use-module (whelk state)
   #:use-module (whelk themes)
@@ -90,7 +91,10 @@
                get-shell-repl-socket-path
                get-config-path
                load-settings-file!
-               default-bar)
+               default-bar
+               add-menu-app
+               replace-menu-app
+               menudict-for-id)
   #:export (init-shell! load-shell-config! default-shell! start-repl!))
 
 ;; =============================================================================
