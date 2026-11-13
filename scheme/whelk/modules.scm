@@ -179,23 +179,29 @@ have no window; #:format is the label ({index} or {name})."
   (apply module 'window kv))
 
 (define* (start-module #:rest kv)
-  "The shell's own menu: the launcher, the panels, the settings and quitting,
-behind one mark.  The menu is a GTK popover the shell builds itself -- no rofi,
-no subprocess.  It wears the whelk, drawn in the bar's ink; #:label replaces it
-with a glyph from the bar's icon font, #:icon-size sets the mark's pixels (18 by
-default), and #:tooltip is its hover text."
+  "The shell's own menu behind one mark: the launcher, the panels, the settings
+and quitting, in a GTK popover the shell builds itself -- no rofi, no
+subprocess.  It is optional now that menu-module's application-name menu holds
+the same actions; a bar that wants the mark too puts this before it.  It wears
+the whelk, drawn in the bar's ink; #:label replaces it with a glyph from the
+bar's icon font, #:icon-size sets the mark's pixels (18 by default), and
+#:tooltip is its hover text."
   (apply module 'start kv))
 
 (define* (menu-module #:rest kv)
-  "The global menu: the focused application's File/Edit/View menus.  Read from
-its D-Bus menubar where it exports one; otherwise from the dictionary's menus
-for the applications whose shortcuts are documented; otherwise from the
-shortcuts every application shares.  The base keys apply; #:shortcuts? (default
-on) offers the shortcut menus at all, and #:shortcut-tool names the program
-that types a chord (wtype on Wayland, xdotool on X11).  #:accelerator-style
-chooses how every chord is printed -- 'cua for Ctrl+Shift+P, 'emacs for
-C-S-p -- and #:app-name? (default on) puts the application's name before its
-menus, the way a menu bar names the application first."
+  "The application-name menu and its global menu.  The focused application's
+short name comes first; its popover holds the launcher, the network and
+Bluetooth panels, notifications, a reload and quitting, and the application's
+File/Edit/View follow it.  The menus are read from its D-Bus menubar where it
+exports one; otherwise from the dictionary's menus for the applications whose
+shortcuts are documented; otherwise from the shortcuts every application
+shares, and a Window menu adds full screen and close.  The base keys apply;
+#:shortcuts? (default on) offers the shortcut menus at all, and #:shortcut-tool
+names the program that types a chord (wtype on Wayland, xdotool on X11).
+#:accelerator-style chooses how every chord is printed -- 'cua for
+Ctrl+Shift+P, 'emacs for C-S-p -- and #:app-name? (default on) puts the
+application's short name before its menus, the way a menu bar names the
+application first."
   (apply module 'menu kv))
 
 (define* (language-module #:rest kv)
@@ -224,19 +230,21 @@ and a passphrase typed."
 
 (define* (bluetooth-module #:rest kv)
   "The Bluetooth adapter and its connected devices, read with bluetoothctl.
-#:format uses {count} and {state}; #:disabled-format is the reading when the
-adapter is off.  A left click opens the panel, where devices connect."
+#:format uses {count} and {state} and defaults to {icon}: the bar shows the
+glyph and the hover text carries the count.  #:disabled-format is the reading
+when the adapter is off.  A left click opens the panel, where devices connect."
   (apply module 'bluetooth kv))
 
 (define* (notifications-module #:rest kv)
-  "The notification bell: how many notifications are waiting.  #:format uses
-{count} and {state}.  A left click opens the notification centre, a right click
-toggles do-not-disturb."
+  "The notification bell.  #:format uses {count} and {state} and defaults to
+{icon}: the bar shows the bell and the hover text carries the count.  A left
+click opens the notification centre, a right click toggles do-not-disturb."
   (apply module 'notifications kv))
 
 (define* (tray-module #:rest kv)
   "The StatusNotifierItem tray: other programs' status icons.  #:spacing is the
-pixels between icons; #:hide is a comma-separated list of id/title fragments to
-leave out.  Without #:hide, applets for what whelk reads natively (a Wi-Fi or
-Bluetooth applet, when the bar has those modules) are hidden."
+pixels between icons; #:max-items (6) keeps that many on the bar and puts the
+rest behind a chevron; #:hide is a comma-separated list of id/title fragments
+to leave out.  Without #:hide, applets for what whelk reads natively (a Wi-Fi
+or Bluetooth applet, when the bar has those modules) are hidden."
   (apply module 'tray kv))

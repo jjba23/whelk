@@ -6,6 +6,7 @@
 #include "modules/modules.h"
 
 #include "logger.h"
+#include "shell.h"
 #include "util/desktop.h"
 #include "util/session.h"
 
@@ -42,6 +43,7 @@ typedef struct {
   char *bus_name;
   char *app_path;
   char *app_name;
+  char *close_command;
   GDesktopAppInfo *desktop;
   char *shortcut_tool;
   gboolean show_shortcuts;
@@ -402,6 +404,109 @@ static void apply_popover_skin(WhelkModule *module, GtkPopover *popover) {
   whelk_style_popover(popover, module->bar);
 }
 
+/* =========================================================================
+ * THE APPLICATION'S OWN MENU
+ * =========================================================================
+ * The name before the menus is not a label: it is the one menu that belongs
+ * to the shell rather than to the focused application -- the launcher, the
+ * panels, and the way to reload or quit, the way a menu bar's application
+ * menu holds the things that are true whatever window is in front.
+ */
+
+#define WHELK_APP_ACTION "whelk-app-action"
+
+static void on_app_action(GtkButton *button, gpointer user_data) {
+  (void)user_data;
+
+  const char *action = g_object_get_data(G_OBJECT(button), WHELK_APP_ACTION);
+  GtkWidget *popover =
+      gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
+
+  if (popover)
+    gtk_popover_popdown(GTK_POPOVER(popover));
+
+  if (!action)
+    return;
+
+  WhelkShell *shell = whelk_shell_get_default();
+
+  if (g_strcmp0(action, "launcher") == 0) {
+    if (shell)
+      whelk_shell_show_launcher(shell, NULL);
+    return;
+  }
+
+  if (g_strcmp0(action, "network") == 0) {
+    if (shell)
+      whelk_shell_show_network_panel(shell, "wifi");
+    return;
+  }
+
+  if (g_strcmp0(action, "bluetooth") == 0) {
+    if (shell)
+      whelk_shell_show_network_panel(shell, "bluetooth");
+    return;
+  }
+
+  if (g_strcmp0(action, "notifications") == 0) {
+    if (shell)
+      whelk_shell_toggle_notifications(shell);
+    return;
+  }
+
+  whelk_command_spawn(action);
+}
+
+static void add_app_item(GtkWidget *box, const char *label,
+                         const char *action) {
+  GtkWidget *button = gtk_button_new_with_label(label);
+
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_add_css_class(button, "whelk-menu-item");
+  gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+  g_object_set_data_full(G_OBJECT(button), WHELK_APP_ACTION, g_strdup(action),
+                         g_free);
+  g_signal_connect(button, "clicked", G_CALLBACK(on_app_action), NULL);
+  gtk_box_append(GTK_BOX(box), button);
+}
+
+static GtkWidget *app_menu_button(WhelkModule *module) {
+  MenuData *data = module->data;
+  GtkWidget *button = gtk_menu_button_new();
+  GtkWidget *label = gtk_label_new(data->app_name);
+  GtkWidget *popover = gtk_popover_new();
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_max_width_chars(GTK_LABEL(label), 22);
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(button), label);
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_add_css_class(button, "whelk-menu-app-button");
+  gtk_widget_set_tooltip_text(button, data->app_name);
+
+  add_app_item(box, "Launcher", "launcher");
+  add_app_item(box, "Network", "network");
+  add_app_item(box, "Bluetooth", "bluetooth");
+  add_app_item(box, "Notifications", "notifications");
+  gtk_box_append(GTK_BOX(box),
+                 gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+  if (data->close_command && *data->close_command) {
+    add_app_item(box, "Close Window", data->close_command);
+    gtk_box_append(GTK_BOX(box),
+                   gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+  }
+
+  add_app_item(box, "Reload settings", "whelk --reload");
+  add_app_item(box, "Quit whelk", "whelk --quit");
+
+  apply_popover_skin(module, GTK_POPOVER(popover));
+  gtk_popover_set_child(GTK_POPOVER(popover), box);
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
+
+  return button;
+}
+
 static void fill_popover(WhelkModule *module, GtkPopover *popover,
                          WhelkMenu *menu) {
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -482,12 +587,16 @@ static void render(WhelkModule *module) {
   clear_row(data);
 
   /* A menu bar is the application's name and then its menus, the way macOS
-   * puts the application first; the name is a label, not an invented menu. */
-  if (data->show_app_name && data->menus->len > 0 && data->app_name &&
-      *data->app_name != '\0') {
-    GtkWidget *name = gtk_label_new(data->app_name);
+   * puts the application first.  The name is the shell's own menu, so it is
+   * present even when the application offers no menus at all: otherwise a
+   * session with no shortcut tool (or no focused window) would lose the
+   * launcher, the panels and the way out as well. */
+  const gboolean show_app_menu =
+      data->show_app_name && data->app_name && *data->app_name != '\0';
 
-    gtk_widget_add_css_class(name, "whelk-menu-app");
+  if (show_app_menu) {
+    GtkWidget *name = app_menu_button(module);
+
     gtk_widget_set_valign(name, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(data->row), name);
   }
@@ -520,7 +629,7 @@ static void render(WhelkModule *module) {
     gtk_box_append(GTK_BOX(data->row), button);
   }
 
-  gtk_widget_set_visible(data->row, data->menus->len > 0);
+  gtk_widget_set_visible(data->row, show_app_menu || data->menus->len > 0);
 }
 
 /* --- what the application exports ----------------------------------------- */
@@ -651,11 +760,10 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   if (named)
     data->app_name = g_strdup(named->name);
-  else if (data->desktop)
-    data->app_name =
-        g_strdup(g_app_info_get_display_name(G_APP_INFO(data->desktop)));
+  else if (*data->app_id == '\0')
+    data->app_name = g_strdup("whelk");
   else
-    data->app_name = g_strdup(data->app_id);
+    data->app_name = whelk_desktop_short_name(data->app_id, data->desktop);
 
   g_free(data->bus_name);
   data->bus_name = g_strdup(data->app_id);
@@ -708,12 +816,18 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   const WhelkSession session = whelk_session_detect();
   g_autofree char *close_command = whelk_session_close_window_command(session);
+  g_autofree char *fullscreen_command =
+      whelk_session_fullscreen_window_command(session);
+
+  g_free(data->close_command);
+  data->close_command = g_strdup(close_command);
 
   const char *source = NULL;
 
   replace_menus(module,
                 whelk_menubar_for_app(data->app_id, action_ids, action_labels,
                                       action_count, close_command,
+                                      fullscreen_command,
                                       data->show_shortcuts ? data->shortcut_tool
                                                            : NULL,
                                       data->style, &source));
@@ -771,6 +885,7 @@ static void menu_destroy(WhelkModule *module) {
   g_clear_object(&data->desktop);
   g_free(data->app_id);
   g_free(data->app_name);
+  g_free(data->close_command);
   g_free(data->bus_name);
   g_free(data->app_path);
   g_free(data->shortcut_tool);

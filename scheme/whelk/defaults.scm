@@ -7,12 +7,13 @@
 ;;
 ;; The bar whelk builds when there is no settings file, and the one
 ;; settings/settings.scm hands out to be copied and edited: the heks-linux
-;; Waybar bar, one module for one, with the global menu added.
+;; Waybar bar's status items, with one application-name menu in place of the
+;; separate shell mark and window title.
 ;;
 ;; A menu bar's left half is whose window you are in and what can be done to it,
-;; so it is the machine's own menu, the focused window, and then the window's
-;; application's File/Edit/View -- the global menu -- where a menu bar puts them.
-;; The status items follow on the right in the reference's order.
+;; so it is one item: the application's short name, whose popover holds the
+;; shell's own actions, followed by the application's File/Edit/View.  The
+;; status items follow on the right in the reference's order.
 ;;
 ;; It is written here once so a fresh machine and the example cannot drift
 ;; apart.  A settings file that wants this bar says
@@ -55,25 +56,12 @@
    #:radius 0
 
    ;; ---------------------------------------------------------------- left --
-   ;; The shell's own menu, wearing the whelk it is named after, then what is
-   ;; in front of you, then what can be done to it.
+   ;; One menu, and it is the application's: a short name with the shell's own
+   ;; actions behind it (launcher, panels, reload, quit), then the application
+   ;; in front's File, Edit and View.  A bar that also wants the whelk mark can
+   ;; still put (start-module) before it.
    #:left (list
-           ;; The shell's own menu, natively: one glyph, and behind it the
-           ;; launcher, the panels, a reload and the way out.  No rofi, no
-           ;; subprocess to hand the click to -- the popover is GTK and every
-           ;; entry in it is the shell's own.
-           (start-module #:tooltip "whelk — the shell's own menu
-Click: the launcher, the panels, a reload and the way out")
-           (window-module #:format "{title}"
-                          #:max-length 50
-                          #:interval 1
-                          #:tooltip "{app-id}
-{title}"
-                          #:on-click "niri msg action focus-workspace-next")
-           ;; The global menu: the application in front's own File, Edit and
-           ;; View, from its D-Bus menubar where it exports one and from its
-           ;; desktop actions and the shared shortcuts where it does not.
-           (menu-module #:shortcuts #t
+           (menu-module #:shortcuts? #t
                         #:accelerator-style 'cua))
 
    ;; -------------------------------------------------------------- center --
@@ -202,8 +190,8 @@ Click: brighter · Right-click: full · Scroll: adjust"
                               #:on-click-right "brightnessctl set 100%"
                               #:on-scroll-up "brightnessctl set 5%+"
                               #:on-scroll-down "brightnessctl set 5%-")
-            (audio-module #:icon "\uf0a1"
-                          #:muted-icon "\uf6a9"
+            (audio-module #:icon "\uf028"
+                          #:muted-icon "\uf026"
                           #:format "{icon} {volume}%"
                           #:muted-format "{icon}"
                           #:interval 2
@@ -242,17 +230,17 @@ Click: next profile"
                          #:disabled-format "{icon} off"
                          #:interval 5)
             (bluetooth-module #:icon "\uf293"
-                              #:format "{icon} {count}"
+                              #:format "{icon}"
                               #:disabled-format "{icon} off"
                               #:interval 10
                               #:tooltip "Bluetooth: {count} device(s)
 Click: devices")
-            (tray-module #:spacing 6)
+            (tray-module #:spacing 6 #:max-items 6)
 
             ;; The notifications bell: the centre on a click, do-not-disturb
             ;; on a right click.
             (notifications-module #:icon "\uf0f3"
-                                  #:format "{icon} {count}"
+                                  #:format "{icon}"
                                   #:tooltip "Notifications: {count}
 Click: centre · Right-click: do not disturb")
 

@@ -44,6 +44,18 @@ static void test_session_commands(void) {
   g_assert_nonnull(strstr(sway_close, "kill"));
   g_assert_nonnull(strstr(x11_close, "wmctrl"));
   g_assert_null(whelk_session_close_window_command(WHELK_SESSION_WAYLAND));
+
+  g_autofree char *niri_full =
+      whelk_session_fullscreen_window_command(WHELK_SESSION_NIRI);
+  g_autofree char *sway_full =
+      whelk_session_fullscreen_window_command(WHELK_SESSION_SWAY);
+  g_autofree char *x11_full =
+      whelk_session_fullscreen_window_command(WHELK_SESSION_X11);
+
+  g_assert_nonnull(strstr(niri_full, "fullscreen-window"));
+  g_assert_nonnull(strstr(sway_full, "fullscreen toggle"));
+  g_assert_nonnull(strstr(x11_full, "toggle,fullscreen"));
+  g_assert_null(whelk_session_fullscreen_window_command(WHELK_SESSION_WAYLAND));
 }
 
 static void test_parse_niri(void) {

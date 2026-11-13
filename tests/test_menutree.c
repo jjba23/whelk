@@ -27,31 +27,40 @@ static void test_synthesize_file_menus(void) {
   const char *source = "not asked";
 
   /* An application nobody wrote down, and no program that can type: File is
-   * all it gets, from what its desktop entry declares. */
+   * what its desktop entry declares, and Window is what the compositor can
+   * do to it. */
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
       "org.example.Unknown", ids, labels, 2, "niri msg action close-window",
-      NULL, WHELK_CHORD_CUA, &source);
+      "niri msg action fullscreen-window", NULL, WHELK_CHORD_CUA, &source);
 
-  g_assert_cmpuint(bar->len, ==, 1);
+  g_assert_cmpuint(bar->len, ==, 2);
   g_assert_null(source);
 
   WhelkMenu *file = menu_at(bar, 0);
 
   g_assert_cmpstr(file->label, ==, "File");
-  g_assert_cmpuint(file->entries->len, ==, 4);
+  g_assert_cmpuint(file->entries->len, ==, 2);
 
   g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
   g_assert_cmpstr(entry_at(file, 0)->action, ==, "desktop:new-window");
   g_assert_cmpstr(entry_at(file, 1)->label, ==, "New Private Window");
-  g_assert_cmpint(entry_at(file, 2)->kind, ==, WHELK_MENU_SEPARATOR);
-  g_assert_cmpstr(entry_at(file, 3)->label, ==, "Close Window");
-  g_assert_cmpstr(entry_at(file, 3)->command, ==,
+
+  WhelkMenu *window = menu_at(bar, 1);
+
+  g_assert_cmpstr(window->label, ==, "Window");
+  g_assert_cmpuint(window->entries->len, ==, 3);
+  g_assert_cmpstr(entry_at(window, 0)->label, ==, "Full Screen");
+  g_assert_cmpstr(entry_at(window, 0)->command, ==,
+                  "niri msg action fullscreen-window");
+  g_assert_cmpint(entry_at(window, 1)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_cmpstr(entry_at(window, 2)->label, ==, "Close Window");
+  g_assert_cmpstr(entry_at(window, 2)->command, ==,
                   "niri msg action close-window");
 }
 
 static void test_synthesize_shortcuts(void) {
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      NULL, NULL, NULL, 0, NULL, "wtype", WHELK_CHORD_CUA, NULL);
+      NULL, NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_CUA, NULL);
 
   /* Nothing of its own to say, so Edit and View only. */
   g_assert_cmpuint(bar->len, ==, 2);
@@ -76,8 +85,8 @@ static void test_synthesize_without_tool(void) {
   /* No program can type a chord, and the application declares nothing, so
    * there is no menu that could work -- and no empty File button either. */
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "org.example.Unknown", NULL, NULL, 0, NULL, NULL, WHELK_CHORD_CUA,
-      NULL);
+      "org.example.Unknown", NULL, NULL, 0, NULL, NULL, NULL,
+      WHELK_CHORD_CUA, NULL);
 
   g_assert_cmpuint(bar->len, ==, 0);
 }
@@ -89,7 +98,7 @@ static void test_synthesize_without_close_command(void) {
   const char *labels[] = {"New Window"};
 
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      NULL, ids, labels, 1, NULL, NULL, WHELK_CHORD_CUA, NULL);
+      NULL, ids, labels, 1, NULL, NULL, NULL, WHELK_CHORD_CUA, NULL);
   WhelkMenu *file = menu_at(bar, 0);
 
   g_assert_cmpuint(file->entries->len, ==, 1);
@@ -101,11 +110,12 @@ static void test_dictionary_menus(void) {
 
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
       "org.mozilla.firefox", NULL, NULL, 0, "niri msg action close-window",
-      "wtype", WHELK_CHORD_CUA, &source);
+      NULL, "wtype", WHELK_CHORD_CUA, &source);
 
-  /* The dictionary answers for Firefox: File, Edit and View of its own. */
+  /* The dictionary answers for Firefox: File, Edit and View of its own, plus
+   * the Window menu the compositor fills. */
   g_assert_cmpstr(source, ==, "Firefox");
-  g_assert_cmpuint(bar->len, ==, 3);
+  g_assert_cmpuint(bar->len, ==, 4);
 
   WhelkMenu *file = menu_at(bar, 0);
 
@@ -114,15 +124,17 @@ static void test_dictionary_menus(void) {
   g_assert_cmpstr(entry_at(file, 0)->command, ==,
                   "wtype -M ctrl -k t -m ctrl");
 
-  /* The compositor's Close Window is the last thing in File, after a rule. */
-  g_assert_cmpstr(entry_at(file, file->entries->len - 1)->label, ==,
-                  "Close Window");
-  g_assert_cmpint(entry_at(file, file->entries->len - 2)->kind, ==,
-                  WHELK_MENU_SEPARATOR);
-
   g_assert_cmpstr(menu_at(bar, 1)->label, ==, "Edit");
   g_assert_cmpstr(menu_at(bar, 2)->label, ==, "View");
   g_assert_cmpstr(entry_at(menu_at(bar, 2), 0)->label, ==, "Reload");
+
+  WhelkMenu *window = menu_at(bar, 3);
+
+  g_assert_cmpstr(window->label, ==, "Window");
+  g_assert_cmpuint(window->entries->len, ==, 1);
+  g_assert_cmpstr(entry_at(window, 0)->label, ==, "Close Window");
+  g_assert_cmpstr(entry_at(window, 0)->command, ==,
+                  "niri msg action close-window");
 }
 
 static void test_dictionary_deduplicates_file(void) {
@@ -130,7 +142,8 @@ static void test_dictionary_deduplicates_file(void) {
   const char *labels[] = {"New Window"};
 
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "chromium", ids, labels, 1, NULL, "wtype", WHELK_CHORD_CUA, NULL);
+      "chromium", ids, labels, 1, NULL, NULL, "wtype", WHELK_CHORD_CUA,
+      NULL);
   WhelkMenu *file = menu_at(bar, 0);
   guint found = 0;
 
@@ -148,7 +161,8 @@ static void test_dictionary_deduplicates_file(void) {
 static void test_dictionary_xdotool(void) {
   /* The same menu on X11: one xdotool call per chord. */
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "firefox", NULL, NULL, 0, NULL, "xdotool", WHELK_CHORD_CUA, NULL);
+      "firefox", NULL, NULL, 0, NULL, NULL, "xdotool", WHELK_CHORD_CUA,
+      NULL);
 
   g_assert_cmpstr(entry_at(menu_at(bar, 0), 0)->command, ==,
                   "xdotool key ctrl+t");
@@ -162,7 +176,8 @@ static void test_dictionary_needs_a_tool(void) {
   /* With nothing to type with, the dictionary's menus are not offered: an
    * entry that cannot work is worse than an absent one. */
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "firefox", ids, labels, 1, NULL, NULL, WHELK_CHORD_CUA, &source);
+      "firefox", ids, labels, 1, NULL, NULL, NULL, WHELK_CHORD_CUA,
+      &source);
 
   g_assert_null(source);
   g_assert_cmpuint(bar->len, ==, 1);
@@ -203,7 +218,8 @@ static void test_every_dictionary_app_renders(void) {
     const char *source = NULL;
 
     g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-        app->ids[0], NULL, NULL, 0, NULL, "wtype", WHELK_CHORD_CUA, &source);
+        app->ids[0], NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_CUA,
+        &source);
 
     g_assert_cmpstr(source, ==, app->name);
     g_assert_cmpuint(bar->len, >=, 1);
@@ -235,7 +251,8 @@ static void test_dictionary_emacs_items(void) {
   const char *source = NULL;
 
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "qutebrowser", NULL, NULL, 0, NULL, "wtype", WHELK_CHORD_CUA, &source);
+      "qutebrowser", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_CUA,
+      &source);
   WhelkMenuEntry *new_tab = entry_at(menu_at(bar, 0), 1);
 
   g_assert_cmpstr(source, ==, "qutebrowser");
@@ -245,9 +262,37 @@ static void test_dictionary_emacs_items(void) {
 
   /* Asked for Emacs notation, the same entry is written C-S-t style. */
   g_autoptr(GPtrArray) emacs = whelk_menubar_for_app(
-      "falkon", NULL, NULL, 0, NULL, "wtype", WHELK_CHORD_EMACS, NULL);
+      "falkon", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_EMACS,
+      NULL);
 
   g_assert_cmpstr(entry_at(menu_at(emacs, 0), 0)->accel, ==, "C-t");
+}
+
+static void test_emacs_multi_key_sequence(void) {
+  /* Emacs stores Save as one sequence, C-x C-s.  The menu must show both
+   * chords and type both, not mistake the space for the end of the chord. */
+  const char *source = NULL;
+
+  g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
+      "org.gnu.emacs", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_CUA,
+      &source);
+
+  g_assert_cmpstr(source, ==, "Emacs");
+  g_assert_cmpstr(menu_at(bar, 0)->label, ==, "File");
+
+  WhelkMenuEntry *save = entry_at(menu_at(bar, 0), 1);
+
+  g_assert_cmpstr(save->label, ==, "Save");
+  g_assert_cmpstr(save->accel, ==, "Ctrl+X Ctrl+S");
+  g_assert_cmpstr(save->command, ==,
+                  "wtype -M ctrl -k x -m ctrl && "
+                  "wtype -M ctrl -k s -m ctrl");
+
+  /* The same entry in Emacs notation is the spelling an Emacs user knows. */
+  g_autoptr(GPtrArray) emacs = whelk_menubar_for_app(
+      "emacs", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_EMACS, NULL);
+
+  g_assert_cmpstr(entry_at(menu_at(emacs, 0), 1)->accel, ==, "C-x C-s");
 }
 
 static void test_gtk_accelerators(void) {
@@ -363,6 +408,8 @@ int main(int argc, char **argv) {
                   test_every_dictionary_app_renders);
   g_test_add_func("/menutree/dictionary/emacs-items",
                   test_dictionary_emacs_items);
+  g_test_add_func("/menutree/dictionary/emacs-sequence",
+                  test_emacs_multi_key_sequence);
   g_test_add_func("/menutree/gtk/accelerators", test_gtk_accelerators);
   g_test_add_func("/menutree/gtk/menubar", test_gtk_menubar);
   g_test_add_func("/menutree/gtk/sections", test_gtk_sections_inside_a_menu);

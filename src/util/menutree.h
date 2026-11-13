@@ -85,6 +85,8 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu,
  * @action_count: how many there are.
  * @close_command: (nullable): the command that closes the focused window on
  *   this session; NULL leaves the entry out.
+ * @fullscreen_command: (nullable): the command that toggles the focused
+ *   window's full-screen state; NULL leaves the entry out.
  * @shortcut_tool: (nullable): the program that types keys, "wtype" on Wayland
  *   and "xdotool" on X11; NULL when neither is installed, which leaves the
  *   menus to the entries that do not need one.
@@ -94,8 +96,9 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu,
  *   from, for the log: the dictionary's name for the application, or NULL
  *   when the generic menus were used.
  *
- * The menubar an application that exports nothing gets.  File always carries
- * the actions its desktop entry declares and a Close Window; then:
+ * The menubar an application that exports nothing gets.  File carries the
+ * actions its desktop entry declares; Window carries Full Screen and Close
+ * Window when the session can do them; then:
  *
  * - an application the dictionary knows gets its own menus -- the documented
  *   shortcuts of that application, each entry showing its chord and typing it;
@@ -112,6 +115,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  const char *const *action_labels,
                                  guint action_count,
                                  const char *close_command,
+                                 const char *fullscreen_command,
                                  const char *shortcut_tool,
                                  WhelkChordStyle style,
                                  const char **out_source);
@@ -119,5 +123,10 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
 /* The command that types a chord, "wtype -M ctrl -k z -m ctrl". */
 char *whelk_shortcut_command(const char *tool, const char *modifiers,
                              const char *key);
+
+/* The command that types a sequence, one typed chord after another. */
+char *whelk_shortcut_sequence_command(const char *tool,
+                                      char *const *modifiers,
+                                      char *const *keys, guint n_chords);
 
 #endif // WHELK_MENUTREE_H

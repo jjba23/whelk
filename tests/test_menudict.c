@@ -173,17 +173,33 @@ static void test_every_entry_is_complete(void) {
         /* An entry without its chord would show a shortcut it cannot type. */
         g_assert_nonnull(item->accel);
         g_assert_cmpuint(strlen(item->accel), >, 0);
-        g_assert_nonnull(item->key);
-        g_assert_cmpuint(strlen(item->key), >, 0);
-        /* The modifiers are either #f (a bare key) or a chord to hold. */
-        if (item->modifiers)
-          g_assert_cmpuint(strlen(item->modifiers), >, 0);
+        g_assert_cmpuint(item->n_chords, >, 0);
+        g_assert_nonnull(item->modifiers);
+        g_assert_nonnull(item->keys);
 
-        g_autofree char *signature = g_strdup_printf(
-            "%s|%s", item->modifiers ? item->modifiers : "", item->key);
+        GString *signature = g_string_new(NULL);
 
-        g_assert_false(g_hash_table_contains(chords, signature));
-        g_hash_table_add(chords, g_steal_pointer(&signature));
+        for (guint chord = 0; chord < item->n_chords; chord++) {
+          g_assert_nonnull(item->keys[chord]);
+          g_assert_cmpuint(strlen(item->keys[chord]), >, 0);
+          /* The modifiers are either NULL (a bare key) or a chord to hold. */
+          if (item->modifiers[chord])
+            g_assert_cmpuint(strlen(item->modifiers[chord]), >, 0);
+
+          if (chord > 0)
+            g_string_append_c(signature, '/');
+
+          g_string_append_printf(signature, "%s|%s",
+                                 item->modifiers[chord]
+                                     ? item->modifiers[chord]
+                                     : "",
+                                 item->keys[chord]);
+        }
+
+        char *owned = g_string_free(signature, FALSE);
+
+        g_assert_false(g_hash_table_contains(chords, owned));
+        g_hash_table_add(chords, owned);
       }
 
       g_hash_table_unref(chords);

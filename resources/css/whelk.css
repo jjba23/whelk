@@ -135,6 +135,35 @@ window.whelk-surface {
   opacity: 0.5;
 }
 
+.whelk-tray-more {
+  padding: 0 3px;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0.7;
+}
+
+.whelk-tray-more:hover {
+  opacity: 1;
+  background-color: alpha(currentColor, 0.12);
+}
+
+.whelk-tray-overflow,
+.whelk-overflow-box {
+  padding: 4px;
+}
+
+.whelk-overflow-more {
+  padding: 0 4px;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0.7;
+}
+
+.whelk-overflow-more:hover {
+  opacity: 1;
+  background-color: alpha(currentColor, 0.12);
+}
+
 /* ---------------------------------------------------------------------------
  * Panels, launcher and notifications
  * ---------------------------------------------------------------------------
@@ -324,11 +353,17 @@ window.whelk-surface {
 }
 
 /* The application's name before its menus, the way a menu bar names the
- * application first. */
-.whelk-menu-app {
-  opacity: 0.7;
+ * application first.  It is a menu button now: the shell's own actions live
+ * behind it. */
+.whelk-menu-app-button {
+  opacity: 0.75;
   font-weight: 600;
   padding: 0 6px 0 2px;
+  min-height: 0;
+}
+
+.whelk-menu-app-button:hover {
+  opacity: 1;
 }
 
 .whelk-start-button,

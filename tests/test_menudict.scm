@@ -47,7 +47,8 @@
        (= (length ids) (length (delete-duplicates (map string-downcase ids)))))
 
 ;; A menu needs a label and at least one thing in it; an item needs a label
-;; and a chord, either as (label chord) or as the long four-field form.
+;; and a chord, either as (label chord) or as the long four-field form.  A
+;; chord may be an Emacs sequence, so a space is not a mistake.
 (define (item-signature item)
   (if (= (length item) 2)
       (string-downcase (list-ref item 1))

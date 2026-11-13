@@ -359,14 +359,54 @@ char *whelk_shortcut_command(const char *tool, const char *modifiers,
                          modifiers);
 }
 
+char *whelk_shortcut_sequence_command(const char *tool,
+                                      char *const *modifiers,
+                                      char *const *keys, guint n_chords) {
+  if (!tool || *tool == '\0' || !keys || n_chords == 0)
+    return NULL;
+
+  GString *command = g_string_new(NULL);
+
+  for (guint i = 0; i < n_chords; i++) {
+    char *one = whelk_shortcut_command(
+        tool, modifiers ? modifiers[i] : NULL, keys[i]);
+
+    if (!one) {
+      g_string_free(command, TRUE);
+      return NULL;
+    }
+
+    if (i > 0)
+      g_string_append(command, " && ");
+
+    g_string_append(command, one);
+    g_free(one);
+  }
+
+  return g_string_free(command, FALSE);
+}
+
 static void add_shortcut(WhelkMenu *menu, const char *label, const char *accel,
-                         const char *tool, const char *modifiers,
-                         const char *key, WhelkChordStyle style) {
+                         const char *tool, char *const *modifiers,
+                         char *const *keys, guint n_chords,
+                         WhelkChordStyle style) {
   WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
 
-  entry->accel = whelk_chord_display(accel, style);
-  entry->command = whelk_shortcut_command(tool, modifiers, key);
+  entry->accel = whelk_chord_sequence_display(accel, style);
+  entry->command =
+      whelk_shortcut_sequence_command(tool, modifiers, keys, n_chords);
   entry->enabled = entry->command != NULL;
+}
+
+/* A one-chord entry, for the menus every application shares. */
+static void add_one_shortcut(WhelkMenu *menu, const char *label,
+                             const char *accel, const char *tool,
+                             const char *modifiers, const char *key,
+                             WhelkChordStyle style) {
+  char *mods[] = {(char *)modifiers};
+  char *keys[] = {(char *)key};
+
+  add_shortcut(menu, label, accel, tool, mods, keys, 1, style);
 }
 
 /* Is an entry of this name already in the menu?  A desktop entry and the
@@ -392,7 +432,7 @@ static void append_dict_menu(WhelkMenu *menu, const WhelkDictMenu *dict,
       continue;
 
     add_shortcut(menu, item->label, item->accel, tool, item->modifiers,
-                 item->key, style);
+                 item->keys, item->n_chords, style);
   }
 }
 
@@ -425,25 +465,26 @@ static void append_shared_menus(GPtrArray *bar, const char *tool,
                                WhelkChordStyle style) {
   WhelkMenu *edit = whelk_menu_new("Edit");
 
-  add_shortcut(edit, "Undo", "Ctrl+Z", tool, "ctrl", "z", style);
-  add_shortcut(edit, "Redo", "Ctrl+Shift+Z", tool, "ctrl shift", "z", style);
+  add_one_shortcut(edit, "Undo", "Ctrl+Z", tool, "ctrl", "z", style);
+  add_one_shortcut(edit, "Redo", "Ctrl+Shift+Z", tool, "ctrl shift", "z",
+                   style);
   whelk_menu_add_separator(edit);
-  add_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x", style);
-  add_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c", style);
-  add_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v", style);
-  add_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a", style);
+  add_one_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x", style);
+  add_one_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c", style);
+  add_one_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v", style);
+  add_one_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a", style);
   whelk_menu_add_separator(edit);
-  add_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f", style);
+  add_one_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f", style);
 
   g_ptr_array_add(bar, edit);
 
   WhelkMenu *view = whelk_menu_new("View");
 
-  add_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus", style);
-  add_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus", style);
-  add_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0", style);
+  add_one_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus", style);
+  add_one_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus", style);
+  add_one_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0", style);
   whelk_menu_add_separator(view);
-  add_shortcut(view, "Full Screen", "F11", tool, NULL, "F11", style);
+  add_one_shortcut(view, "Full Screen", "F11", tool, NULL, "F11", style);
 
   g_ptr_array_add(bar, view);
 }
@@ -453,6 +494,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  const char *const *action_labels,
                                  guint action_count,
                                  const char *close_command,
+                                 const char *fullscreen_command,
                                  const char *shortcut_tool,
                                  WhelkChordStyle style,
                                  const char **out_source) {
@@ -488,16 +530,6 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
       }
   }
 
-  /* Closing a window is the compositor's job, and its name differs per session;
-   * a session that cannot close windows gets no entry rather than a dead one. */
-  if (close_command && *close_command) {
-    separate(file);
-
-    WhelkMenuEntry *close = whelk_menu_add_entry(file, "Close Window");
-
-    close->command = g_strdup(close_command);
-  }
-
   /* A File with nothing in it is not a menu. */
   if (has_item(file))
     g_ptr_array_add(bar, file);
@@ -517,6 +549,29 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
   } else if (!dict && can_type) {
     append_shared_menus(bar, shortcut_tool, style);
   }
+
+  /* Window actions belong to the compositor, and its names differ per session;
+   * an action the session cannot do gets no entry rather than a dead one. */
+  WhelkMenu *window = whelk_menu_new("Window");
+
+  if (fullscreen_command && *fullscreen_command) {
+    WhelkMenuEntry *full = whelk_menu_add_entry(window, "Full Screen");
+
+    full->command = g_strdup(fullscreen_command);
+  }
+
+  if (close_command && *close_command) {
+    separate(window);
+
+    WhelkMenuEntry *close = whelk_menu_add_entry(window, "Close Window");
+
+    close->command = g_strdup(close_command);
+  }
+
+  if (has_item(window))
+    g_ptr_array_add(bar, window);
+  else
+    whelk_menu_free(window);
 
   return bar;
 }

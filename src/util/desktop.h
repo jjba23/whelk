@@ -30,4 +30,18 @@
  */
 GDesktopAppInfo *whelk_desktop_for_app_id(const char *app_id);
 
+/**
+ * whelk_desktop_short_name:
+ * @app_id: (nullable): a window's application id or class.
+ * @info: (nullable): its desktop entry, when one was found.
+ *
+ * The short name a menu bar puts before an application's menus: the desktop
+ * entry's name, or -- for an application with no entry -- the last component
+ * of its id, with '-' and '_' read as spaces and its first letter capitalised.
+ * "com.jetbrains.toolbox" becomes "Toolbox", not the whole reverse-DNS id.
+ *
+ * Returns: (transfer full): the name; never NULL.
+ */
+char *whelk_desktop_short_name(const char *app_id, GDesktopAppInfo *info);
+
 #endif // WHELK_DESKTOP_H

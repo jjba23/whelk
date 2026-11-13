@@ -10,6 +10,78 @@ project follows [Semantic Versioning][semver].
 
 _No changes yet._
 
+## [0.8.0] - 2026-11-13
+
+### Added
+
+- **One application-name menu on the left.** `menu-module` now begins with the
+  focused application's short name, and that name is a menu button: the
+  launcher, the network and Bluetooth panels, the notification centre, a
+  reload and quitting are behind it, and the application's own
+  File/Edit/View follow. The default bar no longer puts the whelk mark and the
+  focused window title beside it, so there is one menu instead of two;
+  `(start-module)` is still available for a bar that wants the mark as well.
+  The short name is the dictionary's name, else the desktop entry's name, else
+  the last component of the application id (`com.jetbrains.toolbox` becomes
+  `Toolbox`).
+- **A Window menu for the applications the shell serves.** Full Screen and
+  Close Window use the compositor's own actions, so a menu has the two window
+  commands a menu bar is expected to have even when the application publishes
+  no menubar. Desktop actions still come first in File.
+- **Emacs multi-key chords.** A chord may be a sequence: `C-x C-s` is parsed,
+  printed in either notation, and typed as `C-x` then `C-s`, rather than being
+  refused because it contains a space. Emacs itself is in the dictionary with
+  sequences such as `C-x C-s`, `C-x C-f`, `C-x b` and `C-x k`; the dictionary
+  now covers ninety-five applications and two hundred and eighty ids.
+- **A working, overflowing tray.** The tray reads the standard
+  `RegisteredStatusNotifierItems` property, registers the bar as a
+  StatusNotifierHost, and follows items registered after it starts, so a
+  running JetBrains Toolbox appears. `#:max-items` (six by default) keeps the
+  first icons on the bar and puts the rest behind a chevron.
+- **Right-side bar overflow.** When the right row no longer fits the monitor,
+  its trailing modules move behind a chevron in the row. The same widgets keep
+  their timers, tooltips and clicks, so a clipped reading is not lost.
+
+### Changed
+
+- **The sound icon is the familiar speaker.** The default volume glyph is
+  `\uf028`, and muting swaps it for `\uf026`, instead of the unfamiliar
+  broadcast mark.
+- **Bluetooth and notification counts are hover text.** Their default formats
+  are the glyph alone; the connected-device and waiting counts remain in the
+  tooltips and are still available to an explicit `#:format`.
+
+### Fixed
+
+- **The tray was reading a property almost no watcher publishes.** It asked
+  for `RegisteredStatusItems`; the protocol's name is
+  `RegisteredStatusNotifierItems`, which is what Waybar and other modern
+  watchers expose. It also registers as a host now, so an item that was already
+  running is listed rather than waiting for a registration signal that has
+  already happened.
+- **A whitespace chord was rejected by the Scheme validator** before the C
+  parser could read it as a sequence. A sequence is now a valid dictionary
+  item, and an empty chord is still refused with the reason.
+- **The application-name menu disappeared when the application had no
+  menus.** The shell's own launcher/panel/reload/quit menu was gated on the
+  application menus being non-empty, so a session with no shortcut tool (or no
+  focused window) lost the whole left item. The name is now always present;
+  the row only hides when `#:app-name?` is off and there are no menus either.
+- **The tray chevron stayed behind after the watcher vanished.** Clearing the
+  item list now reflows the chevron and the overflow popover too.
+- **`add-menu-app` logged with unescaped quotes.** The message's example
+  `(replace-menu-app "id" ...)` ended the Scheme string early, so Guile warned
+  `possibly unbound variable \`~a'` and the diagnostic was garbled. The example
+  now uses a quoted symbol and the file compiles without that warning.
+
+### Tests
+
+- `tests/test_chord.c` covers sequence parsing, both display styles, both
+  typing tools, and a sequence with a bare final chord.
+- `tests/test_menutree.c` renders Emacs's `C-x C-s` from the dictionary and
+  checks both the printed chord and the two typed commands; the Scheme suite
+  accepts a multi-key item and still rejects one with no chord.
+
 ## [0.7.1] - 2026-11-13
 
 ### Changed

@@ -79,6 +79,10 @@ char *whelk_session_focused_window_command(WhelkSession session);
 /* The command that closes the focused window; NULL when there is none. */
 char *whelk_session_close_window_command(WhelkSession session);
 
+/* The command that toggles the focused window's full-screen state; NULL when
+ * the session has no such action. */
+char *whelk_session_fullscreen_window_command(WhelkSession session);
+
 /**
  * whelk_session_parse_focused:
  * @session: the session the text came from.

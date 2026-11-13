@@ -45,7 +45,7 @@ static void paint(WhelkModule *module, NotificationsState *state) {
   whelk_values_set(values, "state", dnd ? "dnd" : (count > 0 ? "new" : "idle"));
 
   whelk_module_present_format(
-      module, whelk_spec_str(module->spec, "format", "{icon} {count}"),
+      module, whelk_spec_str(module->spec, "format", "{icon}"),
       whelk_spec_str(module->spec, "icon", ""),
       whelk_spec_str(module->spec, "tooltip",
                      dnd ? "Do not disturb is on" : "{count} notification(s)"),

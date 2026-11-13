@@ -24,12 +24,17 @@
  * knows an application; adding one is one form in the Scheme module.
  */
 
-/* One entry: what the menu says, what it shows on the right, and what it types. */
+/* One entry: what the menu says, what it shows on the right, and what it types.
+ *
+ * A chord may be an Emacs sequence (C-x C-s), so the typed half is an array:
+ * modifiers[i] is the modifiers held for keys[i], and a NULL modifier is a
+ * bare key.  One chord is the usual case; the arrays have n_chords entries. */
 typedef struct {
   const char *label;
-  const char *accel;     /* "Ctrl+N", shown dim on the right */
-  const char *modifiers; /* "ctrl", "ctrl shift", NULL for none */
-  const char *key;       /* "n", "F11" */
+  const char *accel;     /* "Ctrl+X Ctrl+S", shown dim on the right */
+  char **modifiers;      /* n_chords entries, each "ctrl" or NULL */
+  char **keys;           /* n_chords entries, each "x", "F11" */
+  guint n_chords;
 } WhelkDictItem;
 
 typedef struct {

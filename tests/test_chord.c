@@ -199,6 +199,53 @@ static void test_commands(void) {
   g_assert_null(whelk_chord_command(NULL, &chord));
 }
 
+static void test_sequences(void) {
+  WhelkChordSequence sequence;
+
+  g_assert_true(whelk_chord_sequence_parse("C-x C-s", &sequence));
+  g_assert_cmpuint(sequence.n_chords, ==, 2);
+  g_assert_true(sequence.chords[0].ctrl);
+  g_assert_cmpstr(sequence.chords[0].key, ==, "x");
+  g_assert_true(sequence.chords[1].ctrl);
+  g_assert_cmpstr(sequence.chords[1].key, ==, "s");
+
+  g_autofree char *cua =
+      whelk_chord_sequence_format(&sequence, WHELK_CHORD_CUA);
+  g_autofree char *emacs =
+      whelk_chord_sequence_format(&sequence, WHELK_CHORD_EMACS);
+  g_autofree char *wtype = whelk_chord_sequence_command("wtype", &sequence);
+  g_autofree char *x11 = whelk_chord_sequence_command("xdotool", &sequence);
+
+  g_assert_cmpstr(cua, ==, "Ctrl+X Ctrl+S");
+  g_assert_cmpstr(emacs, ==, "C-x C-s");
+  g_assert_cmpstr(wtype, ==,
+                  "wtype -M ctrl -k x -m ctrl && "
+                  "wtype -M ctrl -k s -m ctrl");
+  g_assert_cmpstr(x11, ==, "xdotool key ctrl+x && xdotool key ctrl+s");
+  whelk_chord_sequence_clear(&sequence);
+
+  /* A sequence may end in a bare key, as C-x 2 does. */
+  g_assert_true(whelk_chord_sequence_parse("C-x 2", &sequence));
+  g_assert_cmpuint(sequence.n_chords, ==, 2);
+  g_assert_false(sequence.chords[1].ctrl);
+  g_assert_cmpstr(sequence.chords[1].key, ==, "2");
+  whelk_chord_sequence_clear(&sequence);
+
+  /* The display path understands the same sequence. */
+  g_autofree char *shown =
+      whelk_chord_display("C-x C-s", WHELK_CHORD_CUA);
+  g_autofree char *shown_emacs =
+      whelk_chord_display("Ctrl+X Ctrl+S", WHELK_CHORD_EMACS);
+
+  g_assert_cmpstr(shown, ==, "Ctrl+X Ctrl+S");
+  g_assert_cmpstr(shown_emacs, ==, "C-x C-s");
+
+  /* One broken chord makes the whole sequence unusable. */
+  g_assert_false(whelk_chord_sequence_parse("C-x C-", &sequence));
+  g_assert_false(whelk_chord_sequence_parse("", &sequence));
+  g_assert_null(whelk_chord_sequence_command(NULL, &sequence));
+}
+
 static void test_styles(void) {
   g_assert_cmpint(whelk_chord_style_from_name("emacs"), ==, WHELK_CHORD_EMACS);
   g_assert_cmpint(whelk_chord_style_from_name("Emacs"), ==, WHELK_CHORD_EMACS);
@@ -219,6 +266,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/chord/formatting", test_formatting);
   g_test_add_func("/chord/display", test_display);
   g_test_add_func("/chord/commands", test_commands);
+  g_test_add_func("/chord/sequences", test_sequences);
   g_test_add_func("/chord/styles", test_styles);
 
   return g_test_run();

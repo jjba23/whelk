@@ -79,6 +79,21 @@ static void test_resolves_app_id(void) {
       g_desktop_app_info_get_action_name(reverse_dns, "New");
   g_assert_cmpstr(action_name, ==, "New Window");
 
+  /* The app-name menu says the desktop entry's short name, and never the
+   * reverse-DNS id when there is no entry. */
+  g_autofree char *entry_name = whelk_desktop_short_name("Foo", reverse_dns);
+  g_assert_cmpstr(entry_name, ==, "Foo");
+
+  g_autofree char *toolbox =
+      whelk_desktop_short_name("com.jetbrains.toolbox", NULL);
+  g_assert_cmpstr(toolbox, ==, "Toolbox");
+
+  g_autofree char *chrome = whelk_desktop_short_name("google-chrome", NULL);
+  g_assert_cmpstr(chrome, ==, "Google Chrome");
+
+  g_autofree char *unknown = whelk_desktop_short_name(NULL, NULL);
+  g_assert_cmpstr(unknown, ==, "Application");
+
   /* Nothing on this desktop is called that; a search must not invent one. */
   g_assert_null(whelk_desktop_for_app_id("Nope"));
   g_assert_null(whelk_desktop_for_app_id(""));

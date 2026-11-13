@@ -3,11 +3,12 @@
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 ;;
-;; A 1:1 replacement for the heks-linux Waybar bar: the machine's own menu, the
-;; focused window and the global menu on the left, the status items on the
-;; right, in the order the reference keeps them.  This is the same bar whelk
-;; builds with no settings file -- (default-bar) from (whelk defaults) -- so a
-;; fresh machine starts here instead of on a placeholder.
+;; A 1:1 replacement for the heks-linux Waybar bar: one application-name menu
+;; on the left (the shell's own actions and the focused application's
+;; File/Edit/View), the status items on the right, in the order the reference
+;; keeps them.  This is the same bar whelk builds with no settings file --
+;; (default-bar) from (whelk defaults) -- so a fresh machine starts here instead
+;; of on a placeholder.
 ;;
 ;; Copy this file to ~/.config/whelk/settings.scm and change it there; whelk
 ;; reloads the bar when the file is saved.
@@ -40,26 +41,12 @@
    #:radius 0
 
    ;; ---------------------------------------------------------------- left --
-   ;; A menu bar's left half is the shell's own menu and what is in front of
-   ;; you.  The mark is the whelk, drawn in the bar's own ink; #:label swaps it
-   ;; for any glyph the icon font has.
+   ;; One menu, and it is the application's: a short name with the shell's own
+   ;; actions behind it (launcher, panels, reload, quit), then the application
+   ;; in front's File, Edit and View.  A bar that also wants the whelk mark can
+   ;; still put (start-module) before it.
    #:left (list
-           ;; The shell's own menu, natively: one glyph, and behind it the
-           ;; launcher, the panels, a reload and the way out.  No rofi, no
-           ;; subprocess to hand the click to -- the popover is GTK and every
-           ;; entry in it is the shell's own.
-           (start-module #:tooltip "whelk — the shell's own menu
-Click: the launcher, the panels, a reload and the way out")
-           (window-module #:format "{title}"
-                          #:max-length 50
-                          #:interval 1
-                          #:tooltip "{app-id}
-{title}"
-                          #:on-click "niri msg action focus-workspace-next")
-           ;; The global menu: the application in front's own File, Edit and
-           ;; View, from its D-Bus menubar where it exports one and from its
-           ;; desktop actions and the shared shortcuts where it does not.
-           (menu-module #:shortcuts #t
+           (menu-module #:shortcuts? #t
                         #:accelerator-style 'cua))
 
    ;; -------------------------------------------------------------- center --
@@ -188,8 +175,8 @@ Click: brighter · Right-click: full · Scroll: adjust"
                               #:on-click-right "brightnessctl set 100%"
                               #:on-scroll-up "brightnessctl set 5%+"
                               #:on-scroll-down "brightnessctl set 5%-")
-            (audio-module #:icon "\uf0a1"
-                          #:muted-icon "\uf6a9"
+            (audio-module #:icon "\uf028"
+                          #:muted-icon "\uf026"
                           #:format "{icon} {volume}%"
                           #:muted-format "{icon}"
                           #:interval 2
@@ -228,16 +215,16 @@ Click: next profile"
                          #:disabled-format "{icon} off"
                          #:interval 5)
             (bluetooth-module #:icon "\uf293"
-                              #:format "{icon} {count}"
+                              #:format "{icon}"
                               #:disabled-format "{icon} off"
                               #:interval 10
                               #:tooltip "Bluetooth: {count} device(s)\nClick: devices")
-            (tray-module #:spacing 6)
+            (tray-module #:spacing 6 #:max-items 6)
 
             ;; The notifications bell: the centre on a click, do-not-disturb
             ;; on a right click.
             (notifications-module #:icon "\uf0f3"
-                                  #:format "{icon} {count}"
+                                  #:format "{icon}"
                                   #:tooltip "Notifications: {count}
 Click: centre · Right-click: do not disturb")
 

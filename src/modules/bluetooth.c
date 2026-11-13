@@ -60,7 +60,7 @@ static void on_bluetooth(WhelkModule *module, const char *text, gpointer data) {
       whelk_module_add_class(module, "connected");
 
     whelk_module_present_format(
-        module, whelk_spec_str(module->spec, "format", "{icon} {count}"),
+        module, whelk_spec_str(module->spec, "format", "{icon}"),
         whelk_spec_str(module->spec, "icon", ""),
         whelk_spec_str(module->spec, "tooltip",
                        "{count} device(s) connected"),

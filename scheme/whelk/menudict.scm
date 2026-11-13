@@ -273,6 +273,29 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
       ("Bottom Panel" "Ctrl+F9" "ctrl" "F9")
       ("Full Screen" "F11" #f "F11")))))
 
+;; Emacs is where multi-key sequences matter: C-x C-s is one menu entry, not
+;; two shortcuts.  The runtime types each chord in order.
+(define emacs
+  (dict-app
+   "Emacs"
+   '("emacs" "org.gnu.emacs" "emacs-gtk")
+   '(("File"
+      ("Open File" "C-x C-f")
+      ("Save" "C-x C-s")
+      ("Save As" "C-x C-w")
+      ("Quit" "C-x C-c"))
+     ("Edit"
+      ("Undo" "C-x u")
+      ("Cut" "C-w")
+      ("Copy" "M-w")
+      ("Paste" "C-y")
+      ("Select All" "C-x h")
+      ("Search" "C-s"))
+     ("Buffers"
+      ("List Buffers" "C-x C-b")
+      ("Switch Buffer" "C-x b")
+      ("Kill Buffer" "C-x k")))))
+
 (define kate
   (dict-app
    "Kate"
@@ -1698,6 +1721,7 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
         alacritty
         text_editor
         gedit
+        emacs
         kate
         msedit
         vscode
@@ -1833,9 +1857,6 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
 
 ;; --- what makes an entry bad ----------------------------------------------
 
-(define (chord-has-whitespace? chord)
-  (any char-whitespace? (string->list chord)))
-
 (define (item-problem item)
   (cond
     ((not (list? item)) "an item is not a list")
@@ -1845,12 +1866,9 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
     ((not (string-non-empty? (list-ref item 1)))
      (simple-format #f "~a shows no chord" (list-ref item 0)))
     ;; (label chord): the runtime reads Emacs or CUA notation from the one
-    ;; string, so there is nothing else here to check but that it is a chord
-    ;; and not a sentence.
-    ((= (length item) 2)
-     (and (chord-has-whitespace? (list-ref item 1))
-          (simple-format #f "~a's chord has whitespace in it"
-                         (list-ref item 0))))
+    ;; string, so there is nothing else here to check.  It may be a sequence:
+    ;; C-x C-s has a space between its chords.
+    ((= (length item) 2) #f)
     ((not (or (eq? (list-ref item 2) #f) (string-non-empty? (list-ref item 2))))
      (simple-format #f "~a has neither modifiers nor #f for none"
                     (list-ref item 0)))
@@ -1929,7 +1947,7 @@ entry, or #f when it could not be used -- in which case the reason is logged."
                                 (menudict->alists))))
                (when clash
                  (log-warn "Menus"
-                           "~a answers to ~a, which ~a already answers: use (replace-menu-app "~a" ...) to override it"
+                           "~a answers to ~a, which ~a already answers: use (replace-menu-app '~a' ...) to override it"
                            name id (assq-ref clash 'name) id))))
            ids)
           (set! *additions* (append *additions* (list app)))

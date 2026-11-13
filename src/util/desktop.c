@@ -21,6 +21,40 @@ static gboolean id_names_app(const char *desktop_id, const char *app_id) {
   return strstr(lower_id, lower_app) != NULL;
 }
 
+char *whelk_desktop_short_name(const char *app_id, GDesktopAppInfo *info) {
+  if (info) {
+    const char *name = g_app_info_get_name(G_APP_INFO(info));
+
+    if (name && *name)
+      return g_strdup(name);
+  }
+
+  if (!app_id || *app_id == '\0')
+    return g_strdup("Application");
+
+  g_autofree char *copy = g_strdup(app_id);
+
+  if (g_str_has_suffix(copy, ".desktop"))
+    copy[strlen(copy) - strlen(".desktop")] = '\0';
+
+  const char *last_dot = strrchr(copy, '.');
+  const char *base = last_dot ? last_dot + 1 : copy;
+  char *name = g_strdup(*base ? base : copy);
+  gboolean start = TRUE;
+
+  for (char *p = name; *p; p++) {
+    if (*p == '-' || *p == '_') {
+      *p = ' ';
+      start = TRUE;
+    } else if (start) {
+      *p = (char)g_ascii_toupper(*p);
+      start = FALSE;
+    }
+  }
+
+  return name;
+}
+
 GDesktopAppInfo *whelk_desktop_for_app_id(const char *app_id) {
   if (!app_id || *app_id == '\0')
     return NULL;

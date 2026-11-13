@@ -42,6 +42,19 @@ typedef struct {
 } WhelkChord;
 
 /**
+ * WhelkChordSequence:
+ * @chords: (array length=n_chords): the chords, in the order they are typed.
+ * @n_chords: how many there are.
+ *
+ * An Emacs key sequence such as C-x C-s.  Most chords are one chord long;
+ * Emacs is not, and its prefixes are the reason this type exists.
+ */
+typedef struct {
+  WhelkChord *chords;
+  guint n_chords;
+} WhelkChordSequence;
+
+/**
  * whelk_chord_parse:
  * @text: a chord in Emacs notation ("C-v", "M-F4", "C-M-x", "s-p"), CUA
  *   notation ("Ctrl+V", "Alt+F4", "Ctrl++"), or a bare key ("F11", "Space").
@@ -65,6 +78,49 @@ gboolean whelk_chord_parse(const char *text, WhelkChord *chord);
  * be read.
  */
 gboolean whelk_chord_parse_gtk(const char *text, WhelkChord *chord);
+
+/**
+ * whelk_chord_sequence_parse:
+ * @text: one chord, or several separated by whitespace, in Emacs notation
+ *   ("C-x C-s") or CUA notation ("Ctrl+X Ctrl+S").
+ * @sequence: (out caller-allocates): the sequence, to be cleared with
+ *   whelk_chord_sequence_clear().
+ *
+ * Returns: TRUE when every chord in the sequence can be typed.
+ */
+gboolean whelk_chord_sequence_parse(const char *text,
+                                    WhelkChordSequence *sequence);
+
+/* Releases every chord in the sequence. */
+void whelk_chord_sequence_clear(WhelkChordSequence *sequence);
+
+/* The sequence as a menubar shows it: "Ctrl+X Ctrl+S" or "C-x C-s". */
+char *whelk_chord_sequence_format(const WhelkChordSequence *sequence,
+                                  WhelkChordStyle style);
+
+/**
+ * whelk_chord_sequence_display:
+ * @text: a chord sequence in any notation this file reads, or text it does not.
+ * @style: how to write it back.
+ *
+ * Like whelk_chord_display(), but a multi-key Emacs sequence is understood and
+ * each chord is written in @style.  Text that is not a sequence is returned
+ * unchanged.
+ *
+ * Returns: (transfer full): the display text.
+ */
+char *whelk_chord_sequence_display(const char *text, WhelkChordStyle style);
+
+/**
+ * whelk_chord_sequence_command:
+ * @tool: (nullable): "wtype", "xdotool", or a path to either.
+ * @sequence: the sequence to type.
+ *
+ * Returns: (transfer full) (nullable): one command that types every chord in
+ *   order, or NULL when there is no tool or a chord has no key.
+ */
+char *whelk_chord_sequence_command(const char *tool,
+                                   const WhelkChordSequence *sequence);
 
 /* Releases the chord's key; the chord is reusable afterwards. */
 void whelk_chord_clear(WhelkChord *chord);

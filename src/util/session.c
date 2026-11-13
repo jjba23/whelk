@@ -247,6 +247,22 @@ char *whelk_session_close_window_command(WhelkSession session) {
   return NULL;
 }
 
+char *whelk_session_fullscreen_window_command(WhelkSession session) {
+  switch (session) {
+  case WHELK_SESSION_NIRI:
+    return g_strdup("niri msg action fullscreen-window");
+  case WHELK_SESSION_SWAY:
+    return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg fullscreen toggle");
+  case WHELK_SESSION_X11:
+    return g_strdup("wmctrl -r :ACTIVE: -b toggle,fullscreen 2>/dev/null || "
+                    "xdotool getactivewindow key F11 2>/dev/null");
+  case WHELK_SESSION_WAYLAND:
+    break;
+  }
+
+  return NULL;
+}
+
 char *whelk_session_shortcut_tool(WhelkSession session) {
   const char *wanted = session == WHELK_SESSION_X11 ? "xdotool" : "wtype";
 

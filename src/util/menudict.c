@@ -50,8 +50,14 @@ GPtrArray *whelk_menudict_table_new(void) {
 static void dict_item_clear(WhelkDictItem *item) {
   g_free((char *)item->label);
   g_free((char *)item->accel);
-  g_free((char *)item->modifiers);
-  g_free((char *)item->key);
+
+  for (guint i = 0; i < item->n_chords; i++) {
+    g_free(item->modifiers[i]);
+    g_free(item->keys[i]);
+  }
+
+  g_free(item->modifiers);
+  g_free(item->keys);
 }
 
 static void dict_menu_clear(WhelkDictMenu *menu) {

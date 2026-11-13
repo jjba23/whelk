@@ -3,9 +3,9 @@
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-;; The default bar: the heks-linux Waybar bar with the global menu, and the same
-;; bar the shipped example configures.  The two are written out separately, so
-;; the suite is what keeps them from drifting apart.
+;; The default bar: the heks-linux Waybar status items with the application-name
+;; menu, and the same bar the shipped example configures.  The two are written
+;; out separately, so the suite is what keeps them from drifting apart.
 
 (use-modules (whelk defaults)
              (whelk modules)
@@ -34,12 +34,11 @@
 
 (define built-in (default-bar))
 
-;; The reference's left half, plus the global menu after the window: the
-;; shell's own menu (native, not a rofi script), whose window you are in, then
-;; what can be done to it.
-(check "the left half reads start, window, menu-bar"
+;; The bar's left half is one menu: the focused application's short name, with
+;; the shell's own actions and the application's menus behind it.
+(check "the left half is the app menu"
        (equal? (kinds (bar-config-modules-left built-in))
-               '(start window menu)))
+               '(menu)))
 
 ;; The reference's right half, in its order: the media and desktop items, the
 ;; hardware readouts, the status icons, then search and the clock.
@@ -83,6 +82,8 @@
     (display "(replace-menu-app \"firefox\" \"Firefox, mine\"\n" port)
     (display "                  '(\"firefox\" \"org.mozilla.firefox\")\n" port)
     (display "                  '((\"File\" (\"Open\" \"Ctrl+O\" \"ctrl\" \"o\"))))\n" port)
+    (display "(add-menu-app \"Emacsish\" '(\"emacsish\")\n" port)
+    (display "              '((\"File\" (\"Save\" \"C-x C-s\"))))\n" port)
     (display "(add-menu-app \"Broken\" '(\"broken\") '((\"File\" (\"No chord\"))))\n" port)))
 
 (check "a settings file with menu entries loads" (load-settings-file! menu-settings))
@@ -92,6 +93,8 @@
 (check "the file's override wins"
        (let ((app (menudict-for-id "org.mozilla.firefox")))
          (and app (string=? (assq-ref app 'name) "Firefox, mine"))))
+(check "a multi-key chord is a valid item"
+       (not (eq? (menudict-for-id "emacsish") #f)))
 (check "the file's bad entry is not in the dictionary"
        (eq? (menudict-for-id "broken") #f))
 

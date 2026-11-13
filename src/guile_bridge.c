@@ -407,8 +407,9 @@ static char **scheme_text_list(SCM list) {
 }
 
 /* (label accel modifiers key), with #f for a bare key, or the shorter
- * (label chord), where the chord is written in Emacs or CUA notation and this
- * is where it stops being text and becomes modifiers and a keysym. */
+ * (label chord), where the chord may be an Emacs sequence (C-x C-s) or one
+ * chord in either notation.  This is where it stops being text and becomes
+ * the modifiers and keysyms the runtime types. */
 static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
   guint length = scheme_list_length(list);
   WhelkDictItem *items = whelk_dict_items_new(length);
@@ -420,17 +421,24 @@ static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
 
     if (scheme_list_length(spec) == 2) {
       g_autofree char *written = scm_text(scheme_list_ref(spec, 1));
-      WhelkChord chord;
+      WhelkChordSequence sequence;
 
-      if (written && whelk_chord_parse(written, &chord)) {
+      if (written && whelk_chord_sequence_parse(written, &sequence)) {
         /* What the dictionary stores is not what the menu shows: the table
-         * keeps the chord as CUA, and the bar writes it in the style its
+         * keeps the sequence as CUA, and the bar writes it in the style its
          * configuration asked for. */
-        items[i].accel = whelk_chord_format(&chord, WHELK_CHORD_CUA);
-        items[i].modifiers = whelk_chord_modifiers(&chord);
-        items[i].key = g_strdup(chord.key);
+        items[i].accel = whelk_chord_sequence_format(&sequence,
+                                                     WHELK_CHORD_CUA);
+        items[i].n_chords = sequence.n_chords;
+        items[i].modifiers = g_new0(char *, sequence.n_chords);
+        items[i].keys = g_new0(char *, sequence.n_chords);
 
-        whelk_chord_clear(&chord);
+        for (guint j = 0; j < sequence.n_chords; j++) {
+          items[i].modifiers[j] = whelk_chord_modifiers(&sequence.chords[j]);
+          items[i].keys[j] = g_strdup(sequence.chords[j].key);
+        }
+
+        whelk_chord_sequence_clear(&sequence);
       } else {
         /* A chord this shell cannot read still prints: the entry is shown
          * disabled rather than silently dropped. */
@@ -441,8 +449,11 @@ static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
     }
 
     items[i].accel = scm_text(scheme_list_ref(spec, 1));
-    items[i].modifiers = scm_text(scheme_list_ref(spec, 2));
-    items[i].key = scm_text(scheme_list_ref(spec, 3));
+    items[i].modifiers = g_new0(char *, 1);
+    items[i].keys = g_new0(char *, 1);
+    items[i].modifiers[0] = scm_text(scheme_list_ref(spec, 2));
+    items[i].keys[0] = scm_text(scheme_list_ref(spec, 3));
+    items[i].n_chords = 1;
   }
 
   *n_items = length;

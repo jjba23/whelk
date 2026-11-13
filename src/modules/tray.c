@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "logger.h"
+#include "style.h"
 #include "util/applets.h"
 
 /* =========================================================================
@@ -18,8 +19,8 @@
  * tray a Wayland client can host, and the one Waybar's `tray` module speaks.
  *
  * The watcher owns the list.  This module watches org.kde.StatusNotifierWatcher
- * on the session bus, asks it for RegisteredStatusItems, and follows the
- * Registered/Unregistered signals from then on; every item is a GDBusProxy of
+ * on the session bus, asks it for RegisteredStatusNotifierItems, and follows
+ * the Registered/Unregistered signals from then on; every item is a GDBusProxy of
  * its own, with its icon read from the proxy's cached properties and a left
  * click calling Activate.
  *
@@ -41,6 +42,9 @@ typedef struct {
   guint watcher_id;
   GPtrArray *items;
   GtkWidget *box;
+  GtkWidget *more;
+  GtkWidget *overflow_box;
+  guint max_items;
 
   /* "id, title fragments to leave out", as configured; and the two applets a
    * bar with its own Wi-Fi and Bluetooth readings does not need. */
@@ -50,6 +54,7 @@ typedef struct {
 } TrayState;
 
 static void tray_add_entry(TrayState *state, const char *entry);
+static void tray_reflow(TrayState *state);
 
 /* =========================================================================
  * WHAT NOT TO SHOW
@@ -112,6 +117,36 @@ static gboolean tray_should_hide(TrayState *state, const char *id,
 /* =========================================================================
  * ITEMS
  * ========================================================================= */
+
+/* The first MAX_ITEMS icons stay on the bar; the rest live behind the
+ * chevron.  The widgets are the same either way, so a click still reaches the
+ * item wherever it is drawn. */
+static void tray_reflow(TrayState *state) {
+  if (!state || !state->box || !state->overflow_box)
+    return;
+
+  const guint visible = MIN(state->items->len, state->max_items);
+
+  for (guint i = 0; i < state->items->len; i++) {
+    TrayItem *item = g_ptr_array_index(state->items, i);
+    GtkWidget *target = i < visible ? state->box : state->overflow_box;
+    GtkWidget *parent = gtk_widget_get_parent(item->image);
+
+    if (parent == target)
+      continue;
+
+    if (parent)
+      gtk_box_remove(GTK_BOX(parent), item->image);
+
+    gtk_box_append(GTK_BOX(target), item->image);
+  }
+
+  /* Whatever moved, the chevron belongs after every visible icon. */
+  if (gtk_widget_get_parent(state->more) == state->box)
+    gtk_box_reorder_child_after(GTK_BOX(state->box), state->more, NULL);
+
+  gtk_widget_set_visible(state->more, state->items->len > state->max_items);
+}
 
 static void tray_item_free(gpointer data) {
   TrayItem *item = data;
@@ -337,6 +372,7 @@ static void on_item_proxy_ready(GObject *source, GAsyncResult *result,
 
   g_ptr_array_add(request->state->items, item);
   gtk_box_append(GTK_BOX(request->state->box), item->image);
+  tray_reflow(request->state);
 
   item_request_free(request);
 }
@@ -385,6 +421,7 @@ static void tray_remove_entry(TrayState *state, const char *entry) {
       continue;
 
     g_ptr_array_remove_index(state->items, i);
+    tray_reflow(state);
     return;
   }
 }
@@ -424,8 +461,24 @@ static void on_watcher_ready(GObject *source, GAsyncResult *result,
 
   g_signal_connect(watcher, "g-signal", G_CALLBACK(on_watcher_signal), state);
 
-  g_autoptr(GVariant) items =
-      g_dbus_proxy_get_cached_property(watcher, "RegisteredStatusItems");
+  /* The standard property is RegisteredStatusNotifierItems.  Some early
+   * watchers called it RegisteredStatusItems; read both, because an item that
+   * was already running when the bar started is only in this list. */
+  g_autoptr(GVariant) items = g_dbus_proxy_get_cached_property(
+      watcher, "RegisteredStatusNotifierItems");
+
+  if (!items)
+    items = g_dbus_proxy_get_cached_property(watcher, "RegisteredStatusItems");
+
+  /* A watcher may keep the list for its hosts only.  Registering this bar as
+   * a host is harmless when another host (a second bar) is already there. */
+  const char *unique = g_dbus_connection_get_unique_name(state->bus);
+
+  if (unique) {
+    g_dbus_proxy_call(watcher, "RegisterStatusNotifierHost",
+                      g_variant_new("(s)", unique), G_DBUS_CALL_FLAGS_NONE,
+                      -1, NULL, NULL, NULL);
+  }
 
   if (items) {
     GVariantIter iter;
@@ -460,6 +513,7 @@ static void on_watcher_vanished(GDBusConnection *connection, const char *name,
 
   g_clear_object(&state->watcher);
   g_ptr_array_set_size(state->items, 0);
+  tray_reflow(state);
 }
 
 /* =========================================================================
@@ -495,10 +549,31 @@ WhelkModule *whelk_tray_module_new(const WhelkModuleSpec *spec,
   state->hide = g_strdup(whelk_spec_str(spec, "hide", NULL));
   state->hide_network = bar ? bar->native_network : FALSE;
   state->hide_bluetooth = bar ? bar->native_bluetooth : FALSE;
+  state->max_items = MAX(1, whelk_spec_int(spec, "max-items", 6));
 
   gtk_box_set_spacing(GTK_BOX(module->root),
                       whelk_spec_int(spec, "spacing", 6));
   gtk_widget_add_css_class(module->root, "whelk-tray-box");
+
+  state->overflow_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  gtk_widget_add_css_class(state->overflow_box, "whelk-tray-overflow");
+
+  state->more = gtk_menu_button_new();
+  GtkWidget *chevron = gtk_image_new_from_icon_name("pan-down-symbolic");
+
+  gtk_image_set_pixel_size(GTK_IMAGE(chevron), 16);
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(state->more), chevron);
+  gtk_widget_add_css_class(state->more, "flat");
+  gtk_widget_add_css_class(state->more, "whelk-tray-more");
+  gtk_widget_set_tooltip_text(state->more, "More status icons");
+
+  GtkWidget *overflow = gtk_popover_new();
+
+  whelk_style_popover(GTK_POPOVER(overflow), bar);
+  gtk_popover_set_child(GTK_POPOVER(overflow), state->overflow_box);
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(state->more), overflow);
+  gtk_box_append(GTK_BOX(module->root), state->more);
+  gtk_widget_set_visible(state->more, FALSE);
 
   state->bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
 

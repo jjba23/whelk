@@ -7,6 +7,7 @@
 
 #include "logger.h"
 #include "module.h"
+#include "style.h"
 
 struct _WhelkBar {
   GObject parent_instance;
@@ -17,6 +18,8 @@ struct _WhelkBar {
   GtkWidget *start_box; /* module rows */
   GtkWidget *center_box;
   GtkWidget *end_box;
+  GtkWidget *end_more;        /* the chevron for the right row's overflow */
+  GtkWidget *end_overflow_box;
   GPtrArray *modules;   /* WhelkModule* */
   GtkCssProvider *skin; /* this bar's generated CSS */
   GdkDisplay *display;  /* borrowed */
@@ -145,6 +148,105 @@ static void add_modules(WhelkBar *bar, GPtrArray *specs, GtkWidget *box) {
   }
 }
 
+/* =========================================================================
+ * THE RIGHT ROW'S OVERFLOW
+ * =========================================================================
+ * A bar has a fixed width and a growing set of readings.  The left and centre
+ * keep their room; the right row folds its trailing modules into a popover
+ * when they no longer fit, leaving a chevron where the rest went.  The modules
+ * stay alive behind the chevron, so their timers and clicks still work.
+ *
+ * This runs once, after the first allocation.  A bar is pinned to a monitor
+ * and its modules are stable, so there is nothing to reflow every frame.
+ */
+
+#define WHELK_OVERFLOW_BUTTON_WIDTH 28
+
+static int widget_width(GtkWidget *widget, int fallback) {
+  if (!widget || !gtk_widget_get_visible(widget))
+    return 0;
+
+  int width = gtk_widget_get_width(widget);
+
+  if (width <= 0)
+    gtk_widget_measure(widget, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &width,
+                       NULL, NULL);
+
+  return width > 0 ? width : fallback;
+}
+
+static void collapse_end(WhelkBar *bar) {
+  if (!bar || !bar->end_box || !bar->end_more || !bar->end_overflow_box)
+    return;
+
+  const int root_width = gtk_widget_get_width(bar->root);
+
+  /* No allocation yet (a headless test, or a surface the compositor has not
+   * mapped): leave the row alone rather than hiding everything. */
+  if (root_width <= 1)
+    return;
+
+  const int spacing = bar->config->spacing;
+  const int used_by_others =
+      widget_width(bar->start_box, 0) + widget_width(bar->center_box, 0) +
+      2 * bar->config->padding;
+  const int available = MAX(0, root_width - used_by_others - 16);
+
+  GPtrArray *modules = g_ptr_array_new();
+
+  for (GtkWidget *child = gtk_widget_get_first_child(bar->end_box); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    if (child != bar->end_more)
+      g_ptr_array_add(modules, child);
+  }
+
+  if (modules->len == 0) {
+    g_ptr_array_unref(modules);
+    return;
+  }
+
+  int used = 0;
+  guint visible = 0;
+
+  for (guint i = 0; i < modules->len; i++) {
+    GtkWidget *widget = g_ptr_array_index(modules, i);
+    const int width = widget_width(widget, 24);
+    const int gap = visible > 0 ? spacing : 0;
+    const gboolean more_after = i + 1 < modules->len;
+    const int reserve = more_after ? WHELK_OVERFLOW_BUTTON_WIDTH + spacing : 0;
+
+    if (used + gap + width + reserve > available)
+      break;
+
+    used += gap + width;
+    visible++;
+  }
+
+  /* Keep the first reading even when it alone is wider than the room: an
+   * empty right row is worse than a clipped clock. */
+  if (visible == 0)
+    visible = 1;
+
+  for (guint i = visible; i < modules->len; i++) {
+    GtkWidget *widget = g_ptr_array_index(modules, i);
+
+    if (gtk_widget_get_parent(widget) == bar->end_box)
+      gtk_box_remove(GTK_BOX(bar->end_box), widget);
+
+    gtk_box_append(GTK_BOX(bar->end_overflow_box), widget);
+  }
+
+  const gboolean overflowed = visible < modules->len;
+
+  gtk_widget_set_visible(bar->end_more, overflowed);
+  g_ptr_array_unref(modules);
+}
+
+static gboolean collapse_end_idle(gpointer user_data) {
+  collapse_end(user_data);
+  return G_SOURCE_REMOVE;
+}
+
 /* A horizontal bar is a centre box, so its centre is the bar's centre rather
  * than the middle of whatever the two sides leave over.  A vertical bar is a
  * column of the same three groups. */
@@ -167,6 +269,25 @@ static void build_layout(WhelkBar *bar) {
   gtk_widget_set_valign(bar->end_box, GTK_ALIGN_CENTER);
   gtk_widget_set_halign(bar->start_box, GTK_ALIGN_START);
   gtk_widget_set_halign(bar->end_box, GTK_ALIGN_END);
+
+  bar->end_overflow_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  gtk_widget_add_css_class(bar->end_overflow_box, "whelk-overflow-box");
+
+  bar->end_more = gtk_menu_button_new();
+  GtkWidget *chevron = gtk_image_new_from_icon_name("pan-down-symbolic");
+
+  gtk_image_set_pixel_size(GTK_IMAGE(chevron), 16);
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(bar->end_more), chevron);
+  gtk_widget_add_css_class(bar->end_more, "flat");
+  gtk_widget_add_css_class(bar->end_more, "whelk-overflow-more");
+  gtk_widget_set_tooltip_text(bar->end_more, "More bar items");
+
+  GtkWidget *popover = gtk_popover_new();
+
+  whelk_style_popover(GTK_POPOVER(popover), bar->config);
+  gtk_popover_set_child(GTK_POPOVER(popover), bar->end_overflow_box);
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(bar->end_more), popover);
+  gtk_widget_set_visible(bar->end_more, FALSE);
 
   if (horizontal) {
     bar->root = gtk_center_box_new();
@@ -280,9 +401,17 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
   add_modules(bar, bar->config->center, bar->center_box);
   add_modules(bar, bar->config->right, bar->end_box);
 
+  /* The chevron belongs after every ordinary right-hand module, and it is
+   * created before them because its popover is part of the layout. */
+  gtk_box_append(GTK_BOX(bar->end_box), bar->end_more);
+
   whelk_surface_set_child(bar->surface, bar->root);
   whelk_surface_set_thickness(bar->surface, bar_thickness(bar));
   whelk_surface_present(bar->surface);
+
+  /* The first allocation is the first moment the row's real widths are known. */
+  g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, collapse_end_idle,
+                  g_object_ref(bar), (GDestroyNotify)g_object_unref);
 
   LOG_C_INFO("Bar", "'%s' on the %s edge: %u module(s)", bar->config->name,
              whelk_edge_name(bar->config->edge), bar->modules->len);
