@@ -34,12 +34,12 @@
 
 (define built-in (default-bar))
 
-;; The bar's left half is a menu bar's: the machine's own menu, the name of the
-;; window in front, then that application's File and Edit.  macOS' order, with
-;; a whelk where the apple is.
-(check "the left half is the shell menu, the window and its menus"
+;; The bar's left half is a menu bar's: the machine's own menu, then that
+;; application's File and Edit, with a whelk where the apple is.  The window's
+;; name is an optional module, not part of the default bar.
+(check "the left half is the shell menu and the application's menus"
        (equal? (kinds (bar-config-modules-left built-in))
-               '(start window menu)))
+               '(start menu)))
 
 ;; And what that first menu opens is configuration, not a C table.
 (check "the shell menu has the machine's items"

@@ -10,12 +10,26 @@ project follows [Semantic Versioning][semver].
 
 ### Added
 
+- **DBusMenu menus are followed, not snapshotted.** The menu module now
+  subscribes to `LayoutUpdated` and `ItemsPropertiesUpdated` on the object that
+  published the menu, debounces the bursts, and reads the whole tree again, so
+  a Firefox or Thunderbird menu that changes while it is open cannot send
+  `Event` with an id from a layout that no longer exists: the open popover is
+  closed first and every entry carries its id from the tree it was drawn from.
+  A private-bus test covers both signals and the cancelled-read case.
 - **Menu search, the Help menu's field.** `--launcher-mode=menuitem` (prefix
   `:`) flattens the focused application's live menubar -- whatever producer
   made it -- into rows carrying the entry's path and chord, ranks them with the
   launcher's own fuzzy matcher, and activates the chosen one through the same
   code the bar's menu click uses. It reads the same tree the bar is showing, so
   a GTK, DBusMenu, scripted or dictionary menu is searchable identically.
+
+### Changed
+
+- **The default bar's left half is the shell menu and the application's menus.**
+  The focused window's title is no longer a module of the built-in bar; a bar
+  that wants it puts `(window-module ...)` between `start-module` and
+  `menu-module`. The shipped settings example matches the default again.
 
 ## [0.9.0] - 2026-11-13
 

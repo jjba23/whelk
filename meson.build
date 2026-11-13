@@ -175,6 +175,7 @@ whelk_sources = files(
   'src/util/chord.c',
   'src/util/click.c',
   'src/util/command.c',
+  'src/util/dbusmenu.c',
   'src/util/filesearch.c',
   'src/util/format.c',
   'src/util/fuzzy.c',
@@ -295,6 +296,18 @@ unit_tests = [
       'src/config.c',
       'src/util/format.c',
       'src/util/command.c',
+    ],
+  },
+  {
+    'id': 'dbusmenu',
+    'sources': [
+      'src/util/dbusmenu.c',
+      'src/util/menutree.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
     ],
   },
 ]

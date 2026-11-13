@@ -12,6 +12,7 @@
 
 #include "style.h"
 #include "util/command.h"
+#include "util/dbusmenu.h"
 #include "util/menuaction.h"
 #include "util/menusearch.h"
 #include "util/json.h"
@@ -55,6 +56,7 @@ typedef struct {
   GtkWidget *row;
   GPtrArray *buttons;     /* top-level buttons, borrowed from the row */
   GtkWidget *open_button; /* whose popover is up, borrowed */
+  WhelkDBusMenuWatch *dbus_menu; /* follows a live DBusMenu, NULL otherwise */
   guint generation;
 } MenuData;
 
@@ -601,8 +603,35 @@ static void render(WhelkModule *module) {
 
 /* --- what the application exports ----------------------------------------- */
 
+/* A tree is about to be replaced.  Whatever popover is open belongs to the
+ * old one: its entries' ids may already mean something else, and a click on a
+ * stale id is a click on an unrelated command.  Closing the menu is the only
+ * honest answer. */
+static void close_open_menus(WhelkModule *module) {
+  MenuData *data = module->data;
+
+  if (!data->buttons)
+    return;
+
+  for (guint i = 0; i < data->buttons->len; i++) {
+    GtkWidget *button = g_ptr_array_index(data->buttons, i);
+
+    if (!button || !GTK_IS_MENU_BUTTON(button))
+      continue;
+
+    GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(button));
+
+    if (popover)
+      gtk_popover_popdown(popover);
+  }
+
+  data->open_button = NULL;
+}
+
 static void replace_menus(WhelkModule *module, GPtrArray *menus) {
   MenuData *data = module->data;
+
+  close_open_menus(module);
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
   data->menus = menus;
@@ -616,6 +645,29 @@ static void replace_menus(WhelkModule *module, GPtrArray *menus) {
   whelk_menu_action_context_clear(&context);
 
   render(module);
+}
+
+static void stop_dbus_menu_watch(MenuData *data) {
+  if (!data->dbus_menu)
+    return;
+
+  whelk_dbusmenu_watch_free(data->dbus_menu);
+  data->dbus_menu = NULL;
+}
+
+/* LayoutUpdated means the old ids may already belong to other rows: close
+ * first, read second.  The read itself replaces the tree and repaints. */
+static void on_dbus_menu_invalidated(gpointer user_data) {
+  close_open_menus(user_data);
+}
+
+/* Firefox or Thunderbird changed a menu while the bar was showing it: the
+ * answer is a fresh tree, ids and all, and the open menu goes away rather than
+ * keeping ids that now point elsewhere. */
+static void on_dbus_menu_changed(GPtrArray *menus, gpointer user_data) {
+  WhelkModule *module = user_data;
+
+  replace_menus(module, menus);
 }
 
 static void probe_next(MenuProbe *probe);
@@ -701,6 +753,14 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
                     data->app_id ? data->app_id : "(anonymous)", path,
                     menus->len);
         replace_menus(probe->module, menus);
+
+        /* From here the menu is followed, not remembered: every LayoutUpdated
+         * or ItemsPropertiesUpdated costs one GetLayout and a new id set. */
+        stop_dbus_menu_watch(data);
+        data->dbus_menu = whelk_dbusmenu_watch_new(
+            probe->bus, data->bus_name, path, data->style,
+            on_dbus_menu_changed, on_dbus_menu_invalidated, probe->module);
+
         adopted = TRUE;
       } else {
         g_ptr_array_unref(menus);
@@ -822,6 +882,9 @@ static void on_script_menus(WhelkModule *module, const char *text,
 
 static void build_for_app(WhelkModule *module, const char *app_id) {
   MenuData *data = module->data;
+
+  /* The previous application's menu is gone, whatever published it. */
+  stop_dbus_menu_watch(data);
 
   data->generation++;
 
@@ -969,6 +1032,8 @@ static void menu_destroy(WhelkModule *module) {
 
   if (!data)
     return;
+
+  stop_dbus_menu_watch(data);
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
   g_clear_pointer(&data->buttons, g_ptr_array_unref);
