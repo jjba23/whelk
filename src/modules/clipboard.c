@@ -65,7 +65,7 @@ static void paint(WhelkModule *module) {
   whelk_values_set_int(values, "count", (int)count);
 
   const char *icon = whelk_spec_str(module->spec, "icon", "\uf328");
-  const char *format = whelk_spec_str(module->spec, "format", "{icon} {count}");
+  const char *format = whelk_spec_str(module->spec, "format", "{icon}");
   const char *base_tooltip = whelk_spec_str(
       module->spec, "tooltip",
       "Clipboard: {count} item(s) — click for the picker\n"

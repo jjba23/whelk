@@ -240,10 +240,10 @@ of standard output is the reading; #:interval 0 renders it once."
   (apply module 'custom kv))
 
 (define* (clipboard-module #:rest kv)
-  "The clipboard history's depth.  #:format uses {count} and defaults to
-\"{icon} {count}\": the glyph and how many copies are waiting.  A left click
-opens the picker; #:on-click replaces that, and the history is whelk's own, not
-clipman's."
+  "The clipboard history's glyph.  #:format uses {count} and defaults to
+\"{icon}\": the count is opt-in, for a bar that wants the depth on screen.
+A left click opens the picker; #:on-click replaces that, and the history is
+whelk's own, not clipman's."
   (apply module 'clipboard kv))
 
 (define* (dnd-module #:rest kv)

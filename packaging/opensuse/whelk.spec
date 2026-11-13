@@ -35,6 +35,7 @@ BuildRequires:  pkgconfig(wayland-client)
 Requires:       gtk4
 Requires:       guile
 Requires:       hicolor-icon-theme
+Requires:       wtype
 
 %description
 Whelk is a Wayland shell built with a C core, GTK4 and gtk4-layer-shell.

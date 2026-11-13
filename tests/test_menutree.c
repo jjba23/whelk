@@ -152,6 +152,48 @@ static void test_synthesize_new_window_and_verbs(void) {
   g_assert_true(saw_fullscreen);
 }
 
+static void test_app_menu_window_actions(void) {
+  /* The application menu is the same compositor verbs for every application:
+   * arranging and moving the focused window, then closing it. */
+  WhelkSessionWindowActions actions = {
+      .close = "close", .fullscreen = "fullscreen", .maximize = "maximize",
+      .float_window = "float", .move_left = "left", .move_right = "right",
+      .move_up = "up", .move_down = "down"};
+  WhelkMenu *menu = whelk_app_menu(&actions);
+
+  g_assert_cmpstr(entry_at(menu, 0)->label, ==, "Maximize / Restore");
+  g_assert_cmpstr(entry_at(menu, 0)->command, ==, "maximize");
+  g_assert_cmpstr(entry_at(menu, 1)->label, ==, "Toggle Floating");
+  g_assert_cmpstr(entry_at(menu, 1)->command, ==, "float");
+
+  gboolean saw_left = FALSE, saw_fullscreen = FALSE, saw_close = FALSE;
+
+  for (guint i = 0; i < menu->entries->len; i++) {
+    WhelkMenuEntry *entry = entry_at(menu, i);
+
+    if (g_strcmp0(entry->label, "Move Left") == 0)
+      saw_left = TRUE;
+    else if (g_strcmp0(entry->label, "Full Screen") == 0)
+      saw_fullscreen = TRUE;
+    else if (g_strcmp0(entry->label, "Close Window") == 0) {
+      saw_close = TRUE;
+      g_assert_cmpstr(entry->command, ==, "close");
+      g_assert_cmpint(entry_at(menu, i - 1)->kind, ==, WHELK_MENU_SEPARATOR);
+    }
+  }
+
+  g_assert_true(saw_left);
+  g_assert_true(saw_fullscreen);
+  g_assert_true(saw_close);
+
+  whelk_menu_free(menu);
+
+  WhelkMenu *empty = whelk_app_menu(NULL);
+
+  g_assert_cmpuint(empty->entries->len, ==, 0);
+  whelk_menu_free(empty);
+}
+
 static void test_synthesize_without_tool(void) {
   /* No program can type a chord, and the application declares nothing, so
    * there is no menu that could work -- and no empty File button either. */
@@ -699,6 +741,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/menutree/synthesize/shortcuts", test_synthesize_shortcuts);
   g_test_add_func("/menutree/synthesize/new-window-and-verbs",
                   test_synthesize_new_window_and_verbs);
+  g_test_add_func("/menutree/app-menu/window-actions",
+                  test_app_menu_window_actions);
   g_test_add_func("/menutree/synthesize/no-tool", test_synthesize_without_tool);
   g_test_add_func("/menutree/synthesize/no-close",
                   test_synthesize_without_close_command);

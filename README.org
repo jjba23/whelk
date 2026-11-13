@@ -471,8 +471,9 @@ to keep, or leave persistence off.
 Only the regular clipboard is managed.  Wayland's primary selection is a
 separate selection with its own lifetime, and whelk does not record it.
 
-The default bar's =clipboard-module= shows how many copies it holds, reports
-when the listener is stopped or paused, and opens this picker on a click.
+The default bar's =clipboard-module= shows the history glyph, reports when the
+listener is stopped or paused, and opens this picker on a click.  The depth is
+opt-in: =#:format "{icon} {count}"= puts the number back on the tile.
 
 The =menuitem= mode is a menu bar's answer to the Help menu's search field:
 every entry of the focused application's live menubar -- whichever producer
@@ -758,7 +759,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip) |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
-| =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon} {count}"=; click: the picker; right-click: pause/clear) |
+| =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
 | =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
@@ -974,9 +975,11 @@ and it is stored and printed as the Emacs user writes it.  =wtype= and
 them.
 
 The name of the application in front can come first -- a menu button whose
-popover holds the shell's own actions, the variant a bar wants when it does not
-put =start-module= and =window-module= before this one.  On the default bar it
-is off (=#:app-name? #f=), because the window module beside it already says
+popover holds the window verbs for every application: maximize/restore,
+toggle floating, move left/right/up/down, full screen and =Close Window=,
+using the session's own commands.  It is the variant a bar wants when it does
+not put =start-module= and =window-module= before this one.  On the default bar
+it is off (=#:app-name? #f=), because the window module beside it already says
 whose window you are in, and a menu bar says it once.
 
 The menu bar is usable from the keyboard: Down and Up walk the entries, Home

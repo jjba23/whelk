@@ -543,6 +543,72 @@ static void append_shared_menus(GPtrArray *bar, const char *tool,
   g_ptr_array_add(bar, view);
 }
 
+/* The arranging verbs a compositor has for the focused window.  Both the
+ * application's Window menu and the shell-owned application menu are made of
+ * these, so they cannot disagree about what a session can do. */
+static void append_window_verbs(WhelkMenu *menu,
+                                const WhelkSessionWindowActions *actions) {
+  if (!menu || !actions)
+    return;
+
+  if (actions->maximize && *actions->maximize) {
+    WhelkMenuEntry *maximize = whelk_menu_add_entry(menu, "Maximize / Restore");
+
+    maximize->command = g_strdup(actions->maximize);
+  }
+
+  if (actions->float_window && *actions->float_window) {
+    WhelkMenuEntry *floating = whelk_menu_add_entry(menu, "Toggle Floating");
+
+    floating->command = g_strdup(actions->float_window);
+  }
+
+  const char *const labels[] = {"Move Left", "Move Right", "Move Up",
+                                "Move Down"};
+  const char *const commands[] = {actions->move_left, actions->move_right,
+                                  actions->move_up, actions->move_down};
+  gboolean moved = FALSE;
+
+  for (guint i = 0; i < G_N_ELEMENTS(labels); i++) {
+    if (!commands[i] || !*commands[i])
+      continue;
+
+    if (!moved && has_item(menu))
+      separate(menu);
+
+    WhelkMenuEntry *move = whelk_menu_add_entry(menu, labels[i]);
+
+    move->command = g_strdup(commands[i]);
+    moved = TRUE;
+  }
+
+  if (actions->fullscreen && *actions->fullscreen) {
+    if (has_item(menu))
+      separate(menu);
+
+    WhelkMenuEntry *full = whelk_menu_add_entry(menu, "Full Screen");
+
+    full->command = g_strdup(actions->fullscreen);
+  }
+}
+
+WhelkMenu *whelk_app_menu(const WhelkSessionWindowActions *window_actions) {
+  WhelkMenu *menu = whelk_menu_new("Application");
+
+  append_window_verbs(menu, window_actions);
+
+  if (window_actions && window_actions->close && *window_actions->close) {
+    if (has_item(menu))
+      separate(menu);
+
+    WhelkMenuEntry *close = whelk_menu_add_entry(menu, "Close Window");
+
+    close->command = g_strdup(window_actions->close);
+  }
+
+  return menu;
+}
+
 GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  const char *const *action_ids,
                                  const char *const *action_labels,
@@ -632,51 +698,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
    * an action the session cannot do gets no entry rather than a dead one. */
   WhelkMenu *window = whelk_menu_new("Window");
 
-  if (window_actions && window_actions->maximize &&
-      *window_actions->maximize) {
-    WhelkMenuEntry *maximize = whelk_menu_add_entry(window, "Maximize / Restore");
-
-    maximize->command = g_strdup(window_actions->maximize);
-  }
-
-  if (window_actions && window_actions->float_window &&
-      *window_actions->float_window) {
-    WhelkMenuEntry *floating = whelk_menu_add_entry(window, "Toggle Floating");
-
-    floating->command = g_strdup(window_actions->float_window);
-  }
-
-  if (window_actions) {
-    const char *const labels[] = {"Move Left", "Move Right", "Move Up",
-                                  "Move Down"};
-    const char *const commands[] = {
-        window_actions->move_left, window_actions->move_right,
-        window_actions->move_up, window_actions->move_down};
-    gboolean moved = FALSE;
-
-    for (guint i = 0; i < G_N_ELEMENTS(labels); i++) {
-      if (!commands[i] || !*commands[i])
-        continue;
-
-      if (!moved && has_item(window))
-        separate(window);
-
-      WhelkMenuEntry *move = whelk_menu_add_entry(window, labels[i]);
-
-      move->command = g_strdup(commands[i]);
-      moved = TRUE;
-    }
-  }
-
-  if (window_actions && window_actions->fullscreen &&
-      *window_actions->fullscreen) {
-    if (has_item(window))
-      separate(window);
-
-    WhelkMenuEntry *full = whelk_menu_add_entry(window, "Full Screen");
-
-    full->command = g_strdup(window_actions->fullscreen);
-  }
+  append_window_verbs(window, window_actions);
 
   if (has_item(window))
     g_ptr_array_add(bar, window);

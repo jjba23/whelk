@@ -68,14 +68,14 @@
                            #:icon "\uf025"
                            #:format "{icon}"
                            #:tooltip "Now playing: {text}
-Click: transport controls · Right-click: play or pause · Middle: next track"
-                           #:on-click (rofi-relaunch "heks-media-menu")
+Click: open Orpheus · Right-click: play or pause · Middle: next track"
+                           #:on-click "emacsclient -c -a '' --eval \"(progn (require 'orpheus) (orpheus))\""
                            #:on-click-right "playerctl play-pause"
                            #:on-click-middle "playerctl next")
 
             ;; Clipboard history: its depth, and the picker on a click.
             (clipboard-module #:icon "\uf328"
-                              #:format "{icon} {count}"
+                              #:format "{icon}"
                               #:tooltip "Clipboard: {count} item(s)
 Click: browse the history")
 

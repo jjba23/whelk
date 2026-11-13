@@ -16,7 +16,7 @@ Homepage: https://github.com/jjba23/whelk
 
 Package: whelk
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, guile-3.0
+Depends: ${shlibs:Depends}, ${misc:Depends}, guile-3.0, wtype
 Description: Wayland shell configured in GNU Guile Scheme
  Whelk is a Wayland shell built with a C core, GTK4 and gtk4-layer-shell.  Its
  status bars, launcher, notification daemon and network panel are described in

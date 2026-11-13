@@ -12,6 +12,7 @@
              (gnu packages gtk)
              (gnu packages glib)
              (gnu packages guile)
+             (gnu packages freedesktop)
              (gnu packages pkg-config))
 
 (define %source-dir
@@ -31,6 +32,10 @@
     (inputs (list gtk
                   gtk4-layer-shell
                   guile-3.0))
+    ;; whelk invokes wtype by name to type a menu shortcut.  It has to be in
+    ;; the package's profile, not only the build environment, or a shell and a
+    ;; desktop launch would not put it on PATH.
+    (propagated-inputs (list wtype))
     (home-page "https://github.com/jjba23/whelk")
     (synopsis "Wayland shell configured with GNU Guile Scheme")
     (description

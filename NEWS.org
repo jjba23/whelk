@@ -15,6 +15,36 @@ Nothing yet.
 
 *[Released]*
 
+** v0.17.0 (2026-11-14)
+
+*** Added
+
+- *The application menu is a window menu for every application.*  The menu
+  behind the application name now offers Maximize / Restore, Toggle Floating,
+  Move Left/Right/Up/Down, Full Screen and Close Window.  The entries use the
+  compositor's own commands and are omitted when the session cannot carry them
+  out, so the same menu works for every focused window.  The launcher, network,
+  Bluetooth, notifications, reload and quit entries are gone; those surfaces
+  keep their own modules, commands and shell-menu entries.
+- *wtype is a packaging dependency everywhere.*  Guix propagates it, Nix puts
+  it on the installed program's PATH, and the Arch, Debian and openSUSE
+  packages require it, so the global menu can type a shortcut after a normal
+  package install.  The development manifest names it too.
+
+*** Changed
+
+- *The clipboard tile is the glyph by default.*  Its depth is opt-in with
+  ~#:format "{icon} {count}"~; the tooltip still reports the count.
+- *The headphones tile opens Orpheus.*  A left click starts
+  ~emacsclient -c~ and evaluates ~(orpheus)~, so the music player opens in a
+  GUI frame instead of the old transport menu.
+
+*** Verified
+
+- Host suite: 26/26.
+- Pinned Guix suite: 26/26.
+- ~guix build -f guix.scm~: passed.
+
 ** v0.16.0 (2026-11-13)
 
 *** Added

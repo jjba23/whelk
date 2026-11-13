@@ -9,11 +9,13 @@
   meson,
   ninja,
   pkg-config,
+  makeWrapper,
   wrapGAppsHook4,
   glib,
   gtk4,
   gtk4-layer-shell,
   guile,
+  wtype,
   libX11,
   hicolor-icon-theme,
   adwaita-icon-theme,
@@ -45,6 +47,7 @@ stdenv.mkDerivation (finalAttrs: {
     meson
     ninja
     pkg-config
+    makeWrapper
     glib
     wrapGAppsHook4
     # The theme tests are a Guile script, and Meson only registers them when it
@@ -56,12 +59,29 @@ stdenv.mkDerivation (finalAttrs: {
     gtk4
     gtk4-layer-shell
     guile
+    # whelk invokes wtype by name to type menu shortcuts.  The wrapper below
+    # puts it on PATH for the installed program, not only in the build.
+    wtype
     # On an X11 desktop a bar is a dock window with EWMH struts, which needs
     # Xlib at build time; without it the Wayland-only build is what you get.
     libX11
   ];
 
   doCheck = true;
+
+  # One wrapper, not two: wrapGAppsHook4 contributes GTK's data directories,
+  # and the PATH entry makes the runtime helper visible to whelk.  Letting the
+  # hook wrap separately would create a wrapper whose target is itself.
+  dontWrapGApps = true;
+
+  preFixup = ''
+    makeWrapperArgs+=("''${gappsWrapperArgs[@]}")
+    makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath [ wtype ]})
+  '';
+
+  postFixup = ''
+    wrapProgram $out/bin/whelk "''${makeWrapperArgs[@]}"
+  '';
 
   nativeCheckInputs = [
     xvfb-run

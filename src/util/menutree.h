@@ -186,6 +186,22 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  WhelkChordStyle style,
                                  const char **out_source);
 
+/**
+ * whelk_app_menu:
+ * @window_actions: the compositor verbs for the focused window.  A NULL verb
+ *   leaves its entry out.
+ *
+ * The shell-owned menu before the application's own menus.  It carries the
+ * window verbs that work whatever application has focus -- maximize, floating,
+ * the four moves, full screen -- then Close Window.  Nothing here is learned
+ * from the application, so the menu is the same for every window a session can
+ * arrange.
+ *
+ * Returns: (transfer full): the menu; it may be empty when the session has no
+ *   window verbs at all.
+ */
+WhelkMenu *whelk_app_menu(const WhelkSessionWindowActions *window_actions);
+
 /* The command that types a chord, "wtype -M ctrl -k z -m ctrl". */
 char *whelk_shortcut_command(const char *tool, const char *modifiers,
                              const char *key);

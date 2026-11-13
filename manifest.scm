@@ -7,8 +7,8 @@
              (gnu)
              (gnu packages guile)
              (gnu packages admin)
-             ;; `meson' and `ninja' live here, not in (gnu packages ninja).
              (gnu packages build-tools)
+             (gnu packages ninja)
              (gnu packages compression)
              (gnu packages pkg-config)
              (gnu packages linux)
@@ -26,6 +26,9 @@
                           ninja
                           gtk
                           gtk4-layer-shell
+                          ;; whelk types menu shortcuts with wtype on Wayland;
+                          ;; the dev shell should have it just like the package.
+                          wtype
                           ;; `glib-compile-resources' lives in glib's "bin"
                           ;; output, which gtk does not propagate; without it
                           ;; meson aborts at gnome.compile_resources.

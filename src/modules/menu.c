@@ -51,7 +51,6 @@ typedef struct {
   char *app_path;
   WhelkFocusedPaths focused; /* X11 object paths, empty on Wayland */
   char *app_name;
-  char *close_command;
   GDesktopAppInfo *desktop;
   char *shortcut_tool;
   gboolean show_shortcuts;
@@ -385,74 +384,21 @@ static void apply_popover_skin(WhelkModule *module, GtkPopover *popover) {
  * THE APPLICATION'S OWN MENU
  * =========================================================================
  * The name before the menus is not a label: it is the one menu that belongs
- * to the shell rather than to the focused application -- the launcher, the
- * panels, and the way to reload or quit, the way a menu bar's application
- * menu holds the things that are true whatever window is in front.
+ * to the shell rather than to the focused application -- the actions that are
+ * true whatever window is in front: the compositor's arranging verbs and
+ * Close Window.  The launcher, panels, notifications and session control live
+ * on their own modules and in the shell menu, not in a second copy on every
+ * application's menu.
  */
 
-#define WHELK_APP_ACTION "whelk-app-action"
-
-static void on_app_action(GtkButton *button, gpointer user_data) {
-  (void)user_data;
-
-  const char *action = g_object_get_data(G_OBJECT(button), WHELK_APP_ACTION);
-  GtkWidget *popover =
-      gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
-
-  if (popover)
-    gtk_popover_popdown(GTK_POPOVER(popover));
-
-  if (!action)
-    return;
-
-  WhelkShell *shell = whelk_shell_get_default();
-
-  if (g_strcmp0(action, "launcher") == 0) {
-    if (shell)
-      whelk_shell_show_launcher(shell, NULL);
-    return;
-  }
-
-  if (g_strcmp0(action, "network") == 0) {
-    if (shell)
-      whelk_shell_show_network_panel(shell, "wifi");
-    return;
-  }
-
-  if (g_strcmp0(action, "bluetooth") == 0) {
-    if (shell)
-      whelk_shell_show_network_panel(shell, "bluetooth");
-    return;
-  }
-
-  if (g_strcmp0(action, "notifications") == 0) {
-    if (shell)
-      whelk_shell_toggle_notifications(shell);
-    return;
-  }
-
-  whelk_command_spawn(action);
-}
-
-static void add_app_item(GtkWidget *box, const char *label,
-                         const char *action) {
-  GtkWidget *button = gtk_button_new_with_label(label);
-
-  gtk_widget_add_css_class(button, "flat");
-  gtk_widget_add_css_class(button, "whelk-menu-item");
-  gtk_widget_set_halign(button, GTK_ALIGN_FILL);
-  g_object_set_data_full(G_OBJECT(button), WHELK_APP_ACTION, g_strdup(action),
-                         g_free);
-  g_signal_connect(button, "clicked", G_CALLBACK(on_app_action), NULL);
-  gtk_box_append(GTK_BOX(box), button);
-}
+static void fill_popover(WhelkModule *module, GtkPopover *popover,
+                         WhelkMenu *menu);
 
 static GtkWidget *app_menu_button(WhelkModule *module) {
   MenuData *data = module->data;
   GtkWidget *button = gtk_menu_button_new();
   GtkWidget *label = gtk_label_new(data->app_name);
   GtkWidget *popover = gtk_popover_new();
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
 
   gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
   gtk_label_set_max_width_chars(GTK_LABEL(label), 22);
@@ -461,25 +407,18 @@ static GtkWidget *app_menu_button(WhelkModule *module) {
   gtk_widget_add_css_class(button, "whelk-menu-app-button");
   gtk_widget_set_tooltip_text(button, data->app_name);
 
-  add_app_item(box, "Launcher", "launcher");
-  add_app_item(box, "Network", "network");
-  add_app_item(box, "Bluetooth", "bluetooth");
-  add_app_item(box, "Notifications", "notifications");
-  gtk_box_append(GTK_BOX(box),
-                 gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+  WhelkSessionWindowActions actions;
 
-  if (data->close_command && *data->close_command) {
-    add_app_item(box, "Close Window", data->close_command);
-    gtk_box_append(GTK_BOX(box),
-                   gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-  }
+  whelk_session_window_actions(whelk_session_detect(), &actions);
 
-  add_app_item(box, "Reload settings", "whelk --reload");
-  add_app_item(box, "Quit whelk", "whelk --quit");
+  WhelkMenu *menu = whelk_app_menu(&actions);
 
   apply_popover_skin(module, GTK_POPOVER(popover));
-  gtk_popover_set_child(GTK_POPOVER(popover), box);
+  fill_popover(module, GTK_POPOVER(popover), menu);
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
+
+  whelk_menu_free(menu);
+  whelk_session_window_actions_clear(&actions);
 
   return button;
 }
@@ -1143,7 +1082,6 @@ static void build_for_app(WhelkModule *module, const char *app_id,
       action_ids ? g_strv_length((char **)action_ids) : 0;
 
   const WhelkSession session = whelk_session_detect();
-  g_autofree char *close_command = whelk_session_close_window_command(session);
   WhelkSessionWindowActions window_actions;
 
   whelk_session_window_actions(session, &window_actions);
@@ -1182,9 +1120,6 @@ static void build_for_app(WhelkModule *module, const char *app_id,
         g_clear_pointer(&new_window_command, g_free);
     }
   }
-
-  g_free(data->close_command);
-  data->close_command = g_strdup(close_command);
 
   const char *source = NULL;
 
@@ -1312,7 +1247,6 @@ static void menu_destroy(WhelkModule *module) {
   g_clear_object(&data->desktop);
   g_free(data->app_id);
   g_free(data->app_name);
-  g_free(data->close_command);
   g_free(data->bus_name);
   g_free(data->app_path);
   whelk_focused_paths_clear(&data->focused);

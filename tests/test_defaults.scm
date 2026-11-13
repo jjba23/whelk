@@ -77,10 +77,18 @@
        (equal? (module-option (default-reading 'backlight) 'format) "{icon}"))
 
 ;; The clipboard tile is the shell's own history, not a glyph that opens
-;; clipman; its depth is part of the reading.
-(check "the clipboard tile shows its depth"
-       (string-contains (module-option (default-reading 'clipboard) 'format)
-                        "{count}"))
+;; clipman.  Its glyph is the reading by default; the depth is opt-in through
+;; #:format so a full history does not turn the tile into a number.
+(check "the clipboard tile hides its depth by default"
+       (not (string-contains (module-option (default-reading 'clipboard) 'format)
+                             "{count}")))
+
+;; The headphones tile is the way into the music player, not a transport
+;; menu: a left click asks the running Emacs for an Orpheus frame.
+(check "the headphones tile opens Orpheus"
+       (string-contains (or (module-option (default-reading 'custom) 'on-click)
+                            "")
+                        "(orpheus)"))
 
 ;; What the reference delegated to mako and clipman is native now: no tile on
 ;; the default bar may spawn either, because neither is installed any more.
