@@ -62,6 +62,12 @@ static void run_shell_action(const char *name, const WhelkBarConfig *bar) {
     return;
   }
 
+  if (g_strcmp0(name, "settings") == 0) {
+    if (shell)
+      whelk_shell_show_settings(shell);
+    return;
+  }
+
   if (g_strcmp0(name, "network") == 0) {
     if (shell)
       whelk_shell_show_network_panel(shell, "wifi");

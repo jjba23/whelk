@@ -96,7 +96,7 @@ the documented one -- see [[#configuration][Configuration]].
 - *A menu bar's left half, in macOS' order.* The machine's own menu behind the
   whelk (where the apple is), then that application's =File=/=Edit=/=View=.
   The shell menu is configuration --
-  =About This System=, =System Settings=, =Software=, a live =Recent Items=
+  =About This System=, =Control Panel=, =Software=, a live =Recent Items=
   submenu, =Force Quit=, sleep/restart/shut down, lock and log out, then the
   launcher, a reload and the way out -- written with =(menu-item ...)=,
   =(menu-separator)= and =(menu-submenu ...)= in the settings file, so it is a
@@ -837,7 +837,7 @@ writes another list -- =(window-module ...)= is still there for that.
 =start-module= is the machine's own menu, and it is configuration rather than a
 C table: `(whelk menu)' units written with the settings file, or
 =default-shell-menu= when the file writes none.  The default is the Apple menu's
-shape in this desktop's words -- =About This System=, =System Settings…=,
+shape in this desktop's words -- =About This System=, =Control Panel=,
 =Software…=, a =Recent Items= submenu, =Force Quit…=, =Sleep=, =Restart…=,
 =Shut Down…=, =Lock Screen= and =Log Out= -- followed, after a rule, by the
 launcher, a reload and the way out.  The panels are deliberately absent: they
@@ -845,12 +845,14 @@ are bar modules with their own clicks, and =whelk --network wifi=,
 =--network bluetooth= and =--notifications= are their command-line homes.  What
 the menu does is what its entries say: =About= is a real
 GTK about dialogue naming the machine, the session and the toolkit;
+=Control Panel= opens whelk's own GUI settings window for the loaded
+configuration;
 =Recent Items= is GTK's recent-documents list, filled when the submenu opens;
 =Force Quit…= opens the launcher in its =quit= mode, where the open windows are
 listed and Enter closes the chosen one.
 
 An action is one of two things, and the spelling is the difference: a string
-beginning with =shell:= is something the shell does itself (=about=,
+beginning with =shell:= is something the shell does itself (=about=, =settings=,
 =launcher=, =force-quit=, =network=, =bluetooth=, =notifications=, =dnd=,
 =reload=), and anything else is a command line.  A submenu given a string
 instead of children is a slot the shell fills when it opens.
@@ -859,7 +861,7 @@ instead of children is a slot the shell fills when it opens.
   (configure-shell!
    #:shell-menu
    (list (menu-item "About This System" "shell:about")
-         (menu-item "System Settings…" "gnome-control-center")
+         (menu-item "Control Panel" "shell:settings")
          (menu-separator)
          (menu-submenu "Recent Items" "shell:recent-items")
          (menu-separator)

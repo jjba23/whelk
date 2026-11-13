@@ -15,6 +15,25 @@ Nothing yet.
 
 *[Released]*
 
+** v0.17.1 (2026-11-14)
+
+*** Fixed
+
+- *The global menu's Control Panel opens whelk's settings window.*  The old
+  =System Settings…= entry started =gnome-control-center=.  =Control Panel= now
+  runs the shell's =settings= action and presents the same GTK settings window
+  as =Edit settings…= in the bar's context menu, with live changes and the same
+  reset path.
+- *The Nix derivation reports the release it builds.*  Its hard-coded version
+  moved from 0.8.0 to 0.17.1 so the installed package is no longer named for a
+  release from many versions ago.
+
+*** Verified
+
+- Host suite: 26/26.
+- Pinned Guix suite: 26/26.
+- ~guix build -f guix.scm~: passed.
+
 ** v0.17.0 (2026-11-14)
 
 *** Added

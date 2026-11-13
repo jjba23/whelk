@@ -111,8 +111,15 @@
        (let ((units (default-shell-menu)))
          (and (pair? units)
               (equal? (car units) '(item "About This System" "shell:about"))
+              (member '(item "Control Panel" "shell:settings") units)
               (member '(submenu "Recent Items" "shell:recent-items") units)
               (member '(item "Force Quit…" "shell:force-quit") units))))
+
+;; The control panel is whelk's own settings window, not the desktop's
+;; settings application.
+(check "the shell menu does not open the desktop settings app"
+       (not (member '(item "System Settings…" "gnome-control-center")
+                    (default-shell-menu))))
 
 ;; Panels are still reachable through their command line and keybindings; the
 ;; shell menu is a session menu, not a directory of every surface.

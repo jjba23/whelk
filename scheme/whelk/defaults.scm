@@ -52,7 +52,7 @@ just the one that ships."
   (let ((user (or (getenv "USER") "")))
     (list
      (menu-item "About This System" "shell:about")
-     (menu-item "System Settings…" "gnome-control-center")
+     (menu-item "Control Panel" "shell:settings")
      (menu-item "Software…" "gnome-software")
      (menu-separator)
      (menu-submenu "Recent Items" "shell:recent-items")
