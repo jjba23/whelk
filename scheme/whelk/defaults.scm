@@ -41,9 +41,9 @@
 
 It is a menu bar's first menu, in this desktop's words: what this machine is,
 the ways into it, what was opened recently, what to do about a window that will
-not leave, and the ways out of the session -- followed, after a rule, by the
-shell's own panels and the reload and quit a configuration needs while it is
-being written.  That is the Apple menu's shape and its order; the entries are
+not leave, and the ways out of the session -- followed by the reload and quit a
+configuration needs while it is being written.  That is the Apple menu's shape
+and its order; the entries are
 this shell's, and every one of them is something it can actually do.
 
 A settings file that wants a different first menu passes its own
@@ -68,9 +68,6 @@ just the one that ships."
                 "loginctl terminate-session \"$XDG_SESSION_ID\"")
      (menu-separator)
      (menu-item "Search…" "shell:launcher")
-     (menu-item "Network" "shell:network")
-     (menu-item "Bluetooth" "shell:bluetooth")
-     (menu-item "Notifications" "shell:notifications")
      (menu-separator)
      (menu-item "Reload settings" "whelk --reload")
      (menu-item "Quit whelk" "whelk --quit"))))
@@ -89,11 +86,9 @@ just the one that ships."
    #:font "Inter"
    #:font-size "11pt"
    #:icon-font icon-font
-   #:foreground "#f2f3f5"
-   #:background "rgba(27, 27, 29, 0.82)"
-   #:accent "#8fd16a"
-   #:border-color "rgba(255, 255, 255, 0.10)"
-   #:radius 0
+   ;; The default material: dark graphite glass with the old top highlight.
+   ;; Its CSS squares the menu bar while leaving popovers at the theme's radius.
+   #:theme 'gloss-2007
 
    ;; ---------------------------------------------------------------- left --
    ;; A menu bar's left half: the machine's own menu behind a mark (instead of

@@ -50,7 +50,7 @@ static void backlight_update(WhelkModule *module) {
 
     if (osd)
       whelk_osd_show(osd, whelk_spec_str(module->spec, "icon", "\uf185"),
-                     percent);
+                     "Brightness", percent);
   }
 }
 

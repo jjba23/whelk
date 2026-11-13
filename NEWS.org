@@ -15,6 +15,81 @@ Nothing yet.
 
 *[Released]*
 
+** v0.12.0 (2026-11-13)
+
+*** Added
+
+- *A configurable layer, for the niri overview.* =#:layer= accepts ='top=
+  (default), ='bottom=, ='background= and ='overlay=.  Niri moves and zooms
+  bottom/background layer surfaces with the workspace in its overview and keeps
+  top/overlay fixed, which is why whelk's top-layer bar stayed put while a
+  Waybar configured with ~"layer": "bottom"~ moved with the zoom.  Set
+  ~#:layer 'bottom~ for that behaviour.  The layer is copied on reload, and the
+  README explains the popover trade-off of a bottom bar.
+- *A supervisor for the UI process.* The =whelk= you start is now a small
+  parent whose child is the GTK/Guile shell.  A child crash is logged and the
+  UI is restarted, with a bounded consecutive-failure count; a long-running
+  shell that crashes starts a fresh count.  =WHELK_NO_SUPERVISE=1= runs the UI
+  directly under a debugger or a test harness.
+- *A clean shutdown path.* SIGTERM, SIGINT, SIGHUP and =--quit= leave the
+  GApplication through the same shutdown as the menu: the clipboard history is
+  flushed, =wl-paste= is stopped, the notification bus name is released, the
+  settings monitor and REPL socket are removed, and every surface is destroyed.
+  The supervisor forwards termination signals to the UI child and waits for it,
+  so killing the main whelk process does not leave the shell behind.  It does
+  not signal the child's whole process group, so an application launched from a
+  bar action stays open.  Linux's parent-death signal covers a SIGKILL of the
+  supervisor.
+- *Expanded File, Edit and View menus.* File now carries the compositor's
+  =Close Window= (Window keeps the arranging verbs); the shared Edit menu
+  carries Paste and Match Style, Find Next/Previous and Replace; the shared
+  View menu carries Reload.  The dictionary's standard Edit list has the same
+  editing entries, so known editors and document applications get them too.
+
+*** Changed
+
+- *The volume and brightness HUD now belongs to the bar.* It sits above the
+  bottom edge, centred, instead of hanging from the top; it shows the reading's
+  name and value above a thicker level bar, uses the bar's palette and accent,
+  and keeps a top highlight and shadow so it reads as the same material.
+- *The default look is the dark graphite glass of the late 2000s.* The
+  built-in bar and the shipped example now wear =gloss-2007= instead of a
+  hand-spelled near-dark palette.  A highlight runs along the top edge, a black
+  hairline closes the bottom, and the menu bar is square while popovers keep
+  the palette's rounded corners.
+- *The default shell menu is a session menu.* Network, Bluetooth and
+  Notifications are no longer repeated there; their bar modules, CLI options
+  (=--network=, =--notifications=) and keybindings remain.  The menu's reload
+  and quit entries and its separators now follow the launcher directly.
+- *The architecture document* describes the supervisor, clean shutdown and the
+  layer option; the shell-menu and module docstrings no longer promise panel
+  entries that are not there.
+
+*** Fixed
+
+- *JetBrains Toolbox no longer shows a black tray icon on the dark bar.* Whelk
+  read =IconName= only through GTK's desktop icon theme and ignored the
+  =IconThemePath= the applet publishes beside its binary.  Tela's same-named
+  =toolbox-tray-color= is a =currentColor= glyph, which renders black on a dark
+  bar; the applet's own colour PNG is now preferred, with the theme and ARGB
+  pixmap as fallbacks.
+- *Restoring a clipboard entry no longer crashes the shell.* The GDK union
+  content provider takes ownership of the providers it is given, but whelk
+  also released them through the temporary array.  GDK then walked freed
+  provider state while serving the Wayland clipboard request, producing the
+  SIGBUS/SIGSEGV seen when restoring a copy.  The children are now released
+  exactly once.
+- *A Wi-Fi refresh no longer leaves rows pointing at freed access points.* The
+  de-duplication table freed the =AccessPoint= values that had already been
+  handed to the row widgets, so clicking a network or refreshing the list
+  could dereference or double-free them.  The table now owns only its keys.
+- *Restarting the clipboard listener cannot be undone by an old read.* A read
+  queued against the previous =wl-paste= process is ignored after a restart or
+  resume instead of stopping the replacement watcher.
+- *A clipboard alert that outlives its bar module no longer touches freed
+  state.* The module's state is reference-counted across the asynchronous
+  dialog callback, and clearing is skipped once the module is gone.
+
 ** v0.11.1 (2026-11-13)
 
 *** Fixed

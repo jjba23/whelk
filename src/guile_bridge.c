@@ -182,6 +182,17 @@ static GtkLayerShellEdge edge_from_text(const char *text) {
   return GTK_LAYER_SHELL_EDGE_TOP;
 }
 
+static GtkLayerShellLayer layer_from_text(const char *text) {
+  if (g_strcmp0(text, "background") == 0)
+    return GTK_LAYER_SHELL_LAYER_BACKGROUND;
+  if (g_strcmp0(text, "bottom") == 0)
+    return GTK_LAYER_SHELL_LAYER_BOTTOM;
+  if (g_strcmp0(text, "overlay") == 0)
+    return GTK_LAYER_SHELL_LAYER_OVERLAY;
+
+  return GTK_LAYER_SHELL_LAYER_TOP;
+}
+
 /* Only a non-empty option is a configuration; an absent one is the module's
  * own default. */
 static void collect_options(WhelkModuleSpec *spec, SCM alist) {
@@ -217,9 +228,11 @@ static void collect_modules(GPtrArray *target, SCM list) {
 static WhelkBarConfig *bar_from_alist(SCM alist) {
   g_autofree char *name = alist_text(alist, "name", "main");
   g_autofree char *edge = alist_text(alist, "edge", "top");
+  g_autofree char *layer = alist_text(alist, "layer", "top");
   WhelkBarConfig *bar = whelk_bar_config_new(name);
 
   bar->edge = edge_from_text(edge);
+  bar->layer = layer_from_text(layer);
   bar->height = alist_int(alist, "height", 32);
   bar->margin_top = alist_int(alist, "margin-top", 0);
   bar->margin_right = alist_int(alist, "margin-right", 0);
@@ -292,11 +305,15 @@ static SCM on_use_core_error(void *data, SCM tag, SCM args) {
   return SCM_BOOL_F;
 }
 
+static gboolean core_loaded = FALSE;
+
 gboolean whelk_bridge_use_core(void) {
   scm_internal_catch(SCM_BOOL_T, use_module_thunk, (void *)"whelk core",
                      on_use_core_error, NULL);
 
-  return public_proc("whelk core", "init-shell!") != SCM_BOOL_F;
+  core_loaded = public_proc("whelk core", "init-shell!") != SCM_BOOL_F;
+
+  return core_loaded;
 }
 
 char *whelk_bridge_config_path(void) {
@@ -332,6 +349,16 @@ void whelk_bridge_start_repl(const char *path) {
   if (path && *path)
     scm_call_1(proc, scm_from_utf8_string(path));
   else
+    scm_call_0(proc);
+}
+
+void whelk_bridge_stop_repl(void) {
+  if (!core_loaded)
+    return;
+
+  SCM proc = public_proc("whelk core", "stop-repl!");
+
+  if (scm_is_true(proc))
     scm_call_0(proc);
 }
 

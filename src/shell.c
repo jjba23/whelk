@@ -394,6 +394,15 @@ void whelk_shell_free(WhelkShell *shell) {
   if (shell->monitor_idle != 0)
     g_source_remove(shell->monitor_idle);
 
+  /* Shutdown is the last chance to persist the clipboard history: dispose
+   * stops the watcher, but it must not throw away entries whose debounced
+   * save has not run yet. */
+  if (shell->clipboard)
+    whelk_clipboard_flush(shell->clipboard);
+
+  if (shell->config_monitor)
+    g_file_monitor_cancel(shell->config_monitor);
+
   g_clear_pointer(&shell->bars, g_ptr_array_unref);
   g_clear_object(&shell->center);
   g_clear_object(&shell->launcher);

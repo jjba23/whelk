@@ -110,28 +110,34 @@ the documented one -- see [[#configuration][Configuration]].
   The shell menu is configuration --
   =About This System=, =System Settings=, =Software=, a live =Recent Items=
   submenu, =Force Quit=, sleep/restart/shut down, lock and log out, then the
-  shell's panels -- written with =(menu-item ...)=, =(menu-separator)= and
-  =(menu-submenu ...)= in the settings file, so it is a value a reload away
-  from being on screen.
+  launcher, a reload and the way out -- written with =(menu-item ...)=,
+  =(menu-separator)= and =(menu-submenu ...)= in the settings file, so it is a
+  value a reload away from being on screen.  The network, Bluetooth and
+  notification panels have their own modules, CLI flags and keybindings and do
+  not need a second home in the session menu.
 - *The focused application's menus, from five producers.* Its own
   =File=/=Edit=/=View= where it publishes a menubar over D-Bus -- both
   =org.gtk.Menus= (GTK) and =com.canonical.dbusmenu= (Qt, KDE, appmenu
   registrars) -- else a command the configuration names, else the documented
   shortcuts of ninety-five applications, each entry showing its chord and
-  typing it; and a =Window= menu with the compositor's verbs -- maximize,
-  float, move, full screen, close -- plus =New Window= from the desktop entry's
-  =Exec= whenever it has one.  Emacs multi-key chords such as =C-x C-s= are
-  sequences, shown and typed chord by chord.  Never an invented menu.
+  typing it; File also carries =Close Window= and =New Window= from the
+  desktop entry's =Exec= whenever it has one; and =Window= holds the
+  compositor's arranging verbs -- maximize, float, move and full screen.
+  Emacs multi-key chords such as =C-x C-s= are sequences, shown and typed
+  chord by chord.  Never an invented menu.
 - *A tray that shows what is running.* StatusNotifierItems -- JetBrains
   Toolbox, network applets, chat clients -- over the standard
   =RegisteredStatusNotifierItems= list, with a chevron for icons beyond
   =#:max-items=, and each icon's own =com.canonical.dbusmenu= context menu in a
   whelk popover: =AboutToShow= first, then =GetLayout=, then =Event(id,
-  "clicked")= for the row chosen.
+  "clicked")= for the row chosen.  An applet's =IconThemePath= is searched
+  before the desktop icon theme, so an app that ships a colour icon does not
+  turn into a black monochrome glyph on a dark bar.
 - *A HUD for the two dials.* A volume or brightness change raises a small
-  centred card with the glyph, a bar and the number, then takes it away -- the
-  macOS answer, drawn by the shell rather than by two modules that would each
-  draw their own.
+  bottom-centre card with the glyph, the reading's name, a bar and the number,
+  then takes it away -- the macOS answer, drawn by the shell rather than by two
+  modules that would each draw their own.  It wears the bar's palette and
+  accent, so it belongs to the same desktop.
 - *A clipboard history with an off switch.* =wl-paste --watch= feeds a
   de-duplicated list of text, rich text, images and copied files; =whelk
   --clipboard= (or the =;= prefix) puts any copy back, and the default bar's
@@ -165,7 +171,8 @@ the documented one -- see [[#configuration][Configuration]].
   =nonselectable= rows -- in one overlay with one fuzzy matcher.
 - *Twelve themes, and no borrowed marks.* =glass-2001= through =tinted-2024=,
   plus =frost=, =ember=, =mocha=, =midnight=, =sandstone= and =void=: materials
-  and years, not products.
+  and years, not products.  The built-in bar wears =gloss-2007=: dark graphite
+  glass, a highlight across the top, and a square, black-hairlined menu bar.
 - *Sessions are asked, not assumed.* niri, sway and X11 each get their own
   integration; what a session cannot do goes quiet, with one line in the log
   saying why, instead of an error per frame.
@@ -334,10 +341,9 @@ blank screen and never a stand-in for the documented one.
 
 Click things while you are there: the mark at the far left opens the machine's
 own menu (about, recent items, force quit, sleep and the ways out, then the
-launcher, network, Bluetooth and notifications), a notification bell opens the
-centre, a Wi-Fi reading opens the
-network panel, and =whelk --launcher= opens the launcher from any keybinding
-you give it.
+launcher and the shell's reload and quit), a notification bell opens the
+centre, a Wi-Fi reading opens the network panel, and =whelk --launcher= opens
+the launcher from any keybinding you give it.
 
 * Using the shell
 :PROPERTIES:
@@ -566,6 +572,12 @@ for one -- appears when the bar starts.  =#:max-items= (6) keeps that many on
 the bar and puts the rest behind a chevron; the icons behind it are the same
 widgets, so they keep their tooltips and clicks.
 
+=IconName= is resolved through the applet's =IconThemePath= first; that is
+where many apps keep their own colour icon, separate from the desktop theme.
+When the app publishes no path, GTK's icon theme is used, and an item that has
+no name falls back to its ARGB =IconPixmap=.  The path is added once per
+applet, not once per icon refresh.
+
 A right click opens the applet's own menu, read from =com.canonical.dbusmenu=
 after =AboutToShow= has let the applet build it, so every id belongs to the tree
 on screen; choosing a row sends =Event(id, "clicked")=.  An item with no =Menu=
@@ -625,6 +637,7 @@ A configuration is one call:
    (list
     (bar #:name 'main
          #:position 'top
+         #:layer 'top
          #:monitor "all"
          #:height 32
          #:margin 0
@@ -654,6 +667,7 @@ A configuration is one call:
 |-----------------+-------------------------------------------------------------------------|
 | =#:name=          | the bar's name; also its CSS id and its log label                      |
 | =#:position=      | ='top=, ='bottom=, ='left=, ='right= (strings accepted too)               |
+| =#:layer=        | ='top= (default), ='bottom=, ='background= or ='overlay=; see [[#overview][the overview note]] |
 | =#:monitor=       | ="all"= (one bar per output), ="default"=, or a connector such as ="DP-1"= |
 | =#:height=        | thickness: the row's height, or a vertical bar's width; a vertical bar widens to its widest module and reserves that width |
 | =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
@@ -668,6 +682,32 @@ A configuration is one call:
 Every colour, font and radius is optional: leave one out and the structural
 stylesheet's colour applies, so a bare =(bar)= is still readable.  A bar can also
 wear a whole palette at once with =#:theme= -- see [[#themes][themes]].
+
+** The compositor's overview and =#:layer=
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+Niri moves and zooms the background and bottom layer-shell layers together
+with the workspaces in its overview, while top and overlay layers stay fixed
+over the overview.  Whelk places bars on the top layer by default, so a bar
+stays put even when the workspaces zoom out.  Waybar behaves the same way on
+the top layer; a Waybar configuration that moves in the overview is using
+~"layer": "bottom"~.
+
+To get that behaviour from whelk, put the bar on the bottom layer:
+
+#+begin_src scheme
+  (bar #:name 'main #:position 'top #:layer 'bottom
+       #:left (list (start-module)) #:right (list (clock-module)))
+#+end_src
+
+The bar still reserves its edge, because =#:exclusive?= is independent of the
+layer.  A bottom-layer bar is drawn below ordinary windows, however, so menus
+and popovers opened from it can end up behind those windows; the top layer
+remains the safe default.  The other accepted values are ='background= (also
+moves with the overview, below everything) and ='overlay= (fixed, above every
+other layer).
 
 ** Modules
 :PROPERTIES:
@@ -747,7 +787,7 @@ materials and years, not products: the look is the point, and nobody's mark is.
 |------------------+-----------------------------------------------------------|
 | =glass-2001=     | pale pinstriped plastic, a hairline along the bottom      |
 | =metal-2003=     | brushed alloy, square corners                             |
-| =gloss-2007=     | black glass with a highlight across the top               |
+| =gloss-2007=     | dark graphite glass, a top highlight, a square menu bar   |
 | =flat-2014=      | one flat sheet and one hairline                           |
 | =dark-2020=      | dark, rounded, no material                                |
 | =tinted-2024=    | pale tinted glass, generous corners, a soft shadow        |
@@ -762,7 +802,9 @@ A theme sets the background, the ink, the accent, the hairline colour, the
 corner radius and the few rules a palette cannot express (a gradient, an inset
 highlight).  Any colour the bar sets itself wins over the theme's, =(themes)=
 lists what the build has, and a name the build does not know leaves the bar's
-own colours alone with one warning.
+own colours alone with one warning.  The built-in bar uses =gloss-2007=; its
+CSS keeps the menu bar square while popovers keep the palette's rounded
+corners.
 
 ** The shell menu and the global menu
 :PROPERTIES:
@@ -786,8 +828,10 @@ C table: `(whelk menu)' units written with the settings file, or
 shape in this desktop's words -- =About This System=, =System Settings…=,
 =Software…=, a =Recent Items= submenu, =Force Quit…=, =Sleep=, =Restart…=,
 =Shut Down…=, =Lock Screen= and =Log Out= -- followed, after a rule, by the
-launcher, the network and Bluetooth panels, the notification centre, a reload
-and the way out.  What the menu does is what its entries say: =About= is a real
+launcher, a reload and the way out.  The panels are deliberately absent: they
+are bar modules with their own clicks, and =whelk --network wifi=,
+=--network bluetooth= and =--notifications= are their command-line homes.  What
+the menu does is what its entries say: =About= is a real
 GTK about dialogue naming the machine, the session and the toolkit;
 =Recent Items= is GTK's recent-documents list, filled when the submenu opens;
 =Force Quit…= opens the launcher in its =quit= mode, where the open windows are
@@ -894,12 +938,20 @@ and End go to the ends, Left and Right move between File, Edit and View, Right
 opens a submenu, and Escape closes.  A submenu wears a chevron rather than a
 second label.
 
+The shared Edit menu covers the whole editing path, not only the clipboard:
+Undo and Redo; Cut, Copy, Paste, Paste and Match Style and Select All; Find,
+Find Next (F3), Find Previous (Shift+F3) and Replace.  The shared View menu
+adds Reload (Ctrl+R) to the zoom and full-screen entries.  The dictionary's
+standard Edit list carries the same additions where the application documents
+them, so a known editor gets them too.
+
 The shortcut menus need something that can type a chord: with neither =wtype=
 nor =xdotool= installed, an application gets no shared Edit and View, rather
 than entries that could not work.  Its own desktop actions and =New Window=
-still fill File, and the =Window= menu still carries the compositor's verbs, so
-a sparse menu is useful even without a typing tool.  An application that
-publishes its own menubar keeps the application's own Window menu instead.
+still fill File, =Close Window= is there when the compositor can close, and the
+=Window= menu still carries its arranging verbs, so a sparse menu is useful even
+without a typing tool.  An application that publishes its own menubar keeps the
+application's own Window menu instead.
 
 The dictionary is not a placeholder.  A Wayland shell learns a GTK
 application's menu paths from the compositor's =gtk-shell= protocol, which niri
@@ -1191,6 +1243,42 @@ The boundaries are the design:
   configuration and scoped to the bar's window id, so two bars can wear two
   materials.
 
+** Crashes, restarts and shutdown
+:PROPERTIES:
+:CUSTOM_ID: resilience
+:END:
+
+A module is a value with its own widgets, timer and destroy function.  Building
+one is guarded at the factory boundary: an unknown kind is logged and left out,
+and a module that returns nothing does not stop the rest of the bar from being
+built.  A finished command never writes into a module that a reload has already
+freed; =ModuleGuard= keeps that generation boundary.  That is enough for a bad
+option and a failed command.  It is not enough for a native segmentation fault:
+one address space cannot safely recover from that, and pretending otherwise
+would hide a real bug.
+
+So the process boundary does the recovering.  Running =whelk= starts a very
+small supervisor as the main process and the GTK/Guile UI as its child.  The
+supervisor owns no widgets and no configuration.  It waits for the child; if
+the child exits abnormally, it logs the wait status, waits with an increasing
+delay and starts it again, up to five consecutive failures.  That keeps a
+module crash, a GTK failure or a broken reload from taking the session down
+permanently, while a genuinely broken build is not restarted forever.
+
+The other direction is shutdown.  =SIGTERM=, =SIGINT=, =SIGHUP=, =whelk --quit=
+and the menu's =Quit= all leave the GApplication normally.  Shutdown flushes
+the clipboard history, stops the =wl-paste= watcher, releases the notification
+bus name, cancels the settings-directory monitor, removes the REPL socket and
+destroys every surface.  When the supervisor receives one of those signals it
+forwards it to the child and waits for that shutdown; the child also sets
+Linux's parent-death signal, so a =SIGKILL= of the supervisor still terminates
+it.  It deliberately does not signal the child's whole process group: commands
+a module launched can be applications the user wants to keep.
+
+To run the UI directly -- under a debugger, or in a test harness that owns the
+process -- set =WHELK_NO_SUPERVISE=1=.  The UI then handles the same signals and
+the same shutdown path by itself.
+
 ** Where the next pieces go
 :PROPERTIES:
 :CUSTOM_ID: next
@@ -1258,6 +1346,9 @@ C tests are the pure logic:
 - =tests/test_applets.c= -- the exact tray ids: =nm-applet= and =blueman= hide,
   the loose word "network", a longer id that merely starts with an applet's, and
   one radio's applet in the other radio's list do not.
+- =tests/test_trayicon.c= -- the app-owned =IconThemePath= side of a status
+  icon: PNG is preferred, SVG is the fallback, and a relative path or a name
+  that tries to escape the app's directory is refused.
 - =tests/test_command.c= -- the stdin path the Wi-Fi key takes: the program
   receives the line it was sent, an absent answer is an end of file rather than a
   hang, and a plain run still returns its output.

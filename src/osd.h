@@ -30,13 +30,15 @@ WhelkOsd *whelk_osd_new(GtkApplication *app, const WhelkBarConfig *style);
  * whelk_osd_show:
  * @osd: the display.
  * @icon: the glyph to show (a Font Awesome character, like the bar's).
+ * @title: the reading's name, such as "Sound" or "Brightness".
  * @percent: the level, 0 to 150; the bar fills to 100 and the number says the
  *   rest.
  *
  * Shows the HUD and restarts its timer.  Called only when a level changed, by
  * the module that reads it.
  */
-void whelk_osd_show(WhelkOsd *osd, const char *icon, int percent);
+void whelk_osd_show(WhelkOsd *osd, const char *icon, const char *title,
+                    int percent);
 
 void whelk_osd_hide(WhelkOsd *osd);
 

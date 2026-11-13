@@ -36,7 +36,8 @@ static void audio_show_osd(int volume, gboolean muted, const char *icon,
   if (!osd)
     return;
 
-  whelk_osd_show(osd, muted ? muted_icon : icon, muted ? 0 : volume);
+  whelk_osd_show(osd, muted ? muted_icon : icon, "Sound",
+                 muted ? 0 : volume);
 }
 
 static void audio_apply(WhelkModule *module, const char *output) {

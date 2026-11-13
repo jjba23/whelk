@@ -8,9 +8,20 @@
 #include "logger.h"
 #include "shell.h"
 
+#include <errno.h>
+#include <glib-unix.h>
 #include <libguile.h>
 #include <locale.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 /* =========================================================================
  * THE PROCESS
@@ -30,6 +41,227 @@
  */
 
 static WhelkShell *g_shell = NULL;
+
+/* =========================================================================
+ * THE SUPERVISOR
+ * =========================================================================
+ * A GTK application cannot safely recover from a segmentation fault inside a
+ * module: the fault is in this process, and unwinding it would be a lie.  What
+ * it can do is put the UI in a child process and keep the smallest possible
+ * parent beside it.  The parent owns no widgets and no configuration; it waits
+ * for the child and starts it again after an abnormal exit.
+ *
+ * The two directions matter:
+ *
+ *   - a child crash (a module, GTK, a configuration bug) is logged and the
+ *     shell comes back without the compositor restarting every session;
+ *   - `kill <the whelk process>` reaches this parent, which forwards the
+ *     signal to the child and waits for it.  The child's
+ *     signal handler quits the GApplication, which runs the same shutdown path
+ *     as `whelk --quit`: clipboard flushed, clipboard watcher stopped, REPL
+ *     service disposed, notification bus name released, surfaces closed.
+ *
+ * A SIGKILL cannot be caught, so Linux's PR_SET_PDEATHSIG gives the child a
+ * SIGTERM when the supervisor itself is killed.  That keeps the common
+ * "kill the main process" case clean; an unavoidable SIGKILL of both processes
+ * is a compositor restart, not a resource leak we can prevent from user space.
+ */
+
+#define WHELK_MAX_RESTARTS 5
+
+static volatile sig_atomic_t g_supervisor_stop = 0;
+static volatile sig_atomic_t g_supervisor_child = 0;
+
+static void on_supervisor_signal(int signal_number) {
+  const pid_t child = (pid_t)g_supervisor_child;
+
+  g_supervisor_stop = 1;
+
+  if (child > 0) {
+    /* Only the UI is ours to stop.  A command a module launched may be a GUI
+     * application the user wants to keep; killing its process group on quit
+     * would close that application too.  The clipboard watcher and the other
+     * services are stopped by the child's own shutdown path. */
+    kill(child, signal_number);
+  }
+}
+
+static void install_supervisor_signals(void) {
+  struct sigaction action = {0};
+
+  sigemptyset(&action.sa_mask);
+  action.sa_handler = on_supervisor_signal;
+  action.sa_flags = 0; /* no SA_RESTART: waitpid must return on a signal */
+
+  sigaction(SIGTERM, &action, NULL);
+  sigaction(SIGINT, &action, NULL);
+  sigaction(SIGHUP, &action, NULL);
+}
+
+static void exec_supervised_child(char *const argv[], const char *executable,
+                                  pid_t parent) {
+  /* A process group of its own keeps the terminal's foreground signals from
+   * reaching the UI twice: the supervisor receives them and forwards one
+   * deliberate copy.  It is not a group to sweep on quit, because it also
+   * contains applications a module command started. */
+  setpgid(0, 0);
+
+#ifdef __linux__
+  /* If the supervisor is SIGKILLed, the kernel sends SIGTERM here.  Check the
+   * parent afterwards: a parent that died between fork and prctl would
+   * otherwise leave this child orphaned. */
+  prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+
+  if (getppid() != parent)
+    _exit(0);
+
+  setenv("WHELK_SUPERVISED", "1", TRUE);
+
+  execv(executable, argv);
+
+  fprintf(stderr, "whelk: could not start the UI process: %s\n",
+          g_strerror(errno));
+  _exit(127);
+}
+
+/* The UI should leave its GApplication on SIGTERM, but a module can be stuck
+ * in code that never returns to the main loop.  Do not let a kill of the main
+ * process hang the supervisor forever: give the child five seconds, then make
+ * the signal unavoidable. */
+static void wait_for_child_stop(pid_t child) {
+  const gint64 deadline =
+      g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+  int status = 0;
+
+  for (;;) {
+    const pid_t waited = waitpid(child, &status, WNOHANG);
+
+    if (waited == child || (waited < 0 && errno == ECHILD))
+      return;
+    if (waited < 0 && errno != EINTR)
+      return;
+    if (g_get_monotonic_time() >= deadline)
+      break;
+
+    g_usleep(100 * 1000);
+  }
+
+  kill(child, SIGKILL);
+
+  while (waitpid(child, &status, 0) < 0 && errno == EINTR)
+    ;
+}
+
+/* Returns -1 when supervision is disabled, otherwise the process exit status. */
+static int run_supervisor(int argc, char **argv) {
+  (void)argc;
+
+  const char *disabled = g_getenv("WHELK_NO_SUPERVISE");
+
+  if (disabled && *disabled && g_strcmp0(disabled, "0") != 0)
+    return -1;
+
+  if (g_getenv("WHELK_SUPERVISED"))
+    return -1;
+
+  g_autofree char *executable = g_file_read_link("/proc/self/exe", NULL);
+
+  if (!executable && argv[0] && strchr(argv[0], '/'))
+    executable = g_strdup(argv[0]);
+  if (!executable && argv[0])
+    executable = g_find_program_in_path(argv[0]);
+
+  if (!executable) {
+    fprintf(stderr, "whelk: could not find its own executable to supervise\n");
+    return 127;
+  }
+
+  install_supervisor_signals();
+
+  const pid_t supervisor = getpid();
+  guint failures = 0;
+
+  for (;;) {
+    if (g_supervisor_stop)
+      return 0;
+
+    pid_t child = fork();
+
+    if (child < 0) {
+      fprintf(stderr, "whelk: fork failed: %s\n", g_strerror(errno));
+      return 1;
+    }
+
+    if (child == 0)
+      exec_supervised_child(argv, executable, supervisor);
+
+    g_supervisor_child = child;
+    setpgid(child, child); /* both sides race safely; EACCES/ESRCH is fine */
+    const gint64 started = g_get_monotonic_time();
+
+    /* A signal can arrive between fork and publishing the child's pid. */
+    if (g_supervisor_stop)
+      kill(child, SIGTERM);
+
+    int status = 0;
+    pid_t waited;
+
+    do {
+      waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR && !g_supervisor_stop);
+
+    if (g_supervisor_stop) {
+      /* The handler has already sent the signal.  Wait for the child's own
+       * shutdown rather than returning while it still holds the display. */
+      wait_for_child_stop(child);
+
+      g_supervisor_child = 0;
+      return 0;
+    }
+
+    g_supervisor_child = 0;
+
+    if (waited < 0) {
+      fprintf(stderr, "whelk: waitpid failed: %s\n", g_strerror(errno));
+      return 1;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+      return 0;
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
+      return 127;
+
+    /* A shell that ran for a while and then crashed is a new incident, not a
+     * continuation of a crash loop.  Only rapid repetitions count toward the
+     * restart limit. */
+    if (g_get_monotonic_time() - started > 30 * G_TIME_SPAN_SECOND)
+      failures = 0;
+
+    failures++;
+
+    if (failures >= WHELK_MAX_RESTARTS) {
+      fprintf(stderr,
+              "whelk: the UI stopped %u times; leaving it stopped so a broken "
+              "configuration is not restarted forever (WHELK_NO_SUPERVISE=1 "
+              "runs without the supervisor)\n",
+              failures);
+      return 1;
+    }
+
+    const guint delay = MIN(4u, 1u << (failures - 1));
+
+    if (WIFSIGNALED(status))
+      fprintf(stderr,
+              "whelk: the UI was killed by signal %d; restarting in %u s\n",
+              WTERMSIG(status), delay);
+    else
+      fprintf(stderr, "whelk: the UI stopped (status %d); restarting in %u s\n",
+              WEXITSTATUS(status), delay);
+    g_usleep((gulong)delay * G_USEC_PER_SEC);
+  }
+}
 
 /* --- the primitives Scheme may call ---------------------------------------- */
 
@@ -320,9 +552,21 @@ static void on_shutdown(GApplication *application, gpointer user_data) {
   (void)user_data;
 
   g_clear_pointer(&g_shell, whelk_shell_free);
+  whelk_bridge_stop_repl();
 }
 
 /* --- entry -------------------------------------------------------------- */
+
+/* A terminal's Ctrl-C, systemd's SIGTERM and a session's SIGHUP all take the
+ * same road as the menu's Quit: leave the GApplication normally, so shutdown
+ * emits and whelk_shell_free() runs.  This is also what the supervisor's
+ * SIGTERM reaches when the shell is killed. */
+static gboolean quit_on_signal(gpointer user_data) {
+  LOG_C_INFO("Main", "termination signal received: shutting down");
+  g_application_quit(G_APPLICATION(user_data));
+
+  return G_SOURCE_REMOVE;
+}
 
 static void inner_main(void *data, int argc, char **argv) {
   (void)data;
@@ -336,6 +580,10 @@ static void inner_main(void *data, int argc, char **argv) {
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(on_command_line), NULL);
   g_signal_connect(app, "shutdown", G_CALLBACK(on_shutdown), NULL);
+
+  g_unix_signal_add(SIGTERM, quit_on_signal, app);
+  g_unix_signal_add(SIGINT, quit_on_signal, app);
+  g_unix_signal_add(SIGHUP, quit_on_signal, app);
 
   g_application_run(G_APPLICATION(app), argc, argv);
 
@@ -356,6 +604,11 @@ int main(int argc, char **argv) {
 #endif
 
   setlocale(LC_ALL, "");
+
+  const int supervised = run_supervisor(argc, argv);
+
+  if (supervised >= 0)
+    return supervised;
 
   LOG_C_INFO("Main", "whelk %s starting", PACKAGE_VERSION);
 

@@ -83,12 +83,15 @@ the bar simply keeps its own colours, and the name is reported once."
 
 (register-theme!
  'gloss-2007
- '((background . "#1c1c1e")
-   (foreground . "#f5f5f7")
-   (accent . "#3ea6ff")
-   (border-color . "#000000")
+ '((background . "rgba(26, 26, 28, 0.82)")
+   (foreground . "#f4f4f6")
+   (accent . "#3b9eff")
+   (border-color . "rgba(0, 0, 0, 0.92)")
    (radius . 10)
-   (css . ".whelk-bar {\n  background-image: linear-gradient(to bottom, #3a3a3d 0%, #202022 46%, #171719 54%, #262628 100%);\n  border-bottom: 1px solid #000000;\n}\n")))
+   ;; The late-2000s menu bar: a graphite glass slab, a highlight along the
+   ;; top edge, and a black hairline below.  The bar itself stays square --
+   ;; popovers keep the palette's radius -- which is the shape the era used.
+   (css . ".whelk-bar {\n  background-image:\n    linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 1px, rgba(255, 255, 255, 0) 2px),\n    linear-gradient(to bottom, rgba(50, 50, 54, 0.82) 0%, rgba(28, 28, 31, 0.84) 46%, rgba(17, 17, 19, 0.88) 54%, rgba(28, 28, 31, 0.84) 100%);\n  border: none;\n  border-bottom: 1px solid rgba(0, 0, 0, 0.92);\n  box-shadow: inset 0 1px rgba(255, 255, 255, 0.12);\n  border-radius: 0;\n}\n")))
 
 (register-theme!
  'flat-2014

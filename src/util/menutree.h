@@ -162,9 +162,9 @@ GPtrArray *whelk_menubar_from_text(const char *text, WhelkChordStyle style);
  *   when the generic menus were used.
  *
  * The menubar an application that exports nothing gets.  File carries New
- * Window and the actions its desktop entry declares; Window carries the verbs
- * the compositor has for the focused window: maximize, float, move, full
- * screen and close; then:
+ * Window, the actions its desktop entry declares, and Close Window; Window
+ * carries the verbs the compositor has for arranging the focused window:
+ * maximize, float, move and full screen; then:
  *
  * - an application the dictionary knows gets its own menus -- the documented
  *   shortcuts of that application, each entry showing its chord and typing it;

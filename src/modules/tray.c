@@ -14,6 +14,7 @@
 #include "util/dbusmenu.h"
 #include "util/menuaction.h"
 #include "util/menutree.h"
+#include "util/trayicon.h"
 
 /* =========================================================================
  * TRAY
@@ -61,6 +62,9 @@ struct TrayState {
   GtkWidget *more;
   GtkWidget *overflow_box;
   guint max_items;
+
+  /* App directories already added to GTK's icon search path. */
+  GHashTable *icon_paths;
 
   /* "id, title fragments to leave out", as configured; and the two applets a
    * bar with its own Wi-Fi and Bluetooth readings does not need. */
@@ -237,6 +241,31 @@ static GdkPaintable *paintable_from_pixmaps(GVariant *pixmaps) {
   return texture ? GDK_PAINTABLE(texture) : NULL;
 }
 
+/* StatusNotifierItem publishes the app's own icon directory separately from
+ * IconName.  GTK does not search that directory by default: an item can then
+ * resolve a same-named icon from the desktop theme instead -- Tela's
+ * "toolbox-tray-color" is a currentColor glyph, which is black on a dark bar.
+ * Remember every app directory so a NewIcon signal does not add it forever. */
+static void tray_use_icon_path(TrayState *state, const char *path) {
+  if (!state || !path || !*path || !g_path_is_absolute(path))
+    return;
+
+  if (!state->icon_paths)
+    state->icon_paths = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+                                              NULL);
+
+  if (g_hash_table_contains(state->icon_paths, path))
+    return;
+
+  g_hash_table_add(state->icon_paths, g_strdup(path));
+
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (display)
+    gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(display),
+                                   path);
+}
+
 static void tray_item_refresh(TrayItem *item) {
   if (!item || !item->proxy)
     return;
@@ -245,11 +274,22 @@ static void tray_item_refresh(TrayItem *item) {
       g_dbus_proxy_get_cached_property(item->proxy, "IconName");
   g_autoptr(GVariant) icon_pixmap =
       g_dbus_proxy_get_cached_property(item->proxy, "IconPixmap");
+  g_autoptr(GVariant) icon_theme_path =
+      g_dbus_proxy_get_cached_property(item->proxy, "IconThemePath");
 
   const char *name = icon_name ? g_variant_get_string(icon_name, NULL) : NULL;
+  const char *theme_path =
+      icon_theme_path ? g_variant_get_string(icon_theme_path, NULL) : NULL;
+
+  tray_use_icon_path(item->state, theme_path);
 
   if (name && *name) {
-    gtk_image_set_from_icon_name(GTK_IMAGE(item->image), name);
+    g_autofree char *app_icon = whelk_tray_icon_file(theme_path, name);
+
+    if (app_icon)
+      gtk_image_set_from_file(GTK_IMAGE(item->image), app_icon);
+    else
+      gtk_image_set_from_icon_name(GTK_IMAGE(item->image), name);
   } else {
     GdkPaintable *paintable = paintable_from_pixmaps(icon_pixmap);
 
@@ -798,6 +838,7 @@ static void tray_destroy(WhelkModule *module) {
   g_clear_object(&state->watcher);
   g_clear_pointer(&state->items, g_ptr_array_unref);
   g_clear_object(&state->bus);
+  g_clear_pointer(&state->icon_paths, g_hash_table_unref);
   g_clear_pointer(&state->style, whelk_bar_config_free);
   g_free(state->hide);
   g_free(state);

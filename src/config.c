@@ -120,6 +120,7 @@ WhelkBarConfig *whelk_bar_config_new(const char *name) {
 
   bar->name = g_strdup(name && *name ? name : "main");
   bar->edge = GTK_LAYER_SHELL_EDGE_TOP;
+  bar->layer = GTK_LAYER_SHELL_LAYER_TOP;
   bar->monitor = g_strdup("all");
   bar->height = 32;
   bar->margin_top = 0;
@@ -167,6 +168,7 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   WhelkBarConfig *copy = whelk_bar_config_new(bar->name);
 
   copy->edge = bar->edge;
+  copy->layer = bar->layer;
   copy->height = bar->height;
   copy->margin_top = bar->margin_top;
   copy->margin_right = bar->margin_right;

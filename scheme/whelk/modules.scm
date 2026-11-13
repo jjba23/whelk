@@ -183,8 +183,9 @@ have no window; #:format is the label ({index} or {name})."
 (define* (start-module #:rest kv)
   "The shell's own menu behind one mark, where a menu bar keeps its first menu:
 about this system, the ways into it, what was opened recently, force quit, the
-ways out of the session, and the shell's panels -- a GTK popover the shell
-builds itself, no rofi and no subprocess.  What is in it is the shell menu the
+ways out of the session, the launcher, and a reload -- a GTK popover the shell
+builds itself, no rofi and no subprocess.  The panel surfaces are bar modules
+and CLI commands; they are not repeated in this menu.  What is in it is the shell menu the
 configuration wrote with `(whelk menu)' (see `configure-shell!'), or
 `default-shell-menu' when it wrote none.  It wears the whelk, drawn in the
 bar's ink; #:label replaces it with a glyph from the bar's icon font,
@@ -199,8 +200,9 @@ names a program that prints `Menu<TAB>Item<TAB>Chord<TAB>Command' lines, else
 the application's own menubar over D-Bus -- `org.gtk.Menus' for GTK,
 `com.canonical.dbusmenu' for Qt, KDE and anything an appmenu registrar knows
 -- else the dictionary's menus for the applications whose shortcuts are
-documented, else the shortcuts every application shares; a Window menu adds
-full screen and close.  The base keys apply; #:shortcuts? (default on) offers
+documented, else the shortcuts every application shares; File adds the
+compositor's Close Window and a Window menu adds full screen and arranging
+verbs.  The base keys apply; #:shortcuts? (default on) offers
 the shortcut menus at all, and #:shortcut-tool names the program that types a
 chord (wtype on Wayland, xdotool on X11).  #:accelerator-style chooses how
 every chord is printed -- 'cua for Ctrl+Shift+P, 'emacs for C-S-p -- and

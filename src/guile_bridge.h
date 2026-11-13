@@ -68,6 +68,9 @@ gboolean whelk_bridge_load(const char *path);
 /* Calls `start-repl!' for @path (it is idempotent per socket). */
 void whelk_bridge_start_repl(const char *path);
 
+/* Calls `stop-repl!': removes the Unix socket files the shell is serving. */
+void whelk_bridge_stop_repl(void);
+
 /**
  * whelk_bridge_bars:
  * @path: the settings file the bars belong to (may be NULL).

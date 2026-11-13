@@ -43,23 +43,23 @@ static void test_synthesize_file_menus(void) {
   WhelkMenu *file = menu_at(bar, 0);
 
   g_assert_cmpstr(file->label, ==, "File");
-  g_assert_cmpuint(file->entries->len, ==, 2);
+  g_assert_cmpuint(file->entries->len, ==, 4);
 
   g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
   g_assert_cmpstr(entry_at(file, 0)->action, ==, "desktop:new-window");
   g_assert_cmpstr(entry_at(file, 1)->label, ==, "New Private Window");
+  g_assert_cmpint(entry_at(file, 2)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_cmpstr(entry_at(file, 3)->label, ==, "Close Window");
+  g_assert_cmpstr(entry_at(file, 3)->command, ==,
+                  "niri msg action close-window");
 
   WhelkMenu *window = menu_at(bar, 1);
 
   g_assert_cmpstr(window->label, ==, "Window");
-  g_assert_cmpuint(window->entries->len, ==, 3);
+  g_assert_cmpuint(window->entries->len, ==, 1);
   g_assert_cmpstr(entry_at(window, 0)->label, ==, "Full Screen");
   g_assert_cmpstr(entry_at(window, 0)->command, ==,
                   "niri msg action fullscreen-window");
-  g_assert_cmpint(entry_at(window, 1)->kind, ==, WHELK_MENU_SEPARATOR);
-  g_assert_cmpstr(entry_at(window, 2)->label, ==, "Close Window");
-  g_assert_cmpstr(entry_at(window, 2)->command, ==,
-                  "niri msg action close-window");
 }
 
 static void test_synthesize_shortcuts(void) {
@@ -74,9 +74,34 @@ static void test_synthesize_shortcuts(void) {
   g_assert_cmpstr(entry_at(menu_at(bar, 0), 0)->command, ==,
                   "wtype -M ctrl -k z -m ctrl");
 
+  WhelkMenu *edit = menu_at(bar, 0);
+  gboolean saw_match_style = FALSE;
+  gboolean saw_find_next = FALSE;
+  gboolean saw_find_previous = FALSE;
+  gboolean saw_replace = FALSE;
+
+  for (guint i = 0; i < edit->entries->len; i++) {
+    WhelkMenuEntry *entry = entry_at(edit, i);
+
+    if (g_strcmp0(entry->label, "Paste and Match Style") == 0)
+      saw_match_style = TRUE;
+    if (g_strcmp0(entry->label, "Find Next") == 0)
+      saw_find_next = TRUE;
+    if (g_strcmp0(entry->label, "Find Previous") == 0)
+      saw_find_previous = TRUE;
+    if (g_strcmp0(entry->label, "Replace") == 0)
+      saw_replace = TRUE;
+  }
+
+  g_assert_true(saw_match_style);
+  g_assert_true(saw_find_next);
+  g_assert_true(saw_find_previous);
+  g_assert_true(saw_replace);
+
   WhelkMenu *view = menu_at(bar, 1);
 
   g_assert_cmpstr(view->label, ==, "View");
+  g_assert_cmpstr(entry_at(view, 0)->label, ==, "Reload");
 
   /* Full Screen has no modifier, and its command says so. */
   WhelkMenuEntry *full = entry_at(view, view->entries->len - 1);
@@ -98,11 +123,14 @@ static void test_synthesize_new_window_and_verbs(void) {
 
   WhelkMenu *file = menu_at(bar, 0);
 
-  /* Exec's New Window, and the desktop action with the same job is not
-   * repeated underneath it. */
-  g_assert_cmpuint(file->entries->len, ==, 1);
+  /* Exec's New Window, the desktop action with the same job is not repeated
+   * underneath it, and File ends with the compositor's close verb. */
+  g_assert_cmpuint(file->entries->len, ==, 3);
   g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
   g_assert_cmpstr(entry_at(file, 0)->command, ==, "app --new-window");
+  g_assert_cmpint(entry_at(file, 1)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_cmpstr(entry_at(file, 2)->label, ==, "Close Window");
+  g_assert_cmpstr(entry_at(file, 2)->command, ==, "close");
 
   WhelkMenu *window = menu_at(bar, 1);
   g_assert_cmpstr(entry_at(window, 0)->label, ==, "Maximize / Restore");
@@ -112,7 +140,6 @@ static void test_synthesize_new_window_and_verbs(void) {
   g_assert_cmpstr(entry_at(window, 3)->label, ==, "Move Left");
 
   gboolean saw_fullscreen = FALSE;
-  gboolean saw_close = FALSE;
 
   for (guint i = 0; i < window->entries->len; i++) {
     WhelkMenuEntry *entry = entry_at(window, i);
@@ -120,13 +147,9 @@ static void test_synthesize_new_window_and_verbs(void) {
     if (g_strcmp0(entry->label, "Full Screen") == 0 &&
         g_strcmp0(entry->command, "fullscreen") == 0)
       saw_fullscreen = TRUE;
-    if (g_strcmp0(entry->label, "Close Window") == 0 &&
-        g_strcmp0(entry->command, "close") == 0)
-      saw_close = TRUE;
   }
 
   g_assert_true(saw_fullscreen);
-  g_assert_true(saw_close);
 }
 
 static void test_synthesize_without_tool(void) {
@@ -161,10 +184,10 @@ static void test_dictionary_menus(void) {
       &(WhelkSessionWindowActions){.close = "niri msg action close-window"},
       "wtype", WHELK_CHORD_CUA, &source);
 
-  /* The dictionary answers for Firefox: File, Edit and View of its own, plus
-   * the Window menu the compositor fills. */
+  /* The dictionary answers for Firefox: File, Edit and View of its own.  The
+   * close verb goes in File, and no arranging verbs means no Window menu. */
   g_assert_cmpstr(source, ==, "Firefox");
-  g_assert_cmpuint(bar->len, ==, 4);
+  g_assert_cmpuint(bar->len, ==, 3);
 
   WhelkMenu *file = menu_at(bar, 0);
 
@@ -177,13 +200,29 @@ static void test_dictionary_menus(void) {
   g_assert_cmpstr(menu_at(bar, 2)->label, ==, "View");
   g_assert_cmpstr(entry_at(menu_at(bar, 2), 0)->label, ==, "Reload");
 
-  WhelkMenu *window = menu_at(bar, 3);
+  /* Close is a File action; with no arranging verbs passed there is no Window
+   * menu at all. */
+  g_assert_cmpuint(bar->len, ==, 3);
+  gboolean saw_close = FALSE;
+  gint close_at = -1;
+  gint quit_at = -1;
 
-  g_assert_cmpstr(window->label, ==, "Window");
-  g_assert_cmpuint(window->entries->len, ==, 1);
-  g_assert_cmpstr(entry_at(window, 0)->label, ==, "Close Window");
-  g_assert_cmpstr(entry_at(window, 0)->command, ==,
-                  "niri msg action close-window");
+  for (guint i = 0; i < file->entries->len; i++) {
+    WhelkMenuEntry *entry = entry_at(file, i);
+
+    if (g_strcmp0(entry->label, "Close Window") == 0 &&
+        g_strcmp0(entry->command, "niri msg action close-window") == 0) {
+      saw_close = TRUE;
+      close_at = (gint)i;
+    }
+
+    if (g_strcmp0(entry->label, "Quit") == 0)
+      quit_at = (gint)i;
+  }
+
+  g_assert_true(saw_close);
+  g_assert_cmpint(close_at, <, quit_at);
+  g_assert_cmpstr(entry_at(file, file->entries->len - 1)->label, ==, "Quit");
 }
 
 static void test_dictionary_deduplicates_file(void) {

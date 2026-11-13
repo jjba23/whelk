@@ -461,6 +461,50 @@ static gboolean has_item(WhelkMenu *menu) {
   return FALSE;
 }
 
+/* Close Window belongs in File, after the application's own File commands and
+ * before its Quit.  A dictionary's File usually ends in Quit; appending Close
+ * after it would read as "quit, or maybe close", so move the new pair in front
+ * of that entry. */
+static void add_file_close(WhelkMenu *file, const char *command) {
+  if (!file || !command || !*command || has_label(file->entries, "Close Window"))
+    return;
+
+  guint quit_at = file->entries->len;
+
+  for (guint i = 0; i < file->entries->len; i++) {
+    const WhelkMenuEntry *entry = g_ptr_array_index(file->entries, i);
+
+    if (entry->kind == WHELK_MENU_ENTRY && entry->label &&
+        g_str_has_prefix(entry->label, "Quit")) {
+      quit_at = i;
+      break;
+    }
+  }
+
+  const guint before = file->entries->len;
+  const WhelkMenuEntry *previous =
+      quit_at > 0 ? g_ptr_array_index(file->entries, quit_at - 1) : NULL;
+  const gboolean need_separator =
+      previous && previous->kind != WHELK_MENU_SEPARATOR;
+  WhelkMenuEntry *separator = need_separator ? whelk_menu_add_separator(file) : NULL;
+  WhelkMenuEntry *close = whelk_menu_add_entry(file, "Close Window");
+
+  close->command = g_strdup(command);
+
+  if (quit_at < before) {
+    /* Take the two new rows out of the end and put them before Quit. */
+    g_ptr_array_steal_index(file->entries, file->entries->len - 1);
+
+    if (separator)
+      g_ptr_array_steal_index(file->entries, file->entries->len - 1);
+
+    if (separator)
+      g_ptr_array_insert(file->entries, quit_at, separator);
+
+    g_ptr_array_insert(file->entries, quit_at + (separator ? 1 : 0), close);
+  }
+}
+
 /* The shortcuts every application shares.  Edit and View, and nothing that
  * claims to be the application's own File menu. */
 static void append_shared_menus(GPtrArray *bar, const char *tool,
@@ -474,14 +518,22 @@ static void append_shared_menus(GPtrArray *bar, const char *tool,
   add_one_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x", style);
   add_one_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c", style);
   add_one_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v", style);
+  add_one_shortcut(edit, "Paste and Match Style", "Ctrl+Shift+V", tool,
+                   "ctrl shift", "v", style);
   add_one_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a", style);
   whelk_menu_add_separator(edit);
   add_one_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f", style);
+  add_one_shortcut(edit, "Find Next", "F3", tool, NULL, "F3", style);
+  add_one_shortcut(edit, "Find Previous", "Shift+F3", tool, "shift", "F3",
+                   style);
+  add_one_shortcut(edit, "Replace", "Ctrl+H", tool, "ctrl", "h", style);
 
   g_ptr_array_add(bar, edit);
 
   WhelkMenu *view = whelk_menu_new("View");
 
+  add_one_shortcut(view, "Reload", "Ctrl+R", tool, "ctrl", "r", style);
+  whelk_menu_add_separator(view);
   add_one_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus", style);
   add_one_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus", style);
   add_one_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0", style);
@@ -549,6 +601,12 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
         append_dict_menu(file, &dict->menus[i], shortcut_tool, style);
       }
   }
+
+  /* Closing the focused window is a File-level action in a menu bar, and the
+   * compositor already knows how to do it.  It is deliberately not repeated in
+   * Window: that menu is for arranging the window, not for dismissing it. */
+  if (window_actions && window_actions->close)
+    add_file_close(file, window_actions->close);
 
   /* A File with nothing in it is not a menu. */
   if (has_item(file))
@@ -618,14 +676,6 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
     WhelkMenuEntry *full = whelk_menu_add_entry(window, "Full Screen");
 
     full->command = g_strdup(window_actions->fullscreen);
-  }
-
-  if (window_actions && window_actions->close && *window_actions->close) {
-    separate(window);
-
-    WhelkMenuEntry *close = whelk_menu_add_entry(window, "Close Window");
-
-    close->command = g_strdup(window_actions->close);
   }
 
   if (has_item(window))

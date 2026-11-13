@@ -23,7 +23,18 @@ typedef struct {
   gulong changed_id;
   WhelkModule *module;
   GtkWidget *menu;
+  gint refs; /* the module plus any alert callback still running */
 } ClipboardState;
+
+static ClipboardState *clipboard_state_ref(ClipboardState *state) {
+  state->refs++;
+  return state;
+}
+
+static void clipboard_state_unref(ClipboardState *state) {
+  if (--state->refs == 0)
+    g_free(state);
+}
 
 static void paint(WhelkModule *module) {
   ClipboardState *state = module->data;
@@ -115,10 +126,11 @@ static void on_clear_all_chosen(GObject *source, GAsyncResult *result,
   const int choice =
       gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), result, &error);
 
-  if (choice == 1)
+  if (choice == 1 && state->module && state->clipboard)
     whelk_clipboard_clear(state->clipboard);
 
   g_object_unref(source);
+  clipboard_state_unref(state);
 }
 
 static void on_clear_all_clicked(GtkButton *button, gpointer user_data) {
@@ -134,7 +146,8 @@ static void on_clear_all_clicked(GtkButton *button, gpointer user_data) {
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);
-  gtk_alert_dialog_choose(dialog, NULL, NULL, on_clear_all_chosen, state);
+  gtk_alert_dialog_choose(dialog, NULL, NULL, on_clear_all_chosen,
+                         clipboard_state_ref(state));
 }
 
 static void on_restart_clicked(GtkButton *button, gpointer user_data) {
@@ -231,11 +244,18 @@ static void clipboard_destroy(WhelkModule *module) {
   if (!state)
     return;
 
+  /* An alert may still be open.  Drop the module's pointers first, then let
+   * the callback's reference keep the small state object alive until it
+   * returns. */
+  state->module = NULL;
+
   if (state->clipboard) {
     if (state->changed_id != 0)
       g_signal_handler_disconnect(state->clipboard, state->changed_id);
 
     g_object_unref(state->clipboard);
+    state->clipboard = NULL;
+    state->changed_id = 0;
   }
 
   if (state->menu) {
@@ -243,8 +263,8 @@ static void clipboard_destroy(WhelkModule *module) {
     state->menu = NULL;
   }
 
-  g_free(state);
   module->data = NULL;
+  clipboard_state_unref(state);
 }
 
 WhelkModule *whelk_clipboard_module_new(const WhelkModuleSpec *spec,
@@ -254,6 +274,7 @@ WhelkModule *whelk_clipboard_module_new(const WhelkModuleSpec *spec,
   WhelkShell *shell = whelk_shell_get_default();
 
   state->module = module;
+  state->refs = 1;
 
   gtk_widget_add_css_class(module->root, "whelk-clipboard");
   whelk_module_add_label(module);

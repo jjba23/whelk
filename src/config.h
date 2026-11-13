@@ -40,6 +40,9 @@ typedef struct {
  * WhelkBarConfig:
  * @name: the bar's name; also its CSS id and its log label.
  * @edge: the screen edge it is anchored to.
+ * @layer: the layer-shell layer it is placed in.  "top" is the default and
+ *   stays fixed over a compositor's overview; "bottom" and "background" move
+ *   and zoom with the workspace on niri.
  * @monitor: "all", "default", or a connector name such as "DP-1".
  * @height: its thickness: the row's height on a horizontal edge, the column's
  *   width on a vertical one.
@@ -66,6 +69,7 @@ typedef struct {
 typedef struct {
   char *name;
   GtkLayerShellEdge edge;
+  GtkLayerShellLayer layer;
   char *monitor;
   int height;
   int margin_top;

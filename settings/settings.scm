@@ -34,11 +34,9 @@
    #:font "Inter"
    #:font-size "11pt"
    #:icon-font icon-font
-   #:foreground "#f2f3f5"
-   #:background "rgba(27, 27, 29, 0.82)"
-   #:accent "#8fd16a"
-   #:border-color "rgba(255, 255, 255, 0.10)"
-   #:radius 0
+   ;; The same dark graphite glass as (default-bar); its CSS keeps the menu
+   ;; bar square and lets popovers use the theme's rounded corners.
+   #:theme 'gloss-2007
 
    ;; ---------------------------------------------------------------- left --
    ;; A menu bar's left half: the machine's own menu behind a mark (instead of

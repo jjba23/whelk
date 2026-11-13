@@ -73,6 +73,7 @@ static void test_bar_copy(void) {
   bar->monitor = g_strdup("DP-1");
   bar->height = 40;
   bar->margin_top = 4;
+  bar->layer = GTK_LAYER_SHELL_LAYER_BOTTOM;
   bar->accent = g_strdup("#8fd16a");
 
   WhelkBarConfig *copy = whelk_bar_config_copy(bar);
@@ -85,6 +86,7 @@ static void test_bar_copy(void) {
   g_assert_cmpstr(copy->accent, ==, "#8fd16a");
   g_assert_cmpint(copy->height, ==, 40);
   g_assert_cmpint(copy->margin_top, ==, 4);
+  g_assert_cmpint(copy->layer, ==, GTK_LAYER_SHELL_LAYER_BOTTOM);
   g_assert_cmpuint(copy->right->len, ==, 1);
 
   WhelkModuleSpec *copied_clock = g_ptr_array_index(copy->right, 0);
@@ -103,6 +105,7 @@ static void test_default_bar(void) {
   WhelkBarConfig *bar = g_ptr_array_index(bars, 0);
 
   g_assert_cmpint(bar->edge, ==, GTK_LAYER_SHELL_EDGE_TOP);
+  g_assert_cmpint(bar->layer, ==, GTK_LAYER_SHELL_LAYER_TOP);
   g_assert_true(bar->right->len > 0);
 
   whelk_config_free_bars(bars);

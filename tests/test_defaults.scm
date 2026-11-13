@@ -10,6 +10,7 @@
 (use-modules (whelk defaults)
              (whelk modules)
              (whelk state)
+             (whelk themes)
              (whelk loader)
              (whelk menudict)
              (srfi srfi-1)
@@ -34,6 +35,24 @@
         (kinds (bar-config-modules-right b))))
 
 (define built-in (default-bar))
+
+;; The shipped look is the dark graphite glass of the late 2000s.  Its CSS
+;; keeps the menu bar square; the palette radius still applies to popovers.
+(define gloss (theme-palette 'gloss-2007))
+
+(check "the default bar wears gloss-2007"
+       (and (equal? (bar-config-foreground built-in)
+                    (assq-ref gloss 'foreground))
+            (equal? (bar-config-background built-in)
+                    (assq-ref gloss 'background))
+            (equal? (bar-config-accent built-in)
+                    (assq-ref gloss 'accent))))
+
+(check "the default bar keeps the theme's popover radius"
+       (= (bar-config-radius built-in) (assq-ref gloss 'radius)))
+
+(check "gloss-2007 squares only the menu bar"
+       (string-contains (assq-ref gloss 'css) "border-radius: 0;"))
 
 ;; The bar's left half is a menu bar's: the machine's own menu, then that
 ;; application's File and Edit, with a whelk where the apple is.  The window's
@@ -87,6 +106,17 @@
               (member '(submenu "Recent Items" "shell:recent-items") units)
               (member '(item "Force Quit…" "shell:force-quit") units))))
 
+;; Panels are still reachable through their command line and keybindings; the
+;; shell menu is a session menu, not a directory of every surface.
+(check "the shell menu has no panel entries"
+       (let ((units (default-shell-menu)))
+         (not (any (lambda (unit)
+                     (member unit '((item "Network" "shell:network")
+                                    (item "Bluetooth" "shell:bluetooth")
+                                    (item "Notifications"
+                                          "shell:notifications"))))
+                   units))))
+
 ;; The reference's right half, in its order: the media and desktop items, the
 ;; hardware readouts, the status icons, then search and the clock.  The
 ;; clipboard and do-not-disturb tiles are whelk's own modules, so the defaults
@@ -101,6 +131,17 @@
        (and (eq? (bar-config-edge built-in) 'top)
             (= (bar-config-height built-in) 32)))
 
+(check "the bar is on the fixed top layer by default"
+       (eq? (bar-config-layer built-in) 'top))
+
+(check "a bar can move with niri's overview"
+       (eq? (bar-config-layer (bar #:name 'moving #:layer 'bottom)) 'bottom))
+
+(check "the bridge carries the configured layer"
+       (eq? (assq-ref (bar->alist (bar #:name 'moving #:layer 'bottom))
+                      'layer)
+            'bottom))
+
 ;; The example a new machine copies configures that very bar.
 (define example (cadr (command-line)))
 
@@ -111,6 +152,15 @@
 (check "the example configures one bar" (= (length bars) 1))
 (check "the example is the default bar" (equal? (shape (car bars))
                                                  (shape built-in)))
+(check "the example wears the default theme"
+       (and (equal? (bar-config-foreground (car bars))
+                    (bar-config-foreground built-in))
+            (equal? (bar-config-background (car bars))
+                    (bar-config-background built-in))
+            (equal? (bar-config-accent (car bars))
+                    (bar-config-accent built-in))
+            (= (bar-config-radius (car bars))
+               (bar-config-radius built-in))))
 
 
 ;; ============================================================================

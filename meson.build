@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.11.1',
+  version: '0.12.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -192,6 +192,7 @@ whelk_sources = files(
   'src/util/desktop.c',
   'src/util/nmcli.c',
   'src/util/sysfs.c',
+  'src/util/trayicon.c',
 )
 
 whelk_exe = executable('whelk',
@@ -317,6 +318,10 @@ unit_tests = [
   {
     'id': 'level',
     'sources': ['src/util/level.c'],
+  },
+  {
+    'id': 'trayicon',
+    'sources': ['src/util/trayicon.c'],
   },
 ]
 

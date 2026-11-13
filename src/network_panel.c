@@ -423,8 +423,12 @@ static void on_wifi_state(const char *text, gpointer user_data) {
   g_auto(GStrv) lines = g_strsplit(text ? text : "", "\n", -1);
   gboolean radio = FALSE;
   char *active = NULL;
+  /* The points become the rows' own data (see add_wifi_row): the hash only
+   * de-duplicates names, and must not free the values as well.  Freeing them
+   * here left every row pointing at a freed AccessPoint, so a later click or
+   * refresh dereferenced -- and double-freed -- it. */
   GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
-                                           g_free);
+                                           NULL);
   GPtrArray *points = g_ptr_array_new();
   int strongest = 0;
 
@@ -1005,7 +1009,7 @@ static void whelk_network_panel_dispose(GObject *object) {
 
   g_clear_object(&self->surface);
   g_clear_pointer(&self->style, whelk_bar_config_free);
-  g_free(self->pending_ssid);
+  g_clear_pointer(&self->pending_ssid, g_free);
 
   G_OBJECT_CLASS(whelk_network_panel_parent_class)->dispose(object);
 }

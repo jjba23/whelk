@@ -22,6 +22,7 @@ struct _WhelkOsd {
   WhelkSurface *surface;
   GtkWidget *card;
   GtkWidget *icon;
+  GtkWidget *title;
   GtkWidget *progress;
   GtkWidget *value;
 
@@ -41,31 +42,38 @@ static gboolean on_hide_timeout(gpointer user_data) {
 }
 
 static void build(WhelkOsd *osd) {
-  GtkWidget *card = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
-  GtkWidget *column = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+  GtkWidget *card = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+  GtkWidget *column = gtk_box_new(GTK_ORIENTATION_VERTICAL, 7);
+  GtkWidget *heading = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *icon = gtk_label_new("");
+  GtkWidget *title = gtk_label_new("");
   GtkWidget *progress = gtk_progress_bar_new();
   GtkWidget *value = gtk_label_new("");
 
   gtk_widget_add_css_class(card, "whelk-osd");
   gtk_widget_add_css_class(icon, "whelk-icon");
   gtk_widget_add_css_class(icon, "whelk-osd-icon");
+  gtk_widget_add_css_class(title, "whelk-osd-title");
   gtk_widget_add_css_class(value, "whelk-osd-value");
   gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
-  gtk_label_set_xalign(GTK_LABEL(value), 0.0);
+  gtk_label_set_xalign(GTK_LABEL(title), 0.0);
+  gtk_widget_set_hexpand(title, TRUE);
+  gtk_label_set_xalign(GTK_LABEL(value), 1.0);
+  gtk_widget_set_halign(value, GTK_ALIGN_END);
   gtk_widget_set_size_request(progress, 190, -1);
   gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress), FALSE);
 
+  gtk_box_append(GTK_BOX(heading), title);
+  gtk_box_append(GTK_BOX(heading), value);
+  gtk_box_append(GTK_BOX(column), heading);
   gtk_box_append(GTK_BOX(column), progress);
-  gtk_box_append(GTK_BOX(column), value);
   gtk_widget_set_valign(column, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(card), icon);
   gtk_box_append(GTK_BOX(card), column);
 
-  /* A HUD is centred on the output, which is what anchoring both sides and
-   * centring the child buys on a layer surface.  It is a strip, not a
-   * full-screen layer: it must not block the window under the middle of the
-   * screen while it is up. */
+  /* A HUD sits above the bottom edge, centred on the output.  Anchoring only
+   * the bottom leaves the horizontal axis to the compositor, so the surface is
+   * the card's width rather than a click-blocking strip across the screen. */
   GtkWidget *holder = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
   gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
@@ -77,13 +85,15 @@ static void build(WhelkOsd *osd) {
 
   whelk_surface_set_layer(osd->surface, GTK_LAYER_SHELL_LAYER_OVERLAY);
   whelk_surface_set_exclusive(osd->surface, FALSE);
-  whelk_surface_set_anchors(osd->surface, TRUE, TRUE, FALSE, TRUE);
-  whelk_surface_set_margins(
-      osd->surface,
-      (osd->style && osd->style->edge == GTK_LAYER_SHELL_EDGE_TOP)
+  whelk_surface_set_anchors(osd->surface, FALSE, FALSE, TRUE, FALSE);
+
+  const int bottom_margin =
+      (osd->style && osd->style->edge == GTK_LAYER_SHELL_EDGE_BOTTOM)
           ? osd->style->height + 22
-          : 22,
-      0, 0, 0);
+          : 64;
+
+  whelk_surface_set_margins(
+      osd->surface, 0, 0, bottom_margin, 0);
   whelk_surface_set_namespace(osd->surface, "whelk-osd");
   whelk_surface_set_keyboard_mode(osd->surface,
                                   GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
@@ -91,12 +101,24 @@ static void build(WhelkOsd *osd) {
   g_autofree char *widget_id = whelk_style_widget_id("osd");
 
   whelk_surface_set_widget_id(osd->surface, widget_id);
-  osd->skin = whelk_style_apply(widget_id, osd->style, "whelk-osd", NULL);
+  g_autofree char *accent_css = NULL;
+
+  if (osd->style && osd->style->accent && *osd->style->accent) {
+    accent_css = g_strdup_printf(
+        ".whelk-osd progressbar progress { background-color: %s; }\n"
+        ".whelk-osd progressbar trough { background-color: "
+        "alpha(currentColor, 0.16); }\n",
+        osd->style->accent);
+  }
+
+  osd->skin =
+      whelk_style_apply(widget_id, osd->style, "whelk-osd", accent_css);
   whelk_surface_set_child(osd->surface, holder);
   whelk_surface_present(osd->surface);
 
   osd->card = card;
   osd->icon = icon;
+  osd->title = title;
   osd->progress = progress;
   osd->value = value;
 
@@ -106,11 +128,13 @@ static void build(WhelkOsd *osd) {
     gtk_widget_set_visible(GTK_WIDGET(window), FALSE);
 }
 
-void whelk_osd_show(WhelkOsd *osd, const char *icon, int percent) {
+void whelk_osd_show(WhelkOsd *osd, const char *icon, const char *title,
+                    int percent) {
   if (!osd || !osd->surface)
     return;
 
   gtk_label_set_text(GTK_LABEL(osd->icon), icon ? icon : "");
+  gtk_label_set_text(GTK_LABEL(osd->title), title ? title : "");
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(osd->progress),
                                 CLAMP(percent, 0, 100) / 100.0);
 

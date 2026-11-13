@@ -1180,14 +1180,18 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
 (define standard-edit
   '(("Edit"
      ("Undo" "C-z") ("Redo" "C-S-z")
-     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
-     ("Find" "C-f") ("Replace" "C-h"))))
+     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v")
+     ("Paste and Match Style" "C-S-v") ("Select All" "C-a")
+     ("Find" "C-f") ("Find Next" "F3") ("Find Previous" "S-F3")
+     ("Replace" "C-h"))))
 
 (define standard-edit-y
   '(("Edit"
      ("Undo" "C-z") ("Redo" "C-y")
-     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
-     ("Find" "C-f") ("Replace" "C-h"))))
+     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v")
+     ("Paste and Match Style" "C-S-v") ("Select All" "C-a")
+     ("Find" "C-f") ("Find Next" "F3") ("Find Previous" "S-F3")
+     ("Replace" "C-h"))))
 
 (define standard-view
   '(("View"

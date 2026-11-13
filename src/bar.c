@@ -379,6 +379,7 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
     g_object_ref(bar->display);
 
   whelk_surface_set_edge(bar->surface, bar->config->edge);
+  whelk_surface_set_layer(bar->surface, bar->config->layer);
   whelk_surface_set_margins(bar->surface, bar->config->margin_top,
                             bar->config->margin_right,
                             bar->config->margin_bottom,

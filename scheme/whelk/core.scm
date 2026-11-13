@@ -63,6 +63,7 @@
                make-bar-config
                bar-config-name
                bar-config-edge
+               bar-config-layer
                bar-config-monitor
                bar-config-height
                bar-config-margin-top
@@ -102,7 +103,8 @@
                add-menu-app
                replace-menu-app
                menudict-for-id)
-  #:export (init-shell! load-shell-config! default-shell! start-repl!))
+  #:export (init-shell! load-shell-config! default-shell! start-repl!
+            stop-repl!))
 
 ;; =============================================================================
 ;; Loading
@@ -157,6 +159,23 @@ file left nothing configured (missing, empty, or broken)."
   (unless (or (string-null? path) (file-exists? path))
     (make-directories! (dirname path))
     (catch 'system-error (lambda () (mkdir path)) (lambda _ #t))))
+
+(define (stop-repl!)
+  "Remove the sockets this process is serving.
+
+Shutdown calls this after the GApplication has left its loop.  A Unix socket's
+file outlives the process that bound it unless it is removed; deleting it here
+keeps a killed shell from leaving a stale socket that the next start has to
+clean up."
+  (for-each
+   (lambda (path)
+     (catch #t
+            (lambda ()
+              (when (file-exists? path)
+                (delete-file path)))
+            (lambda _ #t)))
+   *repl-sockets*)
+  (set! *repl-sockets* '()))
 
 (define* (start-repl! . args)
   "Serve a REPL on the configured socket, when the configuration asks for one.

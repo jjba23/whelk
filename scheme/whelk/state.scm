@@ -29,6 +29,7 @@
             make-bar-config
             bar-config-name
             bar-config-edge
+            bar-config-layer
             bar-config-monitor
             bar-config-height
             bar-config-margin-top
@@ -69,7 +70,7 @@
 ;; =============================================================================
 
 (define-record-type <bar-config>
-  (make-bar-config name edge monitor height
+  (make-bar-config name edge layer monitor height
                    margin-top margin-right margin-bottom margin-left
                    exclusive? spacing padding
                    font font-size icon-font
@@ -78,6 +79,7 @@
   bar-config?
   (name bar-config-name)
   (edge bar-config-edge)
+  (layer bar-config-layer)
   (monitor bar-config-monitor)
   (height bar-config-height)
   (margin-top bar-config-margin-top)
@@ -141,6 +143,22 @@ bar on an edge the compositor cannot place."
           (log-warn "State" "Unknown bar position ~s: using 'top" position)
           'top))))
 
+(define (normalize-layer layer)
+  "Return LAYER as one of the symbols 'background, 'bottom, 'top or 'overlay.
+
+On niri, background and bottom surfaces move and zoom with the workspace
+during the overview; top and overlay surfaces stay fixed over it.  Anything
+unknown falls back to 'top, the layer a bar normally wants."
+  (let* ((value (cond ((symbol? layer) layer)
+                      ((string? layer) (string->symbol layer))
+                      (else #f)))
+         (known (and value (memq value '(background bottom top overlay)))))
+    (if known
+        value
+        (begin
+          (log-warn "State" "Unknown bar layer ~s: using 'top" layer)
+          'top))))
+
 (define (normalize-margins margin)
   "Expand MARGIN -- a number or a list of 1, 2 or 4 numbers -- to four values,
 in CSS order (top right bottom left)."
@@ -168,6 +186,7 @@ in CSS order (top right bottom left)."
 (define* (bar #:key
               (name 'main)
               (position 'top)
+              (layer 'top)
               (monitor "all")
               (height 32)
               (margin 0)
@@ -198,6 +217,12 @@ bar's thickness so maximised windows stop at it, which is what makes the bar a
 bar rather than an overlay.  LEFT, CENTER and RIGHT are lists of modules from
 (whelk modules).
 
+LAYER is the layer-shell layer: 'top (the default), 'bottom, 'background or
+'overlay.  On niri the overview keeps top and overlay surfaces fixed; bottom
+and background surfaces move and zoom with the workspace.  A bottom bar is
+still visible in the compositor's reserved edge, but its popovers can sit below
+ordinary windows, so 'top is the safer default.
+
 The four colours and the fonts are #f by default, which means \"use the
 structural stylesheet's colour\": a machine that sets nothing still gets a
 readable bar."
@@ -210,6 +235,7 @@ readable bar."
       (log-warn "State" "Bar ~a: module lists should be lists" name))
     (make-bar-config name
                      (normalize-edge position)
+                     (normalize-layer layer)
                      (cond ((symbol? monitor) (symbol->string monitor))
                            ((string? monitor) monitor)
                            (else "all"))
@@ -279,7 +305,9 @@ SHELL-MENU is the popover behind the mark at the far left of the bar, as
 `(whelk menu)' units -- the shell's own equivalent of a menu bar's first menu.
 Left #f it is `default-shell-menu' from `(whelk defaults)': about this system,
 the ways into it, recent items, force quit, and the ways out of the session,
-followed by the shell's own panels.
+followed by the launcher and the reload and quit a configuration needs.  The
+network, Bluetooth and notification panels are modules and CLI commands, not
+session-menu entries.
 
 CLIPBOARD is `(clipboard-settings)' or an alist with the same keys: it sets the
 history's persistence, caps and retention.  The empty default keeps the
@@ -369,6 +397,7 @@ because a settings file may want to read the menu it configured."
   "Return BAR as a plain alist for the C runtime."
   (list (cons 'name (bar-config-name b))
         (cons 'edge (bar-config-edge b))
+        (cons 'layer (bar-config-layer b))
         (cons 'monitor (bar-config-monitor b))
         (cons 'height (bar-config-height b))
         (cons 'margin-top (bar-config-margin-top b))

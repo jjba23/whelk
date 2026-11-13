@@ -39,6 +39,7 @@
 typedef struct {
   WhelkClipboard *self; /* a strong reference: the read outlives a dispose */
   guint8 *buffer;
+  guint generation;
 } ReadContext;
 
 typedef struct {
@@ -57,6 +58,7 @@ struct _WhelkClipboard {
 
   GSubprocess *watch;
   GInputStream *stream;
+  guint read_generation;
   gboolean paused;
   gboolean available;
 
@@ -938,8 +940,15 @@ static gboolean write_clipboard_gdk(WhelkClipboardEntry *entry) {
   gboolean written = FALSE;
 
   if (providers->len > 0) {
+    const guint count = providers->len;
     GdkContentProvider *provider = gdk_content_provider_new_union(
-        (GdkContentProvider **)providers->pdata, providers->len);
+        (GdkContentProvider **)providers->pdata, count);
+
+    /* new_union() takes ownership of the providers it is given.  The array
+     * still has g_object_unref as its free function, so detach it before the
+     * unref below: otherwise each child is unref'd twice and GDK later walks
+     * freed provider state while serving a clipboard request. */
+    g_ptr_array_set_free_func(providers, NULL);
 
     written = gdk_clipboard_set_content(clipboard, provider);
     g_object_unref(provider);
@@ -981,6 +990,11 @@ static void clipboard_changed(WhelkClipboard *self) {
 static void read_next(WhelkClipboard *self);
 
 static void stop_watch(WhelkClipboard *self) {
+  /* Invalidate reads already queued against the stream being torn down.  A
+   * callback for the old wl-paste process must not stop the replacement
+   * watcher when it eventually returns. */
+  self->read_generation++;
+
   if (self->watch) {
     g_subprocess_force_exit(self->watch);
     g_clear_object(&self->watch);
@@ -1002,6 +1016,13 @@ static void on_read(GObject *source, GAsyncResult *result, gpointer user_data) {
 
   const gssize n = g_input_stream_read_finish(G_INPUT_STREAM(source), result,
                                               &error);
+
+  if (context->generation != self->read_generation) {
+    g_free(context->buffer);
+    g_object_unref(self);
+    g_free(context);
+    return;
+  }
 
   if (n <= 0) {
     if (error)
@@ -1040,6 +1061,7 @@ static void read_next(WhelkClipboard *self) {
 
   context->self = g_object_ref(self);
   context->buffer = g_malloc(WHELK_CLIPBOARD_READ_SIZE);
+  context->generation = self->read_generation;
 
   g_input_stream_read_async(self->stream, context->buffer,
                             WHELK_CLIPBOARD_READ_SIZE, G_PRIORITY_DEFAULT,
@@ -1782,7 +1804,7 @@ static void whelk_clipboard_dispose(GObject *object) {
   }
 
   g_clear_pointer(&self->last_removed, whelk_clipboard_entry_free);
-  g_free(self->persist_path);
+  g_clear_pointer(&self->persist_path, g_free);
   g_clear_pointer(&self->entries, g_ptr_array_unref);
 
   G_OBJECT_CLASS(whelk_clipboard_parent_class)->dispose(object);
