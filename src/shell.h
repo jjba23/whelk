@@ -37,6 +37,9 @@ void whelk_shell_start(WhelkShell *shell);
 /* Re-reads the settings file and rebuilds every bar. */
 void whelk_shell_reload(WhelkShell *shell);
 
+/* Opens the GUI settings window for the loaded configuration. */
+void whelk_shell_show_settings(WhelkShell *shell);
+
 void whelk_shell_free(WhelkShell *shell);
 
 /* =========================================================================

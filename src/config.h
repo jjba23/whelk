@@ -39,6 +39,7 @@ typedef struct {
 /**
  * WhelkBarConfig:
  * @name: the bar's name; also its CSS id and its log label.
+ * @theme: (nullable): the theme the bar was built from, for the settings UI.
  * @edge: the screen edge it is anchored to.
  * @layer: the layer-shell layer it is placed in.  "top" is the default and
  *   stays fixed over a compositor's overview; "bottom" and "background" move
@@ -68,6 +69,7 @@ typedef struct {
  */
 typedef struct {
   char *name;
+  char *theme;
   GtkLayerShellEdge edge;
   GtkLayerShellLayer layer;
   char *monitor;

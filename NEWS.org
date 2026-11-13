@@ -15,6 +15,52 @@ Nothing yet.
 
 *[Released]*
 
+** v0.13.0 (2026-11-13)
+
+*** Added
+
+- *A GUI settings window, reached by right-clicking the bar.* =Edit settings…=
+  opens a normal GTK window with a page for the bar's placement and type, the
+  theme, notifications, Wi-Fi, the global menu, and the tray and clock.  The
+  controls are live: a change is saved and the bar reloads without closing the
+  window.  =Reload settings= sits beside it in the bar's context menu.
+- *GUI choices override the configuration without rewriting it.* The window
+  writes an alist of =setting . value= pairs to
+  =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (or
+  =~/.local/state/whelk/=).  The loader layers that file over =settings.scm=
+  every time it reads the configuration, so a GUI choice wins, survives a
+  restart and a hot reload, and remains reversible.  *Reset GUI settings*
+  deletes the override and restores the file's values exactly.
+- *A bar theme is now part of the bar description.* =bar-config-theme= and
+  =WhelkBarConfig.theme= carry the theme name, which is what lets the settings
+  window show and change the current theme; changing it also applies the new
+  palette.
+
+*** Changed
+
+- The bar's right-click menu is new; right-clicking a module still keeps that
+  module's own action, and right-clicking the bar around it opens the shell's
+  menu.
+- The settings window is styled as a task window rather than a bar surface:
+  cards, a labelled page switcher, an override badge, and a footer that keeps
+  Reset and Close where the eye expects them.
+
+*** Fixed
+
+- The loader now forgets a settings file's old registration before evaluating
+  it, and binds the freshly loaded default configuration under the file's path.
+  Without that, a GUI override registered on an earlier reload could survive a
+  reset as a stale path registration.
+
+*** Verified
+
+- =tests/test_prefs.scm= covers the override path, save/read precedence, every
+  GUI option's effect on the loaded bar, persistence across reload, and reset.
+- =tests/test_preferences.c= covers the typed bridge and the actual widgets;
+  the widget half skips on a headless runner.
+- =meson test -C build --print-errorlogs= is green, and the release is built
+  from the pinned Guix environment before tagging.
+
 ** v0.12.0 (2026-11-13)
 
 *** Added

@@ -28,6 +28,7 @@
             bar-config?
             make-bar-config
             bar-config-name
+            bar-config-theme
             bar-config-edge
             bar-config-layer
             bar-config-monitor
@@ -55,7 +56,11 @@
             clipboard-settings
             get-shell-clipboard
             configure-shell!
+            normalize-edge
+            normalize-layer
             get-shell-config
+            bind-shell-config!
+            forget-shell-config!
             get-shell-bars
             get-shell-menu
             shell-menu->units
@@ -70,7 +75,7 @@
 ;; =============================================================================
 
 (define-record-type <bar-config>
-  (make-bar-config name edge layer monitor height
+  (make-bar-config name theme edge layer monitor height
                    margin-top margin-right margin-bottom margin-left
                    exclusive? spacing padding
                    font font-size icon-font
@@ -78,6 +83,7 @@
                    modules-left modules-center modules-right)
   bar-config?
   (name bar-config-name)
+  (theme bar-config-theme)
   (edge bar-config-edge)
   (layer bar-config-layer)
   (monitor bar-config-monitor)
@@ -234,6 +240,9 @@ readable bar."
     (when (and (not (list? left)) (not (list? center)) (not (list? right)))
       (log-warn "State" "Bar ~a: module lists should be lists" name))
     (make-bar-config name
+                     (cond ((symbol? theme) theme)
+                           ((string? theme) (string->symbol theme))
+                           (else #f))
                      (normalize-edge position)
                      (normalize-layer layer)
                      (cond ((symbol? monitor) (symbol->string monitor))
@@ -355,6 +364,31 @@ how a configuration is changed without restarting the compositor:
                   (hash-ref *shell-configs* 'default #f))))
     (or cfg %default-shell-config%)))
 
+(define (forget-shell-config! config-path)
+  "Drop CONFIG-PATH's registration, if it has one.
+
+The loader calls this before evaluating a settings file: a reload must not
+leave the previous run's bars under the path when the new file registers only
+the default configuration."
+  (when (and config-path
+             (not (eq? config-path 'default))
+             (hash-ref *shell-configs* config-path #f))
+    (hash-remove! *shell-configs* config-path)))
+
+(define (bind-shell-config! config-path)
+  "Give CONFIG-PATH its own copy of the default configuration when it has none.
+
+Most settings files call `configure-shell!' without a path, which registers
+the default configuration.  Binding that configuration under the load path is
+what lets a reload replace the bars the GUI preference layer registered, rather
+than layering on top of the previous run."
+  (when (and config-path
+             (not (eq? config-path 'default))
+             (not (hash-ref *shell-configs* config-path #f)))
+    (let ((cfg (hash-ref *shell-configs* 'default #f)))
+      (when cfg
+        (hash-set! *shell-configs* config-path cfg)))))
+
 (define (get-shell-bars . args)
   "Return the configured bars, as a list of <bar-config> records."
   (shell-config-bars (apply get-shell-config args)))
@@ -396,6 +430,7 @@ because a settings file may want to read the menu it configured."
 (define (bar->alist b)
   "Return BAR as a plain alist for the C runtime."
   (list (cons 'name (bar-config-name b))
+        (cons 'theme (bar-config-theme b))
         (cons 'edge (bar-config-edge b))
         (cons 'layer (bar-config-layer b))
         (cons 'monitor (bar-config-monitor b))

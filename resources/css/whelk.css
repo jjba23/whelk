@@ -504,3 +504,166 @@ window.whelk-about-window {
   padding: 10px 14px;
   opacity: 0.7;
 }
+
+/* --- GUI preferences ------------------------------------------------------ */
+/*
+ * A settings window is a task window, not a bar surface.  It gets its own
+ * quiet material so the bar's theme stays in the bar and the controls remain
+ * readable over any wallpaper.  The cards are the structure: each page is a
+ * stack of them, and a row is one label pair with one control on the right.
+ */
+
+window.whelk-settings-window {
+  background-color: #17171a;
+  color: #ececf1;
+}
+
+.whelk-settings {
+  background-color: #17171a;
+  color: #ececf1;
+}
+
+.settings-host {
+  padding: 0;
+}
+
+.settings-header {
+  padding: 22px 26px 6px 26px;
+}
+
+.settings-heading {
+  font-size: 1.55em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.settings-badge {
+  border-radius: 999px;
+  padding: 3px 9px;
+  background-color: alpha(#8ab4f8, 0.14);
+  color: #a8c7fa;
+  font-size: 0.72em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.settings-subtitle {
+  color: #a9a9b4;
+  font-size: 0.94em;
+}
+
+.whelk-settings stackswitcher {
+  margin: 8px 26px 4px 26px;
+}
+
+.whelk-settings stackswitcher button {
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #b9b9c4;
+}
+
+.whelk-settings stackswitcher button:checked {
+  background-color: alpha(#8ab4f8, 0.18);
+  color: #d7e3ff;
+}
+
+.settings-stack {
+  padding: 0 20px;
+}
+
+.settings-page {
+  padding: 8px 0 18px 0;
+}
+
+.settings-card {
+  background-color: #212126;
+  border: 1px solid alpha(white, 0.07);
+  border-radius: 13px;
+  padding: 16px 18px;
+  margin: 0 0 2px 0;
+}
+
+.settings-card-heading {
+  padding-bottom: 10px;
+}
+
+.settings-card-title {
+  font-size: 1.02em;
+  font-weight: 700;
+}
+
+.settings-card-subtitle {
+  color: #9f9fab;
+  font-size: 0.88em;
+}
+
+.settings-row {
+  padding: 10px 0;
+  border-bottom: 1px solid alpha(white, 0.06);
+}
+
+.settings-row-title {
+  font-weight: 600;
+}
+
+.settings-row-subtitle {
+  color: #9f9fab;
+  font-size: 0.86em;
+}
+
+.settings-note {
+  color: #8f9aaa;
+  font-size: 0.86em;
+  padding-top: 4px;
+}
+
+.whelk-settings entry,
+.whelk-settings spinbutton,
+.whelk-settings dropdown {
+  border-radius: 8px;
+}
+
+.whelk-settings button {
+  border-radius: 8px;
+  padding: 7px 13px;
+}
+
+.whelk-settings .suggested-action {
+  background-image: none;
+  background-color: #8ab4f8;
+  color: #10131a;
+  font-weight: 700;
+}
+
+.whelk-settings .destructive-action {
+  background-image: none;
+  background-color: alpha(#f2b8b5, 0.12);
+  color: #f2b8b5;
+}
+
+.settings-footer {
+  padding: 10px 26px 18px 26px;
+  border-top: 1px solid alpha(white, 0.07);
+}
+
+.settings-footer-note {
+  color: #8f8f9b;
+  font-size: 0.84em;
+}
+
+.whelk-bar-menu {
+  padding: 4px;
+  min-width: 190px;
+}
+
+.whelk-bar-menu-heading {
+  color: alpha(currentColor, 0.55);
+  font-size: 0.76em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.whelk-bar-menu button {
+  border-radius: 6px;
+  padding: 6px 8px;
+}

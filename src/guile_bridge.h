@@ -122,4 +122,28 @@ GPtrArray *whelk_bridge_menudict(void);
  */
 GPtrArray *whelk_bridge_shell_menu(const char *path);
 
+/**
+ * whelk_bridge_themes:
+ *
+ * The theme names from `(whelk themes)', in the order the settings window
+ * should offer them.
+ *
+ * Returns: (transfer full) (element-type utf8): the names; never NULL.
+ */
+GPtrArray *whelk_bridge_themes(void);
+
+/* Save one GUI preference.  The typed C value becomes the Scheme value the
+ * preference file stores; the primary settings file is never touched. */
+gboolean whelk_bridge_save_preference_bool(const char *path, const char *key,
+                                           gboolean value);
+gboolean whelk_bridge_save_preference_int(const char *path, const char *key,
+                                          int value);
+gboolean whelk_bridge_save_preference_string(const char *path, const char *key,
+                                             const char *value);
+gboolean whelk_bridge_save_preference_symbol(const char *path, const char *key,
+                                             const char *value);
+
+/* Delete every GUI preference for @path; the settings file takes over again. */
+gboolean whelk_bridge_reset_preferences(const char *path);
+
 #endif // WHELK_GUILE_BRIDGE_H

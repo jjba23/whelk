@@ -658,6 +658,26 @@ A configuration is one call:
          #:right  (list (cpu-module) (clock-module)))))
 #+end_src
 
+** GUI settings
+:PROPERTIES:
+:CUSTOM_ID: gui-settings
+:END:
+
+Right-click the bar and choose *Edit settings…*.  The settings window has a
+page for each part of the shell a person changes often: *Bar* (edge, layer,
+height, spacing, padding, font and reserved space), *Theme*, *Notifications*,
+*Wi-Fi*, *Global menu*, and *More* (tray size and clock format).  Every control
+is live: the change is written, the bar reloads, and the window stays open for
+the next one.
+
+GUI choices are *overrides*, not edits to your configuration.  They are saved
+in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
+=~/.local/state/whelk/preferences-settings.scm=) and are applied after
+=settings.scm= every time it loads, so the window wins without touching the
+file you version and share.  *Reset GUI settings* deletes that override file and
+returns every value to the configuration.  The same right-click menu carries
+*Reload settings* for a reload without a keybinding.
+
 ** The bar keys
 :PROPERTIES:
 :CUSTOM_ID: bar-keys
@@ -1331,8 +1351,8 @@ has.
   meson test -C build --print-errorlogs
 #+end_src
 
-Two kinds of test cover the halves that can be tested without a compositor.  The
-C tests are the pure logic:
+Two layers of tests cover the halves that can be tested without a compositor.
+The C tests start with the pure logic and end with real widgets:
 
 - =tests/test_json.c= -- the JSON reader against niri's real answer shapes
   (workspaces, focused window), including escapes, surrogate pairs and the
@@ -1352,6 +1372,9 @@ C tests are the pure logic:
 - =tests/test_command.c= -- the stdin path the Wi-Fi key takes: the program
   receives the line it was sent, an absent answer is an end of file rather than a
   hang, and a plain run still returns its output.
+- =tests/test_preferences.c= -- the GUI preference contract through the C
+  bridge, plus the keyed widgets: a real spin button, dropdown and switch write
+  the value their page promises.  The widget half skips on a headless runner.
 
 The Guile tests cover the configuration layer:
 
@@ -1360,6 +1383,9 @@ The Guile tests cover the configuration layer:
 - =tests/test_defaults.scm= -- the built-in bar: which modules sit on which side
   and in which order, and that =settings/settings.scm= and =(default-bar)= are
   the same bar, so the example and the fallback cannot drift apart.
+- =tests/test_prefs.scm= -- GUI overrides: the state-file path, save/read
+  round trips, precedence over the settings file, and the reset that restores
+  it exactly.
 
 ** CI
 :PROPERTIES:

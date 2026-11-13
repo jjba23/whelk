@@ -44,6 +44,7 @@
             module
             module-option
             module-options-ref
+            module-set-option
             module->alist
             clock-module
             cpu-module
@@ -127,6 +128,18 @@ with `assq' on either side and with no record syntax crossing the boundary."
   "Return the value of KEY in MOD, or DEFAULT when it has none."
   (let ((pair (assq key (shell-module-options mod))))
     (if pair (cdr pair) default)))
+
+(define (module-set-option mod key value)
+  "Return MOD with KEY set to VALUE.
+
+Unlike the keyword constructors, an explicit #f is kept: a GUI switch that
+turns a true-by-default option off needs to say so, not fall back to the
+module's default."
+  (make-shell-module
+   (shell-module-kind mod)
+   (cons (cons key value)
+         (filter (lambda (pair) (not (eq? (car pair) key)))
+                 (shell-module-options mod)))))
 
 ;; =============================================================================
 ;; The modules

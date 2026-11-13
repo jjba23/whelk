@@ -17,6 +17,7 @@
 (define-module (whelk loader)
   #:use-module (whelk logger)
   #:use-module (whelk menudict)
+  #:use-module (whelk state)
   #:export (get-config-path
             default-config-dir
             load-settings-file!))
@@ -58,6 +59,7 @@ still asks for the bars afterwards rather than aborting the shell."
      ;; reload must replace what the last version of the file added, not stack
      ;; another copy of it in front.
      (reset-menu-edits!)
+     (forget-shell-config! file-path)
      (let ((anon (fresh-settings-module)))
        (catch #t
               (lambda ()

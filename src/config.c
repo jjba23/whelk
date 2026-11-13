@@ -185,6 +185,7 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   copy->monitor = g_strdup(bar->monitor ? bar->monitor : "all");
 
   copy->font = g_strdup(bar->font);
+  copy->theme = g_strdup(bar->theme);
   copy->font_size = g_strdup(bar->font_size);
   copy->icon_font = g_strdup(bar->icon_font);
   copy->foreground = g_strdup(bar->foreground);
@@ -205,6 +206,7 @@ void whelk_bar_config_free(WhelkBarConfig *bar) {
     return;
 
   g_free(bar->name);
+  g_free(bar->theme);
   g_free(bar->monitor);
   g_free(bar->font);
   g_free(bar->font_size);

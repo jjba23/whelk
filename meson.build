@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.12.0',
+  version: '0.13.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -150,6 +150,7 @@ whelk_sources = files(
   'src/notification_center.c',
   'src/notifications.c',
   'src/osd.c',
+  'src/preferences.c',
   'src/shell.c',
   'src/style.c',
   'src/surface.c',
@@ -215,6 +216,9 @@ test_env.set('GSETTINGS_BACKEND', 'memory')
 # The C tests ask the bridge for the Scheme modules, so they have to find them.
 test_env.set('GUILE_LOAD_PATH',
              join_paths(meson.project_source_root(), 'scheme'))
+test_env.set('WHELK_CSS_PATH',
+             join_paths(meson.project_source_root(), 'resources', 'css',
+                        'whelk.css'))
 
 unit_tests = [
   {
@@ -228,6 +232,18 @@ unit_tests = [
   {
     'id': 'config',
     'sources': ['src/config.c', 'src/util/format.c'],
+  },
+  {
+    'id': 'preferences',
+    'sources': [
+      'src/preferences.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/util/menutree.c',
+    ],
   },
   {
     'id': 'launcher',
@@ -374,6 +390,17 @@ if guile.found()
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_defaults.scm'),
       join_paths(meson.project_source_root(), 'settings', 'settings.scm'),
+    ],
+    env: test_env,
+  )
+
+  test(
+    'prefs_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_prefs.scm'),
     ],
     env: test_env,
   )

@@ -7,6 +7,7 @@
 
 #include "logger.h"
 #include "module.h"
+#include "shell.h"
 #include "style.h"
 
 struct _WhelkBar {
@@ -20,6 +21,7 @@ struct _WhelkBar {
   GtkWidget *end_box;
   GtkWidget *end_more;        /* the chevron for the right row's overflow */
   GtkWidget *end_overflow_box;
+  GtkWidget *context_menu;    /* the bar's own right-click menu */
   GPtrArray *modules;   /* WhelkModule* */
   GtkCssProvider *skin; /* this bar's generated CSS */
   GdkDisplay *display;  /* borrowed */
@@ -247,6 +249,84 @@ static gboolean collapse_end_idle(gpointer user_data) {
   return G_SOURCE_REMOVE;
 }
 
+/* =========================================================================
+ * THE BAR'S RIGHT-CLICK MENU
+ * =========================================================================
+ * Right-clicking the bar is the shell's own context menu: a way into the
+ * settings window and a reload that does not require remembering a socket
+ * command.  The menu is parented to the bar itself, so it follows the surface
+ * to whatever edge the configuration put it on.
+ */
+
+static void on_edit_settings_clicked(GtkButton *button, gpointer user_data) {
+  WhelkShell *shell = whelk_shell_get_default();
+
+  (void)button;
+  (void)user_data;
+
+  if (shell)
+    whelk_shell_show_settings(shell);
+}
+
+static void on_reload_settings_clicked(GtkButton *button, gpointer user_data) {
+  WhelkShell *shell = whelk_shell_get_default();
+
+  (void)button;
+  (void)user_data;
+
+  if (shell)
+    whelk_shell_reload(shell);
+}
+
+static void build_context_menu(WhelkBar *bar) {
+  GtkWidget *popover = gtk_popover_new();
+  GtkWidget *menu = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *heading = gtk_label_new("whelk");
+  GtkWidget *edit = gtk_button_new_with_label("Edit settings…");
+  GtkWidget *reload = gtk_button_new_with_label("Reload settings");
+
+  gtk_widget_add_css_class(menu, "whelk-bar-menu");
+  gtk_widget_add_css_class(heading, "whelk-bar-menu-heading");
+  gtk_label_set_xalign(GTK_LABEL(heading), 0.0f);
+  gtk_widget_set_margin_start(heading, 8);
+  gtk_widget_set_margin_end(heading, 8);
+  gtk_widget_set_margin_top(heading, 4);
+  gtk_widget_set_margin_bottom(heading, 4);
+  gtk_widget_add_css_class(edit, "flat");
+  gtk_widget_add_css_class(reload, "flat");
+  gtk_widget_set_halign(edit, GTK_ALIGN_START);
+  gtk_widget_set_halign(reload, GTK_ALIGN_START);
+  g_signal_connect(edit, "clicked", G_CALLBACK(on_edit_settings_clicked),
+                   bar);
+  g_signal_connect(reload, "clicked",
+                   G_CALLBACK(on_reload_settings_clicked), bar);
+  gtk_box_append(GTK_BOX(menu), heading);
+  gtk_box_append(GTK_BOX(menu), edit);
+  gtk_box_append(GTK_BOX(menu), reload);
+
+  gtk_popover_set_autohide(GTK_POPOVER(popover), TRUE);
+  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+  gtk_popover_set_child(GTK_POPOVER(popover), menu);
+  whelk_style_popover(GTK_POPOVER(popover), bar->config);
+  gtk_widget_set_parent(popover, bar->root);
+  bar->context_menu = popover;
+}
+
+static void on_bar_right_click(GtkGestureClick *gesture, int n_press,
+                               double x, double y, gpointer user_data) {
+  WhelkBar *bar = user_data;
+  GdkRectangle point = {(int)x, (int)y, 1, 1};
+
+  (void)gesture;
+  (void)n_press;
+
+  if (!bar->context_menu)
+    return;
+
+  gtk_popover_set_pointing_to(GTK_POPOVER(bar->context_menu), &point);
+  gtk_popover_popup(GTK_POPOVER(bar->context_menu));
+}
+
 /* A horizontal bar is a centre box, so its centre is the bar's centre rather
  * than the middle of whatever the two sides leave over.  A vertical bar is a
  * column of the same three groups. */
@@ -307,6 +387,15 @@ static void build_layout(WhelkBar *bar) {
   gtk_widget_set_size_request(bar->root,
                               horizontal ? -1 : bar->config->height,
                               horizontal ? bar->config->height : -1);
+
+  build_context_menu(bar);
+
+  GtkGesture *right_click = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_click),
+                                GDK_BUTTON_SECONDARY);
+  g_signal_connect(right_click, "pressed", G_CALLBACK(on_bar_right_click),
+                   bar);
+  gtk_widget_add_controller(bar->root, GTK_EVENT_CONTROLLER(right_click));
 }
 
 /* The thickness a bar really needs.

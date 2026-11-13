@@ -231,6 +231,7 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   g_autofree char *layer = alist_text(alist, "layer", "top");
   WhelkBarConfig *bar = whelk_bar_config_new(name);
 
+  bar->theme = alist_optional_text(alist, "theme");
   bar->edge = edge_from_text(edge);
   bar->layer = layer_from_text(layer);
   bar->height = alist_int(alist, "height", 32);
@@ -666,4 +667,73 @@ GPtrArray *whelk_bridge_shell_menu(const char *path) {
     whelk_menu_free(root);
 
   return bar;
+}
+
+/* =========================================================================
+ * GUI PREFERENCES
+ * =========================================================================
+ * The settings window stores the same values a settings file writes, but in
+ * the state directory and one key at a time.  The Scheme layer owns the file
+ * format and the validation; this is just a typed door into it.
+ */
+
+GPtrArray *whelk_bridge_themes(void) {
+  GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+
+  if (!load_module("whelk themes"))
+    return names;
+
+  SCM list = call0("whelk themes", "themes");
+
+  for (SCM cursor = list; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    char *name = scm_text(SCM_CAR(cursor));
+
+    if (name && *name)
+      g_ptr_array_add(names, name);
+    else
+      g_free(name);
+  }
+
+  return names;
+}
+
+static gboolean save_preference(const char *path, const char *key, SCM value) {
+  SCM proc = public_proc("whelk prefs", "save-preference!");
+
+  if (!scm_is_true(proc) || !path || !key)
+    return FALSE;
+
+  return scm_is_true(scm_call_3(proc, scm_from_utf8_string(path),
+                                scm_from_utf8_symbol(key), value));
+}
+
+gboolean whelk_bridge_save_preference_bool(const char *path, const char *key,
+                                           gboolean value) {
+  return save_preference(path, key, scm_from_bool(value));
+}
+
+gboolean whelk_bridge_save_preference_int(const char *path, const char *key,
+                                          int value) {
+  return save_preference(path, key, scm_from_int(value));
+}
+
+gboolean whelk_bridge_save_preference_string(const char *path, const char *key,
+                                             const char *value) {
+  return save_preference(path, key,
+                         scm_from_utf8_string(value ? value : ""));
+}
+
+gboolean whelk_bridge_save_preference_symbol(const char *path, const char *key,
+                                             const char *value) {
+  return save_preference(path, key,
+                         scm_from_utf8_symbol(value ? value : ""));
+}
+
+gboolean whelk_bridge_reset_preferences(const char *path) {
+  SCM proc = public_proc("whelk prefs", "reset-preferences!");
+
+  if (!scm_is_true(proc) || !path)
+    return FALSE;
+
+  return scm_is_true(scm_call_1(proc, scm_from_utf8_string(path)));
 }

@@ -27,6 +27,7 @@
   #:use-module (whelk menu)
   #:use-module (whelk menudict)
   #:use-module (whelk modules)
+  #:use-module (whelk prefs)
   #:use-module (whelk state)
   #:use-module (whelk themes)
   #:use-module (whelk loader)
@@ -37,6 +38,7 @@
                module
                module-option
                module-options-ref
+               module-set-option
                clock-module
                cpu-module
                memory-module
@@ -62,6 +64,7 @@
                bar-config?
                make-bar-config
                bar-config-name
+               bar-config-theme
                bar-config-edge
                bar-config-layer
                bar-config-monitor
@@ -116,11 +119,15 @@
 Called by the C runtime at startup and again whenever the configuration
 directory changes, so a bar can be edited and seen without restarting the
 compositor."
-  (let ((loaded? (load-settings-file! file-path))
-        (bars (get-shell-bars file-path)))
-    (log-info "Core" "Configuration [~a]: ~a bar(s)"
-              file-path (length bars))
-    loaded?))
+  (let ((loaded? (load-settings-file! file-path)))
+    ;; The primary file has just registered its bars; the GUI's saved choices
+    ;; are a second layer over them and have the last word.
+    (bind-shell-config! file-path)
+    (apply-shell-preferences! file-path)
+    (let ((bars (get-shell-bars file-path)))
+      (log-info "Core" "Configuration [~a]: ~a bar(s)"
+                file-path (length bars))
+      loaded?)))
 
 (define (default-shell!)
   "Register the built-in bar as the fallback configuration.
@@ -142,6 +149,9 @@ file left nothing configured (missing, empty, or broken)."
       (log-warn "Core"
                 "No bars configured in ~a: using the fallback bar" path)
       (default-shell!))
+    ;; A GUI preference file is allowed to exist for a machine that has no
+    ;; settings file yet: apply it to the fallback too.
+    (apply-shell-preferences! path)
     (start-repl! path)))
 
 ;; =============================================================================

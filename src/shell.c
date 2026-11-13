@@ -16,6 +16,7 @@
 #include "notification_center.h"
 #include "notifications.h"
 #include "osd.h"
+#include "preferences.h"
 #include "util/menusearch.h"
 
 /* =========================================================================
@@ -384,9 +385,23 @@ void whelk_shell_reload(WhelkShell *shell) {
   whelk_bridge_start_repl(shell->config_path);
 }
 
+static void reload_after_preference_change(gpointer data) {
+  whelk_shell_reload(data);
+}
+
+void whelk_shell_show_settings(WhelkShell *shell) {
+  if (!shell)
+    return;
+
+  whelk_preferences_show(shell->app, shell->config_path,
+                         reload_after_preference_change, shell);
+}
+
 void whelk_shell_free(WhelkShell *shell) {
   if (!shell)
     return;
+
+  whelk_preferences_shutdown();
 
   if (shell->reload_timeout != 0)
     g_source_remove(shell->reload_timeout);
