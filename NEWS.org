@@ -15,6 +15,24 @@ Nothing yet.
 
 *[Released]*
 
+** v0.10.1 (2026-11-13)
+
+*** Fixed
+
+- *A clipboard record split inside its header waits for the rest.* The parser
+  used to treat a short read before the header's newline as a malformed record
+  and discard it, losing the copy.  Only an unterminated header longer than any
+  the helper could write is dropped now.
+- *A corrupt history file cannot take the shell with it.* The persistence file
+  is validated as a normal GVariant before it is read, and a file that is not
+  one is ignored; the next copy replaces it.
+- *The history file is made private on every save.* A pre-existing file with
+  wider permissions is chmodded back to 0600 instead of only new files getting
+  the mode.
+- *A pending clipboard read cannot touch a freed clipboard.* The read callback
+  starts the next read while it still holds its reference, rather than after
+  dropping the last one.
+
 ** v0.10.0 (2026-11-13)
 
 - *An applet's menu is opened in whelk, not asked of the applet.* A right click

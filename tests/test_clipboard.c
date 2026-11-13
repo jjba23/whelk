@@ -214,6 +214,29 @@ static void test_parse_two_records(void) {
   g_byte_array_unref(pending);
 }
 
+static void test_parse_waits_for_the_header(void) {
+  const guint8 bytes[] = {'o', 'k'};
+  g_autoptr(GBytes) blob = record("text/plain", bytes, sizeof bytes, NULL);
+  gsize size = 0;
+  const guint8 *data = g_bytes_get_data(blob, &size);
+  GByteArray *pending = g_byte_array_new();
+  GPtrArray *entries = whelk_clipboard_history_new();
+
+  /* Five bytes are enough to know the record started, not enough to know its
+   * lengths: the parser must wait instead of calling a short read malformed. */
+  g_byte_array_append(pending, data, 8);
+  g_assert_cmpuint(whelk_clipboard_parse(pending, entries, 50), ==, 0);
+  g_assert_cmpuint(pending->len, ==, 8);
+  g_assert_cmpuint(entries->len, ==, 0);
+
+  g_byte_array_append(pending, data + 8, size - 8);
+  g_assert_cmpuint(whelk_clipboard_parse(pending, entries, 50), ==, 1);
+  g_assert_cmpuint(entries->len, ==, 1);
+
+  g_ptr_array_unref(entries);
+  g_byte_array_unref(pending);
+}
+
 static void test_pin_and_delete(void) {
   WhelkClipboard *clipboard = whelk_clipboard_new(50);
 
@@ -293,6 +316,37 @@ static void test_persistence_roundtrip(void) {
   g_unlink(path);
 }
 
+static void test_persistence_recovers_from_garbage(void) {
+  g_autofree char *path = g_build_filename(
+      g_get_tmp_dir(), "whelk-clipboard-garbage.variant", NULL);
+
+  g_assert_true(g_file_set_contents(path, "not a variant", -1, NULL));
+
+  WhelkClipboard *clipboard = whelk_clipboard_new(50);
+
+  g_assert_false(whelk_clipboard_set_persistence(clipboard, path));
+  g_assert_cmpuint(whelk_clipboard_count(clipboard), ==, 0);
+
+  whelk_clipboard_add(clipboard, "text/plain", "one",
+                      g_bytes_new_static("one", 3));
+
+  GStatBuf stat_buf;
+
+  g_assert_cmpint(g_stat(path, &stat_buf), ==, 0);
+  g_assert_cmpuint(stat_buf.st_mode & 0777, ==, 0600);
+
+  /* A file that was already there must be made private again on the next
+   * write, not just the first one. */
+  g_assert_cmpint(g_chmod(path, 0644), ==, 0);
+  whelk_clipboard_add(clipboard, "text/plain", "two",
+                      g_bytes_new_static("two", 3));
+  g_assert_cmpint(g_stat(path, &stat_buf), ==, 0);
+  g_assert_cmpuint(stat_buf.st_mode & 0777, ==, 0600);
+
+  g_object_unref(clipboard);
+  g_unlink(path);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -306,9 +360,13 @@ int main(int argc, char **argv) {
   g_test_add_func("/clipboard/secret-hint", test_secret_hint);
   g_test_add_func("/clipboard/pick-mime", test_pick_mime);
   g_test_add_func("/clipboard/parse-partial", test_parse_waits_for_a_whole_record);
+  g_test_add_func("/clipboard/parse-partial-header",
+                  test_parse_waits_for_the_header);
   g_test_add_func("/clipboard/parse-two", test_parse_two_records);
   g_test_add_func("/clipboard/pin-and-delete", test_pin_and_delete);
   g_test_add_func("/clipboard/persistence", test_persistence_roundtrip);
+  g_test_add_func("/clipboard/persistence-garbage",
+                  test_persistence_recovers_from_garbage);
 
   return g_test_run();
 }

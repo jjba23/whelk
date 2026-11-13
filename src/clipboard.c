@@ -5,7 +5,9 @@
 
 #include "clipboard.h"
 
+#include <errno.h>
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -15,6 +17,7 @@
 #define WHELK_CLIPBOARD_READ_SIZE 8192
 #define WHELK_CLIPBOARD_TEXT_MAX 8192
 #define WHELK_CLIPBOARD_DATA_MAX (64 * 1024 * 1024)
+#define WHELK_CLIPBOARD_HEADER_MAX 512
 #define WHELK_CLIPBOARD_MAGIC "whelk-clipboard-1"
 #define WHELK_CLIPBOARD_RECORD "WHELK1"
 
@@ -216,11 +219,26 @@ char *whelk_clipboard_pick_mime(const char *types, gboolean text_only) {
 
 static gboolean record_header(const guint8 *data, gsize available,
                               gsize *header_length, gsize *mime_length,
-                              gsize *data_length, gsize *text_length) {
+                              gsize *data_length, gsize *text_length,
+                              gboolean *incomplete) {
+  const gsize magic_length = strlen(WHELK_CLIPBOARD_RECORD);
   const guint8 *newline = memchr(data, '\n', available);
 
-  if (!newline)
+  if (incomplete)
+    *incomplete = FALSE;
+
+  if (available >= magic_length &&
+      memcmp(data, WHELK_CLIPBOARD_RECORD, magic_length) != 0)
     return FALSE;
+
+  if (!newline) {
+    /* No newline yet is a short read, not a malformed record -- unless the
+     * header has grown past any length the helper could have written. */
+    if (incomplete && available < WHELK_CLIPBOARD_HEADER_MAX)
+      *incomplete = TRUE;
+
+    return FALSE;
+  }
 
   const gsize line_length = (gsize)(newline - data);
   g_autofree char *line = g_strndup((const char *)data, line_length);
@@ -258,12 +276,17 @@ guint whelk_clipboard_parse(GByteArray *pending, GPtrArray *entries,
     gsize mime_length = 0;
     gsize data_length = 0;
     gsize text_length = 0;
+    gboolean incomplete = FALSE;
 
     if (pending->len < strlen(WHELK_CLIPBOARD_RECORD) + 1)
       break;
 
     if (!record_header(pending->data, pending->len, &header_length,
-                       &mime_length, &data_length, &text_length)) {
+                       &mime_length, &data_length, &text_length,
+                       &incomplete)) {
+      if (incomplete)
+        break;
+
       /* A malformed record means the helper and this parser have drifted
        * apart; keeping the bytes would make every later record unreadable. */
       LOG_C_WARN("Clipboard", "dropping a malformed clipboard record");
@@ -377,6 +400,9 @@ static void clipboard_save(WhelkClipboard *self) {
                                 (gssize)g_variant_get_size(root),
                                 G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error))
     LOG_C_WARN("Clipboard", "could not save the history: %s", error->message);
+  else if (g_chmod(self->persist_path, 0600) != 0)
+    LOG_C_WARN("Clipboard", "could not make the history private: %s",
+               g_strerror(errno));
 }
 
 gboolean whelk_clipboard_set_persistence(WhelkClipboard *self,
@@ -405,10 +431,10 @@ gboolean whelk_clipboard_set_persistence(WhelkClipboard *self,
 
   g_autoptr(GBytes) blob = g_bytes_new(contents, length);
   g_autoptr(GVariant) root = g_variant_new_from_bytes(
-      G_VARIANT_TYPE("(sa(ssayb))"), blob, TRUE);
+      G_VARIANT_TYPE("(sa(ssayb))"), blob, FALSE);
 
-  if (!root ||
-      !g_variant_is_of_type(root, G_VARIANT_TYPE("(sa(ssayb))")))
+  if (!root || !g_variant_is_of_type(root, G_VARIANT_TYPE("(sa(ssayb))")) ||
+      !g_variant_is_normal_form(root))
     return FALSE;
 
   GPtrArray *loaded = variant_to_entries(root, self->max_entries);
@@ -505,10 +531,10 @@ static void on_read(GObject *source, GAsyncResult *result, gpointer user_data) {
     clipboard_changed(self);
 
   g_free(context->buffer);
-  g_object_unref(context->self);
   g_free(context);
 
   read_next(self);
+  g_object_unref(self);
 }
 
 static void read_next(WhelkClipboard *self) {
