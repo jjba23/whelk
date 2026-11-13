@@ -385,8 +385,11 @@ prefer them:
 =whelk --launcher= opens one overlay with one entry, and matches fuzzily: the
 query's characters in order, a word start worth more than a match in the
 middle, a short name over a long one.  =Tab= completes the selection into the
-entry, =Enter= opens it, =Esc= closes, the arrows move the selection, and a
-prefix picks the mode.
+entry, =Enter= opens it, =Esc= or the close button dismisses it, and the arrows
+move the selection and scroll the list with it.  A click on the dimmed area
+outside the card closes it too.  The card has a brand header, a search field,
+icon tiles, a selected-row accent and an empty-state line, so it reads as one
+surface rather than a form dropped on the screen.  A prefix picks the mode.
 
 | Mode     | What it searches                                  | Prefix   |
 |----------+---------------------------------------------------+----------|
@@ -1363,6 +1366,8 @@ The C tests start with the pure logic and end with real widgets:
 - =tests/test_launcher.c= -- the fuzzy matcher's ordering (a prefix beats a
   buried match, case is irrelevant, a query that is not a subsequence does not
   match) and the calculator's grammar and refusals (=1 / 0=, =2x=, =1 +=).
+  The launcher geometry tests also keep the selected row inside the viewport
+  and distinguish the card from the dimmed dismissal area.
 - =tests/test_applets.c= -- the exact tray ids: =nm-applet= and =blueman= hide,
   the loose word "network", a longer id that merely starts with an applet's, and
   one radio's applet in the other radio's list do not.

@@ -5,6 +5,7 @@
 
 #include "util/calc.h"
 #include "util/fuzzy.h"
+#include "util/launchergeometry.h"
 
 #include <glib.h>
 
@@ -84,6 +85,33 @@ static void test_calc_format(void) {
   g_assert_cmpstr(fraction, ==, "2.5");
 }
 
+/* The launcher's scroll position follows the selected row, not just the
+ * selection: an arrow key at the bottom of the view must bring the next row
+ * into view. */
+static void test_scroll_follows_selection(void) {
+  g_assert_cmpfloat_with_epsilon(
+      whelk_launcher_scroll_value(0, 100, 0, 500, 150, 180), 80.0, 0.01);
+  g_assert_cmpfloat_with_epsilon(
+      whelk_launcher_scroll_value(80, 100, 0, 500, 300, 330), 230.0, 0.01);
+  g_assert_cmpfloat_with_epsilon(
+      whelk_launcher_scroll_value(80, 100, 0, 500, 70, 100), 70.0, 0.01);
+
+  /* A list shorter than the viewport has nowhere to scroll. */
+  g_assert_cmpfloat_with_epsilon(
+      whelk_launcher_scroll_value(0, 100, 0, 60, 10, 30), 0.0, 0.01);
+}
+
+/* Clicking the dimmed area outside the card is the launcher's other close
+ * gesture, alongside the new close button and Esc. */
+static void test_click_outside_card(void) {
+  g_assert_false(whelk_launcher_point_outside(50, 100, 10, 20, 110, 220));
+  g_assert_false(whelk_launcher_point_outside(10, 20, 10, 20, 110, 220));
+  g_assert_true(whelk_launcher_point_outside(9, 100, 10, 20, 110, 220));
+  g_assert_true(whelk_launcher_point_outside(50, 9, 10, 20, 110, 220));
+  g_assert_true(whelk_launcher_point_outside(111, 100, 10, 20, 110, 220));
+  g_assert_true(whelk_launcher_point_outside(50, 221, 10, 20, 110, 220));
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -93,6 +121,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/whelk/calc/arithmetic", test_calc_arithmetic);
   g_test_add_func("/whelk/calc/rejects", test_calc_rejects);
   g_test_add_func("/whelk/calc/format", test_calc_format);
+  g_test_add_func("/whelk/launcher/scroll", test_scroll_follows_selection);
+  g_test_add_func("/whelk/launcher/outside", test_click_outside_card);
 
   return g_test_run();
 }

@@ -15,6 +15,36 @@ Nothing yet.
 
 *[Released]*
 
+** v0.14.0 (2026-11-13)
+
+*** Added
+
+- *A launcher that looks like the shell's front door.* The card gained a brand
+  header with a close button, a search entry with its own search icon, a
+  rounded list trough, icon tiles (with a fallback for entries without an
+  icon), a selected-row accent, a hover state and an empty-state message.  The
+  material keeps the bar's palette but gets a launcher-sized corner radius,
+  a soft highlight and a shadow.
+- *Arrow keys scroll the launcher list with the selection.* Moving past the
+  bottom row now moves the scroller to reveal it, and moving above the top row
+  does the same; the selection and the viewport can no longer disagree.
+- *Two more ways out of the launcher.* A close button in the header and a click
+  anywhere on the dimmed area outside the card dismiss it, alongside Esc and
+  choosing an entry.
+
+*** Changed
+
+- The launcher is a search surface now, not a plain entry: the entry is a
+  =GtkSearchEntry= and the card separates header, query, results and key hints
+  into their own visual bands.
+
+*** Verified
+
+- =tests/test_launcher.c= covers the scroll-follows-selection geometry and the
+  outside-card click predicate.
+- The full =meson test -C build --print-errorlogs= suite is green, and the
+  release is checked in the pinned Guix environment before tagging.
+
 ** v0.13.0 (2026-11-13)
 
 *** Added

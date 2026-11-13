@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.13.0',
+  version: '0.14.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -185,6 +185,7 @@ whelk_sources = files(
   'src/util/fuzzy.c',
   'src/util/json.c',
   'src/util/level.c',
+  'src/util/launchergeometry.c',
   'src/util/menuaction.c',
   'src/util/menudict.c',
   'src/util/menusearch.c',
@@ -247,7 +248,11 @@ unit_tests = [
   },
   {
     'id': 'launcher',
-    'sources': ['src/util/fuzzy.c', 'src/util/calc.c'],
+    'sources': [
+      'src/util/fuzzy.c',
+      'src/util/calc.c',
+      'src/util/launchergeometry.c',
+    ],
   },
   {
     'id': 'filesearch',

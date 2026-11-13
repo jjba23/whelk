@@ -7,6 +7,7 @@
 
 #include <gio/gdesktopappinfo.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
+#include <math.h>
 #include <string.h>
 
 #include "clipboard.h"
@@ -20,6 +21,7 @@
 #include "util/format.h"
 #include "util/fuzzy.h"
 #include "util/json.h"
+#include "util/launchergeometry.h"
 #include "util/menusearch.h"
 
 /* =========================================================================
@@ -88,8 +90,10 @@ struct _WhelkLauncher {
   GtkWidget *card;
   GtkWidget *entry;
   GtkWidget *list;
+  GtkWidget *scroller;
   GtkWidget *mode_label;
   GtkWidget *hint;
+  GtkWidget *empty;
 
   GPtrArray *apps;
   GPtrArray *commands;
@@ -121,6 +125,7 @@ struct _WhelkLauncher {
 G_DEFINE_TYPE(WhelkLauncher, whelk_launcher, G_TYPE_OBJECT)
 
 static void refresh_results(WhelkLauncher *self);
+static void scroll_selected_into_view(WhelkLauncher *self);
 
 /* =========================================================================
  * ITEMS
@@ -755,21 +760,26 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
   gtk_box_append(GTK_BOX(text), name);
   gtk_box_append(GTK_BOX(text), detail);
 
-  if (item->preview) {
-    GtkWidget *image = gtk_image_new_from_paintable(GDK_PAINTABLE(item->preview));
+  GtkWidget *icon = NULL;
 
-    gtk_image_set_pixel_size(GTK_IMAGE(image), 36);
-    gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(box), image);
-  } else if (item->icon && *item->icon) {
-    GtkWidget *icon = g_path_is_absolute(item->icon)
-                          ? gtk_image_new_from_file(item->icon)
-                          : gtk_image_new_from_icon_name(item->icon);
+  if (item->preview)
+    icon = gtk_image_new_from_paintable(GDK_PAINTABLE(item->preview));
+  else if (item->icon && *item->icon)
+    icon = g_path_is_absolute(item->icon)
+               ? gtk_image_new_from_file(item->icon)
+               : gtk_image_new_from_icon_name(item->icon);
+  else
+    icon = gtk_image_new_from_icon_name("application-x-executable-symbolic");
 
-    gtk_image_set_pixel_size(GTK_IMAGE(icon), 24);
-    gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(box), icon);
-  }
+  gtk_image_set_pixel_size(GTK_IMAGE(icon), item->preview ? 36 : 24);
+  gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
+
+  GtkWidget *icon_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+  gtk_widget_add_css_class(icon_box, "whelk-launcher-icon");
+  gtk_widget_set_valign(icon_box, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(icon_box), icon);
+  gtk_box_append(GTK_BOX(box), icon_box);
 
   gtk_widget_set_hexpand(text, TRUE);
   gtk_box_append(GTK_BOX(box), text);
@@ -1209,6 +1219,14 @@ static void refresh_results(WhelkLauncher *self) {
     if (first)
       gtk_list_box_select_row(GTK_LIST_BOX(self->list), first);
   }
+
+  if (self->scroller)
+    gtk_widget_set_visible(self->scroller, self->results->len > 0);
+
+  if (self->empty)
+    gtk_widget_set_visible(self->empty, self->results->len == 0);
+
+  scroll_selected_into_view(self);
 }
 
 static gboolean on_query_timeout(gpointer user_data) {
@@ -1385,6 +1403,50 @@ static void on_row_activated(GtkListBox *list, GtkListBoxRow *row,
  * KEYBOARD
  * ========================================================================= */
 
+/* Arrow keys move the selection and the view together.  `gtk_list_box_
+ * select_row' changes the selection but leaves the scroller where it was, so a
+ * keyboard user can select a row they cannot see; this asks the adjustment to
+ * put the row's bounds inside the viewport. */
+static void scroll_selected_into_view(WhelkLauncher *self) {
+  GtkListBoxRow *row;
+  GtkAdjustment *adjustment;
+
+  if (!self->list || !self->scroller)
+    return;
+
+  row = gtk_list_box_get_selected_row(GTK_LIST_BOX(self->list));
+
+  if (!row)
+    return;
+
+  adjustment = gtk_scrolled_window_get_vadjustment(
+      GTK_SCROLLED_WINDOW(self->scroller));
+
+  if (!adjustment)
+    return;
+
+  const double lower = gtk_adjustment_get_lower(adjustment);
+
+  if (!gtk_widget_get_mapped(GTK_WIDGET(row))) {
+    gtk_adjustment_set_value(adjustment, lower);
+    return;
+  }
+
+  graphene_rect_t bounds;
+
+  if (!gtk_widget_compute_bounds(GTK_WIDGET(row), self->list, &bounds))
+    return;
+
+  const double current = gtk_adjustment_get_value(adjustment);
+  const double next = whelk_launcher_scroll_value(
+      current, gtk_adjustment_get_page_size(adjustment), lower,
+      gtk_adjustment_get_upper(adjustment), bounds.origin.y,
+      bounds.origin.y + bounds.size.height);
+
+  if (fabs(next - current) > 0.5)
+    gtk_adjustment_set_value(adjustment, next);
+}
+
 static void move_selection(WhelkLauncher *self, int delta) {
   GtkListBoxRow *current = gtk_list_box_get_selected_row(GTK_LIST_BOX(self->list));
   int index = current ? gtk_list_box_row_get_index(current) : -1;
@@ -1401,6 +1463,8 @@ static void move_selection(WhelkLauncher *self, int delta) {
 
   if (row)
     gtk_list_box_select_row(GTK_LIST_BOX(self->list), row);
+
+  scroll_selected_into_view(self);
 }
 
 static void complete_selection(WhelkLauncher *self) {
@@ -1502,6 +1566,46 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller,
  * PUBLIC API
  * ========================================================================= */
 
+static void on_close_clicked(GtkButton *button, gpointer user_data) {
+  (void)button;
+
+  whelk_launcher_hide(user_data);
+}
+
+/* GtkSearchEntry turns Esc into a stop-search request before the window key
+ * controller sees it; dismiss the whole launcher on that request instead of
+ * only clearing the query. */
+static void on_stop_search(GtkSearchEntry *entry, gpointer user_data) {
+  (void)entry;
+
+  whelk_launcher_hide(user_data);
+}
+
+/* The launcher's surface covers the whole output so it can dim what is behind
+ * it.  A click that lands outside the card is a click on that dimmed area, and
+ * belongs to the same dismissal as Esc. */
+static gboolean on_outside_pressed(GtkGestureClick *gesture, int n_press,
+                                   double x, double y, gpointer user_data) {
+  WhelkLauncher *self = user_data;
+  GtkWidget *window = GTK_WIDGET(whelk_surface_get_window(self->surface));
+  graphene_rect_t bounds;
+
+  (void)gesture;
+  (void)n_press;
+
+  if (!window || !self->card ||
+      !gtk_widget_compute_bounds(self->card, window, &bounds))
+    return FALSE;
+
+  if (!whelk_launcher_point_outside(x, y, bounds.origin.x, bounds.origin.y,
+                                    bounds.origin.x + bounds.size.width,
+                                    bounds.origin.y + bounds.size.height))
+    return FALSE;
+
+  whelk_launcher_hide(self);
+  return TRUE;
+}
+
 WhelkLauncher *whelk_launcher_new(GtkApplication *app,
                                   const WhelkBarConfig *style) {
   WhelkLauncher *self = g_object_new(WHELK_TYPE_LAUNCHER, NULL);
@@ -1509,6 +1613,11 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   self->app = app;
   self->style =
       style ? whelk_bar_config_copy(style) : whelk_bar_config_new("launcher");
+
+  /* The launcher is a card, even when the bar it borrows its palette from is
+   * deliberately square. */
+  if (self->style->radius < 16)
+    self->style->radius = 16;
 
   self->apps = g_ptr_array_new_with_free_func(item_free);
   self->commands = g_ptr_array_new_with_free_func(item_free);
@@ -1530,13 +1639,44 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   }
 
   self->card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-  self->entry = gtk_entry_new();
+  self->entry = gtk_search_entry_new();
 
   gtk_widget_add_css_class(self->card, "whelk-launcher");
   gtk_widget_add_css_class(self->entry, "whelk-launcher-entry");
-  gtk_entry_set_placeholder_text(GTK_ENTRY(self->entry),
-                                 "Search applications, windows, commands…");
+  gtk_entry_set_placeholder_text(
+      GTK_ENTRY(self->entry), "Search applications, windows, commands…");
   gtk_widget_set_size_request(self->card, WHELK_LAUNCHER_WIDTH, -1);
+
+  GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  GtkWidget *brand = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  GtkWidget *brand_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 7);
+  GtkWidget *mark = gtk_label_new("●");
+  GtkWidget *title = gtk_label_new("whelk");
+  GtkWidget *subtitle = gtk_label_new("launcher");
+  GtkWidget *close = gtk_button_new_from_icon_name("window-close-symbolic");
+
+  gtk_widget_add_css_class(header, "whelk-launcher-header");
+  gtk_widget_add_css_class(brand, "whelk-launcher-brand");
+  gtk_widget_add_css_class(mark, "whelk-launcher-mark");
+  gtk_widget_add_css_class(mark, "whelk-accent");
+  gtk_widget_add_css_class(title, "whelk-launcher-title");
+  gtk_widget_add_css_class(subtitle, "whelk-launcher-subtitle");
+  gtk_label_set_xalign(GTK_LABEL(title), 0.0f);
+  gtk_label_set_xalign(GTK_LABEL(subtitle), 0.0f);
+  gtk_widget_set_hexpand(brand, TRUE);
+  gtk_box_append(GTK_BOX(brand_row), mark);
+  gtk_box_append(GTK_BOX(brand_row), title);
+  gtk_box_append(GTK_BOX(brand), brand_row);
+  gtk_box_append(GTK_BOX(brand), subtitle);
+
+  gtk_widget_add_css_class(close, "whelk-launcher-close");
+  gtk_widget_add_css_class(close, "circular");
+  gtk_widget_add_css_class(close, "flat");
+  gtk_widget_set_tooltip_text(close, "Close the launcher (Esc)");
+  gtk_widget_set_halign(close, GTK_ALIGN_END);
+  g_signal_connect(close, "clicked", G_CALLBACK(on_close_clicked), self);
+  gtk_box_append(GTK_BOX(header), brand);
+  gtk_box_append(GTK_BOX(header), close);
 
   self->mode_label = gtk_label_new("Applications");
   self->hint = gtk_label_new(
@@ -1547,6 +1687,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_widget_add_css_class(self->hint, "whelk-launcher-hint");
   gtk_label_set_xalign(GTK_LABEL(self->mode_label), 0.0);
   gtk_label_set_xalign(GTK_LABEL(self->hint), 0.0);
+  gtk_widget_set_halign(self->mode_label, GTK_ALIGN_START);
   gtk_label_set_wrap(GTK_LABEL(self->hint), TRUE);
 
   self->list = gtk_list_box_new();
@@ -1556,16 +1697,27 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_widget_add_css_class(self->list, "whelk-launcher-list");
   gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(self->list), TRUE);
 
-  GtkWidget *scroller = gtk_scrolled_window_new();
+  self->scroller = gtk_scrolled_window_new();
 
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), self->list);
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
+  gtk_widget_add_css_class(self->scroller, "whelk-launcher-scroller");
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(self->scroller),
+                                self->list);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(self->scroller),
                                  GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  gtk_widget_set_size_request(scroller, -1, WHELK_LAUNCHER_LIST_HEIGHT);
+  gtk_widget_set_size_request(self->scroller, -1,
+                              WHELK_LAUNCHER_LIST_HEIGHT);
 
+  self->empty = gtk_label_new("Nothing matched — try a different search.");
+  gtk_widget_add_css_class(self->empty, "whelk-launcher-empty");
+  gtk_label_set_wrap(GTK_LABEL(self->empty), TRUE);
+  gtk_widget_set_halign(self->empty, GTK_ALIGN_CENTER);
+  gtk_widget_set_visible(self->empty, FALSE);
+
+  gtk_box_append(GTK_BOX(self->card), header);
   gtk_box_append(GTK_BOX(self->card), self->entry);
   gtk_box_append(GTK_BOX(self->card), self->mode_label);
-  gtk_box_append(GTK_BOX(self->card), scroller);
+  gtk_box_append(GTK_BOX(self->card), self->scroller);
+  gtk_box_append(GTK_BOX(self->card), self->empty);
   gtk_box_append(GTK_BOX(self->card), self->hint);
 
   GtkWidget *holder = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -1574,6 +1726,8 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_widget_set_valign(self->card, GTK_ALIGN_START);
   gtk_widget_set_margin_top(self->card, 120);
   gtk_widget_set_hexpand(self->card, FALSE);
+  gtk_widget_set_hexpand(holder, TRUE);
+  gtk_widget_set_vexpand(holder, TRUE);
   gtk_box_append(GTK_BOX(holder), self->card);
 
   self->surface = whelk_surface_new(app, "launcher");
@@ -1596,6 +1750,8 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   g_signal_connect(self->entry, "changed", G_CALLBACK(on_entry_changed), self);
   g_signal_connect(self->entry, "activate", G_CALLBACK(on_entry_activate),
                    self);
+  g_signal_connect(self->entry, "stop-search", G_CALLBACK(on_stop_search),
+                   self);
   g_signal_connect(self->list, "row-activated", G_CALLBACK(on_row_activated),
                    self);
 
@@ -1603,6 +1759,16 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key_pressed), self);
   gtk_widget_add_controller(GTK_WIDGET(whelk_surface_get_window(self->surface)),
                             keys);
+
+  GtkGesture *outside_click = gtk_gesture_click_new();
+
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(outside_click),
+                                GDK_BUTTON_PRIMARY);
+  g_signal_connect(outside_click, "pressed", G_CALLBACK(on_outside_pressed),
+                   self);
+  gtk_widget_add_controller(
+      GTK_WIDGET(whelk_surface_get_window(self->surface)),
+      GTK_EVENT_CONTROLLER(outside_click));
 
   whelk_surface_present(self->surface);
 
