@@ -323,6 +323,15 @@ static void on_bar_right_click(GtkGestureClick *gesture, int n_press,
   if (!bar->context_menu)
     return;
 
+  /* A right-click on a module belongs to that module: the clock copies the
+   * time, the bell toggles do-not-disturb, and so on.  Only the bar's own
+   * gaps and padding open the shell menu. */
+  GtkWidget *target = gtk_widget_pick(bar->root, x, y, GTK_PICK_DEFAULT);
+
+  if (target && target != bar->root && target != bar->start_box &&
+      target != bar->center_box && target != bar->end_box)
+    return;
+
   gtk_popover_set_pointing_to(GTK_POPOVER(bar->context_menu), &point);
   gtk_popover_popup(GTK_POPOVER(bar->context_menu));
 }
