@@ -18,26 +18,14 @@ it.  whelk is a shell written in C, and the bar on screen is the value of a Guil
 program you can rewrite while it runs.
 #+end_quote
 
-whelk is a *Wayland shell*: a status bar today, and a launcher, a notification
-daemon and floating desktop widgets in time.  It is written in C against
-[[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured
-declaratively in *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
+whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, noi=tification center, floating desktop widgets and more.....  It is written in C with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
 in S-expressions, rather than in JSON plus a CSS file.
 
-It began as a 1:1 replacement for the Waybar setup in
-[[https://github.com/jjba23/heks-linux][heks-linux]]: the same modules, in the same order,
-with the same clicks.  Along the way it took over what those modules used to
-delegate to other programs -- an =org.freedesktop.Notifications= daemon with a
-grouped notification centre, a Wi-Fi and Bluetooth panel where the applets used
-to be, and a launcher where rofi used to be -- so the desktop is one process
-that knows its own state, instead of five that talk past each other.
-
-It is for people who run niri, sway or an X11 desktop and would like a bar they
-can *program*: modules are values, a bar is a list, the settings file is
+It's a programmable flexible shell you can *program*: modules are values, a bar is a list, the settings file is
 evaluated rather than parsed, and the REPL in the running shell is the same
 environment the configuration lives in.
 
-- 🐚 *Read the source, file an issue, send a patch:*
+- 🐚 *Read the source, file an issue, send a PR:*
   [[https://github.com/jjba23/whelk][github.com/jjba23/whelk]]
 - 📦 *Install it:* from the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld Guix channel]], with Nix, with
   Meson, or from the =packaging/= recipes
