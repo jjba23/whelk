@@ -128,6 +128,11 @@ the documented one -- see [[#configuration][Configuration]].
 - *A clipboard history.* =wl-paste --watch= feeds a de-duplicated list kept in
   memory only; =whelk --clipboard= (or the =;= prefix) puts any copy back, and
   the default bar's clipboard button opens that picker instead of =clipman=.
+- *A menu bar you can search.* =whelk --launcher-mode=menuitem= (prefix =:=)
+  lists every entry of the focused application's live menus with its path and
+  chord -- the Help menu's search field, for menus that came from GTK,
+  DBusMenu, a script or the dictionary -- and choosing one does what clicking
+  it in the bar does.
 - *An About window that describes the machine.* =About This System= opens a
   card with the host name, system, processor, memory, disk, kernel and session,
   with a button that copies the whole summary.
@@ -375,6 +380,7 @@ prefix picks the mode.
 | =ssh=      | the hosts =~/.ssh/config= names, in a terminal      | =%=        |
 | =quit=     | the open windows, closed instead of focused       | =!=        |
 | =clipboard= | what was copied, newest first; =Enter= puts it back | =;=        |
+| =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
 The menu mode is the rofi-script replacement, and it speaks both shapes a
@@ -394,6 +400,13 @@ it back on the clipboard.  The history is kept in memory by the shell itself --
 has focus -- and a repeated copy moves to the front instead of being listed
 twice.  It is never written to disk, and the default bar's clipboard button
 opens this picker rather than =clipman=.
+
+The =menuitem= mode is a menu bar's answer to the Help menu's search field:
+every entry of the focused application's live menubar -- whichever producer
+made it, GTK, DBusMenu, a script or the dictionary -- is listed with its path
+(=View > Appearance > Dark=) and its chord, matched by label and by path, and
+activated the way the bar's click activates it.  A rule or a disabled entry is
+not a result; the list is the same tree the bar is showing at that moment.
 
 ** Notifications
 :PROPERTIES:

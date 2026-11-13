@@ -13,6 +13,7 @@
 #include "network_panel.h"
 #include "notification_center.h"
 #include "notifications.h"
+#include "util/menusearch.h"
 
 /* =========================================================================
  * THE SHELL
@@ -122,6 +123,10 @@ static void build_bars(WhelkShell *shell) {
 
   shell->building = TRUE;
   g_ptr_array_set_size(shell->bars, 0);
+
+  /* The old bars' menu trees are about to be freed; until the new ones have
+   * published, the menu search has nothing true to say. */
+  whelk_menu_search_clear();
 
   GPtrArray *configs = whelk_bridge_bars(shell->config_path);
 

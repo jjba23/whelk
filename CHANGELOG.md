@@ -6,6 +6,17 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Added
+
+- **Menu search, the Help menu's field.** `--launcher-mode=menuitem` (prefix
+  `:`) flattens the focused application's live menubar -- whatever producer
+  made it -- into rows carrying the entry's path and chord, ranks them with the
+  launcher's own fuzzy matcher, and activates the chosen one through the same
+  code the bar's menu click uses. It reads the same tree the bar is showing, so
+  a GTK, DBusMenu, scripted or dictionary menu is searchable identically.
+
 ## [0.9.0] - 2026-11-13
 
 ### Added

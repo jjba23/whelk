@@ -19,6 +19,7 @@
 #include "util/format.h"
 #include "util/fuzzy.h"
 #include "util/json.h"
+#include "util/menusearch.h"
 
 /* =========================================================================
  * THE LAUNCHER
@@ -53,6 +54,7 @@ typedef enum {
   ITEM_QUIT,
   ITEM_ROFI,
   ITEM_CLIPBOARD,
+  ITEM_MENU_ITEM,
 } ItemKind;
 
 typedef struct {
@@ -63,6 +65,8 @@ typedef struct {
   char *search; /* lowercase haystack */
   char *action; /* a desktop file, a window id, a command, a path, a URL */
   gboolean disabled; /* rofi's `nonselectable': shown, never chosen */
+  WhelkMenuSearchItem *menu_item; /* a copy of a menu entry, when that is what
+                                   * this row is */
 } LauncherItem;
 
 typedef struct {
@@ -90,6 +94,7 @@ struct _WhelkLauncher {
   GPtrArray *menu;
   GPtrArray *hosts;
   GPtrArray *clipboard;
+  GPtrArray *menu_items;
   GPtrArray *results; /* borrowed from the arrays above */
 
   char *mode;
@@ -137,6 +142,7 @@ static void item_free(gpointer data) {
   g_free(item->icon);
   g_free(item->search);
   g_free(item->action);
+  whelk_menu_search_item_free(item->menu_item);
   g_free(item);
 }
 
@@ -703,6 +709,9 @@ static const char *effective_mode(WhelkLauncher *self, const char **query) {
   case ';':
     *query = text + 1;
     return "clipboard";
+  case ':':
+    *query = text + 1;
+    return "menuitem";
   default:
     break;
   }
@@ -773,7 +782,7 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
                                       "Run a command", "Calculator",
                                       "Files", "Web search", "Menu",
                                       "SSH hosts", "Close a window",
-                                      "Clipboard"};
+                                      "Clipboard", "Menu items"};
   const char *label = names[0];
 
   if (g_strcmp0(mode, "window") == 0)
@@ -794,8 +803,15 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
     label = names[8];
   else if (g_strcmp0(mode, "clipboard") == 0)
     label = names[9];
+  else if (g_strcmp0(mode, "menuitem") == 0)
+    label = names[10];
 
-  g_autofree char *text = g_strdup_printf("%s — %u", label, count);
+  const char *app = g_strcmp0(mode, "menuitem") == 0
+                        ? whelk_menu_search_app_name()
+                        : NULL;
+  g_autofree char *text =
+      (app && *app) ? g_strdup_printf("%s — %s — %u", label, app, count)
+                    : g_strdup_printf("%s — %u", label, count);
 
   gtk_label_set_text(GTK_LABEL(self->mode_label), text);
 }
@@ -852,6 +868,38 @@ static void load_clipboard(WhelkLauncher *self) {
 
     empty->disabled = TRUE;
     g_ptr_array_add(self->clipboard, empty);
+  }
+}
+
+/* One row per entry of the focused application's menubar, whichever producer
+ * made it.  The path is the row's second line and its searchable text as well,
+ * so "export pdf" finds View > Export > PDF and a chord finds nothing it should
+ * not. */
+static void load_menu_items(WhelkLauncher *self) {
+  g_ptr_array_set_size(self->menu_items, 0);
+
+  GPtrArray *snapshot = whelk_menu_search_snapshot();
+
+  for (guint i = 0; snapshot && i < snapshot->len; i++) {
+    WhelkMenuSearchItem *entry = g_ptr_array_index(snapshot, i);
+    g_autofree char *detail =
+        (entry->accel && *entry->accel)
+            ? g_strdup_printf("%s   ·   %s", entry->path, entry->accel)
+            : g_strdup(entry->path);
+    LauncherItem *item = item_new(ITEM_MENU_ITEM, entry->label, detail);
+
+    item->menu_item = whelk_menu_search_item_copy(entry);
+    item_add_search(item, entry->path);
+    g_ptr_array_add(self->menu_items, item);
+  }
+
+  if (self->menu_items->len == 0) {
+    LauncherItem *empty =
+        item_new(ITEM_MENU_ITEM, "No menu items",
+                 "The focused application publishes no menus yet");
+
+    empty->disabled = TRUE;
+    g_ptr_array_add(self->menu_items, empty);
   }
 }
 
@@ -927,6 +975,9 @@ static void refresh_results(WhelkLauncher *self) {
     else
       for (guint i = 0; i < self->clipboard->len; i++)
         add_result(self, g_ptr_array_index(self->clipboard, i));
+  } else if (g_strcmp0(mode, "menuitem") == 0) {
+    load_menu_items(self);
+    rank_into(self, self->menu_items, query ? query : "");
   } else {
     load_apps(self);
     rank_into(self, self->apps, query ? query : "");
@@ -1086,6 +1137,9 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
       whelk_clipboard_copy(clipboard, item->action);
     break;
   }
+  case ITEM_MENU_ITEM:
+    whelk_menu_search_item_activate(item->menu_item);
+    break;
   }
 
   whelk_launcher_hide(self);
@@ -1192,6 +1246,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   self->menu = g_ptr_array_new_with_free_func(item_free);
   self->hosts = g_ptr_array_new_with_free_func(item_free);
   self->clipboard = g_ptr_array_new_with_free_func(item_free);
+  self->menu_items = g_ptr_array_new_with_free_func(item_free);
   self->results = g_ptr_array_new();
 
   self->card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1206,7 +1261,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   self->mode_label = gtk_label_new("Applications");
   self->hint = gtk_label_new(
       "> run   = calc   / files   ? web   @ windows   % ssh   ! close   "
-      "; clipboard   ·   Tab completes   ·   Esc closes");
+      "; clipboard   : menu items   ·   Tab completes   ·   Esc closes");
 
   gtk_widget_add_css_class(self->mode_label, "whelk-launcher-mode");
   gtk_widget_add_css_class(self->hint, "whelk-launcher-hint");
@@ -1369,6 +1424,7 @@ static void whelk_launcher_dispose(GObject *object) {
   g_clear_pointer(&self->menu, g_ptr_array_unref);
   g_clear_pointer(&self->hosts, g_ptr_array_unref);
   g_clear_pointer(&self->clipboard, g_ptr_array_unref);
+  g_clear_pointer(&self->menu_items, g_ptr_array_unref);
 
   if (self->skin)
     whelk_style_detach(self->skin, gdk_display_get_default());

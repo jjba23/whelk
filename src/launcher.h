@@ -29,10 +29,12 @@ G_BEGIN_DECLS
  *   ssh     the hosts ~/.ssh/config names, opened in a terminal (rofi's ssh)
  *   quit    the open windows, closed rather than focused (a Force Quit menu)
  *   clipboard  what was copied, newest first; Enter puts it back
+ *   menuitem   every entry of the focused application's live menubar, with its
+ *              path and chord (macOS's Help menu search)
  *
  * The mode is chosen by --launcher-mode, by the shell's own keybinding, or by a
  * prefix typed into the entry (> run, = calc, / file, ? web, @ window, % ssh,
- * ! close, ; clipboard).  What every mode shares is the matching:
+ * ! close, ; clipboard, : menu items).  What every mode shares is the matching:
  * whelk_fuzzy_score() ranks
  * a prefix above a buried match, and Tab completes the selection into the
  * entry.
@@ -55,7 +57,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
  * whelk_launcher_show:
  * @self: the launcher.
  * @mode: (nullable): "app" (the default), "window", "run", "calc", "file",
- *   "web", "menu", "ssh", "quit" or "clipboard".
+ *   "web", "menu", "ssh", "quit", "clipboard" or "menuitem".
  *
  * Shows the overlay with an empty query, and focuses the entry.
  */

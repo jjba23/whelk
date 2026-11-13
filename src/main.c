@@ -248,7 +248,7 @@ static void add_options(GtkApplication *app) {
       G_APPLICATION(app), "launcher-mode", 0, G_OPTION_FLAG_NONE,
       G_OPTION_ARG_STRING,
       "Launcher mode: app, window, run, calc, file, web, menu, ssh, quit, "
-      "clipboard",
+      "clipboard, menuitem",
       "MODE");
   g_application_add_main_option(
       G_APPLICATION(app), "clipboard", 0, G_OPTION_FLAG_NONE,

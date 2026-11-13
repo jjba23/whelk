@@ -12,6 +12,8 @@
 
 #include "style.h"
 #include "util/command.h"
+#include "util/menuaction.h"
+#include "util/menusearch.h"
 #include "util/json.h"
 #include "util/menudict.h"
 #include "util/menutree.h"
@@ -323,77 +325,22 @@ static void attach_popover(WhelkModule *module, GtkPopover *popover,
 
 /* --- activation ----------------------------------------------------------- */
 
+/* The entry's own activation lives in util/menuaction.c, because the
+ * launcher's menu search chooses the same entries and has to do exactly what
+ * this popover does. */
+static void menu_context(MenuData *data, WhelkMenuActionContext *context) {
+  whelk_menu_action_context_set(
+      context, data->bus_name, data->app_path,
+      data->desktop ? g_desktop_app_info_get_filename(data->desktop) : NULL);
+}
+
 static void activate_entry(WhelkModule *module, WhelkMenuEntry *entry) {
   MenuData *data = module->data;
+  WhelkMenuActionContext context = {0};
 
-  if (!entry || !entry->enabled)
-    return;
-
-  if (entry->command) {
-    whelk_command_spawn(entry->command);
-    return;
-  }
-
-  /* A DBusMenu entry is not an action name: it is an id on the object that
-   * published the menu, and choosing it is an event sent back there. */
-  if (entry->dbus_service && entry->dbus_path) {
-    g_autoptr(GError) error = NULL;
-    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
-
-    if (!bus)
-      return;
-
-    g_dbus_connection_call(bus, entry->dbus_service, entry->dbus_path,
-                           "com.canonical.dbusmenu", "Event",
-                           g_variant_new("(isvu)", entry->dbus_item, "clicked",
-                                         g_variant_new_int32(0), 0),
-                           NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
-    g_object_unref(bus);
-    return;
-  }
-
-  if (!entry->action)
-    return;
-
-  if (g_str_has_prefix(entry->action, "desktop:")) {
-    if (data->desktop)
-      g_desktop_app_info_launch_action(data->desktop, entry->action + 8, NULL);
-
-    return;
-  }
-
-  const char *name = strchr(entry->action, '.');
-  const gboolean window_action = g_str_has_prefix(entry->action, "win.");
-
-  name = name ? name + 1 : entry->action;
-
-  g_autoptr(GError) error = NULL;
-  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
-
-  if (!bus)
-    return;
-
-  g_autofree char *path =
-      window_action ? g_strdup_printf("%s/windows/0", data->app_path)
-                    : g_strdup(data->app_path);
-
-  GVariantBuilder parameters;
-  GVariantBuilder platform;
-
-  g_variant_builder_init(&parameters, G_VARIANT_TYPE("av"));
-
-  if (entry->target)
-    g_variant_builder_add(&parameters, "v", g_variant_new_string(entry->target));
-
-  g_variant_builder_init(&platform, G_VARIANT_TYPE("a{sv}"));
-
-  g_dbus_connection_call(bus, data->bus_name, path, "org.gtk.Actions",
-                         "Activate",
-                         g_variant_new("(sava{sv})", name, &parameters,
-                                       &platform),
-                         NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
-
-  g_object_unref(bus);
+  menu_context(data, &context);
+  whelk_menu_entry_activate(entry, &context);
+  whelk_menu_action_context_clear(&context);
 }
 
 static void on_entry_clicked(GtkButton *button, gpointer user_data) {
@@ -659,6 +606,15 @@ static void replace_menus(WhelkModule *module, GPtrArray *menus) {
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
   data->menus = menus;
+
+  /* The launcher's menu search reads this snapshot: the same tree, flattened,
+   * so a menu can be found by what it says rather than by opening it. */
+  WhelkMenuActionContext context = {0};
+
+  menu_context(data, &context);
+  whelk_menu_search_publish(data->app_name, &context, menus);
+  whelk_menu_action_context_clear(&context);
+
   render(module);
 }
 
