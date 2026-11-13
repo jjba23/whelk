@@ -89,6 +89,17 @@ void whelk_menudict_load(GPtrArray *table);
  */
 const WhelkDictApp *whelk_menudict_for_app(const char *app_id);
 
+/**
+ * whelk_menudict_ids_match:
+ * @app_id: what a compositor reports.
+ * @id: one identifier an application answers to.
+ *
+ * The same comparison the dictionary uses: case-insensitive, tolerant of a
+ * trailing `.desktop`, and accepting a dotted suffix in either direction.
+ * Other menu corpora use the same rules for their identifiers.
+ */
+gboolean whelk_menudict_ids_match(const char *app_id, const char *id);
+
 /* How many applications the dictionary knows, for the log and the docs. */
 guint whelk_menudict_size(void);
 

@@ -57,6 +57,13 @@ static const KeyDisplay key_displays[] = {
     {"bracketleft", "["},   {"bracketright", "]"}, {"grave", "`"},
     {"space", "Space"},     {"BackSpace", "Backspace"},
     {"Page_Up", "Page Up"}, {"Page_Down", "Page Down"},
+    {"colon", ":"},          {"exclam", "!"},        {"quotedbl", "\""},
+    {"numbersign", "#"},     {"dollar", "$"},        {"percent", "%"},
+    {"ampersand", "&"},      {"parenleft", "("},     {"parenright", ")"},
+    {"asterisk", "*"},       {"less", "<"},          {"greater", ">"},
+    {"question", "?"},       {"at", "@"},            {"asciicircum", "^"},
+    {"underscore", "_"},     {"braceleft", "{"},     {"bar", "|"},
+    {"braceright", "}"},     {"asciitilde", "~"},
 };
 
 static const char *lookup_alias(const char *written) {
@@ -96,6 +103,46 @@ static const char *symbol_key(char symbol) {
     return "grave";
   case ' ':
     return "space";
+  case '!':
+    return "exclam";
+  case '"':
+    return "quotedbl";
+  case '#':
+    return "numbersign";
+  case '$':
+    return "dollar";
+  case '%':
+    return "percent";
+  case '&':
+    return "ampersand";
+  case '(':
+    return "parenleft";
+  case ')':
+    return "parenright";
+  case '*':
+    return "asterisk";
+  case ':':
+    return "colon";
+  case '<':
+    return "less";
+  case '>':
+    return "greater";
+  case '?':
+    return "question";
+  case '@':
+    return "at";
+  case '^':
+    return "asciicircum";
+  case '_':
+    return "underscore";
+  case '{':
+    return "braceleft";
+  case '|':
+    return "bar";
+  case '}':
+    return "braceright";
+  case '~':
+    return "asciitilde";
   default:
     return NULL;
   }
@@ -456,6 +503,14 @@ gboolean whelk_chord_parse_gtk(const char *text, WhelkChord *chord) {
   if (!text)
     return FALSE;
 
+  /* Orbit's corpus uses a lone `<` for the less-than key.  In a GTK
+   * accelerator `<` starts a modifier, but there is no closing `>` here and
+   * treating it as a broken modifier would make five real menu entries dead. */
+  if (strcmp(text, "<") == 0) {
+    chord->key = canonical_key(text);
+    return TRUE;
+  }
+
   const char *cursor = text;
 
   while (cursor[0] == '<') {
@@ -467,7 +522,8 @@ gboolean whelk_chord_parse_gtk(const char *text, WhelkChord *chord) {
     g_autofree char *name = g_strndup(cursor + 1, (gsize)(close - cursor - 1));
 
     if (g_ascii_strcasecmp(name, "Primary") == 0 ||
-        g_ascii_strcasecmp(name, "Control") == 0)
+        g_ascii_strcasecmp(name, "Control") == 0 ||
+        g_ascii_strcasecmp(name, "Ctrl") == 0)
       chord->ctrl = TRUE;
     else if (g_ascii_strcasecmp(name, "Shift") == 0)
       chord->shift = TRUE;

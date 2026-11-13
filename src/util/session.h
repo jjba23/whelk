@@ -128,6 +128,46 @@ void whelk_session_window_actions_clear(WhelkSessionWindowActions *actions);
 gboolean whelk_session_parse_focused(WhelkSession session, const char *text,
                                      char **title, char **app_id);
 
+/**
+ * WhelkFocusedPaths:
+ * @bus_name: the `_GTK_UNIQUE_BUS_NAME` of the focused window, or NULL.
+ * @window_id: the X11 window id, or 0 when the session is not X11.
+ * @app_path: its `_GTK_APPLICATION_OBJECT_PATH`, or NULL.
+ * @window_path: its `_GTK_WINDOW_OBJECT_PATH`, or NULL.
+ * @menubar_path: its `_GTK_MENUBAR_OBJECT_PATH`, or NULL.
+ * @appmenu_path: its `_GTK_APP_MENU_OBJECT_PATH`, or NULL.
+ *
+ * The paths a GTK application publishes on its X11 window.  A Wayland
+ * compositor does not expose another client's window properties, so these
+ * are filled only on X11; the application id remains the fallback everywhere.
+ */
+typedef struct {
+  guint32 window_id;
+  char *bus_name;
+  char *app_path;
+  char *window_path;
+  char *menubar_path;
+  char *appmenu_path;
+} WhelkFocusedPaths;
+
+void whelk_focused_paths_clear(WhelkFocusedPaths *paths);
+
+/**
+ * whelk_session_parse_focused_paths:
+ * @session: the session the text came from.
+ * @text: the focused-window command's output.
+ * @paths: (out caller-allocates): cleared and filled with the window's GTK
+ *   object paths; every field is NULL when the window published none.
+ *
+ * On X11, GTK exports the exact bus name and menu object paths as window
+ * properties.  Reading them turns the conventional-path guesses into exact
+ * probes, and reaches applications whose application id is not a valid bus
+ * name (Firefox's `WM_CLASS`, for example).  Other sessions leave @paths empty:
+ * their protocols do not expose another client's properties.
+ */
+void whelk_session_parse_focused_paths(WhelkSession session, const char *text,
+                                       WhelkFocusedPaths *paths);
+
 /* The program that types a key chord into the focused window: wtype on
  * Wayland, xdotool on X11, or NULL when neither is installed. */
 char *whelk_session_shortcut_tool(WhelkSession session);

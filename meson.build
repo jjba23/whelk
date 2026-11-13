@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.14.0',
+  version: '0.15.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -191,6 +191,7 @@ whelk_sources = files(
   'src/util/menusearch.c',
   'src/util/menutree.c',
   'src/util/session.c',
+  'src/util/shortcutmaps.c',
   'src/util/desktop.c',
   'src/util/nmcli.c',
   'src/util/sysfs.c',
@@ -220,6 +221,8 @@ test_env.set('GUILE_LOAD_PATH',
 test_env.set('WHELK_CSS_PATH',
              join_paths(meson.project_source_root(), 'resources', 'css',
                         'whelk.css'))
+test_env.set('WHELK_TEST_DIR',
+             join_paths(meson.project_source_root(), 'tests'))
 
 unit_tests = [
   {
@@ -229,6 +232,16 @@ unit_tests = [
   {
     'id': 'chord',
     'sources': ['src/util/chord.c'],
+  },
+  {
+    'id': 'shortcutmaps',
+    'sources': [
+      'src/util/shortcutmaps.c',
+      'src/util/menutree.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/util/json.c',
+    ],
   },
   {
     'id': 'config',

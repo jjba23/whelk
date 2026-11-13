@@ -18,6 +18,7 @@
 #include "util/json.h"
 #include "util/menudict.h"
 #include "util/menutree.h"
+#include "util/shortcutmaps.h"
 
 #include <gdk/gdkkeysyms.h>
 #include <gio/gdesktopappinfo.h>
@@ -45,6 +46,7 @@ typedef struct {
   char *app_id;
   char *bus_name;
   char *app_path;
+  WhelkFocusedPaths focused; /* X11 object paths, empty on Wayland */
   char *app_name;
   char *close_command;
   GDesktopAppInfo *desktop;
@@ -66,8 +68,10 @@ typedef struct {
   GDBusConnection *bus;
   GPtrArray *paths;      /* org.gtk.Menus object paths, tried first */
   guint index;
+  char *dbus_bus_name;   /* the registrar's answer, when it supplied one */
   GPtrArray *dbus_paths; /* com.canonical.dbusmenu paths, tried next */
   guint dbus_index;
+  gboolean registrar_tried;
 } MenuProbe;
 
 /* One popover's place in the menu tree: whose top-level menu it belongs to
@@ -675,6 +679,7 @@ static void probe_next(MenuProbe *probe);
 static void probe_free(MenuProbe *probe) {
   g_clear_object(&probe->bus);
   g_clear_pointer(&probe->paths, g_ptr_array_unref);
+  g_clear_pointer(&probe->dbus_bus_name, g_free);
   g_clear_pointer(&probe->dbus_paths, g_ptr_array_unref);
   g_free(probe);
 }
@@ -745,8 +750,10 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
     if (probe->generation == data->generation && probe->dbus_index > 0) {
       const char *path =
           g_ptr_array_index(probe->dbus_paths, probe->dbus_index - 1);
+      const char *bus_name = probe->dbus_bus_name ? probe->dbus_bus_name
+                                                   : data->bus_name;
       GPtrArray *menus = whelk_menubar_from_dbusmenu(
-          reply, data->bus_name, path, data->style);
+          reply, bus_name, path, data->style);
 
       if (menus->len > 0) {
         LOG_C_DEBUG("Menu", "%s exports DBusMenu at %s: %u menu(s)",
@@ -758,7 +765,7 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
          * or ItemsPropertiesUpdated costs one GetLayout and a new id set. */
         stop_dbus_menu_watch(data);
         data->dbus_menu = whelk_dbusmenu_watch_new(
-            probe->bus, data->bus_name, path, data->style,
+            probe->bus, bus_name, path, data->style,
             on_dbus_menu_changed, on_dbus_menu_invalidated, probe->module);
 
         adopted = TRUE;
@@ -778,8 +785,11 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
 
 static void probe_dbus_next(MenuProbe *probe) {
   MenuData *data = probe->module->data;
+  const char *bus_name =
+      probe->dbus_bus_name ? probe->dbus_bus_name : data->bus_name;
 
-  if (probe->dbus_index >= probe->dbus_paths->len) {
+  if (!bus_name || !g_dbus_is_name(bus_name) ||
+      probe->dbus_index >= probe->dbus_paths->len) {
     probe_free(probe);
     return;
   }
@@ -789,7 +799,7 @@ static void probe_dbus_next(MenuProbe *probe) {
 
   /* parent 0, depth -1: the whole tree in one answer, which is what a menubar
    * needs and what a menu that changes while it is open cannot use anyway. */
-  g_dbus_connection_call(probe->bus, data->bus_name, path,
+  g_dbus_connection_call(probe->bus, bus_name, path,
                          "com.canonical.dbusmenu", "GetLayout",
                          g_variant_new("(ii)", 0, -1),
                          G_VARIANT_TYPE("(u(ia{sv}av))"),
@@ -797,9 +807,77 @@ static void probe_dbus_next(MenuProbe *probe) {
                          probe);
 }
 
-static void probe_next(MenuProbe *probe) {
-  if (probe->index >= probe->paths->len) {
+/* =========================================================================
+ * THE REGISTRAR
+ * =========================================================================
+ * A Qt or KDE window can put its DBusMenu at an object path of its choosing.
+ * The registrar maps an X11 window id to that exact bus and path, which is the
+ * one piece of information a WM_CLASS cannot provide.  The answer is metadata
+ * for the ordinary DBusMenu reader: the path is tried first, then the
+ * conventional ones, so a registrar that knows only half the truth is still an
+ * improvement rather than a dead end. */
+
+static void on_registrar_reply(GObject *source, GAsyncResult *result,
+                               gpointer user_data);
+
+static void probe_registrar(MenuProbe *probe) {
+  MenuData *data = probe->module->data;
+
+  probe->registrar_tried = TRUE;
+
+  if (data->focused.window_id == 0) {
     probe_dbus_next(probe);
+    return;
+  }
+
+  g_dbus_connection_call(
+      probe->bus, "com.canonical.AppMenu.Registrar",
+      "/com/canonical/AppMenu/Registrar", "com.canonical.AppMenu.Registrar",
+      "GetMenuForWindow", g_variant_new("(u)", data->focused.window_id),
+      G_VARIANT_TYPE("(so)"), G_DBUS_CALL_FLAGS_NONE, 1200, NULL,
+      on_registrar_reply, probe);
+}
+
+static void on_registrar_reply(GObject *source, GAsyncResult *result,
+                               gpointer user_data) {
+  MenuProbe *probe = user_data;
+  MenuData *data = probe->module->data;
+  g_autoptr(GError) error = NULL;
+  GVariant *reply =
+      g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+  if (reply && probe->generation == data->generation) {
+    const char *bus_name = NULL;
+    const char *path = NULL;
+
+    g_variant_get(reply, "(&s&o)", &bus_name, &path);
+
+    if (bus_name && g_dbus_is_name(bus_name) && path &&
+        g_variant_is_object_path(path)) {
+      g_free(probe->dbus_bus_name);
+      probe->dbus_bus_name = g_strdup(bus_name);
+      g_ptr_array_insert(probe->dbus_paths, 0, g_strdup(path));
+      probe->dbus_index = 0;
+    }
+  }
+
+  if (reply)
+    g_variant_unref(reply);
+
+  if (probe->generation != data->generation)
+    probe_free(probe);
+  else
+    probe_dbus_next(probe);
+}
+
+static void probe_next(MenuProbe *probe) {
+  MenuData *data = probe->module->data;
+
+  if (probe->index >= probe->paths->len) {
+    if (!probe->registrar_tried && data->focused.window_id != 0)
+      probe_registrar(probe);
+    else
+      probe_dbus_next(probe);
     return;
   }
 
@@ -807,8 +885,6 @@ static void probe_next(MenuProbe *probe) {
   guint32 zero = 0;
   GVariant *groups = g_variant_new_fixed_array(G_VARIANT_TYPE_UINT32, &zero, 1,
                                                sizeof(guint32));
-
-  MenuData *data = probe->module->data;
 
   g_dbus_connection_call(probe->bus, data->bus_name, path, "org.gtk.Menus",
                          "Start", g_variant_new("(@au)", groups),
@@ -824,14 +900,18 @@ static void probe_menus(WhelkModule *module) {
   g_autoptr(GDBusConnection) bus =
       g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
 
-  if (!bus || !data->bus_name || *data->bus_name == '\0')
+  if (!bus)
     return;
 
   /* An application id is not a bus name: sway reports alacritty's as
    * "Alacritty", which has no dot and is not a valid D-Bus name, so asking the
-   * bus for it is a programming error that GLib answers with a critical.  Such
-   * an application gets the synthesized menu, and the bus is not troubled. */
-  if (!g_dbus_is_name(data->bus_name))
+   * bus for it is a programming error that GLib answers with a critical.  The
+   * registrar can still resolve the focused X11 window; without one there is
+   * nothing to ask. */
+  const gboolean valid_bus =
+      data->bus_name && g_dbus_is_name(data->bus_name);
+
+  if (!valid_bus && data->focused.window_id == 0)
     return;
 
   MenuProbe *probe = g_new0(MenuProbe, 1);
@@ -840,16 +920,35 @@ static void probe_menus(WhelkModule *module) {
   probe->generation = data->generation;
   probe->bus = g_object_ref(bus);
   probe->paths = g_ptr_array_new_with_free_func(g_free);
-  g_ptr_array_add(probe->paths,
-                  g_strdup_printf("%s/menus/menubar", data->app_path));
-  g_ptr_array_add(probe->paths,
-                  g_strdup_printf("%s/menus/AppMenu", data->app_path));
-  /* A menubar that belongs to one window rather than to the application: the
-   * shape a document window uses when each window has its own menus. */
-  g_ptr_array_add(probe->paths,
-                  g_strdup_printf("%s/window/0/menus/menubar", data->app_path));
-  g_ptr_array_add(probe->paths,
-                  g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
+
+  if (valid_bus) {
+
+    /* On X11 a GTK window publishes the objects it actually uses.  They are
+     * exact answers to the question the conventional paths below guess at, and
+     * they also rescue applications whose WM_CLASS is not a bus name. */
+    if (data->focused.menubar_path && *data->focused.menubar_path)
+      g_ptr_array_add(probe->paths, g_strdup(data->focused.menubar_path));
+
+    if (data->focused.window_path && *data->focused.window_path)
+      g_ptr_array_add(probe->paths,
+                      g_strdup_printf("%s/menus/menubar",
+                                      data->focused.window_path));
+
+    if (data->focused.appmenu_path && *data->focused.appmenu_path)
+      g_ptr_array_add(probe->paths, g_strdup(data->focused.appmenu_path));
+
+    g_ptr_array_add(probe->paths,
+                    g_strdup_printf("%s/menus/menubar", data->app_path));
+    g_ptr_array_add(probe->paths,
+                    g_strdup_printf("%s/menus/AppMenu", data->app_path));
+    /* A menubar that belongs to one window rather than to the application: the
+     * shape a document window uses when each window has its own menus. */
+    g_ptr_array_add(probe->paths,
+                    g_strdup_printf("%s/window/0/menus/menubar",
+                                    data->app_path));
+    g_ptr_array_add(probe->paths,
+                    g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
+  }
 
   probe->dbus_paths = g_ptr_array_new_with_free_func(g_free);
   g_ptr_array_add(probe->dbus_paths, g_strdup("/MenuBar/1"));
@@ -880,8 +979,38 @@ static void on_script_menus(WhelkModule *module, const char *text,
     g_ptr_array_unref(menus);
 }
 
-static void build_for_app(WhelkModule *module, const char *app_id) {
+static gboolean focused_paths_equal(const WhelkFocusedPaths *a,
+                                    const WhelkFocusedPaths *b) {
+  return a->window_id == b->window_id &&
+         g_strcmp0(a->bus_name, b->bus_name) == 0 &&
+         g_strcmp0(a->app_path, b->app_path) == 0 &&
+         g_strcmp0(a->window_path, b->window_path) == 0 &&
+         g_strcmp0(a->menubar_path, b->menubar_path) == 0 &&
+         g_strcmp0(a->appmenu_path, b->appmenu_path) == 0;
+}
+
+static void copy_focused_paths(WhelkFocusedPaths *target,
+                               const WhelkFocusedPaths *source) {
+  whelk_focused_paths_clear(target);
+
+  if (!source)
+    return;
+
+  target->window_id = source->window_id;
+  target->bus_name = g_strdup(source->bus_name);
+  target->app_path = g_strdup(source->app_path);
+  target->window_path = g_strdup(source->window_path);
+  target->menubar_path = g_strdup(source->menubar_path);
+  target->appmenu_path = g_strdup(source->appmenu_path);
+}
+
+/* `paths' is the X11 window's published object graph, or NULL when the caller
+ * has none.  NULL keeps the current paths while the application is unchanged;
+ * changing applications always starts clean. */
+static void build_for_app(WhelkModule *module, const char *app_id,
+                          const WhelkFocusedPaths *paths) {
   MenuData *data = module->data;
+  const gboolean same_app = g_strcmp0(app_id, data->app_id) == 0;
 
   /* The previous application's menu is gone, whatever published it. */
   stop_dbus_menu_watch(data);
@@ -922,6 +1051,24 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
     data->app_path = g_strdup_printf("/%s", dots);
   } else {
     data->app_path = g_strdup("/org/gtk/Application/anonymous");
+  }
+
+  if (paths)
+    copy_focused_paths(&data->focused, paths);
+  else if (!same_app)
+    whelk_focused_paths_clear(&data->focused);
+
+  /* The properties are more specific than an application id: they name the
+   * exact bus and object paths GTK exported.  Use them when present, and keep
+   * the id-derived values otherwise. */
+  if (data->focused.bus_name && *data->focused.bus_name) {
+    g_free(data->bus_name);
+    data->bus_name = g_strdup(data->focused.bus_name);
+  }
+
+  if (data->focused.app_path && *data->focused.app_path) {
+    g_free(data->app_path);
+    data->app_path = g_strdup(data->focused.app_path);
   }
 
   const char *const *action_ids = NULL;
@@ -1002,19 +1149,61 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   const char *source = NULL;
 
-  replace_menus(module,
-                whelk_menubar_for_app(data->app_id, action_ids, action_labels,
-                                      action_count, new_window_command,
-                                      &window_actions,
-                                      data->show_shortcuts ? data->shortcut_tool
-                                                           : NULL,
-                                      data->style, &source));
+  GPtrArray *menus = whelk_menubar_for_app(
+      data->app_id, action_ids, action_labels, action_count, new_window_command,
+      &window_actions,
+      data->show_shortcuts ? data->shortcut_tool : NULL, data->style, &source);
 
   whelk_session_window_actions_clear(&window_actions);
 
   if (source)
     LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
                 source);
+
+  /* The optional Orbit Global Menu corpus is a second, much larger dictionary.
+   * It is read from the user's own checkout rather than copied here: the
+   * mapping files are GPL-3.0 data, while whelk stays MIT.  The curated table
+   * wins when it knows the application; Orbit fills the gap before the shared
+   * Edit and View are used. */
+  if (!source && data->shortcut_tool && *data->shortcut_tool &&
+      data->app_id && *data->app_id) {
+    GPtrArray *orbit = whelk_shortcutmaps_menubar_for_app(
+        data->app_id, data->shortcut_tool, data->style);
+
+    if (orbit->len > 0) {
+      LOG_C_DEBUG("Menu", "%s: %u menu(s) from the shortcut-mapping corpus",
+                  data->app_id, orbit->len);
+      /* The corpus describes the application's own menus.  It does not know
+       * the compositor's Window menu, so the synthesized menus it does not
+       * replace -- Window, or a File with this window's close action -- travel
+       * with it.  Duplicate labels prefer the application's own menu. */
+      for (guint i = 0; i < menus->len;) {
+        WhelkMenu *fallback = g_ptr_array_steal_index(menus, i);
+        gboolean duplicate = FALSE;
+
+        for (guint j = 0; j < orbit->len; j++) {
+          WhelkMenu *present = g_ptr_array_index(orbit, j);
+
+          if (g_strcmp0(present->label, fallback->label) == 0) {
+            duplicate = TRUE;
+            break;
+          }
+        }
+
+        if (duplicate)
+          whelk_menu_free(fallback);
+        else
+          g_ptr_array_add(orbit, fallback);
+      }
+
+      g_ptr_array_unref(menus);
+      menus = orbit;
+    } else {
+      g_ptr_array_unref(orbit);
+    }
+  }
+
+  replace_menus(module, menus);
 
   /* A configuration's own menu wins over every producer: it was asked for by
    * name, for this application, and nothing the bus says is more specific. */
@@ -1037,18 +1226,23 @@ static void on_focused_window(WhelkModule *module, const char *text,
   MenuData *data = module->data;
   char *title = NULL;
   char *app_id = NULL;
+  WhelkFocusedPaths paths = {0};
+  const WhelkSession session = whelk_session_detect();
 
-  if (!whelk_session_parse_focused(whelk_session_detect(), text, &title,
-                                   &app_id)) {
-    build_for_app(module, "");
+  if (!whelk_session_parse_focused(session, text, &title, &app_id)) {
+    build_for_app(module, "", NULL);
     return;
   }
 
-  if (g_strcmp0(app_id, data->app_id) != 0)
-    build_for_app(module, app_id);
+  whelk_session_parse_focused_paths(session, text, &paths);
+
+  if (g_strcmp0(app_id, data->app_id) != 0 ||
+      !focused_paths_equal(&paths, &data->focused))
+    build_for_app(module, app_id, &paths);
 
   g_free(title);
   g_free(app_id);
+  whelk_focused_paths_clear(&paths);
 }
 
 static void menu_update(WhelkModule *module) {
@@ -1056,7 +1250,7 @@ static void menu_update(WhelkModule *module) {
       whelk_session_focused_window_command(whelk_session_detect());
 
   if (!command) {
-    build_for_app(module, "");
+    build_for_app(module, "", NULL);
     return;
   }
 
@@ -1081,6 +1275,7 @@ static void menu_destroy(WhelkModule *module) {
   g_free(data->close_command);
   g_free(data->bus_name);
   g_free(data->app_path);
+  whelk_focused_paths_clear(&data->focused);
   g_free(data->shortcut_tool);
   g_free(data);
 }

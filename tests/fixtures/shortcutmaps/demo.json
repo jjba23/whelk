@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "app": "demo",
+  "name": "Demo",
+  "identifiers": ["org.example.Demo", "demo"],
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        {"label": "New", "shortcut": "<Ctrl>N"},
+        {"label": "Recent", "items": [
+          {"label": "Open", "shortcut": "<Ctrl>O"},
+          {"label": "Save", "shortcut": "<Ctrl>x <Ctrl>s"}
+        ]},
+        {"separator": true},
+        {"label": "Needs a menu", "action": "app.open-menu"},
+        {"label": "Plain action", "action": "file-open"},
+        {"label": "Target action", "action": "image-convert-u8", "target": 0},
+        {"label": "Unavailable"}
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        {"label": "Bracket", "shortcut": "<Ctrl>bracketright"},
+        {"label": "Colon", "shortcut": ":"},
+        {"label": "Less", "shortcut": "<"}
+      ]
+    }
+  ]
+}

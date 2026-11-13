@@ -29,6 +29,8 @@ static void test_session_commands(void) {
   g_assert_nonnull(strstr(sway, "swaymsg -t get_tree"));
   g_assert_nonnull(strstr(x11, "xprop"));
   g_assert_nonnull(strstr(x11, "_NET_ACTIVE_WINDOW"));
+  g_assert_nonnull(strstr(x11, "_GTK_UNIQUE_BUS_NAME"));
+  g_assert_nonnull(strstr(x11, "_GTK_MENUBAR_OBJECT_PATH"));
 
   /* GNOME's Wayland session has no shell-facing answer, and says so. */
   g_assert_null(whelk_session_focused_window_command(WHELK_SESSION_WAYLAND));
@@ -141,6 +143,45 @@ static void test_parse_unsupported_session(void) {
       WHELK_SESSION_WAYLAND, "{\"title\": \"anything\"}", &title, &app_id));
 }
 
+static void test_parse_x11_gtk_paths(void) {
+  const char *xprop =
+      "WHELK_ACTIVE_WINDOW=0x3a00007\n"
+      "WM_NAME(UTF8_STRING) = \"Report\"\n"
+      "WM_CLASS(STRING) = \"libreoffice\", \"LibreOffice\"\n"
+      "_GTK_UNIQUE_BUS_NAME(UTF8_STRING) = \"org.libreoffice.LibreOffice\"\n"
+      "_GTK_APPLICATION_OBJECT_PATH(UTF8_STRING) = \"/org/libreoffice/App\"\n"
+      "_GTK_WINDOW_OBJECT_PATH(UTF8_STRING) = \"/org/libreoffice/Window/1\"\n"
+      "_GTK_MENUBAR_OBJECT_PATH(UTF8_STRING) = \"/org/libreoffice/App/Menubar\"\n"
+      "_GTK_APP_MENU_OBJECT_PATH(UTF8_STRING) = \"/org/libreoffice/App/AppMenu\"\n";
+  WhelkFocusedPaths paths = {0};
+
+  whelk_session_parse_focused_paths(WHELK_SESSION_X11, xprop, &paths);
+
+  g_assert_cmpuint(paths.window_id, ==, 0x3a00007);
+  g_assert_cmpstr(paths.bus_name, ==, "org.libreoffice.LibreOffice");
+  g_assert_cmpstr(paths.app_path, ==, "/org/libreoffice/App");
+  g_assert_cmpstr(paths.window_path, ==, "/org/libreoffice/Window/1");
+  g_assert_cmpstr(paths.menubar_path, ==, "/org/libreoffice/App/Menubar");
+  g_assert_cmpstr(paths.appmenu_path, ==, "/org/libreoffice/App/AppMenu");
+
+  whelk_focused_paths_clear(&paths);
+  g_assert_cmpuint(paths.window_id, ==, 0);
+  g_assert_null(paths.bus_name);
+  g_assert_null(paths.app_path);
+
+  /* A window that exports no GTK properties still parses, with no paths. */
+  whelk_session_parse_focused_paths(WHELK_SESSION_X11,
+                                    "WM_CLASS(STRING) = \"x\", \"XTerm\"\n",
+                                    &paths);
+  g_assert_null(paths.bus_name);
+  g_assert_null(paths.menubar_path);
+
+  /* Wayland does not expose another client's window properties. */
+  whelk_session_parse_focused_paths(WHELK_SESSION_WAYLAND, xprop, &paths);
+  g_assert_null(paths.bus_name);
+  g_assert_null(paths.menubar_path);
+}
+
 
 /* --- detection without the environment -------------------------------------
  * The regression this guards: a bar started by a service unit or a login shell
@@ -245,6 +286,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/session/parse/sway", test_parse_sway);
   g_test_add_func("/session/parse/sway-x11", test_parse_sway_x11_window);
   g_test_add_func("/session/parse/x11", test_parse_x11);
+  g_test_add_func("/session/parse/x11-paths", test_parse_x11_gtk_paths);
   g_test_add_func("/session/parse/unsupported",
                   test_parse_unsupported_session);
   g_test_add_func("/session/environment", test_environment_detection);

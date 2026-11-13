@@ -218,11 +218,16 @@ char *whelk_session_focused_window_command(WhelkSession session) {
   case WHELK_SESSION_SWAY:
     return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg -t get_tree");
   case WHELK_SESSION_X11:
-    /* EWMH: the active window's id, then that window's name and class. */
+    /* EWMH: the active window's id, then its name and class.  A GTK window
+     * also publishes the exact bus name and menu object paths it uses; those
+     * are what make a global menu work on X11 without guessing from a class. */
     return g_strdup(
         "id=$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | sed 's/.* //'); "
         "[ -n \"$id\" ] && [ \"$id\" != 0x0 ] && "
-        "xprop -id \"$id\" WM_NAME WM_CLASS 2>/dev/null");
+        "printf 'WHELK_ACTIVE_WINDOW=%s\\n' \"$id\" && "
+        "xprop -id \"$id\" WM_NAME WM_CLASS _GTK_UNIQUE_BUS_NAME "
+        "_GTK_APPLICATION_OBJECT_PATH _GTK_WINDOW_OBJECT_PATH "
+        "_GTK_MENUBAR_OBJECT_PATH _GTK_APP_MENU_OBJECT_PATH 2>/dev/null");
   case WHELK_SESSION_WAYLAND:
     break;
   }
@@ -459,6 +464,53 @@ static gboolean parse_x11(const char *text, char **title, char **app_id) {
   g_free(class_name);
 
   return TRUE;
+}
+
+void whelk_focused_paths_clear(WhelkFocusedPaths *paths) {
+  if (!paths)
+    return;
+
+  paths->window_id = 0;
+  g_clear_pointer(&paths->bus_name, g_free);
+  g_clear_pointer(&paths->app_path, g_free);
+  g_clear_pointer(&paths->window_path, g_free);
+  g_clear_pointer(&paths->menubar_path, g_free);
+  g_clear_pointer(&paths->appmenu_path, g_free);
+}
+
+void whelk_session_parse_focused_paths(WhelkSession session, const char *text,
+                                       WhelkFocusedPaths *paths) {
+  if (!paths)
+    return;
+
+  whelk_focused_paths_clear(paths);
+
+  if (session != WHELK_SESSION_X11 || !text)
+    return;
+
+  g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
+
+  for (guint i = 0; lines[i]; i++) {
+    const char *line = lines[i];
+
+    if (g_str_has_prefix(line, "WHELK_ACTIVE_WINDOW=")) {
+      const char *id = line + strlen("WHELK_ACTIVE_WINDOW=");
+      char *end = NULL;
+      guint64 value = g_ascii_strtoull(id, &end, 0);
+
+      if (end && end != id)
+        paths->window_id = (guint32)value;
+    } else if (g_str_has_prefix(line, "_GTK_UNIQUE_BUS_NAME("))
+      paths->bus_name = xprop_quoted_value(line, 0);
+    else if (g_str_has_prefix(line, "_GTK_APPLICATION_OBJECT_PATH("))
+      paths->app_path = xprop_quoted_value(line, 0);
+    else if (g_str_has_prefix(line, "_GTK_WINDOW_OBJECT_PATH("))
+      paths->window_path = xprop_quoted_value(line, 0);
+    else if (g_str_has_prefix(line, "_GTK_MENUBAR_OBJECT_PATH("))
+      paths->menubar_path = xprop_quoted_value(line, 0);
+    else if (g_str_has_prefix(line, "_GTK_APP_MENU_OBJECT_PATH("))
+      paths->appmenu_path = xprop_quoted_value(line, 0);
+  }
 }
 
 gboolean whelk_session_parse_focused(WhelkSession session, const char *text,

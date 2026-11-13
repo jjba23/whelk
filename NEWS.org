@@ -15,6 +15,63 @@ Nothing yet.
 
 *[Released]*
 
+** v0.15.0 (2026-11-13)
+
+*** Added
+
+- *Optional Orbit Global Menu shortcut corpus.*  whelk can now read the
+  reviewed 293-application mapping table from [[https://github.com/Unmade760/orbit-global-menu][Orbit Global Menu]] at runtime,
+  including nested submenus, separators, 9,800 GTK accelerators and 1,702
+  deliberately greyed placeholders.  The table is not copied into whelk: its
+  JSON files are GPL-3.0-or-later data, so whelk reads them from
+  =WHELK_SHORTCUT_MAPS= or the standard user data directories and remains MIT.
+  The curated Scheme dictionary still takes precedence.
+- *X11 GTK menu discovery.*  The focused window's =_GTK_UNIQUE_BUS_NAME=,
+  =_GTK_APPLICATION_OBJECT_PATH=, =_GTK_WINDOW_OBJECT_PATH=,
+  =_GTK_MENUBAR_OBJECT_PATH= and =_GTK_APP_MENU_OBJECT_PATH= properties are
+  read on X11, so the exact bus and object paths are tried before the
+  conventional guesses.  This reaches applications whose =WM_CLASS= is not a
+  valid D-Bus name, including Firefox and LibreOffice.
+- *AppMenu registrar lookup.*  On X11, whelk asks
+  =com.canonical.AppMenu.Registrar= for the focused window's exact bus and
+  DBusMenu object before falling back to =/MenuBar/1=, =/MenuBar/0= and
+  =/com/canonical/dbusmenu=.
+- *Synthesized menus survive an imported application menu.*  When the Orbit or
+  Scheme table supplies an application's own menus, top-level labels the table
+  does not provide -- notably the compositor's =Window= menu -- stay beside
+  them instead of being discarded.
+
+*** Changed
+
+- GTK accelerators written =<Ctrl>N= are accepted alongside =<Control>N= and
+  =<Primary>N=, and the cycle also parses the punctuation spellings Orbit uses
+  (=:=, =<=, =[=, =]=, ={=, =}= and the rest), including a lone =<= key.
+- A shortcut sequence is now read as whitespace-separated GTK accelerators, so
+  Orbit's =<Ctrl>x <Ctrl>s= becomes two typed chords with the prefix intact.
+- An Orbit action with no shortcut is activated through =org.gtk.Actions=;
+  an action that requires an integer =target= is shown greyed because whelk's
+  action model currently carries only a string parameter.
+
+*** Verified
+
+- =tests/test_shortcutmaps.c= covers nested menus, multi-chord sequences,
+  actions, target placeholders, punctuation, =Ctrl=-spelled accelerators and
+  the empty answer for unknown applications or a missing typing tool.
+- =tests/test_session.c= covers the X11 =_GTK_*= property parser and the active
+  window id.
+- All 9,800 shortcuts in the real Orbit corpus parse; the full host suite is
+  23/23, the pinned Guix suite is green, and =guix build -f guix.scm= succeeds.
+
+*** Known limitations
+
+- An =org.gtk.Menus= tree is a snapshot: it has no change signal, so a GTK
+  application's menu is refreshed on focus changes, not while it is open.
+- Wayland compositors do not expose another client's =_GTK_*= properties or X11
+  window id, so exact path and registrar discovery are X11-only; Wayland uses
+  the conventional paths, the dictionary and the optional corpus.
+- Orbit actions with an integer =target= remain greyed, and =win.*= actions are
+  sent to the application's first window object.
+
 ** v0.14.0 (2026-11-13)
 
 *** Added

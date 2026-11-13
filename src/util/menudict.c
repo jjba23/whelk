@@ -165,6 +165,12 @@ const WhelkDictApp *whelk_menudict_for_app(const char *app_id) {
   return NULL;
 }
 
+gboolean whelk_menudict_ids_match(const char *app_id, const char *id) {
+  g_autofree char *app = normalize(app_id);
+
+  return app && *app != '\0' && ids_match(app, id);
+}
+
 guint whelk_menudict_size(void) {
   return dictionary ? dictionary->len : 0;
 }
