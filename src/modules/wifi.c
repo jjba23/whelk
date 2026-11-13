@@ -11,6 +11,7 @@
 #include "logger.h"
 #include "shell.h"
 #include "util/command.h"
+#include "util/nmcli.h"
 
 /* =========================================================================
  * WI-FI
@@ -102,11 +103,18 @@ static void on_wifi(WhelkModule *module, const char *text, gpointer data) {
         module, whelk_spec_str(module->spec, "disconnected-format", "no network"),
         "", whelk_spec_str(module->spec, "tooltip", "Not connected"), values);
   } else {
+    const gboolean show_ssid =
+        whelk_spec_bool(module->spec, "show-ssid?", FALSE);
+
     whelk_module_add_class(module, "connected");
     whelk_module_present_format(
-        module, whelk_spec_str(module->spec, "format", "{icon} {ssid}"),
+        module,
+        whelk_spec_str(module->spec, "format",
+                       whelk_nmcli_wifi_format(show_ssid)),
         whelk_spec_str(module->spec, "icon", ""),
-        whelk_spec_str(module->spec, "tooltip", "{ssid} · {signal}%"), values);
+        whelk_spec_str(module->spec, "tooltip",
+                       whelk_nmcli_wifi_tooltip(show_ssid)),
+        values);
   }
 
   g_free(ssid);

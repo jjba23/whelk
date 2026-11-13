@@ -56,6 +56,18 @@ static void test_profile_names(void) {
   g_assert_cmpuint(none->len, ==, 0);
 }
 
+static void test_wifi_reading_hides_the_ssid(void) {
+  /* The bar should not name the network to anyone who can see the screen. */
+  g_assert_cmpstr(whelk_nmcli_wifi_format(FALSE), ==, "{icon}");
+  g_assert_cmpstr(whelk_nmcli_wifi_tooltip(FALSE), ==,
+                  "Wi-Fi · {signal}%\nClick: networks");
+
+  /* #:show-ssid? #t asks for the name back, in both places. */
+  g_assert_cmpstr(whelk_nmcli_wifi_format(TRUE), ==, "{icon} {ssid}");
+  g_assert_cmpstr(whelk_nmcli_wifi_tooltip(TRUE), ==,
+                  "{ssid} · {signal}%\nClick: networks");
+}
+
 static void test_key_script_is_literal(void) {
   /* The editor takes the rest of the line as the value: quotes are part of the
    * key, never syntax around it, and nothing is interpolated by a shell. */
@@ -87,6 +99,7 @@ int main(int argc, char *argv[]) {
   g_test_add_func("/nmcli/split-terse", test_split_plain);
   g_test_add_func("/nmcli/split-escapes", test_split_honours_escapes);
   g_test_add_func("/nmcli/profile-names", test_profile_names);
+  g_test_add_func("/nmcli/wifi-hides-ssid", test_wifi_reading_hides_the_ssid);
   g_test_add_func("/nmcli/key-script", test_key_script_is_literal);
   g_test_add_func("/nmcli/key-script-refusals", test_key_script_refuses_unwritable_keys);
 

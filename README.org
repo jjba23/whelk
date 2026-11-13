@@ -379,7 +379,10 @@ still stored and counted; they simply do not raise a toast.
 :END:
 
 =wifi-module= and =bluetooth-module= are the readings; a left click opens the
-panel behind them:
+panel behind them.  The Wi-Fi reading hides which network is joined: the bar
+shows the icon, and the hover text shows the signal, not the SSID.
+=#:show-ssid? #t= names it; an explicit =#:format= or =#:tooltip= still wins,
+because it was asked for.
 
 - *Wi-Fi*: the access points in range with signal and a lock for a secured one,
   a radio switch and a rescan.  Choosing a secured network asks for its
@@ -536,7 +539,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
 | =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
 | =custom-module=        | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
-| =wifi-module=          | nmcli: the radio and the active access point     | =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
+| =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}=                |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (left click: centre, right: DND)    |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:hide= (fragments to leave out)            |

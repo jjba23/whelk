@@ -10,6 +10,21 @@ project follows [Semantic Versioning][semver].
 
 _No changes yet._
 
+## [0.7.1] - 2026-11-13
+
+### Changed
+
+- **The Wi-Fi reading hides the network's name by default.** The bar shows the
+  icon and the hover text shows the signal, not the SSID; `#:show-ssid? #t`
+  names it again. An explicit `#:format` or `#:tooltip` still wins, because it
+  was asked for.
+
+### Fixed
+
+- **The menu reads the documented `#:shortcuts?` and `#:app-name?` keys.** It
+  had looked for `shortcuts` and `app-name`, so the question-mark spellings
+  shown in the README were ignored. The older spellings still work.
+
 ## [0.7.0] - 2026-11-13
 
 ### Added

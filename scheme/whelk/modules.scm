@@ -190,7 +190,7 @@ default), and #:tooltip is its hover text."
   "The global menu: the focused application's File/Edit/View menus.  Read from
 its D-Bus menubar where it exports one; otherwise from the dictionary's menus
 for the applications whose shortcuts are documented; otherwise from the
-shortcuts every application shares.  The base keys apply; #:shortcuts (default
+shortcuts every application shares.  The base keys apply; #:shortcuts? (default
 on) offers the shortcut menus at all, and #:shortcut-tool names the program
 that types a chord (wtype on Wayland, xdotool on X11).  #:accelerator-style
 chooses how every chord is printed -- 'cua for Ctrl+Shift+P, 'emacs for
@@ -213,10 +213,13 @@ of standard output is the reading; #:interval 0 renders it once."
   (apply module 'custom kv))
 
 (define* (wifi-module #:rest kv)
-  "Wi-Fi, read from NetworkManager with nmcli.  #:format uses {ssid}, {signal}
-and {state}; #:disabled-format and #:disconnected-format are the readings when
-the radio is off or nothing is associated.  A left click opens the network
-panel, where a network is chosen and a passphrase typed."
+  "Wi-Fi, read from NetworkManager with nmcli.  #:show-ssid? (default off)
+chooses whether the connected reading and its tooltip name the network; with
+it off they show the icon and the signal only.  #:format uses {ssid}, {signal}
+and {state}, and an explicit #:format or #:tooltip still wins.
+#:disabled-format and #:disconnected-format are the readings when the radio is
+off or nothing is associated.  A left click opens the network panel, where a network is chosen
+and a passphrase typed."
   (apply module 'wifi kv))
 
 (define* (bluetooth-module #:rest kv)

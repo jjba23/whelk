@@ -60,6 +60,15 @@ GPtrArray *whelk_nmcli_wifi_profile_names(const char *terse_output) {
   return names;
 }
 
+const char *whelk_nmcli_wifi_format(gboolean show_ssid) {
+  return show_ssid ? "{icon} {ssid}" : "{icon}";
+}
+
+const char *whelk_nmcli_wifi_tooltip(gboolean show_ssid) {
+  return show_ssid ? "{ssid} · {signal}%\nClick: networks"
+                   : "Wi-Fi · {signal}%\nClick: networks";
+}
+
 char *whelk_nmcli_key_update_script(const char *psk) {
   if (!psk || *psk == '\0')
     return NULL;

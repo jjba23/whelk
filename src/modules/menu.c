@@ -785,8 +785,14 @@ WhelkModule *whelk_menu_module_new(const WhelkModuleSpec *spec,
 
   data->menus = whelk_menubar_new();
   data->buttons = g_ptr_array_new();
-  data->show_shortcuts = whelk_spec_bool(spec, "shortcuts", TRUE);
-  data->show_app_name = whelk_spec_bool(spec, "app-name", TRUE);
+  /* The README has always spelled these with the question mark a boolean
+   * carries; accept the older spelling too, so neither is silently ignored. */
+  data->show_shortcuts =
+      whelk_spec_bool(spec, "shortcuts?",
+                      whelk_spec_bool(spec, "shortcuts", TRUE));
+  data->show_app_name =
+      whelk_spec_bool(spec, "app-name?",
+                      whelk_spec_bool(spec, "app-name", TRUE));
   data->style = whelk_chord_style_from_name(
       whelk_spec_str(spec, "accelerator-style", "cua"));
 

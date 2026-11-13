@@ -235,12 +235,12 @@ Click: next profile"
                                   #:on-click "powerprofilesctl cycle")
             ;; The network, read here rather than by an applet: these two make
             ;; the tray hide nm-applet and Blueman (see #:hide on tray-module).
+            ;; The link is shown, not the network's name; #:show-ssid? #t
+            ;; names it again.
             (wifi-module #:icon "\uf1eb"
-                         #:format "{icon} {ssid}"
+                         #:show-ssid? #f
                          #:disabled-format "{icon} off"
-                         #:interval 5
-                         #:tooltip "Wi-Fi: {ssid} · {signal}%
-Click: networks")
+                         #:interval 5)
             (bluetooth-module #:icon "\uf293"
                               #:format "{icon} {count}"
                               #:disabled-format "{icon} off"

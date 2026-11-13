@@ -35,6 +35,25 @@ GPtrArray *whelk_nmcli_split_terse(const char *line);
 GPtrArray *whelk_nmcli_wifi_profile_names(const char *terse_output);
 
 /**
+ * whelk_nmcli_wifi_format:
+ * @show_ssid: whether the network's name may be shown.
+ *
+ * The connected reading's format: the icon alone, or the icon and the SSID.
+ * Hiding the name is the default, so a bar does not announce which network
+ * the machine is on to anyone who can see the screen.
+ */
+const char *whelk_nmcli_wifi_format(gboolean show_ssid);
+
+/**
+ * whelk_nmcli_wifi_tooltip:
+ * @show_ssid: whether the network's name may be shown.
+ *
+ * The connected reading's hover text.  It names the network only when
+ * @show_ssid is true; the signal is always there.
+ */
+const char *whelk_nmcli_wifi_tooltip(gboolean show_ssid);
+
+/**
  * whelk_nmcli_key_update_script:
  * @psk: a Wi-Fi passphrase the user typed.
  *
