@@ -44,12 +44,26 @@ static void paint(WhelkModule *module, NotificationsState *state) {
   whelk_values_set_int(values, "count", (int)count);
   whelk_values_set(values, "state", dnd ? "dnd" : (count > 0 ? "new" : "idle"));
 
-  whelk_module_present_format(
-      module, whelk_spec_str(module->spec, "format", "{icon}"),
-      whelk_spec_str(module->spec, "icon", ""),
-      whelk_spec_str(module->spec, "tooltip",
-                     dnd ? "Do not disturb is on" : "{count} notification(s)"),
-      values);
+  /* Do not disturb wears its own bell, the way the reference bar's do-not-
+   * disturb item did: the one reading on the bar that must not look like the
+   * others, because it says notifications will not arrive. */
+  const char *icon = whelk_spec_str(module->spec, "icon", "");
+  const char *format = whelk_spec_str(module->spec, "format", "{icon}");
+  const char *tooltip = whelk_spec_str(
+      module->spec, "tooltip",
+      dnd ? "Do not disturb is on — right-click to let notifications through"
+          : "{count} notification(s) — click for the centre · right-click for "
+            "do not disturb");
+
+  if (dnd) {
+    icon = whelk_spec_str(module->spec, "dnd-icon", "\uf1f6");
+    format = whelk_spec_str(module->spec, "dnd-format", format);
+    tooltip = whelk_spec_str(
+        module->spec, "dnd-tooltip",
+        "Do not disturb is on — right-click to let notifications through");
+  }
+
+  whelk_module_present_format(module, format, icon, tooltip, values);
 }
 
 static void on_service_changed(WhelkNotifications *notifications,

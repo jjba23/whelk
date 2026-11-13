@@ -37,6 +37,7 @@ struct _WhelkShell {
 
   WhelkBarConfig *style; /* the first bar's palette, for the shell's panels */
   WhelkNotifications *notifications;
+  WhelkClipboard *clipboard;
   WhelkNotificationCenter *center;
   WhelkLauncher *launcher;
   WhelkNetworkPanel *network;
@@ -256,6 +257,11 @@ void whelk_shell_start(WhelkShell *shell) {
 
   whelk_notifications_start(shell->notifications, &notification_error);
 
+  /* The history starts listening now, not when the picker opens: by the time
+   * somebody asks what they copied, the copy has to already be in it. */
+  shell->clipboard = whelk_clipboard_new(50);
+  whelk_clipboard_start(shell->clipboard);
+
   whelk_bridge_init();
 
   /* The dictionary is Scheme, and the settings file may have added to it or
@@ -328,6 +334,7 @@ void whelk_shell_free(WhelkShell *shell) {
   g_clear_object(&shell->launcher);
   g_clear_object(&shell->network);
   g_clear_object(&shell->notifications);
+  g_clear_object(&shell->clipboard);
   g_clear_pointer(&shell->style, whelk_bar_config_free);
 
   if (default_shell == shell)
@@ -353,6 +360,10 @@ WhelkShell *whelk_shell_get_default(void) { return default_shell; }
 
 WhelkNotifications *whelk_shell_notifications(WhelkShell *shell) {
   return shell ? shell->notifications : NULL;
+}
+
+WhelkClipboard *whelk_shell_clipboard(WhelkShell *shell) {
+  return shell ? shell->clipboard : NULL;
 }
 
 void whelk_shell_show_launcher(WhelkShell *shell, const char *mode) {

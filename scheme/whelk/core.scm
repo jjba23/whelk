@@ -24,6 +24,7 @@
   #:use-module (system repl server)
   #:use-module (whelk defaults)
   #:use-module (whelk logger)
+  #:use-module (whelk menu)
   #:use-module (whelk menudict)
   #:use-module (whelk modules)
   #:use-module (whelk state)
@@ -54,6 +55,9 @@
                tray-module
                start-module
                menu-module
+               menu-item
+               menu-separator
+               menu-submenu
                <bar-config>
                bar-config?
                make-bar-config
@@ -87,6 +91,7 @@
                configure-shell!
                get-shell-config
                get-shell-bars
+               get-shell-menu
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path

@@ -5,86 +5,389 @@
 
 #include "modules/modules.h"
 
+#include "about.h"
+#include "guile_bridge.h"
+#include "logger.h"
 #include "shell.h"
 #include "style.h"
 #include "util/command.h"
 #include "util/format.h"
+#include "util/menutree.h"
+#include "util/session.h"
+
+#include <gdk/gdkkeysyms.h>
 
 /* =========================================================================
  * THE SHELL'S OWN MENU
  * =========================================================================
- * The first thing on the bar, and the only one that is about the shell rather
- * than about the machine or the application in front: a shell's worth of
- * entries -- the launcher, the panels, the settings and the way out -- behind
- * one mark: the whelk the shell is named after, or the glyph the configuration
- * names instead.
+ * The first thing on the bar, and the one item that belongs to the machine
+ * rather than to the application in front: a menu bar's leftmost menu, where
+ * macOS keeps the apple.  Here it wears the whelk the shell is named after.
+ *
+ * What is in it is configuration.  `(whelk menu)' units -- items, rules and
+ * submenus -- are read from the settings file (or from `default-shell-menu'
+ * when it wrote none), so the menu is a value a person can rewrite and a
+ * reload away from being on screen, not a C table somebody has to recompile.
+ *
+ * An item whose action begins with `shell:' is something this shell does
+ * itself; anything else is a command line, run the way every other click on
+ * the bar runs one.  A submenu marked `shell:recent-items' is filled when it
+ * opens, because what was opened recently is not known until then.
  */
 
-#define WHELK_START_ACTION "whelk-start-action"
+typedef struct {
+  GPtrArray *menus; /* of WhelkMenu: the popover's contents, from Scheme */
+} StartData;
 
-static void on_menu_action(GtkButton *button, gpointer user_data) {
-  (void)user_data;
+/* --- what the shell itself can do ----------------------------------------- */
 
-  const char *action =
-      g_object_get_data(G_OBJECT(button), WHELK_START_ACTION);
+static void show_about(const WhelkBarConfig *bar) { whelk_about_show(bar); }
 
-  GtkWidget *popover =
-      gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
-
-  if (popover)
-    gtk_popover_popdown(GTK_POPOVER(popover));
-
-  if (!action)
-    return;
-
+/* `shell:NAME', without the prefix. */
+static void run_shell_action(const char *name, const WhelkBarConfig *bar) {
   WhelkShell *shell = whelk_shell_get_default();
 
-  if (g_strcmp0(action, "launcher") == 0) {
+  if (!name || *name == '\0')
+    return;
+
+  if (g_strcmp0(name, "launcher") == 0 || g_strcmp0(name, "search") == 0) {
     if (shell)
       whelk_shell_show_launcher(shell, NULL);
     return;
   }
 
-  if (g_strcmp0(action, "network") == 0) {
+  if (g_strcmp0(name, "force-quit") == 0) {
+    if (shell)
+      whelk_shell_show_launcher(shell, "quit");
+    return;
+  }
+
+  if (g_strcmp0(name, "network") == 0) {
     if (shell)
       whelk_shell_show_network_panel(shell, "wifi");
     return;
   }
 
-  if (g_strcmp0(action, "notifications") == 0) {
+  if (g_strcmp0(name, "bluetooth") == 0) {
+    if (shell)
+      whelk_shell_show_network_panel(shell, "bluetooth");
+    return;
+  }
+
+  if (g_strcmp0(name, "notifications") == 0) {
     if (shell)
       whelk_shell_toggle_notifications(shell);
     return;
   }
 
-  /* Everything else is a command line, so "the settings file" or "quit" is a
-   * configuration's choice and not a new button in C. */
-  whelk_command_spawn(action);
+  if (g_strcmp0(name, "dnd") == 0) {
+    if (shell)
+      whelk_shell_toggle_dnd(shell);
+    return;
+  }
+
+  if (g_strcmp0(name, "reload") == 0) {
+    if (shell)
+      whelk_shell_reload(shell);
+    return;
+  }
+
+  if (g_strcmp0(name, "about") == 0) {
+    show_about(bar);
+    return;
+  }
+
+  LOG_C_DEBUG("Start", "no shell action named '%s'", name);
 }
 
-static void add_item(GtkWidget *box, const char *label, const char *action) {
-  GtkWidget *button = gtk_button_new_with_label(label);
+/* --- a menu, as a popover -------------------------------------------------- */
+
+static void close_ancestor_popover(GtkWidget *widget) {
+  GtkWidget *popover = gtk_widget_get_ancestor(widget, GTK_TYPE_POPOVER);
+
+  if (popover)
+    gtk_popover_popdown(GTK_POPOVER(popover));
+}
+
+static void on_item_clicked(GtkButton *button, gpointer user_data) {
+  (void)user_data;
+
+  WhelkMenuEntry *entry = g_object_get_data(G_OBJECT(button), "whelk-entry");
+  const char *command = g_object_get_data(G_OBJECT(button), "whelk-command");
+  const WhelkBarConfig *bar =
+      g_object_get_data(G_OBJECT(button), "whelk-bar");
+
+  close_ancestor_popover(GTK_WIDGET(button));
+
+  /* A row built here (Recent Items) carries its command directly; a row of the
+   * configured menu carries the entry it came from. */
+  if (!entry) {
+    if (command)
+      whelk_command_spawn(command);
+
+    return;
+  }
+
+  if (!entry->enabled)
+    return;
+
+  if (entry->action && g_str_has_prefix(entry->action, "shell:")) {
+    run_shell_action(entry->action + 6, bar);
+    return;
+  }
+
+  if (entry->command)
+    whelk_command_spawn(entry->command);
+  else if (entry->action)
+    whelk_command_spawn(entry->action);
+}
+
+static GtkWidget *row_with_accel(const char *label, const char *accel) {
+  GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
+  GtkWidget *text = gtk_label_new(label);
+  GtkWidget *chord = gtk_label_new(accel);
+
+  gtk_widget_set_hexpand(text, TRUE);
+  gtk_widget_set_halign(text, GTK_ALIGN_START);
+  gtk_label_set_xalign(GTK_LABEL(text), 0.0f);
+  gtk_widget_add_css_class(chord, "whelk-menu-accel");
+  gtk_box_append(GTK_BOX(row), text);
+  gtk_box_append(GTK_BOX(row), chord);
+
+  return row;
+}
+
+static gint compare_recent(gconstpointer a, gconstpointer b) {
+  GtkRecentInfo *left = *(GtkRecentInfo *const *)a;
+  GtkRecentInfo *right = *(GtkRecentInfo *const *)b;
+
+  /* The GDateTime is the info's own, not a copy: it is read, never freed. */
+  return g_date_time_compare(gtk_recent_info_get_modified(right),
+                             gtk_recent_info_get_modified(left));
+}
+
+/* What was opened recently, from the desktop's own list rather than a file the
+ * shell keeps: GTK's recent manager is the same list every other application
+ * adds to, so the menu agrees with them without being told. */
+static void fill_recent_items(GtkPopover *popover) {
+  GtkRecentManager *manager = gtk_recent_manager_get_default();
+  GList *items = gtk_recent_manager_get_items(manager);
+  GPtrArray *list = g_ptr_array_new();
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  guint shown = 0;
+
+  for (GList *cursor = items; cursor; cursor = cursor->next)
+    g_ptr_array_add(list, cursor->data);
+
+  g_ptr_array_sort(list, compare_recent);
+
+  for (guint i = 0; i < list->len && shown < 12; i++) {
+    GtkRecentInfo *info = g_ptr_array_index(list, i);
+    const char *uri = gtk_recent_info_get_uri(info);
+    const char *name = gtk_recent_info_get_display_name(info);
+    g_autofree char *quoted = uri ? g_shell_quote(uri) : NULL;
+    g_autofree char *command =
+        quoted ? g_strdup_printf("xdg-open %s", quoted) : NULL;
+    GtkWidget *button = NULL;
+
+    if (!command)
+      continue;
+
+    button = gtk_button_new_with_label(name ? name : uri);
+    gtk_widget_add_css_class(button, "flat");
+    gtk_widget_add_css_class(button, "whelk-menu-item");
+    gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+    g_object_set_data_full(G_OBJECT(button), "whelk-command",
+                           g_strdup(command), g_free);
+    g_signal_connect(button, "clicked", G_CALLBACK(on_item_clicked), NULL);
+    gtk_box_append(GTK_BOX(box), button);
+    shown++;
+  }
+
+  if (shown == 0) {
+    GtkWidget *empty = gtk_label_new("No Recent Items");
+
+    gtk_widget_add_css_class(empty, "dim-label");
+    gtk_box_append(GTK_BOX(box), empty);
+  }
+
+  gtk_popover_set_child(popover, box);
+  g_ptr_array_unref(list);
+  g_list_free_full(items, (GDestroyNotify)gtk_recent_info_unref);
+}
+
+static void on_recent_shown(GtkWidget *popover, gpointer user_data) {
+  (void)user_data;
+  fill_recent_items(GTK_POPOVER(popover));
+}
+
+static void fill_menu(GtkPopover *popover, WhelkMenu *menu,
+                      const WhelkBarConfig *bar);
+
+static gboolean on_menu_key(GtkEventControllerKey *controller, guint keyval,
+                            guint keycode, GdkModifierType state,
+                            gpointer user_data);
+
+/* Every popover of the shell's menu walks with the keyboard, submenus included:
+ * a chevron that cannot be opened without a mouse is a menu that has stopped
+ * being one. */
+static void attach_keys(GtkPopover *popover) {
+  GtkEventController *keys = gtk_event_controller_key_new();
+
+  gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_menu_key), NULL);
+  gtk_widget_add_controller(GTK_WIDGET(popover), keys);
+}
+
+static void add_entry_row(GtkWidget *box, WhelkMenuEntry *entry,
+                          const WhelkBarConfig *bar) {
+  if (entry->kind == WHELK_MENU_SEPARATOR) {
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    return;
+  }
+
+  if (entry->submenu) {
+    GtkWidget *button = gtk_menu_button_new();
+    GtkWidget *submenu_popover = gtk_popover_new();
+
+    gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(button), FALSE);
+    gtk_menu_button_set_label(GTK_MENU_BUTTON(button), entry->label);
+    gtk_menu_button_set_direction(GTK_MENU_BUTTON(button), GTK_ARROW_RIGHT);
+    gtk_widget_add_css_class(button, "flat");
+    gtk_widget_add_css_class(button, "whelk-menu-item");
+    gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+
+    whelk_style_popover(GTK_POPOVER(submenu_popover), bar);
+    fill_menu(GTK_POPOVER(submenu_popover), entry->submenu, bar);
+    attach_keys(GTK_POPOVER(submenu_popover));
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), submenu_popover);
+
+    /* A slot the shell fills when it opens: what was opened recently is only
+     * known at the moment somebody looks. */
+    if (entry->action && g_strcmp0(entry->action, "shell:recent-items") == 0)
+      g_signal_connect(submenu_popover, "show", G_CALLBACK(on_recent_shown),
+                       NULL);
+
+    g_object_set_data(G_OBJECT(button), "whelk-bar", (gpointer)bar);
+    gtk_box_append(GTK_BOX(box), button);
+    return;
+  }
+
+  GtkWidget *button = gtk_button_new();
+
+  if (entry->accel)
+    gtk_button_set_child(GTK_BUTTON(button),
+                         row_with_accel(entry->label, entry->accel));
+  else
+    gtk_button_set_child(GTK_BUTTON(button), gtk_label_new(entry->label));
 
   gtk_widget_add_css_class(button, "flat");
   gtk_widget_add_css_class(button, "whelk-menu-item");
   gtk_widget_set_halign(button, GTK_ALIGN_FILL);
-  g_object_set_data_full(G_OBJECT(button), WHELK_START_ACTION,
-                         g_strdup(action), g_free);
-  g_signal_connect(button, "clicked", G_CALLBACK(on_menu_action), NULL);
+  gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
+
+  if (!entry->enabled)
+    gtk_widget_set_sensitive(button, FALSE);
+
+  g_object_set_data(G_OBJECT(button), "whelk-entry", entry);
+  g_object_set_data(G_OBJECT(button), "whelk-bar", (gpointer)bar);
+  g_signal_connect(button, "clicked", G_CALLBACK(on_item_clicked), NULL);
   gtk_box_append(GTK_BOX(box), button);
 }
 
-/* A menu button's hover text belongs to the button, not to the menu: while the
- * menu is open the tooltip either covers the first entry or follows the
- * pointer down the list.  It is switched off for as long as the popover is up. */
-static void on_popover_show(GtkWidget *popover, gpointer user_data) {
-  (void)popover;
-  gtk_widget_set_has_tooltip(GTK_WIDGET(user_data), FALSE);
+static void fill_menu(GtkPopover *popover, WhelkMenu *menu,
+                      const WhelkBarConfig *bar) {
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+  for (guint i = 0; i < menu->entries->len; i++)
+    add_entry_row(box, g_ptr_array_index(menu->entries, i), bar);
+
+  gtk_popover_set_child(popover, box);
 }
 
-static void on_popover_hide(GtkWidget *popover, gpointer user_data) {
-  (void)popover;
-  gtk_widget_set_has_tooltip(GTK_WIDGET(user_data), TRUE);
+/* --- keyboard -------------------------------------------------------------- */
+
+static gboolean focusable(GtkWidget *child) {
+  return child && GTK_IS_BUTTON(child) && gtk_widget_get_sensitive(child);
+}
+
+/* A menu is a loop, not a page: Down past the last row is the first, and Up
+ * from the first is the last. */
+static GtkWidget *neighbour_item(GtkWidget *box, GtkWidget *from,
+                                 gboolean down) {
+  GPtrArray *items = g_ptr_array_new();
+  GtkWidget *target = NULL;
+  guint index = 0;
+  gboolean found = (from == NULL);
+
+  for (GtkWidget *child = gtk_widget_get_first_child(box); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    if (!focusable(child))
+      continue;
+
+    if (!found && child == from) {
+      index = items->len;
+      found = TRUE;
+    }
+
+    g_ptr_array_add(items, child);
+  }
+
+  if (items->len > 0) {
+    const guint count = items->len;
+
+    if (from == NULL)
+      index = down ? 0 : count - 1;
+    else
+      index = down ? (index + 1) % count : (index + count - 1) % count;
+
+    target = g_ptr_array_index(items, index);
+  }
+
+  g_ptr_array_unref(items);
+
+  return target;
+}
+
+static gboolean on_menu_key(GtkEventControllerKey *controller, guint keyval,
+                            guint keycode, GdkModifierType state,
+                            gpointer user_data) {
+  (void)keycode;
+  (void)state;
+  (void)user_data;
+
+  GtkWidget *popover =
+      gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+  GtkWidget *box = gtk_popover_get_child(GTK_POPOVER(popover));
+  GtkRoot *root = gtk_widget_get_root(popover);
+  GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+
+  if (focus && !gtk_widget_is_ancestor(focus, popover))
+    focus = NULL;
+
+  if (keyval == GDK_KEY_Escape) {
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    return TRUE;
+  }
+
+  /* Right opens the row's submenu, the way a menubar's Right does; the submenu
+   * carries the same controller, so it walks on its own. */
+  if (keyval == GDK_KEY_Right && focus && GTK_IS_MENU_BUTTON(focus)) {
+    GtkPopover *submenu = gtk_menu_button_get_popover(GTK_MENU_BUTTON(focus));
+
+    if (submenu) {
+      gtk_popover_popup(submenu);
+      return TRUE;
+    }
+  }
+
+  if (!box || (keyval != GDK_KEY_Down && keyval != GDK_KEY_Up))
+    return FALSE;
+
+  gtk_widget_grab_focus(
+      neighbour_item(box, focus, keyval == GDK_KEY_Down));
+
+  return TRUE;
 }
 
 /* =========================================================================
@@ -211,11 +514,54 @@ static GtkWidget *button_child(const WhelkModuleSpec *spec,
   return mark;
 }
 
+/* --- lifecycle ------------------------------------------------------------- */
+
+static void start_destroy(WhelkModule *module) {
+  StartData *data = module->data;
+
+  if (!data)
+    return;
+
+  g_clear_pointer(&data->menus, g_ptr_array_unref);
+  g_free(data);
+}
+
+static WhelkMenu *first_menu(StartData *data) {
+  return (data->menus && data->menus->len > 0)
+             ? g_ptr_array_index(data->menus, 0)
+             : NULL;
+}
+
+/* The menu a shell with no Scheme still has: the few ways in that are true
+ * whatever the configuration says.  A mark that opens nothing is worse than a
+ * short menu. */
+static WhelkMenu *fallback_menu(void) {
+  WhelkMenu *menu = whelk_menu_new("shell");
+  WhelkMenuEntry *entry = NULL;
+
+  entry = whelk_menu_add_entry(menu, "Search…");
+  entry->action = g_strdup("shell:launcher");
+  entry = whelk_menu_add_entry(menu, "Notifications");
+  entry->action = g_strdup("shell:notifications");
+  whelk_menu_add_separator(menu);
+  entry = whelk_menu_add_entry(menu, "Reload settings");
+  entry->command = g_strdup("whelk --reload");
+  entry = whelk_menu_add_entry(menu, "Quit whelk");
+  entry->command = g_strdup("whelk --quit");
+
+  return menu;
+}
+
 WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
                                     const WhelkBarConfig *bar) {
   WhelkModule *module = whelk_module_base_new("start", spec, bar);
+  StartData *data = g_new0(StartData, 1);
 
   gtk_widget_add_css_class(module->root, "whelk-start");
+
+  data->menus = whelk_bridge_shell_menu(NULL);
+  module->data = data;
+  module->destroy = start_destroy;
 
   GtkWidget *button = gtk_menu_button_new();
 
@@ -226,25 +572,22 @@ WhelkModule *whelk_start_module_new(const WhelkModuleSpec *spec,
                               whelk_spec_str(spec, "tooltip", "whelk"));
 
   GtkWidget *popover = gtk_popover_new();
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  WhelkMenu *menu = first_menu(data);
 
-  add_item(box, "Launcher", "launcher");
-  gtk_box_append(GTK_BOX(box),
-                 gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-  add_item(box, "Network", "network");
-  add_item(box, "Notifications", "notifications");
-  gtk_box_append(GTK_BOX(box),
-                 gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-  add_item(box, "Reload settings", "whelk --reload");
-  add_item(box, "Quit whelk", "whelk --quit");
+  whelk_style_popover(GTK_POPOVER(popover), bar);
 
-  whelk_style_popover(GTK_POPOVER(popover),
-                      module->bar);
+  if (menu) {
+    fill_menu(GTK_POPOVER(popover), menu, bar);
+  } else {
+    /* No Scheme came up: the shell still has to offer its own ways in. */
+    WhelkMenu *fallback = fallback_menu();
 
-  gtk_popover_set_child(GTK_POPOVER(popover), box);
-  g_signal_connect(popover, "show", G_CALLBACK(on_popover_show), button);
-  g_signal_connect(popover, "hide", G_CALLBACK(on_popover_hide), button);
+    fill_menu(GTK_POPOVER(popover), fallback, bar);
+    whelk_menu_free(fallback);
+  }
+
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
+  attach_keys(GTK_POPOVER(popover));
 
   gtk_box_append(GTK_BOX(module->root), button);
 

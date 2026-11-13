@@ -223,6 +223,8 @@ static int on_command_line(GApplication *application,
     whelk_shell_show_menu(g_shell, menu);
   else if (option_flag(command_line, "launcher"))
     whelk_shell_show_launcher(g_shell, option_text(command_line, "launcher-mode"));
+  else if (option_flag(command_line, "clipboard"))
+    whelk_shell_show_launcher(g_shell, "clipboard");
 
   if (option_flag(command_line, "notifications"))
     whelk_shell_toggle_notifications(g_shell);
@@ -245,7 +247,12 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(
       G_APPLICATION(app), "launcher-mode", 0, G_OPTION_FLAG_NONE,
       G_OPTION_ARG_STRING,
-      "Launcher mode: app, window, run, calc, file, web, menu", "MODE");
+      "Launcher mode: app, window, run, calc, file, web, menu, ssh, quit, "
+      "clipboard",
+      "MODE");
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Show the clipboard history", NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "menu", 'm', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
       "Show a menu from a command printing \"label<TAB>command\" lines",

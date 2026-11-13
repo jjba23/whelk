@@ -60,8 +60,10 @@ typedef struct {
   WhelkModule *module;
   guint generation;
   GDBusConnection *bus;
-  GPtrArray *paths; /* candidate object paths, consumed */
+  GPtrArray *paths;      /* org.gtk.Menus object paths, tried first */
   guint index;
+  GPtrArray *dbus_paths; /* com.canonical.dbusmenu paths, tried next */
+  guint dbus_index;
 } MenuProbe;
 
 /* One popover's place in the menu tree: whose top-level menu it belongs to
@@ -329,6 +331,24 @@ static void activate_entry(WhelkModule *module, WhelkMenuEntry *entry) {
 
   if (entry->command) {
     whelk_command_spawn(entry->command);
+    return;
+  }
+
+  /* A DBusMenu entry is not an action name: it is an id on the object that
+   * published the menu, and choosing it is an event sent back there. */
+  if (entry->dbus_service && entry->dbus_path) {
+    g_autoptr(GError) error = NULL;
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+
+    if (!bus)
+      return;
+
+    g_dbus_connection_call(bus, entry->dbus_service, entry->dbus_path,
+                           "com.canonical.dbusmenu", "Event",
+                           g_variant_new("(isvu)", entry->dbus_item, "clicked",
+                                         g_variant_new_int32(0), 0),
+                           NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
+    g_object_unref(bus);
     return;
   }
 
@@ -647,6 +667,7 @@ static void probe_next(MenuProbe *probe);
 static void probe_free(MenuProbe *probe) {
   g_clear_object(&probe->bus);
   g_clear_pointer(&probe->paths, g_ptr_array_unref);
+  g_clear_pointer(&probe->dbus_paths, g_ptr_array_unref);
   g_free(probe);
 }
 
@@ -687,9 +708,82 @@ static void on_start_reply(GObject *source, GAsyncResult *result,
     probe_next(probe);
 }
 
+/* =========================================================================
+ * THE OTHER MENU PROTOCOL
+ * =========================================================================
+ * `org.gtk.Menus' is how a GTK application publishes a menubar; Qt, KDE and
+ * everything that registers with `com.canonical.AppMenu.Registrar' answers
+ * `com.canonical.dbusmenu' instead.  Both are asked, in that order, because a
+ * menu bar that only speaks one toolkit's protocol is a menu bar for one
+ * toolkit's applications.
+ *
+ * The conventional paths are tried, not discovered: an application may put its
+ * menu anywhere, but the ones that publish one put it where the protocol says.
+ */
+
+static void probe_dbus_next(MenuProbe *probe);
+
+static void on_layout_reply(GObject *source, GAsyncResult *result,
+                            gpointer user_data) {
+  MenuProbe *probe = user_data;
+  MenuData *data = probe->module->data;
+  gboolean adopted = FALSE;
+
+  g_autoptr(GError) error = NULL;
+  GVariant *reply =
+      g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+  if (reply) {
+    if (probe->generation == data->generation && probe->dbus_index > 0) {
+      const char *path =
+          g_ptr_array_index(probe->dbus_paths, probe->dbus_index - 1);
+      GPtrArray *menus = whelk_menubar_from_dbusmenu(
+          reply, data->bus_name, path, data->style);
+
+      if (menus->len > 0) {
+        LOG_C_DEBUG("Menu", "%s exports DBusMenu at %s: %u menu(s)",
+                    data->app_id ? data->app_id : "(anonymous)", path,
+                    menus->len);
+        replace_menus(probe->module, menus);
+        adopted = TRUE;
+      } else {
+        g_ptr_array_unref(menus);
+      }
+    }
+
+    g_variant_unref(reply);
+  }
+
+  if (adopted || probe->generation != data->generation)
+    probe_free(probe);
+  else
+    probe_dbus_next(probe);
+}
+
+static void probe_dbus_next(MenuProbe *probe) {
+  MenuData *data = probe->module->data;
+
+  if (probe->dbus_index >= probe->dbus_paths->len) {
+    probe_free(probe);
+    return;
+  }
+
+  const char *path =
+      g_ptr_array_index(probe->dbus_paths, probe->dbus_index++);
+
+  /* parent 0, depth -1: the whole tree in one answer, which is what a menubar
+   * needs and what a menu that changes while it is open cannot use anyway. */
+  g_dbus_connection_call(probe->bus, data->bus_name, path,
+                         "com.canonical.dbusmenu", "GetLayout",
+                         g_variant_new("(ii)", 0, -1),
+                         G_VARIANT_TYPE("(u(ia{sv}av))"),
+                         G_DBUS_CALL_FLAGS_NONE, 1500, NULL, on_layout_reply,
+                         probe);
+}
+
 static void probe_next(MenuProbe *probe) {
   if (probe->index >= probe->paths->len) {
-    probe_free(probe);
+    probe_dbus_next(probe);
     return;
   }
 
@@ -734,12 +828,41 @@ static void probe_menus(WhelkModule *module) {
                   g_strdup_printf("%s/menus/menubar", data->app_path));
   g_ptr_array_add(probe->paths,
                   g_strdup_printf("%s/menus/AppMenu", data->app_path));
-  g_ptr_array_add(probe->paths, g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
+  /* A menubar that belongs to one window rather than to the application: the
+   * shape a document window uses when each window has its own menus. */
+  g_ptr_array_add(probe->paths,
+                  g_strdup_printf("%s/window/0/menus/menubar", data->app_path));
+  g_ptr_array_add(probe->paths,
+                  g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
+
+  probe->dbus_paths = g_ptr_array_new_with_free_func(g_free);
+  g_ptr_array_add(probe->dbus_paths, g_strdup("/MenuBar/1"));
+  g_ptr_array_add(probe->dbus_paths, g_strdup("/MenuBar/0"));
+  g_ptr_array_add(probe->dbus_paths, g_strdup("/com/canonical/dbusmenu"));
 
   probe_next(probe);
 }
 
 /* --- the application in front --------------------------------------------- */
+
+/* A menu a configuration writes itself: `#:menu-command' names a program that
+ * prints `Menu<TAB>Item<TAB>Chord<TAB>Command' lines, and its answer becomes
+ * the application's menubar.  That is the escape hatch for an application no
+ * bus describes, and the reason adding one does not need a rebuild. */
+static void on_script_menus(WhelkModule *module, const char *text,
+                            gpointer user_data) {
+  MenuData *data = module->data;
+
+  if (GPOINTER_TO_UINT(user_data) != data->generation)
+    return;
+
+  GPtrArray *menus = whelk_menubar_from_text(text, data->style);
+
+  if (menus->len > 0)
+    replace_menus(module, menus);
+  else
+    g_ptr_array_unref(menus);
+}
 
 static void build_for_app(WhelkModule *module, const char *app_id) {
   MenuData *data = module->data;
@@ -835,6 +958,17 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
   if (source)
     LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
                 source);
+
+  /* A configuration's own menu wins over every producer: it was asked for by
+   * name, for this application, and nothing the bus says is more specific. */
+  const char *menu_command =
+      whelk_spec_str(module->spec, "menu-command", NULL);
+
+  if (menu_command && *menu_command != '\0') {
+    whelk_module_command(module, menu_command, on_script_menus,
+                         GUINT_TO_POINTER(data->generation));
+    return;
+  }
 
   probe_menus(module);
 }

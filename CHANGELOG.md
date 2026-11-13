@@ -6,9 +6,68 @@ project follows [Semantic Versioning][semver].
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.9.0] - 2026-11-13
 
-_No changes yet._
+### Added
+
+- **A clipboard manager.** `wl-paste --watch` feeds a de-duplicated history
+  (newest first, fifty entries, memory only), and `whelk --clipboard` or the
+  launcher's `;` prefix lists it: choosing a row puts the copy back. The
+  default bar's clipboard button opens that picker instead of `clipman`.
+- **About This System is a window now.** The shell menu's first item opens a
+  card painted in the bar's palette: host name and system at the top, then the
+  processor, memory, disk, kernel, session and uptime, with a button that copies
+  the summary. It replaces the generic `GtkAboutDialog`.
+- **A shell menu that is configuration.** The popover behind the mark at the far
+  left of the bar is now built from `(whelk menu)` units written in the settings
+  file -- `(menu-item "Sleep" "systemctl suspend")`, `(menu-separator)`,
+  `(menu-submenu "Recent Items" "shell:recent-items")` -- with
+  `default-shell-menu` as the menu a file that writes none gets. The default is
+  the Apple menu's shape in this desktop's words: About This System (the machine
+  described in its own window), System
+  Settings, Software, a Recent Items submenu filled from GTK's recent list when
+  it opens, Force Quit, Sleep/Restart/Shut Down, Lock Screen and Log Out,
+  followed by the shell's own panels. Actions spelled `shell:name` are the
+  shell's (`about`, `launcher`, `force-quit`, `network`, `bluetooth`,
+  `notifications`, `dnd`, `reload`); anything else is a command line.
+- **The left half in macOS' order.** The default bar is now the shell menu, the
+  window in front's name in bold, and the application's File/Edit/View -- where
+  the reference bar puts its mark, its window title and its system menu.
+  `menu-module` keeps its application-name variant behind `#:app-name?` for a
+  bar that would rather have two items than three.
+- **DBusMenu, the other menu protocol.** `com.canonical.dbusmenu` is read as
+  well as `org.gtk.Menus`, so Qt and KDE applications' own menus appear in the
+  bar: `GetLayout` for the tree, the item's `shortcut` for the chord, and
+  `Event(id, "clicked")` when an entry is chosen. The window-scoped
+  `.../window/0/menus/menubar` path is probed too.
+- **A menu the configuration writes.** `menu-module`'s `#:menu-command` runs a
+  program that prints `Menu<TAB>Item<TAB>Chord<TAB>Command` lines, and those
+  become the focused application's menus -- the escape hatch for an application
+  no bus describes, with no rebuild.
+- **rofi's script protocol in the launcher.** A menu generator that prints
+  `label\0icon\x1f…\0nonselectable\x1ftrue` rows is read as bytes rather than as
+  text, so its icons appear, its rules are not selectable, and choosing a row
+  runs the generator again with `ROFI_RETV=1` and the label, the way rofi's own
+  script mode does.
+- **`ssh` and `quit` launcher modes.** `--launcher-mode=ssh` (prefix `%`) lists
+  the hosts `~/.ssh/config` names and opens one in a terminal, which is rofi's
+  `ssh` mode; `--launcher-mode=quit` (prefix `!`) lists the open windows and
+  closes the chosen one, which is what the shell menu's Force Quit opens.
+
+### Changed
+
+- **mako's numbers.** A toast stays ten seconds when the application does not
+  say (mako's `default-timeout` in the reference configuration), five toasts are
+  visible at once (`max-visible`), and a critical one still never expires on
+  its own.
+- `whelk --launcher-mode` documents the full mode list: app, window, run, calc,
+  file, web, menu, ssh, quit, clipboard.
+- **The notification centre and its toasts.** The centre's header now carries
+  the count (it was written to a label that was never built), each group wears
+  its application's icon and a count pill, cards gained padding, hover and
+  action-button styling, and the empty state is an icon with a sentence rather
+  than one grey line. Toasts carry up to two action buttons, so a notification
+  can be answered without opening the centre.
 
 ## [0.8.0] - 2026-11-13
 

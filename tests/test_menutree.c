@@ -9,6 +9,7 @@
 #include "util/menudict.h"
 
 #include <glib.h>
+#include <glib/gstdio.h>
 
 /* The menubar's two halves: what an application exports over D-Bus, and what
  * the shell makes up for the applications that export nothing. */
@@ -383,6 +384,186 @@ static void test_gtk_nothing(void) {
   g_assert_cmpuint(also_none->len, ==, 0);
 }
 
+/* com.canonical.dbusmenu's answer: a root whose children are the menubar's
+ * menus.  The two things worth pinning are the shape (menus then entries, a
+ * separator kept as a separator) and the id that has to travel with an entry,
+ * because choosing it is an event sent back to the object that published it. */
+static GVariant *dbusmenu_node(guint id, GVariantBuilder *props,
+                               GVariantBuilder *children) {
+  return g_variant_new_variant(
+      g_variant_new("(i@a{sv}@av)", id, g_variant_builder_end(props),
+                    g_variant_builder_end(children)));
+}
+
+static void test_dbusmenu_layout(void) {
+  GVariantBuilder new_props;
+  GVariantBuilder new_children;
+  GVariantBuilder shortcuts;
+  GVariantBuilder sep_props;
+  GVariantBuilder sep_children;
+  GVariantBuilder quit_props;
+  GVariantBuilder quit_children;
+  GVariantBuilder file_props;
+  GVariantBuilder file_children;
+  GVariantBuilder root_props;
+  GVariantBuilder root_children;
+  const char *chord[] = {"Control", "N", NULL};
+
+  g_variant_builder_init(&new_props, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_init(&shortcuts, G_VARIANT_TYPE("aas"));
+  g_variant_builder_add(&shortcuts, "@as", g_variant_new_strv(chord, -1));
+  g_variant_builder_add(&new_props, "{sv}", "label",
+                        g_variant_new_string("New Window"));
+  g_variant_builder_add(&new_props, "{sv}", "shortcut",
+                        g_variant_builder_end(&shortcuts));
+  g_variant_builder_init(&new_children, G_VARIANT_TYPE("av"));
+
+  g_variant_builder_init(&sep_props, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&sep_props, "{sv}", "type",
+                        g_variant_new_string("separator"));
+  g_variant_builder_init(&sep_children, G_VARIANT_TYPE("av"));
+
+  g_variant_builder_init(&quit_props, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&quit_props, "{sv}", "label",
+                        g_variant_new_string("Quit"));
+  g_variant_builder_add(&quit_props, "{sv}", "enabled",
+                        g_variant_new_boolean(FALSE));
+  g_variant_builder_init(&quit_children, G_VARIANT_TYPE("av"));
+
+  g_variant_builder_init(&file_children, G_VARIANT_TYPE("av"));
+  g_variant_builder_add_value(
+      &file_children, dbusmenu_node(1, &new_props, &new_children));
+  g_variant_builder_add_value(
+      &file_children, dbusmenu_node(2, &sep_props, &sep_children));
+  g_variant_builder_add_value(
+      &file_children, dbusmenu_node(3, &quit_props, &quit_children));
+
+  g_variant_builder_init(&file_props, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&file_props, "{sv}", "label",
+                        g_variant_new_string("File"));
+  g_variant_builder_add(&file_props, "{sv}", "children-display",
+                        g_variant_new_string("submenu"));
+
+  g_variant_builder_init(&root_props, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_init(&root_children, G_VARIANT_TYPE("av"));
+  g_variant_builder_add_value(
+      &root_children, dbusmenu_node(10, &file_props, &file_children));
+
+  g_autoptr(GVariant) layout = g_variant_ref_sink(
+      g_variant_new("(i@a{sv}@av)", 0, g_variant_builder_end(&root_props),
+                    g_variant_builder_end(&root_children)));
+  g_autoptr(GPtrArray) bar =
+      whelk_menubar_from_dbusmenu(layout, ":1.42", "/MenuBar/1",
+                                  WHELK_CHORD_CUA);
+
+  g_assert_cmpuint(bar->len, ==, 1);
+
+  WhelkMenu *file = menu_at(bar, 0);
+
+  g_assert_cmpstr(file->label, ==, "File");
+  g_assert_cmpuint(file->entries->len, ==, 3);
+  g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
+  g_assert_cmpstr(entry_at(file, 0)->accel, ==, "Ctrl+N");
+  g_assert_cmpstr(entry_at(file, 0)->dbus_path, ==, "/MenuBar/1");
+  g_assert_cmpint(entry_at(file, 0)->dbus_item, ==, 1);
+  g_assert_cmpint(entry_at(file, 1)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_false(entry_at(file, 2)->enabled);
+}
+
+/* The menu a configuration writes: one tab-separated line per entry, `-' for a
+ * rule, and `File>Export' for a submenu. */
+static void test_text_menubar(void) {
+  const char *text = "File\tNew Window\tC-n\tgtk-launch foo\n"
+                     "File\t-\n"
+                     "File>Export\tPDF…\t\tgs 'export pdf'\n"
+                     "# a comment\n"
+                     "Edit\tCopy\tCtrl+C\n";
+  g_autoptr(GPtrArray) bar =
+      whelk_menubar_from_text(text, WHELK_CHORD_CUA);
+
+  g_assert_cmpuint(bar->len, ==, 2);
+
+  WhelkMenu *file = menu_at(bar, 0);
+
+  g_assert_cmpstr(file->label, ==, "File");
+  g_assert_cmpuint(file->entries->len, ==, 3);
+  g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
+  g_assert_cmpstr(entry_at(file, 0)->accel, ==, "Ctrl+N");
+  g_assert_cmpstr(entry_at(file, 0)->command, ==, "gtk-launch foo");
+  g_assert_cmpint(entry_at(file, 1)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_nonnull(entry_at(file, 2)->submenu);
+  g_assert_cmpuint(entry_at(file, 2)->submenu->entries->len, ==, 1);
+
+  /* An entry with no command is shown, and disabled: it cannot do anything, so
+   * it must not pretend it can. */
+  g_assert_false(entry_at(menu_at(bar, 1), 0)->enabled);
+}
+
+/* The shell menu the runtime reads: Scheme units, through the bridge. */
+static void test_shell_menu(void) {
+  g_autoptr(GPtrArray) bar = whelk_bridge_shell_menu(NULL);
+
+  g_assert_cmpuint(bar->len, ==, 1);
+
+  WhelkMenu *menu = menu_at(bar, 0);
+
+  g_assert_cmpuint(menu->entries->len, >, 0);
+  g_assert_cmpstr(entry_at(menu, 0)->label, ==, "About This System");
+  g_assert_cmpstr(entry_at(menu, 0)->action, ==, "shell:about");
+
+  gboolean recent = FALSE;
+  gboolean force_quit = FALSE;
+
+  for (guint i = 0; i < menu->entries->len; i++) {
+    WhelkMenuEntry *entry = entry_at(menu, i);
+
+    if (entry->submenu && g_strcmp0(entry->action, "shell:recent-items") == 0)
+      recent = TRUE;
+
+    if (g_strcmp0(entry->action, "shell:force-quit") == 0)
+      force_quit = TRUE;
+  }
+
+  g_assert_true(recent);
+  g_assert_true(force_quit);
+}
+
+/* A settings file writes its own first menu, and the runtime reads that one
+ * rather than the default: the same road a bar's modules take. */
+static void test_shell_menu_from_settings(void) {
+  g_autofree char *path = g_build_filename(g_get_tmp_dir(),
+                                           "whelk-shell-menu-test.scm", NULL);
+  g_autofree char *settings = g_strdup_printf(
+      "(configure-shell!\n"
+      " #:config-path \"%s\"\n"
+      " #:shell-menu\n"
+      " (list (menu-item \"About This Machine\" \"shell:about\")\n"
+      "       (menu-separator)\n"
+      "       (menu-item \"Sleep\" \"systemctl suspend\")\n"
+      "       (menu-submenu \"More\" (menu-item \"Launcher\" \"shell:launcher\"))))\n",
+      path);
+
+  g_assert_true(g_file_set_contents(path, settings, -1, NULL));
+  g_assert_true(whelk_bridge_load(path));
+
+  g_autoptr(GPtrArray) bar = whelk_bridge_shell_menu(path);
+
+  g_assert_cmpuint(bar->len, ==, 1);
+
+  WhelkMenu *menu = menu_at(bar, 0);
+
+  g_assert_cmpstr(entry_at(menu, 0)->label, ==, "About This Machine");
+  g_assert_cmpstr(entry_at(menu, 0)->action, ==, "shell:about");
+  g_assert_cmpint(entry_at(menu, 1)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_cmpstr(entry_at(menu, 2)->command, ==, "systemctl suspend");
+  g_assert_nonnull(entry_at(menu, 3)->submenu);
+  g_assert_cmpuint(entry_at(menu, 3)->submenu->entries->len, ==, 1);
+  g_assert_cmpstr(entry_at(entry_at(menu, 3)->submenu, 0)->action, ==,
+                  "shell:launcher");
+
+  g_unlink(path);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -414,6 +595,11 @@ int main(int argc, char **argv) {
   g_test_add_func("/menutree/gtk/menubar", test_gtk_menubar);
   g_test_add_func("/menutree/gtk/sections", test_gtk_sections_inside_a_menu);
   g_test_add_func("/menutree/gtk/nothing", test_gtk_nothing);
+  g_test_add_func("/menutree/dbusmenu/layout", test_dbusmenu_layout);
+  g_test_add_func("/menutree/text/menubar", test_text_menubar);
+  g_test_add_func("/menutree/shell-menu", test_shell_menu);
+  g_test_add_func("/menutree/shell-menu/from-settings",
+                  test_shell_menu_from_settings);
 
   return g_test_run();
 }

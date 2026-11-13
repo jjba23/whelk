@@ -197,30 +197,64 @@ window.whelk-surface {
   background: alpha(currentColor, 0.18);
 }
 
+.whelk-panel-subtitle {
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
 .whelk-panel-empty {
-  opacity: 0.6;
-  padding: 12px 4px;
+  padding: 30px 8px;
+}
+
+.whelk-panel-empty-icon {
+  opacity: 0.3;
+}
+
+.whelk-panel-empty-title {
+  font-weight: 600;
+}
+
+.whelk-panel-empty-hint {
+  opacity: 0.5;
+  font-size: 0.88em;
 }
 
 /* --- notifications ------------------------------------------------------- */
 
 .whelk-group-title {
   font-weight: 600;
+  font-size: 0.95em;
+}
+
+.whelk-group-icon {
+  opacity: 0.9;
 }
 
 .whelk-group-count {
-  opacity: 0.55;
-  font-size: 0.85em;
+  opacity: 0.7;
+  font-size: 0.78em;
+  min-width: 0;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: alpha(currentColor, 0.1);
 }
 
 .whelk-card {
-  padding: 10px;
-  border-radius: 10px;
+  padding: 12px;
+  border-radius: 12px;
   background: alpha(currentColor, 0.06);
+}
+
+.whelk-notification:hover {
+  background: alpha(currentColor, 0.09);
 }
 
 .whelk-notification.critical {
   border-left: 3px solid #e01b24;
+}
+
+.whelk-notification-icon {
+  border-radius: 6px;
 }
 
 .whelk-notification-summary {
@@ -238,12 +272,63 @@ window.whelk-surface {
 }
 
 .whelk-notification-action {
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: alpha(currentColor, 0.08);
+}
+
+.whelk-notification-action:hover {
+  background: alpha(currentColor, 0.16);
 }
 
 .whelk-toast-stack .whelk-card {
-  background: alpha(currentColor, 0.1);
+  background: alpha(currentColor, 0.12);
+  box-shadow: 0 8px 24px alpha(black, 0.28);
+}
+
+/* --- about this system --------------------------------------------------- */
+
+window.whelk-about-window {
+  background: transparent;
+}
+
+.whelk-about {
+  padding: 24px;
+  border-radius: 16px;
+}
+
+.whelk-about-badge {
+  padding: 10px;
+  border-radius: 40px;
+  background: alpha(currentColor, 0.08);
+}
+
+.whelk-about-host {
+  font-size: 1.4em;
+  font-weight: 700;
+}
+
+.whelk-about-os {
+  opacity: 0.6;
+  font-size: 0.92em;
+}
+
+.whelk-about-key {
+  opacity: 0.55;
+}
+
+.whelk-about-value {
+  font-weight: 500;
+}
+
+.whelk-about-footer {
+  opacity: 0.5;
+  font-size: 0.82em;
+}
+
+.whelk-about-action {
+  padding: 5px 14px;
+  border-radius: 8px;
 }
 
 /* --- launcher ------------------------------------------------------------ */
@@ -371,4 +456,14 @@ window.whelk-surface {
   background: transparent;
   border: none;
   box-shadow: none;
+}
+
+/* The focused window's name, between the shell's menu and the application's
+ * File and Edit: the one item in that row a menu bar sets in bold, because it
+ * is the answer to "whose window am I in" and the menus beside it are the
+ * answer to "what can be done to it". */
+.whelk-menubar-title,
+.whelk-menubar-title label {
+  font-weight: 700;
+  opacity: 1;
 }

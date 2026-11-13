@@ -25,15 +25,55 @@
 ;;; Code:
 
 (define-module (whelk defaults)
+  #:use-module (whelk menu)
   #:use-module (whelk modules)
   #:use-module (whelk state)
-  #:export (default-bar default-configuration!))
+  #:export (default-bar default-shell-menu default-configuration!))
 
 (define icon-font "Font Awesome 6 Free Solid")
 
 (define (rofi-relaunch command)
   "Run COMMAND after handing any open rofi's seat to it."
   (format #f "pkill rofi 2>/dev/null; ~a" command))
+
+(define (default-shell-menu)
+  "Return the shell's own menu: what the mark at the far left opens.
+
+It is a menu bar's first menu, in this desktop's words: what this machine is,
+the ways into it, what was opened recently, what to do about a window that will
+not leave, and the ways out of the session -- followed, after a rule, by the
+shell's own panels and the reload and quit a configuration needs while it is
+being written.  That is the Apple menu's shape and its order; the entries are
+this shell's, and every one of them is something it can actually do.
+
+A settings file that wants a different first menu passes its own
+`#:shell-menu' to `configure-shell!' -- the list below is not privileged, it is
+just the one that ships."
+  (let ((user (or (getenv "USER") "")))
+    (list
+     (menu-item "About This System" "shell:about")
+     (menu-item "System Settings…" "gnome-control-center")
+     (menu-item "Software…" "gnome-software")
+     (menu-separator)
+     (menu-submenu "Recent Items" "shell:recent-items")
+     (menu-separator)
+     (menu-item "Force Quit…" "shell:force-quit")
+     (menu-separator)
+     (menu-item "Sleep" "systemctl suspend")
+     (menu-item "Restart…" "systemctl reboot")
+     (menu-item "Shut Down…" "systemctl poweroff")
+     (menu-separator)
+     (menu-item "Lock Screen" "loginctl lock-session")
+     (menu-item (format #f "Log Out ~a…" user)
+                "loginctl terminate-session \"$XDG_SESSION_ID\"")
+     (menu-separator)
+     (menu-item "Search…" "shell:launcher")
+     (menu-item "Network" "shell:network")
+     (menu-item "Bluetooth" "shell:bluetooth")
+     (menu-item "Notifications" "shell:notifications")
+     (menu-separator)
+     (menu-item "Reload settings" "whelk --reload")
+     (menu-item "Quit whelk" "whelk --quit"))))
 
 (define (default-bar)
   "Return the built-in bar: the heks-linux Waybar bar and the global menu."
@@ -56,12 +96,20 @@
    #:radius 0
 
    ;; ---------------------------------------------------------------- left --
-   ;; One menu, and it is the application's: a short name with the shell's own
-   ;; actions behind it (launcher, panels, reload, quit), then the application
-   ;; in front's File, Edit and View.  A bar that also wants the whelk mark can
-   ;; still put (start-module) before it.
+   ;; A menu bar's left half, in the order macOS puts it: the machine's own
+   ;; menu behind a mark (instead of an apple, the whelk), then the name of the
+   ;; window in front, then that application's File, Edit and View.  The shell
+   ;; menu is (default-shell-menu) unless the configuration writes its own; the
+   ;; window module says the title while the menu module speaks for it.
    #:left (list
+           (start-module)
+           (window-module #:format "{title}"
+                          #:max-length 40
+                          #:interval 1
+                          #:css-class "whelk-menubar-title"
+                          #:tooltip "{title}\n{app-id}")
            (menu-module #:shortcuts? #t
+                        #:app-name? #f
                         #:accelerator-style 'cua))
 
    ;; -------------------------------------------------------------- center --
@@ -94,7 +142,8 @@ Click: transport controls · Right-click: play or pause · Middle: next track"
                            #:icon "\uf328"
                            #:tooltip "Clipboard history
 Click: browse the history"
-                           #:on-click (rofi-relaunch "clipman pick --tool=rofi"))
+                           #:on-click (rofi-relaunch
+                                      "whelk --launcher --launcher-mode=clipboard"))
 
             ;; Password manager.
             (custom-module #:exec "printf '\\uf084'"

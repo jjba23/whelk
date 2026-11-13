@@ -34,11 +34,20 @@
 
 (define built-in (default-bar))
 
-;; The bar's left half is one menu: the focused application's short name, with
-;; the shell's own actions and the application's menus behind it.
-(check "the left half is the app menu"
+;; The bar's left half is a menu bar's: the machine's own menu, the name of the
+;; window in front, then that application's File and Edit.  macOS' order, with
+;; a whelk where the apple is.
+(check "the left half is the shell menu, the window and its menus"
        (equal? (kinds (bar-config-modules-left built-in))
-               '(menu)))
+               '(start window menu)))
+
+;; And what that first menu opens is configuration, not a C table.
+(check "the shell menu has the machine's items"
+       (let ((units (default-shell-menu)))
+         (and (pair? units)
+              (equal? (car units) '(item "About This System" "shell:about"))
+              (member '(submenu "Recent Items" "shell:recent-items") units)
+              (member '(item "Force Quit…" "shell:force-quit") units))))
 
 ;; The reference's right half, in its order: the media and desktop items, the
 ;; hardware readouts, the status icons, then search and the clock.

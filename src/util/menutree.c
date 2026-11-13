@@ -24,6 +24,8 @@ static void menu_entry_free(WhelkMenuEntry *entry) {
   g_free(entry->action);
   g_free(entry->target);
   g_free(entry->command);
+  g_free(entry->dbus_service);
+  g_free(entry->dbus_path);
 
   if (entry->submenu)
     whelk_menu_free(entry->submenu);
@@ -572,6 +574,323 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
     g_ptr_array_add(bar, window);
   else
     whelk_menu_free(window);
+
+  return bar;
+}
+
+/* =========================================================================
+ * A MENUBAR AN APPLICATION EXPORTS AS DBUSMENU
+ * =========================================================================
+ * `com.canonical.dbusmenu.GetLayout' answers with a tree: a root node whose
+ * children are the menubar's menus, and each of those a list of entries --
+ * (id, properties, children), all the way down.  Qt, KDE and everything that
+ * registers with `com.canonical.AppMenu.Registrar' speaks it, which is why the
+ * shell reads both protocols rather than betting on one toolkit.
+ *
+ * Unlike `org.gtk.Menus', an entry is not an action name: it is an id, and
+ * choosing it means sending `Event(id, "clicked", ...)' back to the object
+ * that published it.  The id therefore travels with the entry, and the module
+ * sends the event instead of typing anything.
+ */
+
+static const char *node_prop_string(GVariant *props, const char *key) {
+  const char *value = NULL;
+
+  return g_variant_lookup(props, key, "&s", &value) ? value : NULL;
+}
+
+/* One key or modifier as the target style writes it.  DBusMenu names come from
+ * the X keysym table ("Control", "Shift", "Mod4"), not from either of the two
+ * notations a person writes. */
+static const char *shortcut_part(const char *name, WhelkChordStyle style) {
+  const gboolean cua = style == WHELK_CHORD_CUA;
+
+  if (g_strcmp0(name, "Control") == 0 || g_strcmp0(name, "Ctrl") == 0)
+    return cua ? "Ctrl" : "C";
+  if (g_strcmp0(name, "Shift") == 0)
+    return cua ? "Shift" : "S";
+  if (g_strcmp0(name, "Alt") == 0 || g_strcmp0(name, "Mod1") == 0)
+    return cua ? "Alt" : "A";
+  if (g_strcmp0(name, "Super") == 0 || g_strcmp0(name, "Meta") == 0 ||
+      g_strcmp0(name, "Mod4") == 0)
+    return cua ? "Super" : "s";
+
+  return name;
+}
+
+/* The item's `shortcut' property (`aas': chords, each a list of keys) as a
+ * menubar shows it. */
+static char *dbusmenu_shortcut(GVariant *props, WhelkChordStyle style) {
+  GVariant *shortcut =
+      g_variant_lookup_value(props, "shortcut", G_VARIANT_TYPE("aas"));
+
+  if (!shortcut)
+    return NULL;
+
+  GString *written = g_string_new(NULL);
+  GVariantIter iter;
+  GVariant *chord = NULL;
+  gboolean first_chord = TRUE;
+
+  g_variant_iter_init(&iter, shortcut);
+
+  while (g_variant_iter_next(&iter, "@as", &chord)) {
+    GVariantIter keys;
+    const char *key = NULL;
+    gboolean first_key = TRUE;
+
+    if (!first_chord)
+      g_string_append_c(written, ' ');
+
+    g_variant_iter_init(&keys, chord);
+
+    while (g_variant_iter_next(&keys, "&s", &key)) {
+      if (!first_key)
+        g_string_append_c(written, '+');
+
+      g_string_append(written, shortcut_part(key, style));
+      first_key = FALSE;
+    }
+
+    g_variant_unref(chord);
+    first_chord = FALSE;
+  }
+
+  g_variant_unref(shortcut);
+
+  if (written->len == 0) {
+    g_string_free(written, TRUE);
+    return NULL;
+  }
+
+  return g_string_free(written, FALSE);
+}
+
+static void dbusmenu_entries(WhelkMenu *menu, GVariant *children,
+                             const char *service, const char *path,
+                             guint depth, WhelkChordStyle style);
+
+static void dbusmenu_node(WhelkMenu *menu, GVariant *node, const char *service,
+                          const char *path, guint depth,
+                          WhelkChordStyle style) {
+  if (depth > WHELK_MENU_MAX_DEPTH)
+    return;
+
+  gint32 id = 0;
+  GVariant *props = NULL;
+  GVariant *children = NULL;
+
+  g_variant_get(node, "(i@a{sv}@av)", &id, &props, &children);
+
+  gboolean visible = TRUE;
+
+  g_variant_lookup(props, "visible", "b", &visible);
+
+  if (visible) {
+    const char *type = node_prop_string(props, "type");
+
+    if (g_strcmp0(type, "separator") == 0) {
+      whelk_menu_add_separator(menu);
+    } else {
+      const char *label = node_prop_string(props, "label");
+      WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label ? label : "");
+      gboolean enabled = TRUE;
+
+      if (g_variant_lookup(props, "enabled", "b", &enabled))
+        entry->enabled = enabled;
+
+      entry->accel = dbusmenu_shortcut(props, style);
+      entry->dbus_service = g_strdup(service);
+      entry->dbus_path = g_strdup(path);
+      entry->dbus_item = id;
+
+      if (g_variant_n_children(children) > 0) {
+        entry->submenu = whelk_menu_new(entry->label);
+        dbusmenu_entries(entry->submenu, children, service, path, depth + 1,
+                         style);
+      }
+    }
+  }
+
+  g_variant_unref(props);
+  g_variant_unref(children);
+}
+
+/* `av' holds variants, so each child is unwrapped before it is a node. */
+static void dbusmenu_entries(WhelkMenu *menu, GVariant *children,
+                             const char *service, const char *path,
+                             guint depth, WhelkChordStyle style) {
+  GVariantIter iter;
+  GVariant *boxed = NULL;
+
+  g_variant_iter_init(&iter, children);
+
+  while (g_variant_iter_next(&iter, "@v", &boxed)) {
+    GVariant *node = g_variant_get_variant(boxed);
+
+    dbusmenu_node(menu, node, service, path, depth, style);
+    g_variant_unref(node);
+    g_variant_unref(boxed);
+  }
+}
+
+GPtrArray *whelk_menubar_from_dbusmenu(GVariant *reply, const char *service,
+                                       const char *path,
+                                       WhelkChordStyle style) {
+  GPtrArray *bar = whelk_menubar_new();
+  GVariant *layout = NULL;
+
+  if (!reply || !service || !path)
+    return bar;
+
+  if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(u(ia{sv}av))")))
+    layout = g_variant_get_child_value(reply, 1);
+  else if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(ia{sv}av)")))
+    layout = g_variant_ref(reply);
+  else
+    return bar;
+
+  GVariant *children = g_variant_get_child_value(layout, 2);
+  GVariantIter iter;
+  GVariant *boxed = NULL;
+
+  g_variant_iter_init(&iter, children);
+
+  while (g_variant_iter_next(&iter, "@v", &boxed)) {
+    GVariant *node = g_variant_get_variant(boxed);
+    gint32 id = 0;
+    GVariant *props = NULL;
+    GVariant *kids = NULL;
+
+    g_variant_get(node, "(i@a{sv}@av)", &id, &props, &kids);
+
+    const char *label = node_prop_string(props, "label");
+
+    if (label && *label != '\0') {
+      WhelkMenu *menu = whelk_menu_new(label);
+
+      dbusmenu_entries(menu, kids, service, path, 1, style);
+
+      if (menu->entries->len > 0)
+        g_ptr_array_add(bar, menu);
+      else
+        whelk_menu_free(menu);
+    }
+
+    g_variant_unref(props);
+    g_variant_unref(kids);
+    g_variant_unref(node);
+    g_variant_unref(boxed);
+  }
+
+  g_variant_unref(children);
+  g_variant_unref(layout);
+
+  return bar;
+}
+
+/* =========================================================================
+ * A MENUBAR A CONFIGURATION WRITES
+ * =========================================================================
+ * The third producer needs no protocol at all: a command prints one line per
+ * entry, and the shell reads it.  That is the escape hatch for an application
+ * no dictionary knows and no bus can describe -- a login shell, a container, a
+ * plugin host -- and it is the same shape the launcher's rofi-script mode uses,
+ * with a menu name where the launcher has a section.
+ */
+
+static WhelkMenu *text_menu(GPtrArray *bar, const char *path) {
+  g_auto(GStrv) segments = g_strsplit(path, ">", -1);
+  char *first = g_strstrip(segments[0]);
+  WhelkMenu *menu = NULL;
+
+  for (guint i = 0; i < bar->len; i++) {
+    WhelkMenu *candidate = g_ptr_array_index(bar, i);
+
+    if (g_strcmp0(candidate->label, first) == 0) {
+      menu = candidate;
+      break;
+    }
+  }
+
+  if (!menu) {
+    menu = whelk_menu_new(first);
+    g_ptr_array_add(bar, menu);
+  }
+
+  for (guint i = 1; segments[i]; i++) {
+    char *label = g_strstrip(segments[i]);
+    WhelkMenu *next = NULL;
+
+    if (*label == '\0')
+      continue;
+
+    for (guint j = 0; j < menu->entries->len; j++) {
+      WhelkMenuEntry *entry = g_ptr_array_index(menu->entries, j);
+
+      if (entry->submenu && g_strcmp0(entry->label, label) == 0) {
+        next = entry->submenu;
+        break;
+      }
+    }
+
+    if (!next)
+      next = whelk_menu_add_submenu(menu, label);
+
+    menu = next;
+  }
+
+  return menu;
+}
+
+GPtrArray *whelk_menubar_from_text(const char *text, WhelkChordStyle style) {
+  GPtrArray *bar = whelk_menubar_new();
+
+  if (!text)
+    return bar;
+
+  g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
+
+  for (guint i = 0; lines[i]; i++) {
+    char *line = g_strchomp(lines[i]);
+
+    if (*line == '\0' || *line == '#')
+      continue;
+
+    g_auto(GStrv) fields = g_strsplit(line, "\t", 4);
+
+    if (!fields[0] || !fields[1] || *fields[0] == '\0')
+      continue;
+
+    WhelkMenu *menu = text_menu(bar, fields[0]);
+
+    if (g_strcmp0(fields[1], "-") == 0) {
+      whelk_menu_add_separator(menu);
+      continue;
+    }
+
+    WhelkMenuEntry *entry = whelk_menu_add_entry(menu, fields[1]);
+
+    if (fields[2] && *fields[2])
+      entry->accel = whelk_chord_sequence_display(fields[2], style);
+
+    if (fields[3] && *fields[3])
+      entry->command = g_strdup(fields[3]);
+    else
+      entry->enabled = FALSE;
+  }
+
+  /* A menu nobody managed to put an entry in is not a menu. */
+  for (guint i = 0; i < bar->len;) {
+    WhelkMenu *menu = g_ptr_array_index(bar, i);
+
+    if (menu->entries->len > 0) {
+      i++;
+      continue;
+    }
+
+    g_ptr_array_remove_index(bar, i);
+  }
 
   return bar;
 }

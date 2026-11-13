@@ -12,6 +12,7 @@
 #include "logger.h"
 #include "util/chord.h"
 #include "util/menudict.h"
+#include "util/menutree.h"
 
 /* =========================================================================
  * CALLING INTO SCHEME
@@ -496,4 +497,112 @@ GPtrArray *whelk_bridge_menudict(void) {
   }
 
   return table;
+}
+
+/* =========================================================================
+ * THE SHELL'S OWN MENU
+ * =========================================================================
+ * The popover behind the mark at the far left of the bar is configuration, not
+ * a C table: a settings file writes it with `(whelk menu)' units, and the
+ * bridge turns those into the same menu tree the global menu uses.  An action
+ * spelled `shell:name' is a thing the shell itself does (show the launcher,
+ * open the notification centre, offer the windows to close); anything else is a
+ * command line, run the way every other click on this bar runs one.
+ *
+ * A file that configures no menu gets `default-shell-menu', so the walk below
+ * is the same in both cases -- and so the default lives where a person can read
+ * it and a machine can override it.
+ */
+
+static void fill_shell_units(WhelkMenu *menu, SCM units) {
+  for (SCM cursor = units; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    SCM unit = SCM_CAR(cursor);
+
+    if (!scm_is_pair(unit))
+      continue;
+
+    g_autofree char *tag = scm_text(SCM_CAR(unit));
+    SCM rest = SCM_CDR(unit);
+
+    if (!tag)
+      continue;
+
+    if (g_strcmp0(tag, "separator") == 0) {
+      whelk_menu_add_separator(menu);
+      continue;
+    }
+
+    if (g_strcmp0(tag, "item") == 0) {
+      g_autofree char *label = scm_text(scheme_list_ref(rest, 0));
+      g_autofree char *action = scm_text(scheme_list_ref(rest, 1));
+
+      if (!label || *label == '\0')
+        continue;
+
+      WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
+
+      if (!action || *action == '\0')
+        entry->enabled = FALSE; /* a row that says what it cannot do */
+      else if (g_str_has_prefix(action, "shell:"))
+        entry->action = g_strdup(action);
+      else
+        entry->command = g_strdup(action);
+
+      continue;
+    }
+
+    if (g_strcmp0(tag, "submenu") == 0 || g_strcmp0(tag, "menu") == 0) {
+      g_autofree char *label = scm_text(scheme_list_ref(rest, 0));
+      SCM body = scm_is_pair(rest) ? SCM_CDR(rest) : SCM_EOL;
+
+      if (!label || *label == '\0')
+        continue;
+
+      WhelkMenu *submenu = whelk_menu_add_submenu(menu, label);
+      WhelkMenuEntry *entry = menu->entries->len > 0
+                                  ? g_ptr_array_index(menu->entries,
+                                                      menu->entries->len - 1)
+                                  : NULL;
+
+      /* A submenu whose body is one string is a slot the shell fills itself
+       * when it opens -- `(submenu "Recent Items" "shell:recent-items")'. */
+      SCM marker_arg = scm_is_pair(body) ? SCM_CAR(body) : SCM_BOOL_F;
+
+      if ((scm_is_string(marker_arg) || scm_is_symbol(marker_arg)) &&
+          scheme_list_length(body) == 1) {
+        g_autofree char *marker = scm_text(marker_arg);
+
+        if (entry && marker && *marker != '\0')
+          entry->action = g_strdup(marker);
+
+        continue;
+      }
+
+      fill_shell_units(submenu, body);
+      continue;
+    }
+  }
+}
+
+GPtrArray *whelk_bridge_shell_menu(const char *path) {
+  GPtrArray *bar = whelk_menubar_new();
+  SCM units = call_with_path("whelk state", "shell-menu->units", path);
+
+  if (!scm_is_pair(units)) {
+    if (!load_module("whelk defaults"))
+      return bar;
+
+    units = call0("whelk defaults", "default-shell-menu");
+  }
+
+  WhelkMenu *root = whelk_menu_new("shell");
+
+  fill_shell_units(root, units);
+
+  if (root->entries->len > 0)
+    g_ptr_array_add(bar, root);
+  else
+    whelk_menu_free(root);
+
+  return bar;
 }

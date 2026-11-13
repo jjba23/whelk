@@ -26,11 +26,16 @@ G_BEGIN_DECLS
  *           skipped, the query ranked by name and by path
  *   web     the default browser, with the query
  *   menu    any program that prints "label<TAB>command" lines
+ *   ssh     the hosts ~/.ssh/config names, opened in a terminal (rofi's ssh)
+ *   quit    the open windows, closed rather than focused (a Force Quit menu)
+ *   clipboard  what was copied, newest first; Enter puts it back
  *
  * The mode is chosen by --launcher-mode, by the shell's own keybinding, or by a
- * prefix typed into the entry (> run, = calc, / file, ? web, @ window).  What
- * every mode shares is the matching: whelk_fuzzy_score() ranks a prefix above a
- * buried match, and Tab completes the selection into the entry.
+ * prefix typed into the entry (> run, = calc, / file, ? web, @ window, % ssh,
+ * ! close, ; clipboard).  What every mode shares is the matching:
+ * whelk_fuzzy_score() ranks
+ * a prefix above a buried match, and Tab completes the selection into the
+ * entry.
  */
 
 #define WHELK_TYPE_LAUNCHER (whelk_launcher_get_type())
@@ -50,7 +55,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
  * whelk_launcher_show:
  * @self: the launcher.
  * @mode: (nullable): "app" (the default), "window", "run", "calc", "file",
- *   "web" or "menu".
+ *   "web", "menu", "ssh", "quit" or "clipboard".
  *
  * Shows the overlay with an empty query, and focuses the entry.
  */

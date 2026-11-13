@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.8.0',
+  version: '0.9.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -139,7 +139,9 @@ inc = include_directories('src')
 
 whelk_sources = files(
   'src/main.c',
+  'src/about.c',
   'src/bar.c',
+  'src/clipboard.c',
   'src/config.c',
   'src/guile_bridge.c',
   'src/launcher.c',
@@ -270,6 +272,14 @@ unit_tests = [
   {
     'id': 'nmcli',
     'sources': ['src/util/nmcli.c'],
+  },
+  {
+    'id': 'clipboard',
+    'sources': [
+      'src/clipboard.c',
+      'src/util/command.c',
+      'src/util/format.c',
+    ],
   },
 ]
 

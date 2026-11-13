@@ -27,7 +27,8 @@
 
 #define WHELK_PANEL_WIDTH 380
 #define WHELK_TOAST_WIDTH 380
-#define WHELK_TOAST_LIMIT 3
+/* mako's max-visible, which the reference bar's configuration sets to 5. */
+#define WHELK_TOAST_LIMIT 5
 
 typedef struct {
   GtkWidget *cards; /* the group's card column */
@@ -265,6 +266,23 @@ static GtkWidget *build_card(WhelkNotificationCenter *self,
   gtk_label_set_ellipsize(GTK_LABEL(summary), PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand(summary, TRUE);
 
+  /* The application's own mark, the way a notification daemon draws one: the
+   * image the notification carried, else its icon name, else its desktop
+   * entry's icon.  A notification without one keeps its text and gains no
+   * empty square. */
+  const char *icon = whelk_notification_icon(notification);
+
+  if (icon && *icon) {
+    GtkWidget *image = g_path_is_absolute(icon)
+                           ? gtk_image_new_from_file(icon)
+                           : gtk_image_new_from_icon_name(icon);
+
+    gtk_image_set_pixel_size(GTK_IMAGE(image), toast ? 32 : 36);
+    gtk_widget_set_valign(image, GTK_ALIGN_START);
+    gtk_widget_add_css_class(image, "whelk-notification-icon");
+    gtk_box_append(GTK_BOX(head), image);
+  }
+
   gtk_box_append(GTK_BOX(head), summary);
   gtk_box_append(GTK_BOX(head), close);
   gtk_box_append(GTK_BOX(card), head);
@@ -282,34 +300,40 @@ static GtkWidget *build_card(WhelkNotificationCenter *self,
     gtk_box_append(GTK_BOX(card), body);
   }
 
+  const guint actions = whelk_notification_action_count(notification);
+
   if (!toast) {
     g_autofree char *time = whelk_notification_time(notification);
     GtkWidget *stamp = gtk_label_new(time);
 
     gtk_widget_add_css_class(stamp, "whelk-notification-time");
+    gtk_label_set_xalign(GTK_LABEL(stamp), 0.0);
+    gtk_widget_set_hexpand(stamp, TRUE);
     gtk_box_append(GTK_BOX(footer), stamp);
-
-    const guint actions = whelk_notification_action_count(notification);
-
-    for (guint i = 0; i < actions; i++) {
-      const char *label = whelk_notification_action_label(notification, i);
-      const char *action = whelk_notification_action_id(notification, i);
-
-      if (!label || *label == '\0')
-        continue;
-
-      GtkWidget *button = gtk_button_new_with_label(label);
-
-      gtk_widget_add_css_class(button, "whelk-notification-action");
-      g_object_set_data_full(G_OBJECT(button), "whelk-action-id",
-                             g_strdup(action), g_free);
-      g_signal_connect(button, "clicked", G_CALLBACK(on_action_clicked),
-                       close);
-      gtk_box_append(GTK_BOX(footer), button);
-    }
-
-    gtk_box_append(GTK_BOX(card), footer);
   }
+
+  /* A toast carries its actions too: a Reply button that only exists after
+   * opening the centre is a button that arrives too late.  Two at most, because
+   * a bubble is not a dialog. */
+  for (guint i = 0; i < actions && (!toast || i < 2); i++) {
+    const char *label = whelk_notification_action_label(notification, i);
+    const char *action = whelk_notification_action_id(notification, i);
+
+    if (!label || *label == '\0')
+      continue;
+
+    GtkWidget *button = gtk_button_new_with_label(label);
+
+    gtk_widget_add_css_class(button, "whelk-notification-action");
+    g_object_set_data_full(G_OBJECT(button), "whelk-action-id",
+                           g_strdup(action), g_free);
+    g_signal_connect(button, "clicked", G_CALLBACK(on_action_clicked),
+                     close);
+    gtk_box_append(GTK_BOX(footer), button);
+  }
+
+  if (gtk_widget_get_first_child(footer))
+    gtk_box_append(GTK_BOX(card), footer);
 
   attach_card_click(self, card, id, toast);
 
@@ -356,6 +380,20 @@ static void rebuild_panel(WhelkNotificationCenter *self) {
       GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
       GtkWidget *title = gtk_label_new(NULL);
 
+      /* The app's own mark, so a column of groups reads like a list of apps
+       * rather than a column of names. */
+      const char *app_icon = whelk_notification_icon(notification);
+
+      if (app_icon && *app_icon) {
+        GtkWidget *mark = g_path_is_absolute(app_icon)
+                              ? gtk_image_new_from_file(app_icon)
+                              : gtk_image_new_from_icon_name(app_icon);
+
+        gtk_image_set_pixel_size(GTK_IMAGE(mark), 18);
+        gtk_widget_add_css_class(mark, "whelk-group-icon");
+        gtk_box_append(GTK_BOX(header), mark);
+      }
+
       gtk_label_set_markup(GTK_LABEL(title),
                            g_markup_escape_text(app, -1));
       gtk_widget_add_css_class(title, "whelk-group-title");
@@ -398,10 +436,25 @@ static void rebuild_panel(WhelkNotificationCenter *self) {
   /* The empty state is part of the rebuilt list, not a widget kept across
    * rebuilds: clearing the box takes its children with it. */
   if (total == 0) {
-    GtkWidget *empty = gtk_label_new("You are all caught up.");
+    GtkWidget *empty = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    GtkWidget *mark = gtk_image_new_from_icon_name("notifications-symbolic");
+    GtkWidget *label = gtk_label_new("You are all caught up.");
+    GtkWidget *hint =
+        gtk_label_new("Notifications show up here, newest first.");
 
     gtk_widget_add_css_class(empty, "whelk-panel-empty");
-    gtk_label_set_wrap(GTK_LABEL(empty), TRUE);
+    gtk_image_set_pixel_size(GTK_IMAGE(mark), 44);
+    gtk_widget_add_css_class(mark, "whelk-panel-empty-icon");
+    gtk_widget_add_css_class(label, "whelk-panel-empty-title");
+    gtk_widget_add_css_class(hint, "whelk-panel-empty-hint");
+    gtk_widget_set_halign(mark, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(label, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(hint, GTK_ALIGN_CENTER);
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_label_set_justify(GTK_LABEL(hint), GTK_JUSTIFY_CENTER);
+    gtk_box_append(GTK_BOX(empty), mark);
+    gtk_box_append(GTK_BOX(empty), label);
+    gtk_box_append(GTK_BOX(empty), hint);
     gtk_box_append(GTK_BOX(self->groups), empty);
   }
 
@@ -642,7 +695,18 @@ static void build_panel(WhelkNotificationCenter *self) {
 
   gtk_widget_add_css_class(title, "whelk-panel-title");
   gtk_label_set_xalign(GTK_LABEL(title), 0.0);
-  gtk_widget_set_hexpand(title, TRUE);
+
+  /* The count used to be written to a label that was never built.  It is the
+   * panel's second line now: "Notifications" says what this is, the line under
+   * it says how much of it there is. */
+  GtkWidget *heading = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+
+  self->summary_label = gtk_label_new(NULL);
+  gtk_widget_add_css_class(self->summary_label, "whelk-panel-subtitle");
+  gtk_label_set_xalign(GTK_LABEL(self->summary_label), 0.0);
+  gtk_widget_set_hexpand(heading, TRUE);
+  gtk_box_append(GTK_BOX(heading), title);
+  gtk_box_append(GTK_BOX(heading), self->summary_label);
 
   self->dnd_button = GTK_TOGGLE_BUTTON(panel_toggle_button(
       "notifications-disabled-symbolic", "Do not disturb"));
@@ -657,7 +721,7 @@ static void build_panel(WhelkNotificationCenter *self) {
   g_signal_connect(clear, "clicked", G_CALLBACK(on_clear_clicked), self);
   g_signal_connect(close, "clicked", G_CALLBACK(on_close_panel_clicked), self);
 
-  gtk_box_append(GTK_BOX(header), title);
+  gtk_box_append(GTK_BOX(header), heading);
   gtk_box_append(GTK_BOX(header), GTK_WIDGET(self->dnd_button));
   gtk_box_append(GTK_BOX(header), clear);
   gtk_box_append(GTK_BOX(header), close);

@@ -107,6 +107,75 @@ void whelk_command_run_input_status(const char *command_line,
 }
 
 /* =========================================================================
+ * THE SAME, WITH EVERY BYTE
+ * ========================================================================= */
+
+typedef struct {
+  WhelkCommandBytesCallback callback;
+  gpointer user_data;
+} BytesContext;
+
+static void on_communicate_bytes(GObject *source, GAsyncResult *result,
+                                 gpointer user_data) {
+  BytesContext *ctx = user_data;
+  GSubprocess *process = G_SUBPROCESS(source);
+  GBytes *stdout_bytes = NULL;
+  g_autoptr(GError) error = NULL;
+
+  if (!g_subprocess_communicate_finish(process, result, &stdout_bytes, NULL,
+                                       &error)) {
+    LOG_C_DEBUG("Command", "reading the program's output failed: %s",
+                error->message);
+    g_clear_pointer(&stdout_bytes, g_bytes_unref);
+  }
+
+  if (ctx->callback)
+    ctx->callback(stdout_bytes, ctx->user_data);
+
+  g_clear_pointer(&stdout_bytes, g_bytes_unref);
+  g_free(ctx);
+}
+
+void whelk_command_run_bytes(const char *command_line,
+                             WhelkCommandBytesCallback callback,
+                             gpointer user_data) {
+  BytesContext *ctx = g_new0(BytesContext, 1);
+
+  ctx->callback = callback;
+  ctx->user_data = user_data;
+
+  if (!command_line || *command_line == '\0') {
+    if (callback)
+      callback(NULL, user_data);
+
+    g_free(ctx);
+    return;
+  }
+
+  g_autoptr(GError) error = NULL;
+  const char *argv[] = {"sh", "-c", command_line, NULL};
+  GSubprocess *process = g_subprocess_newv(
+      argv,
+      G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+      &error);
+
+  if (!process) {
+    LOG_C_DEBUG("Command", "could not start '%s': %s", command_line,
+                error->message);
+
+    if (callback)
+      callback(NULL, user_data);
+
+    g_free(ctx);
+    return;
+  }
+
+  g_subprocess_communicate_async(process, NULL, NULL, on_communicate_bytes,
+                                 ctx);
+  g_object_unref(process);
+}
+
+/* =========================================================================
  * FIRE AND FORGET
  * ========================================================================= */
 

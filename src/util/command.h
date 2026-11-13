@@ -84,6 +84,31 @@ void whelk_command_run_input_status(const char *command_line,
                                     gpointer user_data);
 
 /**
+ * WhelkCommandBytesCallback:
+ * @stdout_bytes: (nullable): the program's standard output as bytes.  NULL
+ *   when the program could not be started.
+ * @user_data: the pointer given to whelk_command_run_bytes().
+ */
+typedef void (*WhelkCommandBytesCallback)(GBytes *stdout_bytes,
+                                          gpointer user_data);
+
+/**
+ * whelk_command_run_bytes:
+ * @command_line: a shell command line.
+ * @callback: (nullable) (scope notified): called on the main loop when the
+ *   program has finished.
+ * @user_data: passed to @callback.
+ *
+ * whelk_command_run(), for output that is not lines of text.  Rofi's script
+ * protocol separates a row's fields with NUL bytes, which a C string cannot
+ * carry, and a menu generator written for it is otherwise a menu this shell can
+ * run unchanged -- so this is the one reader that keeps every byte.
+ */
+void whelk_command_run_bytes(const char *command_line,
+                             WhelkCommandBytesCallback callback,
+                             gpointer user_data);
+
+/**
  * whelk_command_spawn:
  * @command_line: a shell command line.
  *

@@ -54,6 +54,8 @@
             configure-shell!
             get-shell-config
             get-shell-bars
+            get-shell-menu
+            shell-menu->units
             get-shell-enable-repl?
             get-shell-repl-socket-path
             bar->alist
@@ -99,15 +101,18 @@
 ;; The shell record
 ;; =============================================================================
 
+;; The shell menu is the popover behind the mark at the far left of the bar:
+;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars enable-repl? repl-socket-path)
+  (make-shell-config bars shell-menu enable-repl? repl-socket-path)
   shell-config?
   (bars shell-config-bars)
+  (shell-menu shell-config-shell-menu)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() #f #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -232,15 +237,23 @@ readable bar."
 (define* (configure-shell! #:key
                            (config-path 'default)
                            (bars '())
+                           (shell-menu #f)
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
+
+SHELL-MENU is the popover behind the mark at the far left of the bar, as
+`(whelk menu)' units -- the shell's own equivalent of a menu bar's first menu.
+Left #f it is `default-shell-menu' from `(whelk defaults)': about this system,
+the ways into it, recent items, force quit, and the ways out of the session,
+followed by the shell's own panels.
 
 ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
   (let* ((valid (filter bar-config? (if (list? bars) bars '())))
-         (cfg (make-shell-config valid enable-repl? repl-socket-path)))
+         (cfg (make-shell-config valid shell-menu enable-repl?
+                                 repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
       (log-warn "State"
                 "~a of ~a bars were not <bar-config> records: they are ignored"
@@ -278,6 +291,21 @@ how a configuration is changed without restarting the compositor:
 (define (get-shell-bars . args)
   "Return the configured bars, as a list of <bar-config> records."
   (shell-config-bars (apply get-shell-config args)))
+
+(define (get-shell-menu . args)
+  "Return the configured shell menu units, or #f for the default one."
+  (shell-config-shell-menu (apply get-shell-config args)))
+
+(define (shell-menu->units . args)
+  "Return the shell menu as the C runtime reads it: a list of menu units.
+
+The record holds Scheme, so this is a pass-through; it exists because the
+bridge asks for a named procedure rather than poking at a record's field, and
+because a settings file may want to read the menu it configured."
+  (let ((menu (apply get-shell-menu args)))
+    (if (and (list? menu) (not (null? menu)))
+        menu
+        '())))
 
 (define (get-shell-enable-repl? . args)
   (shell-config-enable-repl? (apply get-shell-config args)))

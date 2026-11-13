@@ -90,4 +90,20 @@ GPtrArray *whelk_bridge_bars(const char *path);
  */
 GPtrArray *whelk_bridge_menudict(void);
 
+/**
+ * whelk_bridge_shell_menu:
+ * @path: the settings file whose shell menu is wanted (may be NULL).
+ *
+ * The shell's own menu -- the one behind the mark at the far left of the bar --
+ * as `(whelk menu)' units: `(item label action)', `(separator)' and
+ * `(submenu label unit ...)'.  A settings file that configured one is read; one
+ * that did not gets `default-shell-menu' from `(whelk defaults)', so the menu is
+ * never empty and never a C table somebody has to recompile to change.
+ *
+ * Returns: (transfer full) (element-type WhelkMenu): a menubar holding one
+ *   menu -- the popover's contents -- or an empty array when Scheme never came
+ *   up.
+ */
+GPtrArray *whelk_bridge_shell_menu(const char *path);
+
 #endif // WHELK_GUILE_BRIDGE_H

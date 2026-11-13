@@ -42,6 +42,14 @@ typedef struct {
   char *action;  /* an org.gtk.Actions name, "app.save" or "win.copy" */
   char *target;  /* the action's string parameter, when it has one */
   char *command; /* a shell command line */
+  /* An entry that lives on a com.canonical.dbusmenu object: the bus name and
+   * path it answers on, and the id to send the click to.  This is the second
+   * way an application publishes its menus -- Qt and KDE export DBusMenu, GTK
+   * exports org.gtk.Menus -- and the one thing a menu bar has to do with it is
+   * send `Event(id, "clicked", ...)'. */
+  char *dbus_service;
+  char *dbus_path;
+  int dbus_item;
   WhelkMenu *submenu;
 } WhelkMenuEntry;
 
@@ -76,6 +84,42 @@ GPtrArray *whelk_menubar_new(void);
  */
 GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu,
                                  WhelkChordStyle style);
+
+/**
+ * whelk_menubar_from_dbusmenu:
+ * @reply: the `(u(ia{sv}av))` answer to `com.canonical.dbusmenu.GetLayout`, or a
+ *   bare `(ia{sv}av)` layout node.
+ * @service: the bus name the menu answers on.
+ * @path: its object path.
+ * @style: how the item's `shortcut' property is written.
+ *
+ * The other menu protocol on a Linux desktop: Qt, KDE and everything that
+ * registers with `com.canonical.AppMenu.Registrar' answers with a tree of
+ * (id, properties, children), where a top-level child is a menu and its
+ * children are entries.  Every entry keeps the id it must be clicked with, so
+ * choosing it sends the event rather than typing a shortcut.
+ *
+ * Returns: (transfer full): a GPtrArray of WhelkMenu; empty when nothing could
+ *   be read.
+ */
+GPtrArray *whelk_menubar_from_dbusmenu(GVariant *reply, const char *service,
+                                       const char *path,
+                                       WhelkChordStyle style);
+
+/**
+ * whelk_menubar_from_text:
+ * @text: one entry per line, `Menu<TAB>Label<TAB>Chord<TAB>Command`.
+ * @style: how a chord is written back.
+ *
+ * The third producer, for a configuration that would rather write a menu than
+ * a program: one tab-separated line per entry, a label of `-` for a rule, and
+ * `File>Export` in the first column for a submenu.  The command column is what
+ * choosing the entry runs; an entry without one is shown disabled, because a
+ * menu that cannot say what it does should not pretend to.
+ *
+ * Returns: (transfer full): a GPtrArray of WhelkMenu; empty for blank input.
+ */
+GPtrArray *whelk_menubar_from_text(const char *text, WhelkChordStyle style);
 
 /**
  * whelk_menubar_for_app:

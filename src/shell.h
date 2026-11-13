@@ -6,6 +6,7 @@
 #ifndef WHELK_SHELL_H
 #define WHELK_SHELL_H
 
+#include "clipboard.h"
 #include "notifications.h"
 
 #include <gtk/gtk.h>
@@ -51,6 +52,10 @@ WhelkShell *whelk_shell_get_default(void);
 
 /* The notification service, so a module can listen to it. */
 WhelkNotifications *whelk_shell_notifications(WhelkShell *shell);
+
+/* The clipboard history: the launcher's clipboard mode reads it, and a click
+ * that copies something puts it back. */
+WhelkClipboard *whelk_shell_clipboard(WhelkShell *shell);
 
 /* Shows the launcher in @mode; see src/launcher.h for the modes. */
 void whelk_shell_show_launcher(WhelkShell *shell, const char *mode);

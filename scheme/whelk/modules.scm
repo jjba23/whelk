@@ -179,29 +179,33 @@ have no window; #:format is the label ({index} or {name})."
   (apply module 'window kv))
 
 (define* (start-module #:rest kv)
-  "The shell's own menu behind one mark: the launcher, the panels, the settings
-and quitting, in a GTK popover the shell builds itself -- no rofi, no
-subprocess.  It is optional now that menu-module's application-name menu holds
-the same actions; a bar that wants the mark too puts this before it.  It wears
-the whelk, drawn in the bar's ink; #:label replaces it with a glyph from the
-bar's icon font, #:icon-size sets the mark's pixels (18 by default), and
-#:tooltip is its hover text."
+  "The shell's own menu behind one mark, where a menu bar keeps its first menu:
+about this system, the ways into it, what was opened recently, force quit, the
+ways out of the session, and the shell's panels -- a GTK popover the shell
+builds itself, no rofi and no subprocess.  What is in it is the shell menu the
+configuration wrote with `(whelk menu)' (see `configure-shell!'), or
+`default-shell-menu' when it wrote none.  It wears the whelk, drawn in the
+bar's ink; #:label replaces it with a glyph from the bar's icon font,
+#:icon-size sets the mark's pixels (18 by default), and #:tooltip is its hover
+text."
   (apply module 'start kv))
 
 (define* (menu-module #:rest kv)
-  "The application-name menu and its global menu.  The focused application's
-short name comes first; its popover holds the launcher, the network and
-Bluetooth panels, notifications, a reload and quitting, and the application's
-File/Edit/View follow it.  The menus are read from its D-Bus menubar where it
-exports one; otherwise from the dictionary's menus for the applications whose
-shortcuts are documented; otherwise from the shortcuts every application
-shares, and a Window menu adds full screen and close.  The base keys apply;
-#:shortcuts? (default on) offers the shortcut menus at all, and #:shortcut-tool
-names the program that types a chord (wtype on Wayland, xdotool on X11).
-#:accelerator-style chooses how every chord is printed -- 'cua for
-Ctrl+Shift+P, 'emacs for C-S-p -- and #:app-name? (default on) puts the
-application's short name before its menus, the way a menu bar names the
-application first."
+  "The application's menus, where a menu bar keeps them.  The menus come from
+the first producer that has them: `#:menu-command' when the configuration
+names a program that prints `Menu<TAB>Item<TAB>Chord<TAB>Command' lines, else
+the application's own menubar over D-Bus -- `org.gtk.Menus' for GTK,
+`com.canonical.dbusmenu' for Qt, KDE and anything an appmenu registrar knows
+-- else the dictionary's menus for the applications whose shortcuts are
+documented, else the shortcuts every application shares; a Window menu adds
+full screen and close.  The base keys apply; #:shortcuts? (default on) offers
+the shortcut menus at all, and #:shortcut-tool names the program that types a
+chord (wtype on Wayland, xdotool on X11).  #:accelerator-style chooses how
+every chord is printed -- 'cua for Ctrl+Shift+P, 'emacs for C-S-p -- and
+#:app-name? (default on) puts the application's short name, and a menu holding
+the shell's own actions, before its menus.  A bar that shows the window module
+first turns it off: the name is already on the bar, and a menu bar says it
+once."
   (apply module 'menu kv))
 
 (define* (language-module #:rest kv)
@@ -238,7 +242,10 @@ when the adapter is off.  A left click opens the panel, where devices connect."
 (define* (notifications-module #:rest kv)
   "The notification bell.  #:format uses {count} and {state} and defaults to
 {icon}: the bar shows the bell and the hover text carries the count.  A left
-click opens the notification centre, a right click toggles do-not-disturb."
+click opens the notification centre, a right click toggles do-not-disturb.
+While do-not-disturb is on, the reading wears #:dnd-icon (a slashed bell by
+default), #:dnd-format when it is set, and #:dnd-tooltip -- the one reading on
+the bar that has to say notifications will not arrive."
   (apply module 'notifications kv))
 
 (define* (tray-module #:rest kv)

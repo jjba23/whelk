@@ -8,7 +8,9 @@
 #include <gio/gdesktopappinfo.h>
 #include <string.h>
 
+#include "clipboard.h"
 #include "logger.h"
+#include "shell.h"
 #include "style.h"
 #include "surface.h"
 #include "util/calc.h"
@@ -47,6 +49,10 @@ typedef enum {
   ITEM_WEB,
   ITEM_CALC,
   ITEM_MENU,
+  ITEM_SSH,
+  ITEM_QUIT,
+  ITEM_ROFI,
+  ITEM_CLIPBOARD,
 } ItemKind;
 
 typedef struct {
@@ -56,6 +62,7 @@ typedef struct {
   char *icon;
   char *search; /* lowercase haystack */
   char *action; /* a desktop file, a window id, a command, a path, a URL */
+  gboolean disabled; /* rofi's `nonselectable': shown, never chosen */
 } LauncherItem;
 
 typedef struct {
@@ -81,6 +88,8 @@ struct _WhelkLauncher {
   GPtrArray *windows;
   GPtrArray *files;
   GPtrArray *menu;
+  GPtrArray *hosts;
+  GPtrArray *clipboard;
   GPtrArray *results; /* borrowed from the arrays above */
 
   char *mode;
@@ -89,6 +98,7 @@ struct _WhelkLauncher {
 
   gboolean apps_loaded;
   gboolean commands_loaded;
+  gboolean hosts_loaded;
   guint windows_generation;
   guint files_generation;
   char *files_walk; /* the last home-directory walk, before ranking */
@@ -318,6 +328,65 @@ static void load_commands(WhelkLauncher *self) {
 }
 
 /* =========================================================================
+ * SSH HOSTS
+ * =========================================================================
+ * Rofi's `ssh' mode, which heks-linux binds: the hosts this machine's own
+ * ~/.ssh/config names, in a terminal.  It is read the way ssh reads it -- the
+ * `Host' lines, one host or pattern per word -- and a pattern (a `*', a `?', a
+ * `!' negation) is not a host, so it is left out rather than offered.
+ */
+
+static void load_hosts(WhelkLauncher *self) {
+  if (self->hosts_loaded)
+    return;
+
+  self->hosts_loaded = TRUE;
+
+  g_autofree char *path =
+      g_build_filename(g_get_home_dir(), ".ssh", "config", NULL);
+  g_autofree char *contents = NULL;
+
+  if (!g_file_get_contents(path, &contents, NULL, NULL)) {
+    LOG_C_DEBUG("Launcher", "no %s: the ssh mode is empty", path);
+    return;
+  }
+
+  GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+                                           NULL);
+  g_auto(GStrv) lines = g_strsplit(contents, "\n", -1);
+
+  for (guint i = 0; lines[i]; i++) {
+    char *line = g_strstrip(lines[i]);
+
+    if (g_ascii_strncasecmp(line, "Host ", 5) != 0 &&
+        g_ascii_strncasecmp(line, "Host\t", 5) != 0)
+      continue;
+
+    g_auto(GStrv) words = g_strsplit_set(line + 5, " \t", -1);
+
+    for (guint j = 0; words[j]; j++) {
+      const char *host = words[j];
+
+      if (*host == '\0' || strpbrk(host, "*?!") != NULL)
+        continue;
+
+      if (g_hash_table_contains(seen, host))
+        continue;
+
+      LauncherItem *item = item_new(ITEM_SSH, host, "ssh");
+
+      item->action = g_strdup(host);
+      g_hash_table_add(seen, g_strdup(host));
+      g_ptr_array_add(self->hosts, item);
+    }
+  }
+
+  g_hash_table_destroy(seen);
+
+  LOG_C_DEBUG("Launcher", "%u ssh host(s)", self->hosts->len);
+}
+
+/* =========================================================================
  * WINDOWS
  * ========================================================================= */
 
@@ -356,7 +425,8 @@ static void on_windows_command(const char *text, gpointer user_data) {
 
   on_windows(self, text);
 
-  if (g_strcmp0(self->mode, "window") == 0)
+  if (g_strcmp0(self->mode, "window") == 0 ||
+      g_strcmp0(self->mode, "quit") == 0)
     refresh_results(self);
 }
 
@@ -500,36 +570,98 @@ static void search_files(WhelkLauncher *self, const char *query) {
 /* =========================================================================
  * THE MENU MODE
  * =========================================================================
- * "label<TAB>command" lines: the format a generated rofi menu already prints,
- * so an existing menu script becomes a whelk menu by dropping the rofi call.
+ * Two shapes of menu generator, because a machine has both:
+ *
+ *   label<TAB>command
+ *       the plain shape, one row per line;
+ *
+ *   label\0icon\x1fname\0nonselectable\x1ftrue\0info\x1fsomething
+ *       rofi's script protocol, which is what an existing menu script already
+ *       prints.  A row in that shape is not a command: rofi calls the script
+ *       again with ROFI_RETV=1 and the chosen label, and so does this.
+ *
+ * The protocol separates its fields with NUL, which is why this mode reads its
+ * generator as bytes and not as text.
  */
 
-static void on_menu(WhelkLauncher *self, const char *text) {
-  g_ptr_array_set_size(self->menu, 0);
+static void add_menu_row(WhelkLauncher *self, const guint8 *row, gsize length) {
+  const guint8 *nul = memchr(row, '\0', length);
 
-  if (!text)
-    return;
+  if (!nul) {
+    g_autofree char *line = g_strndup((const char *)row, length);
+    g_auto(GStrv) parts = g_strsplit(line, "\t", 2);
 
-  g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
-
-  for (guint i = 0; lines[i]; i++) {
-    if (*lines[i] == '\0')
-      continue;
-
-    g_auto(GStrv) parts = g_strsplit(lines[i], "\t", 2);
+    if (!parts[0] || *parts[0] == '\0')
+      return;
 
     LauncherItem *item =
         item_new(ITEM_MENU, parts[0], parts[1] ? parts[1] : "");
 
     item->action = g_strdup(parts[1] ? parts[1] : parts[0]);
     g_ptr_array_add(self->menu, item);
+    return;
   }
+
+  g_autofree char *label = g_strndup((const char *)row, (gsize)(nul - row));
+  LauncherItem *item = item_new(ITEM_ROFI, label, "menu");
+  const guint8 *cursor = nul + 1;
+  const guint8 *end = row + length;
+
+  while (cursor < end) {
+    const guint8 *next = memchr(cursor, '\0', (gsize)(end - cursor));
+    gsize field_length = next ? (gsize)(next - cursor) : (gsize)(end - cursor);
+    g_autofree char *field = g_strndup((const char *)cursor, field_length);
+    char *sep = strchr(field, '\x1f');
+
+    if (sep) {
+      *sep = '\0';
+
+      if (g_strcmp0(field, "icon") == 0)
+        item->icon = g_strdup(sep + 1);
+      else if (g_strcmp0(field, "nonselectable") == 0 &&
+               g_strcmp0(sep + 1, "true") == 0)
+        item->disabled = TRUE;
+    }
+
+    cursor = next ? next + 1 : end;
+  }
+
+  /* A rule is drawn as a row of box-drawing characters; it is there to separate
+   * two groups, and the launcher's list has nothing to separate. */
+  if (item->disabled && g_str_has_prefix(label, "\xe2\x94\x80")) {
+    item_free(item);
+    return;
+  }
+
+  g_ptr_array_add(self->menu, item);
 }
 
-static void on_menu_command(const char *text, gpointer user_data) {
+static void on_menu_bytes(GBytes *bytes, gpointer user_data) {
   WhelkLauncher *self = user_data;
 
-  on_menu(self, text);
+  g_ptr_array_set_size(self->menu, 0);
+
+  if (bytes) {
+    gsize size = 0;
+    const guint8 *data = g_bytes_get_data(bytes, &size);
+    const guint8 *row = data;
+
+    for (gsize i = 0; i <= size; i++) {
+      if (i != size && data[i] != '\n')
+        continue;
+
+      gsize length = (gsize)(data + i - row);
+
+      if (length > 0 && row[length - 1] == '\r')
+        length--;
+
+      if (length > 0)
+        add_menu_row(self, row, length);
+
+      row = data + i + 1;
+    }
+  }
+
   whelk_launcher_show(self, "menu");
 }
 
@@ -562,6 +694,15 @@ static const char *effective_mode(WhelkLauncher *self, const char **query) {
   case '@':
     *query = text + 1;
     return "window";
+  case '%':
+    *query = text + 1;
+    return "ssh";
+  case '!':
+    *query = text + 1;
+    return "quit";
+  case ';':
+    *query = text + 1;
+    return "clipboard";
   default:
     break;
   }
@@ -607,6 +748,11 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
 
   gtk_widget_set_hexpand(text, TRUE);
   gtk_box_append(GTK_BOX(box), text);
+
+  /* rofi's `nonselectable': a row that is there to be read, not chosen. */
+  if (item->disabled)
+    gtk_widget_set_sensitive(row, FALSE);
+
   gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
   g_object_set_data(G_OBJECT(row), "whelk-item", item);
   g_object_set_data(G_OBJECT(row), "whelk-owned", GINT_TO_POINTER(0));
@@ -625,7 +771,9 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
                               guint count) {
   static const char *const names[] = {"Applications", "Windows",
                                       "Run a command", "Calculator",
-                                      "Files", "Web search", "Menu"};
+                                      "Files", "Web search", "Menu",
+                                      "SSH hosts", "Close a window",
+                                      "Clipboard"};
   const char *label = names[0];
 
   if (g_strcmp0(mode, "window") == 0)
@@ -640,6 +788,12 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
     label = names[5];
   else if (g_strcmp0(mode, "menu") == 0)
     label = names[6];
+  else if (g_strcmp0(mode, "ssh") == 0)
+    label = names[7];
+  else if (g_strcmp0(mode, "quit") == 0)
+    label = names[8];
+  else if (g_strcmp0(mode, "clipboard") == 0)
+    label = names[9];
 
   g_autofree char *text = g_strdup_printf("%s — %u", label, count);
 
@@ -653,6 +807,52 @@ static LauncherItem *selected_item(WhelkLauncher *self) {
     return NULL;
 
   return g_object_get_data(G_OBJECT(row), "whelk-item");
+}
+
+/* The first line is the row: a copied paragraph is many lines, and a list
+ * that showed all of them would be a document reader. */
+static char *clipboard_label(const char *text) {
+  const char *end = strchr(text, '\n');
+  gsize length = end ? (gsize)(end - text) : strlen(text);
+
+  if (length > 80)
+    length = 80;
+
+  g_autofree char *line = g_strndup(text, length);
+
+  g_strstrip(line);
+
+  return g_strdup(*line ? line : "(blank line)");
+}
+
+static void load_clipboard(WhelkLauncher *self) {
+  g_ptr_array_set_size(self->clipboard, 0);
+
+  WhelkShell *shell = whelk_shell_get_default();
+  WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
+
+  if (!clipboard)
+    return;
+
+  GPtrArray *entries = whelk_clipboard_entries(clipboard);
+
+  for (guint i = 0; entries && i < entries->len; i++) {
+    const char *text = g_ptr_array_index(entries, i);
+    g_autofree char *label = clipboard_label(text);
+    LauncherItem *item =
+        item_new(ITEM_CLIPBOARD, label, "Enter copies it again");
+
+    item->action = g_strdup(text);
+    g_ptr_array_add(self->clipboard, item);
+  }
+
+  if (self->clipboard->len == 0) {
+    LauncherItem *empty = item_new(ITEM_CLIPBOARD, "No clipboard history",
+                                   "Copy something and it will appear here");
+
+    empty->disabled = TRUE;
+    g_ptr_array_add(self->clipboard, empty);
+  }
 }
 
 static gboolean wants_files(WhelkLauncher *self, const char *query) {
@@ -702,8 +902,12 @@ static void refresh_results(WhelkLauncher *self) {
       item->action = g_strdup(query);
       add_result(self, item);
     }
-  } else if (g_strcmp0(mode, "window") == 0) {
+  } else if (g_strcmp0(mode, "window") == 0 ||
+             g_strcmp0(mode, "quit") == 0) {
     rank_into(self, self->windows, query ? query : "");
+  } else if (g_strcmp0(mode, "ssh") == 0) {
+    load_hosts(self);
+    rank_into(self, self->hosts, query ? query : "");
   } else if (g_strcmp0(mode, "file") == 0) {
     if (query && *query && wants_files(self, query))
       search_files(self, query);
@@ -715,6 +919,14 @@ static void refresh_results(WhelkLauncher *self) {
       add_result(self, g_ptr_array_index(self->files, i));
   } else if (g_strcmp0(mode, "menu") == 0) {
     rank_into(self, self->menu, query ? query : "");
+  } else if (g_strcmp0(mode, "clipboard") == 0) {
+    load_clipboard(self);
+
+    if (query && *query)
+      rank_into(self, self->clipboard, query);
+    else
+      for (guint i = 0; i < self->clipboard->len; i++)
+        add_result(self, g_ptr_array_index(self->clipboard, i));
   } else {
     load_apps(self);
     rank_into(self, self->apps, query ? query : "");
@@ -800,7 +1012,7 @@ static void launch_app(const char *desktop_file) {
 }
 
 static void activate_item(WhelkLauncher *self, LauncherItem *item) {
-  if (!item)
+  if (!item || item->disabled)
     return;
 
   switch (item->kind) {
@@ -814,10 +1026,40 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
     whelk_command_spawn(command);
     break;
   }
+  case ITEM_QUIT: {
+    /* Force Quit: the one thing a menu bar has to be able to do about a window
+     * that will not go away -- close it, rather than switch to it. */
+    g_autofree char *command =
+        g_strdup_printf("niri msg action close-window --id %s", item->action);
+
+    whelk_command_spawn(command);
+    break;
+  }
+  case ITEM_SSH: {
+    const char *terminal = g_getenv("TERMINAL");
+    g_autofree char *quoted = g_shell_quote(item->action);
+    g_autofree char *command = g_strdup_printf(
+        "%s -e ssh %s", (terminal && *terminal) ? terminal : "x-terminal-emulator",
+        quoted);
+
+    whelk_command_spawn(command);
+    break;
+  }
   case ITEM_COMMAND:
   case ITEM_MENU:
     whelk_command_spawn(item->action);
     break;
+  case ITEM_ROFI: {
+    /* Rofi's script contract: the chosen row comes back to the script that
+     * printed it, in ROFI_RETV, so a menu that has state of its own keeps it. */
+    g_autofree char *quoted = g_shell_quote(item->name);
+    g_autofree char *command = g_strdup_printf(
+        "ROFI_RETV=1 %s %s", self->menu_command ? self->menu_command : "",
+        quoted);
+
+    whelk_command_spawn(command);
+    break;
+  }
   case ITEM_FILE:
     open_uri(item->action);
     break;
@@ -836,6 +1078,14 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
   case ITEM_CALC:
     copy_to_clipboard(item->action);
     break;
+  case ITEM_CLIPBOARD: {
+    WhelkShell *shell = whelk_shell_get_default();
+    WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
+
+    if (clipboard)
+      whelk_clipboard_copy(clipboard, item->action);
+    break;
+  }
   }
 
   whelk_launcher_hide(self);
@@ -940,6 +1190,8 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   self->windows = g_ptr_array_new_with_free_func(item_free);
   self->files = g_ptr_array_new_with_free_func(item_free);
   self->menu = g_ptr_array_new_with_free_func(item_free);
+  self->hosts = g_ptr_array_new_with_free_func(item_free);
+  self->clipboard = g_ptr_array_new_with_free_func(item_free);
   self->results = g_ptr_array_new();
 
   self->card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -953,8 +1205,8 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
 
   self->mode_label = gtk_label_new("Applications");
   self->hint = gtk_label_new(
-      "> run   = calc   / files   ? web   @ windows   ·   Tab completes   ·   "
-      "Esc closes");
+      "> run   = calc   / files   ? web   @ windows   % ssh   ! close   "
+      "; clipboard   ·   Tab completes   ·   Esc closes");
 
   gtk_widget_add_css_class(self->mode_label, "whelk-launcher-mode");
   gtk_widget_add_css_class(self->hint, "whelk-launcher-hint");
@@ -1038,7 +1290,8 @@ void whelk_launcher_show(WhelkLauncher *self, const char *mode) {
 
   gtk_editable_set_text(GTK_EDITABLE(self->entry), "");
 
-  if (g_strcmp0(self->mode, "window") == 0)
+  if (g_strcmp0(self->mode, "window") == 0 ||
+      g_strcmp0(self->mode, "quit") == 0)
     refresh_windows(self);
 
   load_apps(self);
@@ -1064,7 +1317,7 @@ void whelk_launcher_show_menu(WhelkLauncher *self, const char *command) {
   g_free(self->mode);
   self->mode = g_strdup("menu");
 
-  whelk_command_run(command, on_menu_command, self);
+  whelk_command_run_bytes(command, on_menu_bytes, self);
 }
 
 void whelk_launcher_hide(WhelkLauncher *self) {
@@ -1114,6 +1367,8 @@ static void whelk_launcher_dispose(GObject *object) {
   g_clear_pointer(&self->windows, g_ptr_array_unref);
   g_clear_pointer(&self->files, g_ptr_array_unref);
   g_clear_pointer(&self->menu, g_ptr_array_unref);
+  g_clear_pointer(&self->hosts, g_ptr_array_unref);
+  g_clear_pointer(&self->clipboard, g_ptr_array_unref);
 
   if (self->skin)
     whelk_style_detach(self->skin, gdk_display_get_default());

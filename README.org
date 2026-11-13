@@ -79,7 +79,7 @@ re-learn layer-shell.
 :END:
 
 #+name: whelk-bar
-#+caption: An earlier 0.7 capture of the built-in (default-bar); 0.8 folds the shell menu and the focused window into the application-name menu, whose popover holds the shell actions and whose File/Edit/View follow.  Captured from a 1920x1080 X server with the stock defaults; the focused window is a small demo application and the Wi-Fi reading a stand-in, so the picture carries nothing from the machine it was taken on.
+#+caption: An earlier 0.7 capture of the built-in (default-bar).  0.8 folded the shell menu and the focused window into the application-name menu, and this build puts them back where the reference keeps them: the shell menu behind the whelk, the window's name in bold, then the application's File/Edit/View.  Captured from a 1920x1080 X server with the stock defaults; the focused window is a small demo application and the Wi-Fi reading a stand-in, so the picture carries nothing from the machine it was taken on.
 [[file:resources/img/whelk-bar.png]]
 
 The left half says *whose window you are in and what can be done to it*; the
@@ -105,22 +105,32 @@ the documented one -- see [[#configuration][Configuration]].
   file may define procedures of its own.
 - *Hot reload, and a REPL.* The settings directory is watched; saving rebuilds
   every bar.  Ask for a socket REPL and evaluate forms in the running shell.
-- *One application-name menu.* The focused application's short name is the
-  bar's first item; behind it are the launcher, the network and Bluetooth
-  panels, the notification centre, a reload and the way out, and after that the
-  application's own =File=/=Edit=/=View=.  The separate whelk mark and window
-  title are no longer on the default left half; =(start-module)= remains for a
-  bar that wants the mark too.
-- *The focused application's menus, more complete.* Its own
-  =File=/=Edit=/=View= where it publishes a menubar over D-Bus; otherwise the
-  documented shortcuts of ninety-five applications, each entry showing its
-  chord and typing it; and a =Window= menu with full screen and close for the
+- *A menu bar's left half, in macOS' order.* The machine's own menu behind the
+  whelk (where the apple is), then the name of the window in front in bold, then
+  that application's =File=/=Edit=/=View=.  The shell menu is configuration --
+  =About This System=, =System Settings=, =Software=, a live =Recent Items=
+  submenu, =Force Quit=, sleep/restart/shut down, lock and log out, then the
+  shell's panels -- written with =(menu-item ...)=, =(menu-separator)= and
+  =(menu-submenu ...)= in the settings file, so it is a value a reload away
+  from being on screen.
+- *The focused application's menus, from five producers.* Its own
+  =File=/=Edit=/=View= where it publishes a menubar over D-Bus -- both
+  =org.gtk.Menus= (GTK) and =com.canonical.dbusmenu= (Qt, KDE, appmenu
+  registrars) -- else a command the configuration names, else the documented
+  shortcuts of ninety-five applications, each entry showing its chord and
+  typing it; and a =Window= menu with full screen and close for the
   applications the dictionary serves.  Emacs multi-key chords such as =C-x C-s=
   are sequences, shown and typed chord by chord.  Never an invented menu.
 - *A tray that shows what is running.* StatusNotifierItems -- JetBrains
   Toolbox, network applets, chat clients -- over the standard
   =RegisteredStatusNotifierItems= list, with a chevron for icons beyond
   =#:max-items=.
+- *A clipboard history.* =wl-paste --watch= feeds a de-duplicated list kept in
+  memory only; =whelk --clipboard= (or the =;= prefix) puts any copy back, and
+  the default bar's clipboard button opens that picker instead of =clipman=.
+- *An About window that describes the machine.* =About This System= opens a
+  card with the host name, system, processor, memory, disk, kernel and session,
+  with a button that copies the whole summary.
 - *A right half that folds instead of overflowing.* When the readings no
   longer fit, the trailing modules move behind a chevron and keep updating and
   clicking there.
@@ -132,8 +142,9 @@ the documented one -- see [[#configuration][Configuration]].
   Bluetooth pairing state -- all through =nmcli= and =bluetoothctl=, the
   scripting surface those projects ship.
 - *A launcher, not a second program.* Applications, windows, commands with
-  =$PATH= completion, arithmetic, files, the web and rofi-style menus, in one
-  overlay with one fuzzy matcher.
+  =$PATH= completion, arithmetic, files, the web, ssh hosts, closing a window
+  and rofi-style menus -- including rofi's own script protocol, icons and
+  =nonselectable= rows -- in one overlay with one fuzzy matcher.
 - *Twelve themes, and no borrowed marks.* =glass-2001= through =tinted-2024=,
   plus =frost=, =ember=, =mocha=, =midnight=, =sandstone= and =void=: materials
   and years, not products.
@@ -299,13 +310,14 @@ Five commands and you are looking at your own bar:
 
 Save the file and the bar changes; move a module from =#:right= to =#:left=
 and save again, and it moves.  With no settings file at all you get the built-in
-default bar: one application-name menu, then the heks-linux status items in the
-reference order, so the first start is never a blank screen and never a
-stand-in for the documented one.
+default bar: the shell's own menu, the window in front and its File/Edit/View on
+the left, then the heks-linux status items in the reference order, so the first
+start is never a blank screen and never a stand-in for the documented one.
 
-Click things while you are there: the application's name at the far left opens
-the shell's own menu first (launcher, network, Bluetooth, notifications,
-reload, quit), a notification bell opens the centre, a Wi-Fi reading opens the
+Click things while you are there: the mark at the far left opens the machine's
+own menu (about, recent items, force quit, sleep and the ways out, then the
+launcher, network, Bluetooth and notifications), a notification bell opens the
+centre, a Wi-Fi reading opens the
 network panel, and =whelk --launcher= opens the launcher from any keybinding
 you give it.
 
@@ -360,11 +372,28 @@ prefix picks the mode.
 | =calc=     | arithmetic; =Enter= copies the result              | ===        |
 | =file=     | files and folders under =$HOME=, caches skipped    | =/=        |
 | =web=      | the default browser (=WHELK_WEB_SEARCH= overrides)  | =?=        |
+| =ssh=      | the hosts =~/.ssh/config= names, in a terminal      | =%=        |
+| =quit=     | the open windows, closed instead of focused       | =!=        |
+| =clipboard= | what was copied, newest first; =Enter= puts it back | =;=        |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
-The menu mode is the rofi-script replacement: a generated menu that prints
-=label<TAB>command= works unchanged once its rofi invocation becomes
-=whelk --menu "the-same-generator"=.
+The menu mode is the rofi-script replacement, and it speaks both shapes a
+machine already has: =label<TAB>command= lines, and rofi's own script protocol
+(=label\0icon\x1f…\0nonselectable\x1ftrue=), where choosing a row runs the
+generator again with =ROFI_RETV=1= and the label -- which is how a menu that has
+state of its own keeps it.  A row rofi marks =nonselectable= is shown disabled
+and cannot be chosen; a rule drawn from box-drawing characters is dropped.
+
+The =quit= mode is what the shell menu's =Force Quit…= opens: it is niri's
+windows, and choosing one closes it rather than switching to it.
+
+The =clipboard= mode is the clipboard manager's picker: =whelk --clipboard=
+(or the =;= prefix) lists what was copied, newest first, and choosing a row puts
+it back on the clipboard.  The history is kept in memory by the shell itself --
+=wl-paste --watch= feeds it, so every copy is caught even while another window
+has focus -- and a repeated copy moves to the front instead of being listed
+twice.  It is never written to disk, and the default bar's clipboard button
+opens this picker rather than =clipman=.
 
 ** Notifications
 :PROPERTIES:
@@ -376,11 +405,19 @@ running mako is left alone, with one line in the log saying so).  It advertises
 =body-markup=, =actions=, =icon-static= and =persistence=, keeps the history, and
 shows a notification twice:
 
-- as a *toast*, top right, three at most, leaving on the application's timeout
-  (a transient notification also leaves the store then);
+- as a *toast*, top right, five at most (mako's =max-visible= in the reference
+  configuration), leaving on the application's timeout -- ten seconds when it
+  does not say, and not at all for a critical one (a transient notification
+  also leaves the store then);
 - in the *centre*, a panel on the right edge, grouped by the application that
-  sent it, newest first, with the application's actions as buttons, a dismiss
-  per notification, =Clear all= and do-not-disturb.
+  sent it -- its icon and its count over each group -- newest first, with the
+  application's actions as buttons, a dismiss per notification, =Clear all= and
+  do-not-disturb; an empty centre says so instead of showing an empty panel.
+
+A toast carries up to two of the notification's action buttons as well: a
+=Reply= that only appears after opening the centre is a button that arrives too
+late.  The centre's header counts what is stored: "3 notifications" over the
+groups, not hidden in a tooltip.
 
 The bell (=notifications-module=) marks what is stored; the count is in its
 hover text and in the centre, not printed on the bar.  A left click opens the
@@ -470,8 +507,9 @@ when you set it.)
 The file is read at startup and *again whenever it changes* (the directory is
 watched, with a 250 ms debounce), so editing the bar is instant.  With no
 settings file at all, whelk draws the same bar this example describes --
-=(default-bar)= from =(whelk defaults)=, one application-name menu and the
-heks-linux status items -- so a fresh machine is never left without a shell,
+=(default-bar)= from =(whelk defaults)=, the shell menu and the focused window's
+menus on the left and the heks-linux status items on the right -- so a fresh
+machine is never left without a shell,
 and never starts on a stand-in for the documented one.  A settings file that
 wants that bar and nothing else says:
 
@@ -575,8 +613,8 @@ of the binary, which is what makes upgrading whelk safe.
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip) |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
-| =start-module=         | the shell's own menu, when a bar wants the mark too | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
-| =menu-module=          | the application's short-name menu and its menubar | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?= |
+| =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
+| =menu-module=          | the focused application's menus                  | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?=, =#:menu-command= |
 
 A worked example of the whole set is in =settings/settings.scm=, which also has a
 commented-out workspace switcher for the centre of the bar.
@@ -634,34 +672,87 @@ own colours alone with one warning.
 :CUSTOM_ID: menus
 :END:
 
-The left half has one menu, and it belongs to the application in front.  The
-application's short name is a menu button; behind it, in order, are the
-launcher, the network panel, the Bluetooth panel, the notification centre, a
-reload and the way out.  The application's menus follow, the way a menu bar
-puts File and Edit after the application's name.
+The left half is a menu bar's, in the order macOS puts it: the machine's own
+menu behind a mark (the whelk, where the apple is), the name of the window in
+front, then that application's =File=, =Edit= and =View=.  The built-in bar is
+=(list (start-module) (window-module ...) (menu-module #:app-name? #f))=; every
+one of the three is a module, so a bar that wants another order, or one item
+instead of three, writes another list.
 
-The short name is the dictionary's name when it knows the application, else the
-desktop entry's =Name=, else the last component of the application id with
-dashes turned into words (=com.jetbrains.toolbox= is =Toolbox=, not
-=com.jetbrains.toolbox=).  =#:app-name?= (on by default) turns the name off.
+*** The shell menu
+:PROPERTIES:
+:CUSTOM_ID: shell-menu
+:END:
 
-=start-module= remains available for a bar that also wants the whelk mark: the
-mark is one ribbon spiralling from a thin spire out to a wide lip, drawn from a
-formula in the bar's own ink at =#:icon-size= pixels (18 by default), and its
-popover has the same shell actions.  No icon file or icon theme is needed for
-it; a configuration that wants a different mark sets =#:label= to any glyph
-its icon font has.
+=start-module= is the machine's own menu, and it is configuration rather than a
+C table: `(whelk menu)' units written with the settings file, or
+=default-shell-menu= when the file writes none.  The default is the Apple menu's
+shape in this desktop's words -- =About This System=, =System Settings…=,
+=Software…=, a =Recent Items= submenu, =Force Quit…=, =Sleep=, =Restart…=,
+=Shut Down…=, =Lock Screen= and =Log Out= -- followed, after a rule, by the
+launcher, the network and Bluetooth panels, the notification centre, a reload
+and the way out.  What the menu does is what its entries say: =About= is a real
+GTK about dialogue naming the machine, the session and the toolkit;
+=Recent Items= is GTK's recent-documents list, filled when the submenu opens;
+=Force Quit…= opens the launcher in its =quit= mode, where the open windows are
+listed and Enter closes the chosen one.
 
-=menu-module= puts the application's short name and its menus on the bar.  Three
-producers supply the menus, in that order:
+An action is one of two things, and the spelling is the difference: a string
+beginning with =shell:= is something the shell does itself (=about=,
+=launcher=, =force-quit=, =network=, =bluetooth=, =notifications=, =dnd=,
+=reload=), and anything else is a command line.  A submenu given a string
+instead of children is a slot the shell fills when it opens.
 
+#+begin_src scheme
+  (configure-shell!
+   #:shell-menu
+   (list (menu-item "About This System" "shell:about")
+         (menu-item "System Settings…" "gnome-control-center")
+         (menu-separator)
+         (menu-submenu "Recent Items" "shell:recent-items")
+         (menu-separator)
+         (menu-item "Force Quit…" "shell:force-quit")
+         (menu-separator)
+         (menu-item "Sleep" "systemctl suspend")
+         (menu-item "Lock Screen" "loginctl lock-session")
+         (menu-item "Search…" "shell:launcher"))
+   #:bars (list (default-bar)))
+#+end_src
+
+The mark is one ribbon spiralling from a thin spire out to a wide lip, drawn
+from a formula in the bar's own ink at =#:icon-size= pixels (18 by default), so
+no icon file or icon theme is needed for it; a configuration that wants a
+glyph instead sets =#:label=.  The menu walks with the keyboard -- Down and Up
+through the rows, Right into a submenu, Escape out -- which is the least a menu
+that replaces a menu bar has to do.
+
+*** The application's menus
+:PROPERTIES:
+:CUSTOM_ID: app-menus
+:END:
+
+=menu-module= puts the focused application's menus on the bar.  Five producers
+supply them, in that order:
+
+- *A menu the configuration names.*  =#:menu-command= runs a program that prints
+  =Menu<TAB>Item<TAB>Chord<TAB>Command= lines (with =-= for a rule and
+  =File>Export= for a submenu), and its answer becomes the application's
+  menubar.  That is the escape hatch for an application no bus describes, and it
+  needs no rebuild: the command is read on every focus change.
 - *The application's own menubar, over D-Bus.*  GTK's
   =gtk_application_set_menubar()= publishes it through =org.gtk.Menus= on the
   application's bus name, so the labels, the actions, the checkmarks and the
-  greyed-out items are the application's own.  It is asked for at the two
-  conventional paths under the application id, and at GTK's anonymous
-  application, which is where a program that runs more than one instance
-  publishes.
+  greyed-out items are the application's own.  It is asked for at the
+  conventional paths under the application id -- application-wide and
+  window-scoped -- and at GTK's anonymous application, which is where a program
+  that runs more than one instance publishes.
+- *The application's own menu, as DBusMenu.*  Qt, KDE and everything that
+  registers with =com.canonical.AppMenu.Registrar= publishes =com.canonical.dbusmenu=
+  instead: a tree of (id, properties, children).  whelk reads =GetLayout= and
+  keeps each entry's id, so choosing one sends =Event(id, "clicked")= back to
+  the application -- the application's own menu, carried out by the
+  application itself.  Its =shortcut= property is shown beside the label in
+  the style the bar asked for.
 - *The dictionary.*  Most applications publish nothing, so their menus are
   written from their documented shortcuts: ninety-five applications answering
   to two hundred and eighty ids -- the browsers, terminals, editors (Emacs
@@ -692,13 +783,16 @@ and it is stored and printed as the Emacs user writes it.  =wtype= and
 =xdotool= receive one command per chord, so the prefix is not lost between
 them.
 
-The application's name comes first, as the shell's own menu rather than an
-invented About or Preferences, and the menu bar is usable from the keyboard:
-Down and Up walk the entries, Home and End go to the ends, Left and Right move
-between File, Edit and View, Right opens a submenu, and Escape closes.  A
-submenu wears a chevron rather than a second label.  The name is a menu, so
-=#:app-name?= (on by default) turns the whole first item off for a bar that
-would rather have the extra pixels.
+The name of the application in front can come first -- a menu button whose
+popover holds the shell's own actions, the variant a bar wants when it does not
+put =start-module= and =window-module= before this one.  On the default bar it
+is off (=#:app-name? #f=), because the window module beside it already says
+whose window you are in, and a menu bar says it once.
+
+The menu bar is usable from the keyboard: Down and Up walk the entries, Home
+and End go to the ends, Left and Right move between File, Edit and View, Right
+opens a submenu, and Escape closes.  A submenu wears a chevron rather than a
+second label.
 
 Both fallbacks are only offered when something can type a chord: with neither
 =wtype= nor =xdotool= installed, an application that declares no desktop
@@ -759,14 +853,15 @@ front.
 
 A menu that changes while it is open is only re-read when the focus moves, a
 window action (=win.*=) is sent to the application's first window object, and
-the D-Bus menubar is probed at the conventional object paths rather than
-discovered.  The application's name is the shell's own menu, not an invented
-About or Preferences: those are offered when the application exports them.  The
-dictionary covers ninety-five applications and their documented shortcuts: it
-is a curated list, not a guess, and an application that is not in it gets the
-shared Edit and View -- unless a settings file adds it.  The panels, the toasts
-and the menus open on the compositor's first monitor; a bar's =#:monitor= is
-its own.
+both D-Bus protocols are probed at the conventional object paths rather than
+discovered -- the registrar is not asked which object belongs to the focused
+window, because a Wayland compositor has no window id to ask about.  A menu
+from =#:menu-command= is a snapshot of when the focus moved, not a live view.
+The dictionary covers ninety-five applications and their documented
+shortcuts: it is a curated list, not a guess, and an application that is not in
+it gets the shared Edit and View -- unless a settings file adds it.  The
+panels, the toasts and the menus open on the compositor's first monitor; a
+bar's =#:monitor= is its own.
 
 ** Hot reload and the REPL
 :PROPERTIES:
@@ -882,7 +977,7 @@ means.
 | =custom/heks-system-menu=        | =start-module= (a GTK popover, no rofi)                      |
 | =niri/window=                    | =window-module=                                            |
 | =custom/media=                   | =custom-module= + playerctl                                |
-| =custom/heks-clipboard=          | =custom-module= + clipman                                  |
+| =custom/heks-clipboard=          | =custom-module= + whelk's clipboard picker                  |
 | =custom/heks-password=           | =custom-module=                                            |
 | =custom/mako-dnd=                | =custom-module= + makoctl (until the notification daemon)   |
 | =custom/heks-language=           | =language-module= (native niri read)                       |
@@ -901,9 +996,42 @@ means.
 There is no =modules-center= in the reference bar; =workspaces-module= exists for
 it and is commented out in the default bar.
 
-The default bar adds one module the reference has no counterpart for:
-=menu-module= after the window, so the application in front's File/Edit/View sit
-where a menu bar puts them.
+The default bar has the reference's left half in the order the reference keeps
+it: =start-module= where the system menu's mark sits, =window-module= for the
+name of the window in front, and =menu-module= after it, so the application's
+File/Edit/View sit where a menu bar puts them.  The reference's own system menu
+was a generated rofi script; whelk's is a Scheme value (see [[#shell-menu][the shell
+menu]]), so no rofi is involved and no generated file can go stale.
+
+** The other two programs
+:PROPERTIES:
+:CUSTOM_ID: other-two
+:END:
+
+whelk also took over what the reference delegated to rofi and mako.  What a
+machine configured for them needs, in the terms it used:
+
+| rofi / mako                          | whelk                                                      |
+|--------------------------------------+------------------------------------------------------------|
+| =rofi -show drun=                      | =whelk --launcher=                                           |
+| =rofi -show window=                    | =whelk --launcher --launcher-mode=window=                    |
+| =rofi -show run=                       | =whelk --launcher --launcher-mode=run=                       |
+| =rofi -show ssh=                       | =whelk --launcher --launcher-mode=ssh= (prefix =%=)          |
+| =rofi -show power= (a script mode)     | =whelk --menu "the-power-script"=, or the shell menu         |
+| =rofi -show theme= (a script mode)     | =whelk --menu "the-theme-script"=                             |
+| =rofi -modi "Menu:script"=               | =whelk --menu "script"=, script protocol included            |
+| =rofi -replace=                        | the second =whelk= forwards to the first (GApplication)      |
+| =mako= toasts                          | =whelk= owns =org.freedesktop.Notifications=                  |
+| =makoctl mode -t do-not-disturb=        | =whelk --dnd=, and the bell's right click                     |
+| =makoctl dismiss=                       | the toast's close button, and the centre's =Clear all=        |
+| =max-visible= 5, =default-timeout= 10000 | the same numbers                                            |
+| =max-history=                          | the centre keeps every notification it has not been told to drop |
+| =rofi-power-menu=                      | the shell menu's sleep/restart/shut down/lock/log out rows    |
+
+A rofi script that draws its rows with =\0icon\x1f…= and =nonselectable= works
+unchanged: the launcher reads the protocol, shows the icons, keeps the rules
+out of reach, and comes back to the script with =ROFI_RETV=1= and the chosen
+label, which is the contract rofi's own script mode defines.
 
 ------------------
 

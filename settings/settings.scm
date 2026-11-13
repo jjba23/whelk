@@ -41,12 +41,20 @@
    #:radius 0
 
    ;; ---------------------------------------------------------------- left --
-   ;; One menu, and it is the application's: a short name with the shell's own
-   ;; actions behind it (launcher, panels, reload, quit), then the application
-   ;; in front's File, Edit and View.  A bar that also wants the whelk mark can
-   ;; still put (start-module) before it.
+   ;; A menu bar's left half, in the order macOS puts it: the machine's own
+   ;; menu behind a mark (instead of an apple, the whelk), then the name of the
+   ;; window in front, then that application's File, Edit and View.  The shell
+   ;; menu is (default-shell-menu) unless the configuration writes its own; the
+   ;; window module says the title while the menu module speaks for it.
    #:left (list
+           (start-module)
+           (window-module #:format "{title}"
+                          #:max-length 40
+                          #:interval 1
+                          #:css-class "whelk-menubar-title"
+                          #:tooltip "{title}\n{app-id}")
            (menu-module #:shortcuts? #t
+                        #:app-name? #f
                         #:accelerator-style 'cua))
 
    ;; -------------------------------------------------------------- center --
@@ -79,7 +87,8 @@ Click: transport controls · Right-click: play or pause · Middle: next track"
                            #:icon "\uf328"
                            #:tooltip "Clipboard history
 Click: browse the history"
-                           #:on-click (rofi-relaunch "clipman pick --tool=rofi"))
+                           #:on-click (rofi-relaunch
+                                      "whelk --launcher --launcher-mode=clipboard"))
 
             ;; Password manager.
             (custom-module #:exec "printf '\\uf084'"
