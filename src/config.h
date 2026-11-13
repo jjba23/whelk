@@ -37,6 +37,28 @@ typedef struct {
 } WhelkModuleSpec;
 
 /**
+ * WhelkWidgetConfig:
+ * @spec: the widget's kind and options, the same shape a bar module uses.
+ * @x: pixels from the monitor's left edge.
+ * @y: pixels from the monitor's top edge.
+ * @width: the card's width.
+ * @height: the card's height.
+ * @monitor: "default" or a connector name such as "DP-1".
+ *
+ * One floating desktop widget, as the settings file described it.  Geometry is
+ * separate from @spec because a widget's identity is its kind and options,
+ * while where it sits is what a desktop layout decides.
+ */
+typedef struct {
+  WhelkModuleSpec *spec;
+  int x;
+  int y;
+  int width;
+  int height;
+  char *monitor;
+} WhelkWidgetConfig;
+
+/**
  * WhelkBarConfig:
  * @name: the bar's name; also its CSS id and its log label.
  * @theme: (nullable): the theme the bar was built from, for the settings UI.
@@ -146,6 +168,15 @@ double whelk_spec_double(const WhelkModuleSpec *spec, const char *key,
 gboolean whelk_spec_bool(const WhelkModuleSpec *spec, const char *key,
                          gboolean fallback);
 gboolean whelk_spec_has(const WhelkModuleSpec *spec, const char *key);
+
+/* --- desktop widgets ------------------------------------------------------ */
+
+WhelkWidgetConfig *whelk_widget_config_new(const char *kind);
+WhelkWidgetConfig *whelk_widget_config_copy(const WhelkWidgetConfig *config);
+void whelk_widget_config_free(WhelkWidgetConfig *config);
+void whelk_config_free_widgets(GPtrArray *widgets);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WhelkWidgetConfig, whelk_widget_config_free)
 
 /* --- bars ----------------------------------------------------------------- */
 

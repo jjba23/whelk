@@ -82,6 +82,19 @@ void whelk_bridge_stop_repl(void);
 GPtrArray *whelk_bridge_bars(const char *path);
 
 /**
+ * whelk_bridge_widgets:
+ * @path: the settings file the widgets belong to (may be NULL).
+ *
+ * Reads `(shell-widgets->alists)' from `(whelk state)': the floating desktop
+ * widgets a configuration declared, with their placement and own options.  An
+ * empty or missing configuration is an empty array, not a failure: desktop
+ * widgets are opt-in.
+ *
+ * Returns: (transfer full) (element-type WhelkWidgetConfig): the widgets.
+ */
+GPtrArray *whelk_bridge_widgets(const char *path);
+
+/**
  * whelk_bridge_clipboard:
  * @path: the settings file whose clipboard policy is wanted (may be NULL).
  *

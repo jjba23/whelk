@@ -35,9 +35,10 @@ Three things in the code are load-bearing for everything that comes next:
   probed for capabilities separately; what a session cannot do goes quiet with
   one line in the log.
 
-The one thing the architecture explicitly reserves room for and has not built is
-**floating widgets**: a `WhelkSurface` with `#:exclusive? #f` and margins on one
-edge, which is a desktop widget rather than a bar.
+The architecture's reserved surface is now **floating desktop widgets**: a
+`WhelkSurface` with `#:exclusive? #f`, margins and a fixed card.  The Golden
+Gate collection uses it; dragging a card and remembering its position are the
+next step, not a missing foundation.
 
 ## The vision
 
@@ -65,10 +66,10 @@ statements that should be true in a few years and are not true yet:
 
 These are the ones the code already anticipates.
 
-- **Floating widgets.** A widget surface with margins and no exclusive zone: a
-  clock, a CPU graph, a now-playing card, a notes scratchpad, dropped anywhere
-  on a monitor. The hard parts are placement persistence, per-monitor memory and
-  a sensible default when the monitor geometry changes.
+- **Widget dragging and placement memory.** Desktop widgets are placed by
+  `settings.scm` today. A drag would need to write back to a preference
+  override, remember a per-monitor position and fall back sanely when the
+  monitor geometry changes.
 - **A complete preferences window.** `prefs.scm` and the GTK settings window
   cover the bar, theme, notifications, Wi-Fi, global menu, tray and clock. The
   remaining modules, keybindings and launcher modes should be reachable there,

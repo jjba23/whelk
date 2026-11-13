@@ -237,4 +237,9 @@ Click: the launcher · Right-click: switch windows"
                           #:tooltip "{calendar}
 Click: calendar · Right-click: copy the time"
                           #:on-click "gnome-calendar"
-                          #:on-click-right "wl-copy \"$(date '+%Y-%m-%d %H:%M:%S')\"")))))
+                          #:on-click-right "wl-copy \"$(date '+%Y-%m-%d %H:%M:%S')\""))))
+
+ ;; The standard macOS Golden Gate desktop-widget collection: Clock,
+ ;; Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
+ ;; Each is a (desktop-widget ...) record, so remove, move or resize them here.
+ #:widgets (golden-gate-widgets))

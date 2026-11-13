@@ -752,3 +752,208 @@ window.whelk-settings-window {
   border-radius: 6px;
   padding: 6px 8px;
 }
+
+/* --- desktop widgets ------------------------------------------------------ */
+/*
+ * A desktop widget is a card, not a bar module: it has its own surface and its
+ * own breathing room.  The material, ink, border and radius still come from the
+ * bar's generated skin; these rules are the shared typography and the small
+ * pieces every Golden Gate widget has in common.
+ */
+
+.whelk-widget-card {
+  padding: 20px;
+  border-radius: 24px;
+  box-shadow: 0 18px 46px alpha(black, 0.30);
+}
+
+.whelk-widget-header {
+  margin-bottom: 2px;
+}
+
+.whelk-widget-glyph {
+  font-size: 13pt;
+  opacity: 0.72;
+}
+
+.whelk-widget-title {
+  font-size: 9.5pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.whelk-widget-header-fill {
+  min-width: 1px;
+}
+
+.whelk-widget-subtle {
+  font-size: 9.5pt;
+  opacity: 0.62;
+}
+
+.whelk-widget-reading {
+  font-size: 11pt;
+}
+
+.whelk-widget-footnote {
+  font-size: 8pt;
+  opacity: 0.42;
+}
+
+/* --- clock ---------------------------------------------------------------- */
+
+.whelk-widget-clock-face {
+  min-height: 110px;
+}
+
+.whelk-widget-clock-time {
+  font-size: 23pt;
+  font-weight: 300;
+  font-feature-settings: "tnum";
+}
+
+.whelk-widget-clock-time.digital {
+  font-size: 54pt;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+}
+
+/* --- calendar ------------------------------------------------------------- */
+
+.whelk-widget-calendar-month {
+  font-size: 18pt;
+  font-weight: 600;
+  margin: 6px 0 10px 0;
+}
+
+.whelk-widget-calendar-grid {
+  margin-top: 2px;
+}
+
+.whelk-widget-weekday {
+  font-size: 8pt;
+  font-weight: 600;
+  opacity: 0.45;
+  padding-bottom: 4px;
+}
+
+.whelk-widget-day {
+  font-size: 9.5pt;
+  padding: 4px 2px;
+  border-radius: 10px;
+}
+
+.whelk-widget-day.today {
+  background-color: alpha(currentColor, 0.18);
+  font-weight: 700;
+}
+
+/* --- weather -------------------------------------------------------------- */
+
+.whelk-widget-weather-icon {
+  font-size: 35pt;
+  min-width: 56px;
+}
+
+.whelk-widget-temperature {
+  font-size: 38pt;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+/* --- battery -------------------------------------------------------------- */
+
+.whelk-widget-battery-percent {
+  font-size: 34pt;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+.whelk-widget-battery-level trough {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: alpha(currentColor, 0.14);
+}
+
+.whelk-widget-battery-level progress {
+  min-height: 8px;
+  border-radius: 4px;
+  background-color: currentColor;
+}
+
+.whelk-widget-card.warning .whelk-widget-battery-level progress {
+  background-color: #ffb340;
+}
+
+.whelk-widget-card.critical .whelk-widget-battery-level progress {
+  background-color: #ff5f56;
+}
+
+.whelk-widget-card.charging .whelk-widget-battery-level progress {
+  background-color: #8fd16a;
+}
+
+/* --- notes ---------------------------------------------------------------- */
+
+.whelk-widget-note {
+  font-size: 11.5pt;
+  line-height: 1.35;
+}
+
+/* --- reminders ------------------------------------------------------------ */
+
+.whelk-widget-reminder-list {
+  margin-top: 4px;
+}
+
+.whelk-widget-reminder {
+  font-size: 10.5pt;
+}
+
+.whelk-widget-reminder-mark {
+  font-size: 11pt;
+  opacity: 0.8;
+}
+
+.whelk-widget-reminder-done {
+  font-size: 11pt;
+  opacity: 0.38;
+}
+
+/* --- world clock ---------------------------------------------------------- */
+
+.whelk-widget-city {
+  font-size: 11pt;
+}
+
+.whelk-widget-world-time {
+  font-size: 16pt;
+  font-weight: 500;
+  font-feature-settings: "tnum";
+}
+
+/* --- stocks --------------------------------------------------------------- */
+
+.whelk-widget-stock-symbol {
+  font-size: 10.5pt;
+  font-weight: 700;
+}
+
+.whelk-widget-stock-price {
+  font-size: 11.5pt;
+  font-feature-settings: "tnum";
+}
+
+.whelk-widget-stock-change {
+  font-size: 9pt;
+  font-feature-settings: "tnum";
+  min-width: 48px;
+}
+
+.whelk-widget-stock-change.up {
+  color: #8fd16a;
+}
+
+.whelk-widget-stock-change.down {
+  color: #ff6b60;
+}

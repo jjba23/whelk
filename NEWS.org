@@ -15,6 +15,45 @@ Nothing yet.
 
 *[Released]*
 
+** v0.18.0 (2026-11-14)
+
+*** Added
+
+- *Desktop widgets, described in Scheme.*  A `(desktop-widget ...)' record is a
+  floating GTK4 card with a kind, an absolute position, a size, a monitor and
+  an option alist.  Cards live on the background layer, reserve no screen
+  space and take no keyboard; saving `settings.scm' rebuilds them with the
+  bars.  The same `#:widgets` list also accepts a command-backed `custom'
+  widget for anything the standard kinds do not cover.
+- *The Golden Gate collection.*  `(golden-gate-widgets)' returns the eight
+  standard macOS desktop cards this shell can power from a Linux session:
+  Clock (analog or digital), Calendar, Weather, Batteries, Notes, Reminders,
+  World Clock and Stocks.  The built-in configuration and the shipped example
+  both start with the collection.
+- *Live Weather and Stocks.*  Weather asks Open-Meteo for current conditions and
+  today's high/low; Stocks asks Yahoo Finance for delayed quotes.  Both run
+  their HTTP request asynchronously, keep one request in flight per card, and
+  leave the values and refresh timer alone when the network or the service is
+  away.  Neither needs an API key.
+
+*** Changed
+
+- *The automatic test suite now covers the widget contract.*  The Scheme side
+  checks placement, standard sizes, option filtering and the eight-widget set;
+  the C bridge checks that a `<widget-config>' arrives as a plain
+  `WhelkWidgetConfig' that can outlive the Scheme call.
+- *README and VISION describe desktop widgets as built.*  The previous "designed
+  for, not implemented" note is gone; dragging a card and remembering its
+  monitor position remain future work.
+
+*** Verified
+
+- Host suite: 28/28.
+- Pinned Guix suite: 28/28.
+- `guix build -f guix.scm`: passed.
+- Xvfb/X11 smoke run: the shipped example registered one bar and eight desktop
+  widgets, with no CSS or widget-construction errors.
+
 ** v0.17.1 (2026-11-14)
 
 *** Fixed

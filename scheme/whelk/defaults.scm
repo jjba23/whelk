@@ -28,7 +28,8 @@
   #:use-module (whelk menu)
   #:use-module (whelk modules)
   #:use-module (whelk state)
-  #:export (default-bar default-shell-menu default-configuration!))
+  #:export (default-bar default-shell-menu golden-gate-widgets
+            default-configuration!))
 
 (define icon-font "Font Awesome 6 Free Solid")
 
@@ -292,6 +293,59 @@ Click: calendar · Right-click: copy the time"
                           #:on-click "gnome-calendar"
                           #:on-click-right "wl-copy \"$(date '+%Y-%m-%d %H:%M:%S')\""))))
 
+(define (golden-gate-widgets)
+  "Return the standard macOS Golden Gate desktop-widget collection.
+
+The set Apple ships in its widget gallery that has a native source here:
+Clock, Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
+They are placed as a starting layout down the left and middle of a 1080p
+desktop; every one is an ordinary `(desktop-widget ...)', so a configuration
+can move it, resize it, change its options or leave it out.  Weather defaults
+to San Francisco because the collection is named for the Golden Gate; set its
+latitude, longitude and location to your own.  Stocks default to three US
+tickers and can be replaced with any symbol Yahoo Finance knows."
+  (list
+   (desktop-widget 'clock
+                   #:x 32 #:y 64
+                   #:options '((style . analog)
+                               (show-seconds? . #t)
+                               (on-click . "gnome-clocks")))
+   (desktop-widget 'calendar
+                   #:x 276 #:y 64
+                   #:options '((on-click . "gnome-calendar")))
+   (desktop-widget 'weather
+                   #:x 624 #:y 64
+                   #:options '((location . "San Francisco")
+                               (latitude . 37.7749)
+                               (longitude . -122.4194)
+                               (units . metric)))
+   (desktop-widget 'battery
+                   #:x 32 #:y 320
+                   #:options '((on-click . "gnome-power-statistics")))
+   (desktop-widget 'notes
+                   #:x 32 #:y 516
+                   #:width 220
+                   #:height 260
+                   #:options '((title . "Notes")
+                               (text . "Golden Gate widgets\nEdit settings.scm to make this note yours.")))
+   (desktop-widget 'reminders
+                   #:x 276 #:y 410
+                   #:options '((items . ("Review the release"
+                                         "Water the plants"
+                                         "Read the Guile manual"))))
+   (desktop-widget 'world-clock
+                   #:x 624 #:y 300
+                   #:width 260
+                   #:height 220
+                   #:options '((cities . "Cupertino=America/Los_Angeles,London=Europe/London,Tokyo=Asia/Tokyo")))
+   (desktop-widget 'stocks
+                   #:x 624 #:y 536
+                   #:width 300
+                   #:height 220
+                   #:options '((symbols . ("AAPL" "MSFT" "NVDA"))))))
+
 (define (default-configuration!)
-  "Register the built-in bar as the shell's default configuration."
-  (configure-shell! #:config-path 'default #:bars (list (default-bar))))
+  "Register the built-in bar and Golden Gate widget set as the fallback."
+  (configure-shell! #:config-path 'default
+                    #:bars (list (default-bar))
+                    #:widgets (golden-gate-widgets)))

@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.17.1',
+  version: '0.18.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -198,6 +198,7 @@ whelk_sources = files(
   'src/util/nmcli.c',
   'src/util/sysfs.c',
   'src/util/trayicon.c',
+  'src/widgets.c',
 )
 
 whelk_exe = executable('whelk',
@@ -261,6 +262,17 @@ unit_tests = [
     'id': 'preferences',
     'sources': [
       'src/preferences.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/util/menutree.c',
+    ],
+  },
+  {
+    'id': 'widgetconfig',
+    'sources': [
       'src/guile_bridge.c',
       'src/config.c',
       'src/util/format.c',
@@ -452,6 +464,19 @@ if guile.found()
       '--no-auto-compile',
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_prefs.scm'),
+    ],
+    env: test_env,
+  )
+
+  # Desktop widgets are configuration too: the standard set, its placement
+  # and the bridge view a floating surface is built from.
+  test(
+    'widgets_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_widgets.scm'),
     ],
     env: test_env,
   )

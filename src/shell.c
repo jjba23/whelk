@@ -18,6 +18,7 @@
 #include "osd.h"
 #include "preferences.h"
 #include "util/menusearch.h"
+#include "widgets.h"
 
 /* =========================================================================
  * THE SHELL
@@ -47,6 +48,7 @@ struct _WhelkShell {
   WhelkLauncher *launcher;
   WhelkNetworkPanel *network;
   WhelkOsd *osd;
+  WhelkWidgets *widgets;
 };
 
 static void build_bars(WhelkShell *shell);
@@ -154,6 +156,13 @@ static void build_bars(WhelkShell *shell) {
     shell->style = whelk_bar_config_copy(g_ptr_array_index(configs, 0));
 
   whelk_config_free_bars(configs);
+
+  /* Widgets are rebuilt with the bars: moving one is a settings save, and a
+   * monitor change must not leave a card anchored to the output it left. */
+  GPtrArray *widget_configs = whelk_bridge_widgets(shell->config_path);
+
+  whelk_widgets_build(shell->widgets, widget_configs, shell->style);
+  whelk_config_free_widgets(widget_configs);
 
   LOG_C_INFO("Shell", "%u bar(s) up", shell->bars->len);
   shell->building = FALSE;
@@ -333,6 +342,8 @@ void whelk_shell_start(WhelkShell *shell) {
    * overridden an entry: read it after the configuration, before the bars. */
   whelk_menudict_load(whelk_bridge_menudict());
 
+  shell->widgets = whelk_widgets_new(shell->app);
+
   build_bars(shell);
 
   if (!shell->style) {
@@ -423,6 +434,7 @@ void whelk_shell_free(WhelkShell *shell) {
   g_clear_object(&shell->launcher);
   g_clear_object(&shell->network);
   g_clear_object(&shell->osd);
+  g_clear_pointer(&shell->widgets, whelk_widgets_free);
   g_clear_object(&shell->notifications);
   g_clear_object(&shell->clipboard);
   g_clear_pointer(&shell->style, whelk_bar_config_free);

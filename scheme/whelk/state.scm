@@ -11,10 +11,9 @@
 ;; state -- the same arrangement lambdock uses for its docks.
 ;;
 ;; A bar is geometry plus three module lists.  Geometry is who it is and where
-;; it goes; the three lists are what it says.  Widgets that are not a bar
-;; (notifications, a launcher, a floating panel) are deliberately not part of
-;; this record yet: they will be their own record and their own C surface, which
-;; is why the surface layer in C takes a generic description rather than a bar.
+;; it goes; the three lists are what it says.  A desktop widget is its own
+;; record and its own C surface because it has a place and a size instead of a
+;; slot in a row; the shell record holds both lists.
 
 ;;; Code:
 
@@ -52,6 +51,18 @@
             bar-config-modules-left
             bar-config-modules-center
             bar-config-modules-right
+            <widget-config>
+            widget-config?
+            widget-config-kind
+            widget-config-x
+            widget-config-y
+            widget-config-width
+            widget-config-height
+            widget-config-monitor
+            widget-config-options
+            desktop-widget
+            widget->alist
+            shell-widgets->alists
             bar
             clipboard-settings
             get-shell-clipboard
@@ -63,6 +74,7 @@
             forget-shell-config!
             get-shell-bars
             get-shell-menu
+            get-shell-widgets
             shell-menu->units
             get-shell-enable-repl?
             get-shell-repl-socket-path
@@ -109,22 +121,117 @@
   (modules-right bar-config-modules-right))
 
 ;; =============================================================================
+;; The desktop widget record
+;; =============================================================================
+;; A widget is not a bar module: it has its own surface, its own size and a
+;; place on the desktop instead of a slot in a row.  The record keeps that
+;; placement and an option alist, so a new widget kind is a C factory and a new
+;; alist key rather than another Scheme accessor.
+
+(define-record-type <widget-config>
+  (make-widget-config kind x y width height monitor options)
+  widget-config?
+  (kind widget-config-kind)
+  (x widget-config-x)
+  (y widget-config-y)
+  (width widget-config-width)
+  (height widget-config-height)
+  (monitor widget-config-monitor)
+  (options widget-config-options))
+
+;; The sizes the standard Apple widgets use, in the order Clock, Calendar,
+;; Weather, Batteries, Notes, Reminders, World Clock and Stocks.  A widget can
+;; be any size it likes; these are the defaults a bare (desktop-widget ...)
+;; gets, not limits.
+(define %widget-sizes
+  '((clock 220 240)
+    (calendar 340 330)
+    (weather 340 220)
+    (battery 240 180)
+    (notes 340 260)
+    (reminders 340 300)
+    (world-clock 260 260)
+    (stocks 300 260)))
+
+(define (normalize-widget-kind kind)
+  "Return KIND as a symbol, warning when it is not a name at all."
+  (cond ((symbol? kind) kind)
+        ((string? kind) (string->symbol kind))
+        (else
+         (log-warn "State" "Widget kind should be a symbol, got: ~s" kind)
+         'custom)))
+
+(define (normalize-widget-options options)
+  "Return OPTIONS as a clean alist of symbol keys and non-#f values.
+
+An option with a #f value means \"leave it to the widget's own default\", the
+same convention (whelk modules) uses.  A malformed pair is dropped instead of
+reaching C as a shape it cannot read."
+  (define (key key)
+    (cond ((symbol? key) key)
+          ((string? key) (string->symbol key))
+          ((keyword? key) (keyword->symbol key))
+          (else #f)))
+  (if (not (list? options))
+      '()
+      (filter-map
+       (lambda (pair)
+         (and (pair? pair)
+              (key (car pair))
+              (not (eq? (cdr pair) #f))
+              (cons (key (car pair)) (cdr pair))))
+       options)))
+
+(define* (desktop-widget kind #:key
+                         (x 48)
+                         (y 64)
+                         (width #f)
+                         (height #f)
+                         (monitor "default")
+                         (options '()))
+  "Describe one floating desktop widget.
+
+KIND is one of 'clock, 'calendar, 'weather, 'battery, 'notes, 'reminders,
+'world-clock, 'stocks, 'custom, or a kind a later whelk adds.  X and Y are
+pixels from the top-left of MONITOR (\"default\" or a connector such as
+\"DP-1\").  WIDTH and HEIGHT default to the standard size for KIND.  OPTIONS is
+an alist of the widget's own keys: the weather takes latitude, longitude and
+location, Notes takes text or file, Reminders takes items, and every widget
+accepts title, css, tooltip and on-click.  The C side ignores a key it does not
+know, exactly as a module does."
+  (let* ((kind (normalize-widget-kind kind))
+         (preset (or (assq kind %widget-sizes) '(default 320 220)))
+         (preset-width (cadr preset))
+         (preset-height (caddr preset)))
+    (make-widget-config kind
+                        (max 0 (as-int x 48))
+                        (max 0 (as-int y 64))
+                        (max 100 (as-int width preset-width))
+                        (max 100 (as-int height preset-height))
+                        (cond ((symbol? monitor) (symbol->string monitor))
+                              ((string? monitor) monitor)
+                              (else "default"))
+                        (normalize-widget-options options))))
+
+;; =============================================================================
 ;; The shell record
 ;; =============================================================================
 
 ;; The shell menu is the popover behind the mark at the far left of the bar:
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars shell-menu clipboard enable-repl? repl-socket-path)
+  (make-shell-config bars widgets shell-menu clipboard enable-repl?
+                     repl-socket-path)
   shell-config?
   (bars shell-config-bars)
+  (widgets shell-config-widgets)
   (shell-menu shell-config-shell-menu)
   (clipboard shell-config-clipboard)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() #f '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() '() #f '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -304,6 +411,7 @@ oldest first.  TTL-SECONDS, when positive, expires unpinned entries."
 (define* (configure-shell! #:key
                            (config-path 'default)
                            (bars '())
+                           (widgets '())
                            (shell-menu #f)
                            (clipboard '())
                            (enable-repl? #f)
@@ -318,6 +426,9 @@ followed by the launcher and the reload and quit a configuration needs.  The
 network, Bluetooth and notification panels are modules and CLI commands, not
 session-menu entries.
 
+WIDGETS is a list of `(desktop-widget ...)' records.  They become floating
+layer surfaces on the desktop, rebuilt with the bars on every reload.
+
 CLIPBOARD is `(clipboard-settings)' or an alist with the same keys: it sets the
 history's persistence, caps and retention.  The empty default keeps the
 environment-variable behaviour.
@@ -326,7 +437,9 @@ ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
   (let* ((valid (filter bar-config? (if (list? bars) bars '())))
-         (cfg (make-shell-config valid shell-menu
+         (valid-widgets
+          (filter widget-config? (if (list? widgets) widgets '())))
+         (cfg (make-shell-config valid valid-widgets shell-menu
                                  (if (list? clipboard) clipboard '())
                                  enable-repl?
                                  repl-socket-path)))
@@ -334,6 +447,12 @@ how a configuration is changed without restarting the compositor:
       (log-warn "State"
                 "~a of ~a bars were not <bar-config> records: they are ignored"
                 (- (length bars) (length valid)) (length bars)))
+
+    (when (and (list? widgets)
+               (not (= (length valid-widgets) (length widgets))))
+      (log-warn "State"
+                "~a of ~a widgets were not <widget-config> records: they are ignored"
+                (- (length widgets) (length valid-widgets)) (length widgets)))
 
     (hash-set! *shell-configs* config-path cfg)
 
@@ -344,7 +463,7 @@ how a configuration is changed without restarting the compositor:
       (hash-set! *shell-configs* 'default cfg))
 
     (log-info "State"
-              "Registered [~a]: ~a bar(s) ~a, repl: ~a"
+              "Registered [~a]: ~a bar(s) ~a, ~a widget(s), repl: ~a"
               config-path
               (length valid)
               (map (lambda (b)
@@ -355,6 +474,7 @@ how a configuration is changed without restarting the compositor:
                                 (length (bar-config-modules-center b))
                                 (length (bar-config-modules-right b)))))
                    valid)
+              (length valid-widgets)
               enable-repl?)))
 
 (define (get-shell-config . args)
@@ -396,6 +516,10 @@ than layering on top of the previous run."
 (define (get-shell-menu . args)
   "Return the configured shell menu units, or #f for the default one."
   (shell-config-shell-menu (apply get-shell-config args)))
+
+(define (get-shell-widgets . args)
+  "Return the configured desktop widgets, as <widget-config> records."
+  (shell-config-widgets (apply get-shell-config args)))
 
 (define (get-shell-clipboard . args)
   "Return the clipboard-settings alist, or '() when it was not configured."
@@ -466,3 +590,17 @@ because a settings file may want to read the menu it configured."
   "Return the clipboard settings as an alist, or '() when unconfigured."
   (let ((settings (apply get-shell-clipboard args)))
     (if (list? settings) settings '())))
+
+(define (widget->alist w)
+  "Return WIDGET as the plain alist the C bridge reads."
+  (list (cons 'kind (widget-config-kind w))
+        (cons 'x (widget-config-x w))
+        (cons 'y (widget-config-y w))
+        (cons 'width (widget-config-width w))
+        (cons 'height (widget-config-height w))
+        (cons 'monitor (widget-config-monitor w))
+        (cons 'options (widget-config-options w))))
+
+(define (shell-widgets->alists . args)
+  "Return the configured widgets as alists, for the C runtime."
+  (map widget->alist (apply get-shell-widgets args)))

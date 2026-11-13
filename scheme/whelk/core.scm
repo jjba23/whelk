@@ -88,6 +88,18 @@
                bar-config-modules-left
                bar-config-modules-center
                bar-config-modules-right
+               <widget-config>
+               widget-config?
+               widget-config-kind
+               widget-config-x
+               widget-config-y
+               widget-config-width
+               widget-config-height
+               widget-config-monitor
+               widget-config-options
+               desktop-widget
+               widget->alist
+               shell-widgets->alists
                bar
                clipboard-settings
                themes
@@ -97,12 +109,14 @@
                get-shell-config
                get-shell-bars
                get-shell-menu
+               get-shell-widgets
                get-shell-clipboard
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path
                load-settings-file!
                default-bar
+               golden-gate-widgets
                add-menu-app
                replace-menu-app
                menudict-for-id)

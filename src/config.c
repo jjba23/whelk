@@ -112,6 +112,63 @@ gboolean whelk_spec_bool(const WhelkModuleSpec *spec, const char *key,
 }
 
 /* =========================================================================
+ * DESKTOP WIDGETS
+ * ========================================================================= */
+
+WhelkWidgetConfig *whelk_widget_config_new(const char *kind) {
+  WhelkWidgetConfig *config = g_new0(WhelkWidgetConfig, 1);
+
+  config->spec = whelk_module_spec_new(kind ? kind : "custom");
+  config->x = 48;
+  config->y = 64;
+  config->width = 320;
+  config->height = 220;
+  config->monitor = g_strdup("default");
+
+  return config;
+}
+
+WhelkWidgetConfig *whelk_widget_config_copy(const WhelkWidgetConfig *config) {
+  if (!config)
+    return NULL;
+
+  WhelkWidgetConfig *copy = whelk_widget_config_new(config->spec->kind);
+  GHashTableIter iter;
+  gpointer key;
+  gpointer value;
+
+  g_hash_table_iter_init(&iter, config->spec->options);
+  while (g_hash_table_iter_next(&iter, &key, &value))
+    whelk_module_spec_set(copy->spec, (const char *)key, (const char *)value);
+
+  copy->x = config->x;
+  copy->y = config->y;
+  copy->width = config->width;
+  copy->height = config->height;
+
+  g_free(copy->monitor);
+  copy->monitor = g_strdup(config->monitor ? config->monitor : "default");
+
+  return copy;
+}
+
+void whelk_widget_config_free(WhelkWidgetConfig *config) {
+  if (!config)
+    return;
+
+  whelk_module_spec_free(config->spec);
+  g_free(config->monitor);
+  g_free(config);
+}
+
+void whelk_config_free_widgets(GPtrArray *widgets) {
+  if (!widgets)
+    return;
+
+  g_ptr_array_unref(widgets);
+}
+
+/* =========================================================================
  * BARS
  * ========================================================================= */
 

@@ -378,6 +378,39 @@ GPtrArray *whelk_bridge_bars(const char *path) {
   return bars;
 }
 
+GPtrArray *whelk_bridge_widgets(const char *path) {
+  GPtrArray *widgets = g_ptr_array_new_with_free_func(
+      (GDestroyNotify)whelk_widget_config_free);
+  SCM list = call_with_path("whelk state", "shell-widgets->alists", path);
+
+  for (SCM cursor = list; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    SCM entry = SCM_CAR(cursor);
+    g_autofree char *kind = scm_text(alist_get(entry, "kind"));
+
+    if (!kind || *kind == '\0')
+      continue;
+
+    WhelkWidgetConfig *widget = whelk_widget_config_new(kind);
+    const int x = alist_int(entry, "x", 48);
+    const int y = alist_int(entry, "y", 64);
+    const int width = alist_int(entry, "width", 320);
+    const int height = alist_int(entry, "height", 220);
+
+    widget->x = MAX(0, x);
+    widget->y = MAX(0, y);
+    widget->width = MAX(100, width);
+    widget->height = MAX(100, height);
+
+    g_free(widget->monitor);
+    widget->monitor = alist_text(entry, "monitor", "default");
+
+    collect_options(widget->spec, alist_get(entry, "options"));
+    g_ptr_array_add(widgets, widget);
+  }
+
+  return widgets;
+}
+
 WhelkClipboardConfig *whelk_bridge_clipboard(const char *path) {
   WhelkClipboardConfig *config = whelk_clipboard_config_new();
   SCM alist = call_with_path("whelk state", "shell-clipboard->alist", path);

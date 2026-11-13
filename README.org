@@ -83,6 +83,12 @@ the documented one -- see [[#configuration][Configuration]].
 - *A bar that is a data structure.* A bar is a name, an edge, a thickness and
   three lists of modules.  Every colour, font and radius is optional, so a bare
   =(bar)= is still readable; see [[#bar-keys][the bar keys]].
+- *Desktop widgets, also data.*  The standard macOS Golden Gate cards -- Clock,
+  Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks -- are
+  floating GTK4 surfaces described by =(desktop-widget ...)= records.  Weather
+  and Stocks fetch live data; every card can be moved, resized, restyled or
+  replaced by a command-backed =custom= widget from =settings.scm=; see
+  [[#desktop-widgets][Desktop widgets]].
 - *Twenty module kinds, one shape.* Clock, CPU, memory, battery, backlight,
   audio, power profile, workspaces, focused window, keyboard layout, Caps Lock,
   Wi-Fi, Bluetooth, notifications, do not disturb, the clipboard, tray, the
@@ -182,7 +188,7 @@ the documented one -- see [[#configuration][Configuration]].
 | Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
 | Launcher                   | working: applications, windows, commands, calculator, files, web, menus   |
 | Right-side overflow        | working: trailing right modules fold behind a chevron                    |
-| Floating widgets           | designed for, not implemented yet (see [[#architecture][Architecture]])     |
+| Desktop widgets            | working: eight Golden Gate cards, Scheme placement, live Weather/Stocks |
 
 ------------------
 
@@ -669,6 +675,79 @@ in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
 file you version and share.  *Reset GUI settings* deletes that override file and
 returns every value to the configuration.  The same right-click menu carries
 *Reload settings* for a reload without a keybinding.
+
+** Desktop widgets
+:PROPERTIES:
+:CUSTOM_ID: desktop-widgets
+:END:
+
+Desktop widgets are floating cards on the background layer, described by the
+same file that describes the bar.  The standard collection is one value:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars (list (default-bar))
+   #:widgets (golden-gate-widgets))
+#+end_src
+
+That is the set macOS Golden Gate puts in its widget gallery and this shell can
+power from Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
+**Notes**, **Reminders**, **World Clock** and **Stocks**.  The same records can
+be written out one at a time, placed anywhere on any output:
+
+#+begin_src scheme
+  (configure-shell!
+   #:widgets
+   (list
+    (desktop-widget 'clock #:x 40 #:y 64)
+    (desktop-widget 'weather
+                    #:x 40 #:y 320
+                    #:width 340
+                    #:height 220
+                    #:monitor "DP-1"
+                    #:options '((location . "Amsterdam")
+                                (latitude . 52.3676)
+                                (longitude . 4.9041)
+                                (units . metric)))
+    (desktop-widget 'notes
+                    #:x 400 #:y 64
+                    #:options '((title . "Today")
+                                (text . "Ship the release.")))))
+#+end_src
+
+| Key             | Meaning                                                              |
+|-----------------+----------------------------------------------------------------------|
+| =#:x=, =#:y=       | pixels from the top-left of the chosen monitor                       |
+| =#:width=, =#:height= | the card's size; a bare widget gets its kind's standard size       |
+| =#:monitor=       | ="default"= or a connector such as ="DP-1"=                            |
+| =#:options=       | the widget's own alist; an unknown key is ignored                     |
+
+Every kind accepts =#:title=, =#:css=, =#:tooltip= and =#:on-click= in that
+option alist.  The kind-specific options are:
+
+| Kind        | Options                                                              |
+|-------------+----------------------------------------------------------------------|
+| =clock=       | =style= (=analog= or =digital=), =show-seconds?=                        |
+| =calendar=    | the current month, with today marked                                 |
+| =weather=     | =latitude=, =longitude=, =location=, =units= (=metric= or =imperial=)   |
+| =battery=     | =device=, =warning=, =critical=                                        |
+| =notes=       | =text=, or =file= to read the note from disk                          |
+| =reminders=   | =items=, a list; prefix an item with =x= to mark it done               |
+| =world-clock= | =cities=, as ="Name=Zone"= entries separated by commas                |
+| =stocks=      | =symbols=, a list of Yahoo Finance tickers                            |
+| =custom=      | =exec=, =interval=, =empty=; anything a command can print              |
+
+Weather asks [[https://open-meteo.com][Open-Meteo]] for the current conditions and today's high and low;
+Stocks asks Yahoo Finance for delayed quotes.  Neither needs an API key, and
+both keep their request off the main loop.  A card sits on the layer-shell
+=bottom= layer, takes no keyboard and reserves no screen space, so it is
+visible on the desktop and under the windows rather than over them.  Saving the
+settings file rebuilds every card with the bars.
+
+The standard set is a starting layout down the left and middle of a 1080p
+desktop.  It is not privileged: use =map=, a helper procedure, or a list of
+your own to place exactly the cards you want.  =custom= is the escape hatch for
+widgets whose data comes from another program.
 
 ** The bar keys
 :PROPERTIES:
@@ -1338,9 +1417,9 @@ the same shutdown path by itself.
 :CUSTOM_ID: next
 :END:
 
-- *Floating widgets*: a =WhelkSurface= with =#:exclusive? #f= and margins on one
-  corner, plus a module.  No new engine -- the notification toasts already prove
-  the shape.
+- *Editable desktop widgets*: Notes and Reminders render the values a settings
+  file gives them.  Editing from the card would write through a preference
+  override, the same reversible path the settings window already uses.
 - *Tray menus*: the DBusMenu interface an item's own menu lives on.  Until then
   a right click asks the item to show its menu itself.
 - *Configured surfaces*: =bar->alist= in =state.scm= is the pattern; a record for
@@ -1411,6 +1490,9 @@ The C tests start with the pure logic and end with real widgets:
 - =tests/test_preferences.c= -- the GUI preference contract through the C
   bridge, plus the keyed widgets: a real spin button, dropdown and switch write
   the value their page promises.  The widget half skips on a headless runner.
+- =tests/test_widgetconfig.c= -- a =<widget-config>= crossing the Guile bridge:
+  kind, position, size, monitor and options arrive as a C struct deep enough to
+  outlive the Scheme call.
 - =tests/test_shortcutmaps.c= -- the optional JSON override: nested submenus,
   CUA output, multi-chord sequences, actions, greyed placeholders, punctuation
   and =Ctrl=-spelled accelerators, and empty answers when the application or
@@ -1433,10 +1515,14 @@ The Guile tests cover the configuration layer:
   a colour, and the names the build does not know are refused politely.
 - =tests/test_defaults.scm= -- the built-in bar: which modules sit on which side
   and in which order, and that =settings/settings.scm= and =(default-bar)= are
-  the same bar, so the example and the fallback cannot drift apart.
+  the same bar and ship the same widget set, so the example and the fallback
+  cannot drift apart.
 - =tests/test_prefs.scm= -- GUI overrides: the state-file path, save/read
   round trips, precedence over the settings file, and the reset that restores
   it exactly.
+- =tests/test_widgets.scm= -- the desktop-widget contract: standard sizes,
+  placement overrides, malformed options, the eight-widget Golden Gate set and
+  the shell record the bridge reads.
 
 ** CI
 :PROPERTIES:
