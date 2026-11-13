@@ -186,44 +186,7 @@ static void build_index(void) {
  * own menu model can type. */
 static gboolean parse_accelerator_sequence(const char *text,
                                            WhelkChordSequence *sequence) {
-  if (!text || !*text)
-    return FALSE;
-
-  g_auto(GStrv) parts = g_strsplit_set(text, " \t\n", -1);
-  guint count = 0;
-
-  for (guint i = 0; parts[i]; i++) {
-    g_strstrip(parts[i]);
-
-    if (*parts[i] != '\0')
-      count++;
-  }
-
-  if (count == 0)
-    return FALSE;
-
-  WhelkChord *chords = g_new0(WhelkChord, count);
-  guint at = 0;
-
-  for (guint i = 0; parts[i]; i++) {
-    if (*parts[i] == '\0')
-      continue;
-
-    if (!whelk_chord_parse_gtk(parts[i], &chords[at])) {
-      for (guint j = 0; j <= at; j++)
-        whelk_chord_clear(&chords[j]);
-
-      g_free(chords);
-      return FALSE;
-    }
-
-    at++;
-  }
-
-  sequence->chords = chords;
-  sequence->n_chords = count;
-
-  return TRUE;
+  return whelk_chord_sequence_parse_gtk(text, sequence);
 }
 
 static gboolean menu_has_entries(const WhelkMenu *menu) {

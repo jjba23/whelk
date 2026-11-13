@@ -91,6 +91,17 @@ gboolean whelk_chord_parse_gtk(const char *text, WhelkChord *chord);
 gboolean whelk_chord_sequence_parse(const char *text,
                                     WhelkChordSequence *sequence);
 
+/**
+ * whelk_chord_sequence_parse_gtk:
+ * @text: one or more GTK accelerators separated by whitespace, each written
+ *   the way a menu model writes one ("<Ctrl>N", "<Ctrl>x <Ctrl>s").
+ * @sequence: (out caller-allocates): the sequence.
+ *
+ * Returns: TRUE when every chord could be read.
+ */
+gboolean whelk_chord_sequence_parse_gtk(const char *text,
+                                        WhelkChordSequence *sequence);
+
 /* Releases every chord in the sequence. */
 void whelk_chord_sequence_clear(WhelkChordSequence *sequence);
 

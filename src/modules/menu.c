@@ -5,6 +5,7 @@
 
 #include "modules/modules.h"
 
+#include "guile_bridge.h"
 #include "logger.h"
 #include "shell.h"
 #include "util/desktop.h"
@@ -15,6 +16,8 @@
 #include "util/dbusmenu.h"
 #include "util/menuaction.h"
 #include "util/menusearch.h"
+#include "util/menuprobe.h"
+#include "util/gtkmenu.h"
 #include "util/json.h"
 #include "util/menudict.h"
 #include "util/menutree.h"
@@ -59,6 +62,7 @@ typedef struct {
   GPtrArray *buttons;     /* top-level buttons, borrowed from the row */
   GtkWidget *open_button; /* whose popover is up, borrowed */
   WhelkDBusMenuWatch *dbus_menu; /* follows a live DBusMenu, NULL otherwise */
+  WhelkGtkMenuWatch *gtk_menu;   /* follows org.gtk.Menus Changed */
   guint generation;
 } MenuData;
 
@@ -659,6 +663,14 @@ static void stop_dbus_menu_watch(MenuData *data) {
   data->dbus_menu = NULL;
 }
 
+static void stop_gtk_menu_watch(MenuData *data) {
+  if (!data->gtk_menu)
+    return;
+
+  whelk_gtkmenu_watch_free(data->gtk_menu);
+  data->gtk_menu = NULL;
+}
+
 /* LayoutUpdated means the old ids may already belong to other rows: close
  * first, read second.  The read itself replaces the tree and repaints. */
 static void on_dbus_menu_invalidated(gpointer user_data) {
@@ -669,6 +681,15 @@ static void on_dbus_menu_invalidated(gpointer user_data) {
  * answer is a fresh tree, ids and all, and the open menu goes away rather than
  * keeping ids that now point elsewhere. */
 static void on_dbus_menu_changed(GPtrArray *menus, gpointer user_data) {
+  WhelkModule *module = user_data;
+
+  replace_menus(module, menus);
+}
+
+/* org.gtk.Menus Changed carries add/remove tuples, but the tree we render is
+ * not diffable in place: close the popover, then let Start return the current
+ * tree.  This is the same contract as the DBusMenu watch. */
+static void on_gtk_menu_changed(GPtrArray *menus, gpointer user_data) {
   WhelkModule *module = user_data;
 
   replace_menus(module, menus);
@@ -701,9 +722,22 @@ static void on_start_reply(GObject *source, GAsyncResult *result,
           whelk_menubar_from_gtk(parameters, 0, 0, data->style);
 
       if (menus->len > 0) {
+        const char *path =
+            g_ptr_array_index(probe->paths, probe->index - 1);
+
         LOG_C_DEBUG("Menu", "%s exports a menubar: %u menu(s) from D-Bus",
                     data->app_id ? data->app_id : "(anonymous)", menus->len);
+        stop_dbus_menu_watch(data);
         replace_menus(probe->module, menus);
+
+        /* The GTK menu can change while its popover is open (a File menu that
+         * grows after Recent Documents is loaded, for instance).  Follow the
+         * protocol's Changed signal so the bar is not a photograph. */
+        stop_gtk_menu_watch(data);
+        data->gtk_menu = whelk_gtkmenu_watch_new(
+            probe->bus, data->bus_name, path, data->style,
+            on_gtk_menu_changed, on_dbus_menu_invalidated, probe->module);
+
         adopted = TRUE;
       } else {
         g_ptr_array_unref(menus);
@@ -764,6 +798,7 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
         /* From here the menu is followed, not remembered: every LayoutUpdated
          * or ItemsPropertiesUpdated costs one GetLayout and a new id set. */
         stop_dbus_menu_watch(data);
+        stop_gtk_menu_watch(data);
         data->dbus_menu = whelk_dbusmenu_watch_new(
             probe->bus, bus_name, path, data->style,
             on_dbus_menu_changed, on_dbus_menu_invalidated, probe->module);
@@ -856,7 +891,7 @@ static void on_registrar_reply(GObject *source, GAsyncResult *result,
         g_variant_is_object_path(path)) {
       g_free(probe->dbus_bus_name);
       probe->dbus_bus_name = g_strdup(bus_name);
-      g_ptr_array_insert(probe->dbus_paths, 0, g_strdup(path));
+      whelk_menu_probe_use_registrar_path(probe->dbus_paths, path);
       probe->dbus_index = 0;
     }
   }
@@ -919,41 +954,14 @@ static void probe_menus(WhelkModule *module) {
   probe->module = module;
   probe->generation = data->generation;
   probe->bus = g_object_ref(bus);
-  probe->paths = g_ptr_array_new_with_free_func(g_free);
+  WhelkMenuProbeOrder *order =
+      whelk_menu_probe_order_new(&data->focused, valid_bus, data->app_path);
 
-  if (valid_bus) {
-
-    /* On X11 a GTK window publishes the objects it actually uses.  They are
-     * exact answers to the question the conventional paths below guess at, and
-     * they also rescue applications whose WM_CLASS is not a bus name. */
-    if (data->focused.menubar_path && *data->focused.menubar_path)
-      g_ptr_array_add(probe->paths, g_strdup(data->focused.menubar_path));
-
-    if (data->focused.window_path && *data->focused.window_path)
-      g_ptr_array_add(probe->paths,
-                      g_strdup_printf("%s/menus/menubar",
-                                      data->focused.window_path));
-
-    if (data->focused.appmenu_path && *data->focused.appmenu_path)
-      g_ptr_array_add(probe->paths, g_strdup(data->focused.appmenu_path));
-
-    g_ptr_array_add(probe->paths,
-                    g_strdup_printf("%s/menus/menubar", data->app_path));
-    g_ptr_array_add(probe->paths,
-                    g_strdup_printf("%s/menus/AppMenu", data->app_path));
-    /* A menubar that belongs to one window rather than to the application: the
-     * shape a document window uses when each window has its own menus. */
-    g_ptr_array_add(probe->paths,
-                    g_strdup_printf("%s/window/0/menus/menubar",
-                                    data->app_path));
-    g_ptr_array_add(probe->paths,
-                    g_strdup("/org/gtk/Application/anonymous/menus/menubar"));
-  }
-
-  probe->dbus_paths = g_ptr_array_new_with_free_func(g_free);
-  g_ptr_array_add(probe->dbus_paths, g_strdup("/MenuBar/1"));
-  g_ptr_array_add(probe->dbus_paths, g_strdup("/MenuBar/0"));
-  g_ptr_array_add(probe->dbus_paths, g_strdup("/com/canonical/dbusmenu"));
+  probe->paths = order->gtk_paths;
+  probe->dbus_paths = order->dbus_paths;
+  order->gtk_paths = NULL;
+  order->dbus_paths = NULL;
+  g_free(order);
 
   probe_next(probe);
 }
@@ -1004,6 +1012,36 @@ static void copy_focused_paths(WhelkFocusedPaths *target,
   target->appmenu_path = g_strdup(source->appmenu_path);
 }
 
+/* An imported corpus describes the application's own menus, not the
+ * compositor's.  Keep the synthesized menus whose labels the import does not
+ * provide (Window, or a File holding this window's close action), and let the
+ * application's own menu win when both have the same label. */
+static GPtrArray *merge_imported_menus(GPtrArray *menus,
+                                       GPtrArray *imported) {
+  for (guint i = 0; i < menus->len;) {
+    WhelkMenu *fallback = g_ptr_array_steal_index(menus, i);
+    gboolean duplicate = FALSE;
+
+    for (guint j = 0; j < imported->len; j++) {
+      WhelkMenu *present = g_ptr_array_index(imported, j);
+
+      if (g_strcmp0(present->label, fallback->label) == 0) {
+        duplicate = TRUE;
+        break;
+      }
+    }
+
+    if (duplicate)
+      whelk_menu_free(fallback);
+    else
+      g_ptr_array_add(imported, fallback);
+  }
+
+  g_ptr_array_unref(menus);
+
+  return imported;
+}
+
 /* `paths' is the X11 window's published object graph, or NULL when the caller
  * has none.  NULL keeps the current paths while the application is unchanged;
  * changing applications always starts clean. */
@@ -1014,6 +1052,7 @@ static void build_for_app(WhelkModule *module, const char *app_id,
 
   /* The previous application's menu is gone, whatever published it. */
   stop_dbus_menu_watch(data);
+  stop_gtk_menu_watch(data);
 
   data->generation++;
 
@@ -1160,48 +1199,48 @@ static void build_for_app(WhelkModule *module, const char *app_id,
     LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
                 source);
 
-  /* The optional Orbit Global Menu corpus is a second, much larger dictionary.
-   * It is read from the user's own checkout rather than copied here: the
-   * mapping files are GPL-3.0 data, while whelk stays MIT.  The curated table
-   * wins when it knows the application; Orbit fills the gap before the shared
-   * Edit and View are used. */
+  /* A user-installed JSON mapping wins over the built-in Scheme corpus: that
+   * is how a local correction to an application is tested without rebuilding
+   * the shell.  The curated dictionary still wins over both. */
+  gboolean imported = FALSE;
+
   if (!source && data->shortcut_tool && *data->shortcut_tool &&
       data->app_id && *data->app_id) {
     GPtrArray *orbit = whelk_shortcutmaps_menubar_for_app(
         data->app_id, data->shortcut_tool, data->style);
 
     if (orbit->len > 0) {
-      LOG_C_DEBUG("Menu", "%s: %u menu(s) from the shortcut-mapping corpus",
+      LOG_C_DEBUG("Menu", "%s: %u menu(s) from an installed shortcut map",
                   data->app_id, orbit->len);
-      /* The corpus describes the application's own menus.  It does not know
-       * the compositor's Window menu, so the synthesized menus it does not
-       * replace -- Window, or a File with this window's close action -- travel
-       * with it.  Duplicate labels prefer the application's own menu. */
-      for (guint i = 0; i < menus->len;) {
-        WhelkMenu *fallback = g_ptr_array_steal_index(menus, i);
-        gboolean duplicate = FALSE;
-
-        for (guint j = 0; j < orbit->len; j++) {
-          WhelkMenu *present = g_ptr_array_index(orbit, j);
-
-          if (g_strcmp0(present->label, fallback->label) == 0) {
-            duplicate = TRUE;
-            break;
-          }
-        }
-
-        if (duplicate)
-          whelk_menu_free(fallback);
-        else
-          g_ptr_array_add(orbit, fallback);
-      }
-
-      g_ptr_array_unref(menus);
-      menus = orbit;
+      menus = merge_imported_menus(menus, orbit);
+      imported = TRUE;
     } else {
       g_ptr_array_unref(orbit);
     }
   }
+
+  /* The Orbit corpus ships with whelk as Scheme (`(whelk orbit)'): 293
+   * applications, already converted from its JSON, so the common case needs
+   * no download.  The curated dictionary still wins; the corpus fills the gap
+   * before the shared Edit and View are used.  Its data is GPL-3.0-or-later
+   * and keeps that licence in its own module. */
+  char *orbit_name = NULL;
+
+  if (!source && !imported && data->shortcut_tool && *data->shortcut_tool &&
+      data->app_id && *data->app_id) {
+    GPtrArray *orbit = whelk_bridge_orbit_menubar(
+        data->app_id, data->shortcut_tool, data->style, &orbit_name);
+
+    if (orbit->len > 0) {
+      LOG_C_DEBUG("Menu", "%s: %u menu(s) from the Scheme shortcut corpus",
+                  orbit_name ? orbit_name : data->app_id, orbit->len);
+      menus = merge_imported_menus(menus, orbit);
+    } else {
+      g_ptr_array_unref(orbit);
+    }
+  }
+
+  g_free(orbit_name);
 
   replace_menus(module, menus);
 
@@ -1266,6 +1305,7 @@ static void menu_destroy(WhelkModule *module) {
     return;
 
   stop_dbus_menu_watch(data);
+  stop_gtk_menu_watch(data);
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
   g_clear_pointer(&data->buttons, g_ptr_array_unref);

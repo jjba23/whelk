@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.15.0',
+  version: '0.16.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -190,6 +190,8 @@ whelk_sources = files(
   'src/util/menudict.c',
   'src/util/menusearch.c',
   'src/util/menutree.c',
+  'src/util/menuprobe.c',
+  'src/util/gtkmenu.c',
   'src/util/session.c',
   'src/util/shortcutmaps.c',
   'src/util/desktop.c',
@@ -244,6 +246,14 @@ unit_tests = [
     ],
   },
   {
+    'id': 'menuprobe',
+    'sources': [
+      'src/util/menuprobe.c',
+      'src/util/session.c',
+      'src/util/json.c',
+    ],
+  },
+  {
     'id': 'config',
     'sources': ['src/config.c', 'src/util/format.c'],
   },
@@ -287,6 +297,29 @@ unit_tests = [
   {
     'id': 'menutree',
     'sources': [
+      'src/util/menutree.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+    ],
+  },
+  {
+    'id': 'orbit',
+    'sources': [
+      'src/util/menutree.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+    ],
+  },
+  {
+    'id': 'gtkmenu',
+    'sources': [
+      'src/util/gtkmenu.c',
       'src/util/menutree.c',
       'src/util/menudict.c',
       'src/util/chord.c',

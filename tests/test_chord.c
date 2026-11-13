@@ -255,6 +255,34 @@ static void test_styles(void) {
   g_assert_cmpstr(whelk_chord_style_name(WHELK_CHORD_CUA), ==, "cua");
 }
 
+static void test_gtk_sequences(void) {
+  WhelkChordSequence sequence;
+
+  g_assert_true(whelk_chord_sequence_parse_gtk("<Ctrl>x <Ctrl>s", &sequence));
+  g_assert_cmpuint(sequence.n_chords, ==, 2);
+  g_assert_true(sequence.chords[0].ctrl);
+  g_assert_cmpstr(sequence.chords[0].key, ==, "x");
+  g_assert_true(sequence.chords[1].ctrl);
+  g_assert_cmpstr(sequence.chords[1].key, ==, "s");
+
+  g_autofree char *cua =
+      whelk_chord_sequence_format(&sequence, WHELK_CHORD_CUA);
+  g_autofree char *wtype = whelk_chord_sequence_command("wtype", &sequence);
+
+  g_assert_cmpstr(cua, ==, "Ctrl+X Ctrl+S");
+  g_assert_cmpstr(wtype, ==,
+                  "wtype -M ctrl -k x -m ctrl && "
+                  "wtype -M ctrl -k s -m ctrl");
+  whelk_chord_sequence_clear(&sequence);
+
+  g_assert_true(whelk_chord_sequence_parse_gtk("<Ctrl>colon", &sequence));
+  g_assert_cmpstr(sequence.chords[0].key, ==, "colon");
+  whelk_chord_sequence_clear(&sequence);
+
+  g_assert_false(whelk_chord_sequence_parse_gtk("<Ctrl> <bogus", &sequence));
+  g_assert_false(whelk_chord_sequence_parse_gtk("", &sequence));
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -268,6 +296,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/chord/commands", test_commands);
   g_test_add_func("/chord/sequences", test_sequences);
   g_test_add_func("/chord/styles", test_styles);
+  g_test_add_func("/chord/gtk-sequences", test_gtk_sequences);
 
   return g_test_run();
 }

@@ -7,6 +7,7 @@
 #define WHELK_GUILE_BRIDGE_H
 
 #include "config.h"
+#include "util/chord.h"
 #include "util/menudict.h"
 
 #include <glib.h>
@@ -105,6 +106,27 @@ WhelkClipboardConfig *whelk_bridge_clipboard(const char *path);
  *   whelk_menudict_load().
  */
 GPtrArray *whelk_bridge_menudict(void);
+
+/**
+ * whelk_bridge_orbit_menubar:
+ * @app_id: (nullable): the focused window's application id.
+ * @shortcut_tool: (nullable): the program that types a chord.
+ * @style: how the shortcut is shown.
+ * @out_name: (out) (optional) (transfer full): the corpus's name for the
+ *   matching application, or NULL when nothing matched.
+ *
+ * Reads `(whelk orbit)' -- the Orbit Global Menu shortcut corpus converted to
+ * Scheme -- and builds the same menu tree the other producers use.  The
+ * corpus is GPL-3.0-or-later data, kept in its own module with its own
+ * licence header; this bridge is the MIT runtime that reads it.
+ *
+ * Returns: (transfer full) (element-type WhelkMenu): the menus, or an empty
+ *   array when the application is unknown, the corpus is absent, or no
+ *   shortcut tool is installed.
+ */
+GPtrArray *whelk_bridge_orbit_menubar(const char *app_id,
+                                      const char *shortcut_tool,
+                                      WhelkChordStyle style, char **out_name);
 
 /**
  * whelk_bridge_shell_menu:

@@ -15,6 +15,40 @@ Nothing yet.
 
 *[Released]*
 
+** v0.16.0 (2026-11-13)
+
+*** Added
+
+- *The Orbit Global Menu corpus is built in as Scheme.*  The 293-application,
+  ~10,000-entry table is now =scheme/whelk/orbit.scm=, generated from Orbit's
+  JSON and read through the Guile bridge.  Nested submenus, separators,
+  shortcuts, actions and deliberately greyed placeholders survive the
+  conversion.  The data keeps its GPL-3.0-or-later header in its own module;
+  the C runtime remains MIT.  A user-installed JSON map still overrides the
+  built-in table, so a local correction needs no rebuild.
+- *Live =org.gtk.Menus= refresh.*  The protocol has a =Changed= signal; whelk
+  subscribes before =Start=, closes the open popover when a menu changes, and
+  asks =Start= for the current tree after a short debounce.  An open GTK menu
+  no longer keeps a tree the application has already replaced.
+- *A focused X11 registrar test.*  =tests/test_menuprobe.c= pins the fallback
+  order: exact =_GTK_*= paths, the registrar's exact DBusMenu path, then the
+  conventional GTK and DBusMenu paths.  A window with no id never asks the
+  registrar, and an id that is not a bus name gets no =org.gtk.Menus= call.
+
+*** Changed
+
+- The registrar is documented and tested as a DBusMenu fallback, not as the
+  first probe: exact =org.gtk.Menus= paths still win when the window publishes
+  them.
+- =whelk_chord_sequence_parse_gtk= is now a public helper shared by the
+  shortcut maps and the Scheme corpus, instead of a private copy in the JSON
+  importer.
+
+*** Verified
+
+- Host suite and the pinned Guix suite, including the new =orbit=,
+  =menuprobe= and =gtkmenu= unit tests.
+
 ** v0.15.0 (2026-11-13)
 
 *** Added

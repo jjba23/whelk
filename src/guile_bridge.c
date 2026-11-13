@@ -562,6 +562,240 @@ GPtrArray *whelk_bridge_menudict(void) {
 }
 
 /* =========================================================================
+ * THE SCHEME SHORTCUT CORPUS
+ * =========================================================================
+ * scheme/whelk/orbit.scm is the Orbit corpus as data: 293 applications, each
+ * with the identifiers it answers to and its menus.  The bridge walks it only
+ * for the focused application, so the 10,000 entries cost one list traversal
+ * and not an allocation of the whole corpus.
+ *
+ * Shortcuts stay in the source's GTK notation until here; the chord parser
+ * turns one into the text shown in the row and the command typed into the
+ * focused window, exactly as the JSON importer did.
+ */
+
+static gboolean orbit_tag_is(SCM value, const char *tag) {
+  g_autofree char *text = scm_text(value);
+
+  return text && g_strcmp0(text, tag) == 0;
+}
+
+static gboolean orbit_has_entries(const WhelkMenu *menu) {
+  return menu && menu->entries && menu->entries->len > 0;
+}
+
+static void orbit_separator(WhelkMenu *menu) {
+  if (!orbit_has_entries(menu))
+    return;
+
+  const WhelkMenuEntry *last =
+      g_ptr_array_index(menu->entries, menu->entries->len - 1);
+
+  if (last->kind != WHELK_MENU_SEPARATOR)
+    whelk_menu_add_separator(menu);
+}
+
+static void orbit_trim_separators(WhelkMenu *menu) {
+  while (orbit_has_entries(menu)) {
+    WhelkMenuEntry *last =
+        g_ptr_array_index(menu->entries, menu->entries->len - 1);
+
+    if (last->kind != WHELK_MENU_SEPARATOR)
+      break;
+
+    g_ptr_array_remove_index(menu->entries, menu->entries->len - 1);
+  }
+}
+
+static void fill_orbit_items(WhelkMenu *menu, SCM entries,
+                             const char *shortcut_tool,
+                             WhelkChordStyle style);
+
+static gboolean fill_orbit_submenu(WhelkMenu *menu, SCM unit,
+                                   const char *shortcut_tool,
+                                   WhelkChordStyle style) {
+  SCM rest = SCM_CDR(unit);
+  g_autofree char *label = scm_text(scheme_list_ref(rest, 0));
+
+  if (!label || *label == '\0')
+    return TRUE;
+
+  WhelkMenu *submenu = whelk_menu_new(label);
+
+  fill_orbit_items(submenu, SCM_CDR(rest), shortcut_tool, style);
+
+  if (!orbit_has_entries(submenu)) {
+    whelk_menu_free(submenu);
+    return TRUE;
+  }
+
+  WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
+
+  entry->submenu = submenu;
+
+  return TRUE;
+}
+
+static void fill_orbit_item(WhelkMenu *menu, SCM unit,
+                            const char *shortcut_tool,
+                            WhelkChordStyle style) {
+  if (orbit_tag_is(SCM_CAR(unit), "separator")) {
+    orbit_separator(menu);
+    return;
+  }
+
+  if (orbit_tag_is(SCM_CAR(unit), "submenu")) {
+    fill_orbit_submenu(menu, unit, shortcut_tool, style);
+    return;
+  }
+
+  if (!orbit_tag_is(SCM_CAR(unit), "item"))
+    return;
+
+  SCM rest = SCM_CDR(unit);
+  g_autofree char *label = scm_text(scheme_list_ref(rest, 0));
+
+  if (!label || *label == '\0')
+    return;
+
+  g_autofree char *shortcut = scm_text(scheme_list_ref(rest, 1));
+  g_autofree char *action = scm_text(scheme_list_ref(rest, 2));
+  WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
+
+  if (shortcut && *shortcut) {
+    WhelkChordSequence sequence;
+
+    if (whelk_chord_sequence_parse_gtk(shortcut, &sequence)) {
+      entry->accel = whelk_chord_sequence_format(&sequence, style);
+      entry->command = whelk_chord_sequence_command(shortcut_tool, &sequence);
+      entry->enabled = entry->command != NULL;
+
+      whelk_chord_sequence_clear(&sequence);
+    } else {
+      /* Keep the text its author wrote: a mapping problem to see, not an
+       * invitation to invent a different chord. */
+      entry->accel = g_strdup(shortcut);
+      entry->enabled = FALSE;
+    }
+
+    return;
+  }
+
+  if (action && *action) {
+    entry->action = g_strdup(action);
+    return;
+  }
+
+  /* A placeholder: reachable through a menu of its own or a mouse gesture. */
+  entry->enabled = FALSE;
+}
+
+static void fill_orbit_items(WhelkMenu *menu, SCM entries,
+                             const char *shortcut_tool,
+                             WhelkChordStyle style) {
+  for (SCM cursor = entries; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    SCM unit = SCM_CAR(cursor);
+
+    if (scm_is_pair(unit))
+      fill_orbit_item(menu, unit, shortcut_tool, style);
+  }
+
+  orbit_trim_separators(menu);
+}
+
+static GPtrArray *orbit_menubar_from_app(SCM app, const char *shortcut_tool,
+                                         WhelkChordStyle style) {
+  GPtrArray *bar = whelk_menubar_new();
+  SCM rest = SCM_CDR(app);
+
+  /* (app name ids blank menu ...): the blank flag says the source deliberately
+   * describes no menus, so an empty answer is not a reason to use fallbacks. */
+  SCM blank = scheme_list_ref(rest, 2);
+
+  if (scm_is_true(blank))
+    return bar;
+
+  for (SCM cursor = SCM_CDDR(SCM_CDR(rest)); scm_is_pair(cursor);
+       cursor = SCM_CDR(cursor)) {
+    SCM unit = SCM_CAR(cursor);
+
+    if (!scm_is_pair(unit) || !orbit_tag_is(SCM_CAR(unit), "menu"))
+      continue;
+
+    SCM menu_rest = SCM_CDR(unit);
+    g_autofree char *label = scm_text(scheme_list_ref(menu_rest, 0));
+
+    if (!label || *label == '\0')
+      continue;
+
+    WhelkMenu *menu = whelk_menu_new(label);
+
+    fill_orbit_items(menu, SCM_CDR(menu_rest), shortcut_tool, style);
+
+    if (orbit_has_entries(menu))
+      g_ptr_array_add(bar, menu);
+    else
+      whelk_menu_free(menu);
+  }
+
+  return bar;
+}
+
+GPtrArray *whelk_bridge_orbit_menubar(const char *app_id,
+                                      const char *shortcut_tool,
+                                      WhelkChordStyle style,
+                                      char **out_name) {
+  if (out_name)
+    *out_name = NULL;
+
+  GPtrArray *bar = whelk_menubar_new();
+
+  if (!app_id || *app_id == '\0' || !shortcut_tool || *shortcut_tool == '\0')
+    return bar;
+
+  if (!load_module("whelk orbit"))
+    return bar;
+
+  /* orbit-apps is data, not a procedure: read the exported binding rather
+   * than calling it. */
+  SCM apps = scm_c_public_ref("whelk orbit", "orbit-apps");
+
+  for (SCM cursor = apps; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    SCM app = SCM_CAR(cursor);
+
+    if (!scm_is_pair(app) || !orbit_tag_is(SCM_CAR(app), "app"))
+      continue;
+
+    SCM rest = SCM_CDR(app);
+    SCM ids = scheme_list_ref(rest, 1);
+    gboolean matched = FALSE;
+
+    for (SCM id = ids; scm_is_pair(id) && !matched; id = SCM_CDR(id)) {
+      g_autofree char *text = scm_text(SCM_CAR(id));
+
+      if (text && whelk_menudict_ids_match(app_id, text))
+        matched = TRUE;
+    }
+
+    if (!matched)
+      continue;
+
+    g_ptr_array_unref(bar);
+    bar = orbit_menubar_from_app(app, shortcut_tool, style);
+
+    if (out_name) {
+      g_autofree char *name = scm_text(scheme_list_ref(rest, 0));
+
+      *out_name = g_strdup(name);
+    }
+
+    break;
+  }
+
+  return bar;
+}
+
+/* =========================================================================
  * THE SHELL'S OWN MENU
  * =========================================================================
  * The popover behind the mark at the far left of the bar is configuration, not

@@ -911,8 +911,12 @@ supply them, in that order:
   =_GTK_APPLICATION_OBJECT_PATH=, =_GTK_MENUBAR_OBJECT_PATH= and the
   window/app-menu paths, and tries them before the conventional paths under
   the application id -- application-wide and window-scoped -- and GTK's
-  anonymous application.  That makes Firefox, LibreOffice and other X11 GTK
-  applications work even when their =WM_CLASS= is not a valid bus name.
+  anonymous application.  The menu is *followed*: =org.gtk.Menus= has a
+  =Changed= signal, so whelk subscribes before it calls =Start=, closes an open
+  popover when the application changes a menu, and asks =Start= again for the
+  current tree instead of keeping the one it drew.  That makes Firefox,
+  LibreOffice and other X11 GTK applications work even when their =WM_CLASS=
+  is not a valid bus name, and a menu that grows while it is open stays true.
 - *The application's own menu, as DBusMenu.*  Qt, KDE and everything that
   registers with =com.canonical.AppMenu.Registrar= publishes =com.canonical.dbusmenu=
   instead: a tree of (id, properties, children).  whelk reads =GetLayout= and
@@ -924,11 +928,13 @@ supply them, in that order:
   the layout again, ids included, and an open popover is closed before the new
   tree is adopted -- an id from a layout that no longer exists is a click on
   whatever took its place.
-- *On X11, the registrar is asked first.*  =com.canonical.AppMenu.Registrar=
-  maps the focused window's id to the exact bus and object path an application
-  chose, so a Qt or KDE menu no longer has to live at =/MenuBar/1=.  The
-  answer is tried before the conventional DBusMenu paths; the registrar is
-  optional, and its absence costs one failed call and never the bar.
+- *On X11, the registrar fills in the exact DBusMenu path.*  Exact
+  =org.gtk.Menus= paths are still tried first; after them,
+  =com.canonical.AppMenu.Registrar= maps the focused window's id to the exact
+  bus and object path an application chose, so a Qt or KDE menu no longer has
+  to live at =/MenuBar/1=.  Its answer is tried before the conventional
+  DBusMenu paths; the registrar is optional, and its absence costs one failed
+  call and never the bar.
 - *The dictionary.*  Most applications publish nothing, so their menus are
   written from their documented shortcuts: ninety-five applications answering
   to two hundred and eighty ids -- the browsers, terminals, editors (Emacs
@@ -941,20 +947,21 @@ supply them, in that order:
   window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
   application the dictionary does not know is not given a File menu it might
   not have.
-- *The optional Orbit Global Menu corpus.*  [[https://github.com/Unmade760/orbit-global-menu][Orbit]]
-  maintains a reviewed table of 293 applications, with nested submenus, menu
-  separators, 9,800 shortcuts and 1,702 deliberately greyed placeholders.
-  whelk reads that table in place instead of copying it: its JSON files are
-  GPL-3.0-or-later data, while whelk stays MIT.  Point
-  =WHELK_SHORTCUT_MAPS= at a file or a directory (the Orbit checkout's
-  =global-menu@unmade.space/shortcuts/apps= is the directory), or install it at
-  =$XDG_CONFIG_HOME/global-menu/shortcuts/apps= or
-  =$XDG_DATA_HOME/global-menu/shortcuts/apps=.  The curated dictionary still
-  wins for an application it knows; Orbit fills the gap for the rest.  Its
-  actions are activated through =org.gtk.Actions= when they name one, and an
-  item without a shortcut is greyed rather than invented.  An integer
-  =target= is not yet representable in whelk's menu model, so that small set
-  stays greyed too.
+- *The Orbit Global Menu corpus, built in as Scheme.*
+  [[https://github.com/Unmade760/orbit-global-menu][Orbit]] maintains a
+  reviewed table of 293 applications, with nested submenus, menu separators,
+  9,800 shortcuts and 1,702 deliberately greyed placeholders.  That corpus is
+  now =scheme/whelk/orbit.scm=, generated from Orbit's JSON and read by the
+  same Guile bridge as the dictionary, so the common case needs no download.
+  The data keeps its own GPL-3.0-or-later header; the C bridge and the rest of
+  whelk stay MIT.  The curated dictionary still wins for an application it
+  knows; Orbit fills the gap.  A user-installed JSON map under
+  =WHELK_SHORTCUT_MAPS=, =$XDG_CONFIG_HOME/global-menu/shortcuts/apps= or
+  =$XDG_DATA_HOME/global-menu/shortcuts/apps= still overrides the built-in
+  corpus, which is how a local correction is tested without a rebuild.  An
+  item without a shortcut is greyed rather than invented; an integer =target=
+  is not representable in whelk's menu model, so that small set stays greyed
+  too.
 - *The shared Edit and View.*  For everything else, the shortcuts every
   application shares, in the same shape and with the same chords on the right,
   plus the synthesized File and Window actions: desktop actions, a new window,
@@ -1007,7 +1014,7 @@ application's own Window menu instead.
 The dictionary is not a placeholder.  A Wayland shell learns a GTK
 application's menu paths from the compositor's =gtk-shell= protocol, which niri
 does not implement, so on niri most applications will be served by it or by
-the optional Orbit corpus.  The dictionary is Scheme, in
+the built-in Orbit corpus.  The dictionary is Scheme, in
 =scheme/whelk/menudict.scm=:
 adding an application is one form -- its name, the ids it answers to, then its
 menus -- and nothing else.  The shell reads the table at startup and after every
@@ -1411,11 +1418,21 @@ The C tests start with the pure logic and end with real widgets:
 - =tests/test_preferences.c= -- the GUI preference contract through the C
   bridge, plus the keyed widgets: a real spin button, dropdown and switch write
   the value their page promises.  The widget half skips on a headless runner.
-- =tests/test_shortcutmaps.c= -- the optional Orbit-format corpus: nested
-  submenus, CUA output, multi-chord sequences, actions, greyed placeholders,
-  punctuation and =Ctrl=-spelled accelerators, and empty answers when the
-  application or typing tool is absent.  =tests/test_session.c= covers the X11
-  =_GTK_*= property parser and the active window id the registrar needs.
+- =tests/test_shortcutmaps.c= -- the optional JSON override: nested submenus,
+  CUA output, multi-chord sequences, actions, greyed placeholders, punctuation
+  and =Ctrl=-spelled accelerators, and empty answers when the application or
+  typing tool is absent.  =tests/test_session.c= covers the X11 =_GTK_*=
+  property parser and the active window id the registrar needs.
+- =tests/test_orbit.c= -- the built-in Scheme corpus through the real bridge:
+  identifiers, a nested submenu, a typed shortcut, a deliberately blank
+  application and the no-typing-tool answer.
+- =tests/test_menuprobe.c= -- the X11 registrar fallback order: exact GTK
+  paths, then the registrar's exact DBusMenu path, then the conventional
+  paths; a window with no id never asks the registrar, and an invalid bus name
+  gets no =org.gtk.Menus= call at all.
+- =tests/test_gtkmenu.c= -- a live =org.gtk.Menus= on a private bus: =Changed=
+  closes the old tree, =Start= is called again, and the next tree is the
+  application's new one.
 
 The Guile tests cover the configuration layer:
 
