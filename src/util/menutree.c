@@ -734,20 +734,64 @@ static void dbusmenu_entries(WhelkMenu *menu, GVariant *children,
   }
 }
 
+/* Both readers answer one question first: where is the layout node in the
+ * reply?  GetLayout wraps it in a revision, a child node is already bare. */
+static GVariant *dbusmenu_layout(GVariant *reply) {
+  if (!reply)
+    return NULL;
+
+  if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(u(ia{sv}av))")))
+    return g_variant_get_child_value(reply, 1);
+
+  if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(ia{sv}av)")))
+    return g_variant_ref(reply);
+
+  return NULL;
+}
+
+GPtrArray *whelk_menubar_from_dbusmenu_context(GVariant *reply,
+                                               const char *service,
+                                               const char *path,
+                                               WhelkChordStyle style) {
+  GPtrArray *menus = whelk_menubar_new();
+
+  if (!reply || !service || !path)
+    return menus;
+
+  GVariant *layout = dbusmenu_layout(reply);
+
+  if (!layout)
+    return menus;
+
+  /* A context menu is the root's children, where a menubar's root holds
+   * menus whose children are entries.  One level shallower, that is all. */
+  GVariant *children = g_variant_get_child_value(layout, 2);
+  WhelkMenu *menu = whelk_menu_new("");
+
+  dbusmenu_entries(menu, children, service, path, 0, style);
+
+  if (menu->entries->len > 0)
+    g_ptr_array_add(menus, menu);
+  else
+    whelk_menu_free(menu);
+
+  g_variant_unref(children);
+  g_variant_unref(layout);
+
+  return menus;
+}
+
 GPtrArray *whelk_menubar_from_dbusmenu(GVariant *reply, const char *service,
                                        const char *path,
                                        WhelkChordStyle style) {
   GPtrArray *bar = whelk_menubar_new();
-  GVariant *layout = NULL;
 
   if (!reply || !service || !path)
     return bar;
 
-  if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(u(ia{sv}av))")))
-    layout = g_variant_get_child_value(reply, 1);
-  else if (g_variant_is_of_type(reply, G_VARIANT_TYPE("(ia{sv}av)")))
-    layout = g_variant_ref(reply);
-  else
+  GVariant *layout = dbusmenu_layout(reply);
+
+  if (!layout)
     return bar;
 
   GVariant *children = g_variant_get_child_value(layout, 2);

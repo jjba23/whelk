@@ -75,15 +75,11 @@ Click: transport controls · Right-click: play or pause · Middle: next track"
                            #:on-click-right "playerctl play-pause"
                            #:on-click-middle "playerctl next")
 
-            ;; Clipboard history.
-            (custom-module #:exec "printf '\\uf328'"
-                           #:interval 0
-                           #:format "{icon}"
-                           #:icon "\uf328"
-                           #:tooltip "Clipboard history
-Click: browse the history"
-                           #:on-click (rofi-relaunch
-                                       "whelk --launcher --launcher-mode=clipboard"))
+            ;; Clipboard history: its depth, and the picker on a click.
+            (clipboard-module #:icon "\uf328"
+                              #:format "{icon} {count}"
+                              #:tooltip "Clipboard: {count} item(s)
+Click: browse the history")
 
             ;; Password manager.
             (custom-module #:exec "printf '\\uf084'"
@@ -94,13 +90,10 @@ Click: browse the history"
 Click: open it"
                            #:on-click (rofi-relaunch "1password --silent"))
 
-            ;; Do not disturb: only on the bar while mako is quiet.
-            (custom-module #:exec "makoctl mode 2>/dev/null | grep -q do-not-disturb && printf '\\uf1f6'"
-                           #:interval 3
-                           #:format "{icon}"
-                           #:icon "\uf1f6"
-                           #:tooltip "Do not disturb is on — click to let notifications through"
-                           #:on-click "makoctl mode -t do-not-disturb")
+            ;; Do not disturb: on the bar while whelk is holding notifications.
+            (dnd-module #:icon "\uf1f6"
+                        #:format "{icon}"
+                        #:tooltip "Do not disturb is on — click to let notifications through")
 
             ;; Keyboard layout: two letters, from niri.
             (language-module #:codes "us,nl"
@@ -171,7 +164,7 @@ Click: system monitor · Right-click: btop"
                            #:on-click "gnome-system-monitor"
                            #:on-click-right "wezterm start -- btop")
             (backlight-module #:icon "\uf185"
-                              #:format "{icon} {percent}%"
+                              #:format "{icon}"
                               #:interval 2
                               #:tooltip "Brightness: {percent}%
 Click: brighter · Right-click: full · Scroll: adjust"
@@ -181,7 +174,7 @@ Click: brighter · Right-click: full · Scroll: adjust"
                               #:on-scroll-down "brightnessctl set 5%-")
             (audio-module #:icon "\uf028"
                           #:muted-icon "\uf026"
-                          #:format "{icon} {volume}%"
+                          #:format "{icon}"
                           #:muted-format "{icon}"
                           #:interval 2
                           #:tooltip "Output: the default sink

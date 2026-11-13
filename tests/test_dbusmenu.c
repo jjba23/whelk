@@ -21,6 +21,10 @@ static const char menu_xml[] =
     "      <arg type='u' direction='out'/>"
     "      <arg type='(ia{sv}av)' direction='out'/>"
     "    </method>"
+    "    <method name='AboutToShow'>"
+    "      <arg type='i' direction='in'/>"
+    "      <arg type='b' direction='out'/>"
+    "    </method>"
     "    <signal name='LayoutUpdated'>"
     "      <arg type='u'/>"
     "      <arg type='i'/>"
@@ -38,6 +42,9 @@ typedef struct {
   guint registration;
   guint revision;
   guint get_layout_calls;
+  guint about_to_show_calls;
+  gboolean layout_without_show;
+  gboolean context;
 } FakeMenu;
 
 typedef struct {
@@ -106,6 +113,43 @@ static GVariant *fake_layout(FakeMenu *fake) {
                        g_variant_builder_end(&root_children));
 }
 
+/* A tray context menu: the root's children are the entries, not menus. */
+static GVariant *fake_context_layout(void) {
+  GVariantBuilder children;
+  GVariantBuilder root_props;
+
+  g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
+
+  for (gint i = 0; i < 3; i++) {
+    GVariantBuilder props;
+    GVariantBuilder kids;
+    gint32 id = i == 2 ? 202 : 200;
+    const char *label = i == 0 ? "Show" : (i == 2 ? "Quit" : NULL);
+
+    g_variant_builder_init(&props, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_init(&kids, G_VARIANT_TYPE("av"));
+
+    if (i == 1)
+      g_variant_builder_add(&props, "{sv}", "type",
+                            g_variant_new_string("separator"));
+    else
+      g_variant_builder_add(&props, "{sv}", "label",
+                            g_variant_new_string(label));
+
+    g_variant_builder_add_value(
+        &children,
+        g_variant_new_variant(g_variant_new(
+            "(i@a{sv}@av)", id, g_variant_builder_end(&props),
+            g_variant_builder_end(&kids))));
+  }
+
+  g_variant_builder_init(&root_props, G_VARIANT_TYPE("a{sv}"));
+
+  return g_variant_new("(i@a{sv}@av)", 0,
+                       g_variant_builder_end(&root_props),
+                       g_variant_builder_end(&children));
+}
+
 static void on_method_call(GDBusConnection *connection, const char *sender,
                            const char *object_path,
                            const char *interface_name,
@@ -120,13 +164,24 @@ static void on_method_call(GDBusConnection *connection, const char *sender,
 
   FakeMenu *fake = user_data;
 
+  if (g_strcmp0(method_name, "AboutToShow") == 0) {
+    fake->about_to_show_calls++;
+    g_dbus_method_invocation_return_value(invocation,
+                                          g_variant_new("(b)", TRUE));
+    return;
+  }
+
   if (g_strcmp0(method_name, "GetLayout") != 0)
     return;
 
+  if (fake->about_to_show_calls == 0)
+    fake->layout_without_show = TRUE;
+
   fake->get_layout_calls++;
   g_dbus_method_invocation_return_value(
-      invocation, g_variant_new("(u@(ia{sv}av))", fake->revision,
-                                fake_layout(fake)));
+      invocation,
+      g_variant_new("(u@(ia{sv}av))", fake->revision,
+                    fake->context ? fake_context_layout() : fake_layout(fake)));
 }
 
 static const GDBusInterfaceVTable menu_vtable = {
@@ -333,6 +388,80 @@ static void test_freeing_the_watch_cancels_the_read(void) {
   fake_menu_free(fake);
 }
 
+static void on_fetched(GPtrArray *menus, gpointer user_data) {
+  Capture *capture = user_data;
+
+  g_clear_pointer(&capture->menus, g_ptr_array_unref);
+  capture->menus = menus;
+  capture->calls++;
+
+  if (menus && menus->len > 0) {
+    WhelkMenu *menu = g_ptr_array_index(menus, 0);
+
+    if (menu->entries->len > 0) {
+      WhelkMenuEntry *entry = g_ptr_array_index(menu->entries, 0);
+
+      capture->last_id = (guint)entry->dbus_item;
+    }
+  }
+
+  g_main_loop_quit(capture->loop);
+}
+
+/* A tray icon's menu is built while it opens.  The applet has to be told
+ * first; a GetLayout that comes before AboutToShow hands back ids from the
+ * previous layout. */
+static void test_fetch_asks_about_to_show_then_reads(void) {
+  FakeMenu *fake = fake_menu_new("org.example.MenuFetch");
+  Capture capture = {.loop = g_main_loop_new(NULL, FALSE)};
+
+  fake->revision = 3;
+  fake->context = TRUE;
+
+  WhelkDBusMenuRequest *request = whelk_dbusmenu_fetch(
+      fake->bus, fake->name, "/MenuBar/1", WHELK_CHORD_CUA, on_fetched,
+      &capture);
+
+  g_assert_nonnull(request);
+  run_until_captured(&capture);
+
+  g_assert_false(capture.timed_out);
+  g_assert_cmpuint(capture.calls, ==, 1);
+  g_assert_cmpuint(fake->about_to_show_calls, ==, 1);
+  g_assert_cmpuint(fake->get_layout_calls, ==, 1);
+  g_assert_false(fake->layout_without_show);
+  g_assert_cmpuint(capture.last_id, ==, 200);
+
+  whelk_dbusmenu_request_free(request);
+  g_clear_pointer(&capture.menus, g_ptr_array_unref);
+  g_main_loop_unref(capture.loop);
+  fake_menu_free(fake);
+}
+
+static void test_freeing_a_fetch_calls_nobody(void) {
+  FakeMenu *fake = fake_menu_new("org.example.MenuFetchCancel");
+  Capture capture = {.loop = g_main_loop_new(NULL, FALSE)};
+
+  WhelkDBusMenuRequest *request = whelk_dbusmenu_fetch(
+      fake->bus, fake->name, "/MenuBar/1", WHELK_CHORD_CUA, on_fetched,
+      &capture);
+
+  whelk_dbusmenu_request_free(request);
+
+  const guint watchdog = g_timeout_add(300, on_watchdog, &capture);
+
+  g_main_loop_run(capture.loop);
+
+  if (!capture.timed_out)
+    g_source_remove(watchdog);
+
+  g_assert_true(capture.timed_out);
+  g_assert_cmpuint(capture.calls, ==, 0);
+
+  g_main_loop_unref(capture.loop);
+  fake_menu_free(fake);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -350,6 +479,10 @@ int main(int argc, char **argv) {
   g_test_add_func("/dbusmenu/items-properties-updated",
                   test_items_properties_updated_reads_the_tree);
   g_test_add_func("/dbusmenu/free-cancels", test_freeing_the_watch_cancels_the_read);
+  g_test_add_func("/dbusmenu/fetch-tells-then-reads",
+                  test_fetch_asks_about_to_show_then_reads);
+  g_test_add_func("/dbusmenu/fetch-free-cancels",
+                  test_freeing_a_fetch_calls_nobody);
 
   const int status = g_test_run();
 

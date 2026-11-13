@@ -29,6 +29,7 @@ G_BEGIN_DECLS
  */
 
 typedef struct _WhelkDBusMenuWatch WhelkDBusMenuWatch;
+typedef struct _WhelkDBusMenuRequest WhelkDBusMenuRequest;
 
 /**
  * WhelkDBusMenuChangedFunc:
@@ -78,6 +79,50 @@ WhelkDBusMenuWatch *whelk_dbusmenu_watch_new(
  * its way finds the watch cancelled and calls nobody.
  */
 void whelk_dbusmenu_watch_free(WhelkDBusMenuWatch *watch);
+
+/* =========================================================================
+ * A MENU READ ONCE
+ * =========================================================================
+ * A tray icon publishes a menu that is only current while it is open: the
+ * applet builds it in `AboutToShow'.  Open it the right way round -- tell the
+ * applet first, then read -- and an id from `GetLayout' belongs to the layout
+ * the applet just made.  This is the read the bar uses for an applet's menu;
+ * the watch above keeps a menubar in sync for as long as an application is
+ * focused.
+ */
+
+/**
+ * WhelkDBusMenuFetchedFunc:
+ * @menus: (transfer full) (nullable): the tree, a GPtrArray of WhelkMenu, or
+ *   NULL when the applet published nothing or could not be reached.
+ * @user_data: the pointer given to whelk_dbusmenu_fetch().
+ */
+typedef void (*WhelkDBusMenuFetchedFunc)(GPtrArray *menus, gpointer user_data);
+
+/**
+ * whelk_dbusmenu_fetch:
+ * @bus: the session bus.
+ * @service: the bus name that publishes the menu (an applet's unique name).
+ * @path: the object path the menu answers on.
+ * @style: how the tree's chords are written.
+ * @fetched: called once, with the tree or NULL; not called after the request
+ *   is freed.
+ * @user_data: passed to @fetched.
+ *
+ * Calls `AboutToShow(0)', waits for the applet to say it is ready, then reads
+ * `GetLayout(0, -1)'.  A failed `AboutToShow' is not fatal: some applets do not
+ * implement it and keep a menu that is always current.
+ *
+ * Returns: (transfer full): the request.  Free it with
+ *   whelk_dbusmenu_request_free() when the menu is done with, or earlier to
+ *   cancel; a cancelled request calls nobody.
+ */
+WhelkDBusMenuRequest *whelk_dbusmenu_fetch(
+    GDBusConnection *bus, const char *service, const char *path,
+    WhelkChordStyle style, WhelkDBusMenuFetchedFunc fetched,
+    gpointer user_data);
+
+void whelk_dbusmenu_request_free(WhelkDBusMenuRequest *request);
 
 G_END_DECLS
 

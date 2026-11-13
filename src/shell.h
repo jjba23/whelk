@@ -8,6 +8,7 @@
 
 #include "clipboard.h"
 #include "notifications.h"
+#include "osd.h"
 
 #include <gtk/gtk.h>
 
@@ -72,6 +73,10 @@ void whelk_shell_toggle_dnd(WhelkShell *shell);
 
 /* Shows the network panel on @page ("wifi" or "bluetooth"). */
 void whelk_shell_show_network_panel(WhelkShell *shell, const char *page);
+
+/* The volume and brightness HUD.  A module shows it when its reading changes;
+ * there is one per shell, so two bars do not draw two. */
+WhelkOsd *whelk_shell_osd(WhelkShell *shell);
 
 G_END_DECLS
 

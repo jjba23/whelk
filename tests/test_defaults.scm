@@ -12,6 +12,7 @@
              (whelk state)
              (whelk loader)
              (whelk menudict)
+             (srfi srfi-1)
              (srfi srfi-13))
 
 (define failures 0)
@@ -41,6 +42,43 @@
        (equal? (kinds (bar-config-modules-left built-in))
                '(start menu)))
 
+;; The two dials are glyphs by default; the number is one #:format away.  A bar
+;; that spells out "45%" at rest makes the eye read it every time it passes.
+(define (default-reading kind)
+  (let find ((modules (append (bar-config-modules-left built-in)
+                              (bar-config-modules-center built-in)
+                              (bar-config-modules-right built-in))))
+    (cond ((null? modules) #f)
+          ((eq? (shell-module-kind (car modules)) kind) (car modules))
+          (else (find (cdr modules))))))
+
+(check "the volume reading is the speaker, not a percentage"
+       (equal? (module-option (default-reading 'audio) 'format) "{icon}"))
+(check "the brightness reading is the sun, not a percentage"
+       (equal? (module-option (default-reading 'backlight) 'format) "{icon}"))
+
+;; The clipboard tile is the shell's own history, not a glyph that opens
+;; clipman; its depth is part of the reading.
+(check "the clipboard tile shows its depth"
+       (string-contains (module-option (default-reading 'clipboard) 'format)
+                        "{count}"))
+
+;; What the reference delegated to mako and clipman is native now: no tile on
+;; the default bar may spawn either, because neither is installed any more.
+(define (default-modules b)
+  (append (bar-config-modules-left b)
+          (bar-config-modules-center b)
+          (bar-config-modules-right b)))
+
+(check "no default tile shells out to mako or clipman"
+       (not (any (lambda (m)
+                   (let ((command (and (eq? (shell-module-kind m) 'custom)
+                                       (module-option m 'exec))))
+                     (and command
+                          (or (string-contains command "makoctl")
+                              (string-contains command "clipman")))))
+                 (default-modules built-in))))
+
 ;; And what that first menu opens is configuration, not a C table.
 (check "the shell menu has the machine's items"
        (let ((units (default-shell-menu)))
@@ -50,10 +88,12 @@
               (member '(item "Force Quit…" "shell:force-quit") units))))
 
 ;; The reference's right half, in its order: the media and desktop items, the
-;; hardware readouts, the status icons, then search and the clock.
+;; hardware readouts, the status icons, then search and the clock.  The
+;; clipboard and do-not-disturb tiles are whelk's own modules, so the defaults
+;; ask the shell for their state instead of spawning clipman or makoctl.
 (check "the right half keeps the reference's order"
        (equal? (kinds (bar-config-modules-right built-in))
-               '(custom custom custom custom language custom custom custom
+               '(custom clipboard custom dnd language custom custom custom
                  custom custom cpu memory backlight audio keyboard battery
                  power-profile wifi bluetooth tray notifications custom clock)))
 

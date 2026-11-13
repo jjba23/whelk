@@ -57,6 +57,8 @@
             language-module
             keyboard-module
             custom-module
+            clipboard-module
+            dnd-module
             wifi-module
             bluetooth-module
             notifications-module
@@ -221,6 +223,22 @@ once."
   "A reading produced by a shell command.  #:exec is the command; its first line
 of standard output is the reading; #:interval 0 renders it once."
   (apply module 'custom kv))
+
+(define* (clipboard-module #:rest kv)
+  "The clipboard history's depth.  #:format uses {count} and defaults to
+\"{icon} {count}\": the glyph and how many copies are waiting.  A left click
+opens the picker; #:on-click replaces that, and the history is whelk's own, not
+clipman's."
+  (apply module 'clipboard kv))
+
+(define* (dnd-module #:rest kv)
+  "whelk's own do-not-disturb state.  The tile is on the bar only while
+do-not-disturb is on -- #:show-off? #t keeps it there either way -- and a left
+click toggles the state through the notification service.  #:icon is the glyph
+when it is off, #:dnd-icon when it is on (a slashed bell by default); #:format
+uses {state} (\"on\" or \"off\"), #:dnd-format replaces it while on, and the
+tooltip says which way the click goes."
+  (apply module 'dnd kv))
 
 (define* (wifi-module #:rest kv)
   "Wi-Fi, read from NetworkManager with nmcli.  #:show-ssid? (default off)

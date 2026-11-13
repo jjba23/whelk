@@ -5,6 +5,8 @@
 
 #include "shell.h"
 
+#include <string.h>
+
 #include "bar.h"
 #include "config.h"
 #include "guile_bridge.h"
@@ -13,6 +15,7 @@
 #include "network_panel.h"
 #include "notification_center.h"
 #include "notifications.h"
+#include "osd.h"
 #include "util/menusearch.h"
 
 /* =========================================================================
@@ -42,6 +45,7 @@ struct _WhelkShell {
   WhelkNotificationCenter *center;
   WhelkLauncher *launcher;
   WhelkNetworkPanel *network;
+  WhelkOsd *osd;
 };
 
 static void build_bars(WhelkShell *shell);
@@ -265,6 +269,35 @@ void whelk_shell_start(WhelkShell *shell) {
   /* The history starts listening now, not when the picker opens: by the time
    * somebody asks what they copied, the copy has to already be in it. */
   shell->clipboard = whelk_clipboard_new(50);
+
+  /* Persistence is opt-in: WHELK_CLIPBOARD_PERSIST=1 keeps the history in
+   * $XDG_STATE_HOME/whelk/clipboard.variant, and a value with a slash names
+   * the file itself.  Unset means memory only, as before. */
+  const char *persist = g_getenv("WHELK_CLIPBOARD_PERSIST");
+
+  if (persist && *persist && g_strcmp0(persist, "0") != 0 &&
+      g_ascii_strcasecmp(persist, "false") != 0) {
+    g_autofree char *path = NULL;
+
+    if (strchr(persist, '/')) {
+      path = g_strdup(persist);
+    } else {
+      const char *state_home = g_getenv("XDG_STATE_HOME");
+
+      path = (state_home && *state_home)
+                 ? g_build_filename(state_home, "whelk", "clipboard.variant",
+                                    NULL)
+                 : g_build_filename(g_get_home_dir(), ".local", "state",
+                                    "whelk", "clipboard.variant", NULL);
+    }
+
+    const gboolean restored =
+        whelk_clipboard_set_persistence(shell->clipboard, path);
+
+    LOG_C_INFO("Shell", "clipboard history %s in %s",
+               restored ? "restored" : "will be kept", path);
+  }
+
   whelk_clipboard_start(shell->clipboard);
 
   whelk_bridge_init();
@@ -286,6 +319,7 @@ void whelk_shell_start(WhelkShell *shell) {
                                                 shell->style);
   shell->launcher = whelk_launcher_new(shell->app, shell->style);
   shell->network = whelk_network_panel_new(shell->app, shell->style);
+  shell->osd = whelk_osd_new(shell->app, shell->style);
 
   /* Watch the configuration directory, and make it first: a shell that only
    * watches a directory the user already made cannot see the file that creates
@@ -338,6 +372,7 @@ void whelk_shell_free(WhelkShell *shell) {
   g_clear_object(&shell->center);
   g_clear_object(&shell->launcher);
   g_clear_object(&shell->network);
+  g_clear_object(&shell->osd);
   g_clear_object(&shell->notifications);
   g_clear_object(&shell->clipboard);
   g_clear_pointer(&shell->style, whelk_bar_config_free);
@@ -398,3 +433,5 @@ void whelk_shell_show_network_panel(WhelkShell *shell, const char *page) {
   if (shell && shell->network)
     whelk_network_panel_show(shell->network, page);
 }
+
+WhelkOsd *whelk_shell_osd(WhelkShell *shell) { return shell ? shell->osd : NULL; }

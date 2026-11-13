@@ -107,6 +107,26 @@ GPtrArray *whelk_menubar_from_dbusmenu(GVariant *reply, const char *service,
                                        WhelkChordStyle style);
 
 /**
+ * whelk_menubar_from_dbusmenu_context:
+ * @reply: the `(u(ia{sv}av))` answer to `com.canonical.dbusmenu.GetLayout`.
+ * @service: the bus name the menu answers on.
+ * @path: its object path.
+ * @style: how the item's `shortcut' property is written.
+ *
+ * The same wire format, read one level shallower: a tray icon's context menu
+ * is the root's children, not a menubar whose root's children are menus.  The
+ * result is an array with the one menu those children make, so it can be drawn
+ * with the same rows.
+ *
+ * Returns: (transfer full): a GPtrArray of WhelkMenu; empty when the applet
+ *   published nothing.
+ */
+GPtrArray *whelk_menubar_from_dbusmenu_context(GVariant *reply,
+                                               const char *service,
+                                               const char *path,
+                                               WhelkChordStyle style);
+
+/**
  * whelk_menubar_from_text:
  * @text: one entry per line, `Menu<TAB>Label<TAB>Chord<TAB>Command`.
  * @style: how a chord is written back.

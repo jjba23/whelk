@@ -4,6 +4,7 @@
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #include "guile_bridge.h"
+#include "clipboard.h"
 #include "logger.h"
 #include "shell.h"
 
@@ -302,6 +303,14 @@ static void inner_main(void *data, int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+  /* The clipboard helper is not the shell: it is the short-lived program
+   * wl-paste --watch runs, and it must not try to become the GApplication (the
+   * running shell would answer instead of the helper reading the selection). */
+  for (int i = 1; i < argc; i++) {
+    if (g_strcmp0(argv[i], "--clipboard-store") == 0)
+      return whelk_clipboard_helper();
+  }
+
 #ifdef DEFAULT_GSK_RENDERER
   g_setenv("GSK_RENDERER", DEFAULT_GSK_RENDERER, FALSE);
 #endif

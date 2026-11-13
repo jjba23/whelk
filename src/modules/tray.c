@@ -11,6 +11,9 @@
 #include "logger.h"
 #include "style.h"
 #include "util/applets.h"
+#include "util/dbusmenu.h"
+#include "util/menuaction.h"
+#include "util/menutree.h"
 
 /* =========================================================================
  * TRAY
@@ -22,21 +25,34 @@
  * on the session bus, asks it for RegisteredStatusNotifierItems, and follows
  * the Registered/Unregistered signals from then on; every item is a GDBusProxy of
  * its own, with its icon read from the proxy's cached properties and a left
- * click calling Activate.
- *
- * Known limit, stated rather than hidden: an item's own menu lives on the
- * DBusMenu interface, which this module does not host yet -- a right click asks
- * the item for its context menu instead, which Items that implement it show
- * themselves.
+ * click calling Activate.  An item's own menu lives on com.canonical.dbusmenu:
+ * a right click (and a left click when the item says its menu is its primary
+ * action) opens it in a popover of whelk's own.  The applet is told first --
+ * AboutToShow -- and then the tree is read, because that is the order the
+ * protocol keeps ids valid in; the layout reader is the one the global menu
+ * uses.  An item with no Menu path still gets ContextMenu, which is all the
+ * protocol offers it.
  */
 
-typedef struct {
-  char *entry;
-  GDBusProxy *proxy;
-  GtkWidget *image;
-} TrayItem;
+typedef struct TrayState TrayState;
 
 typedef struct {
+  TrayState *state;
+  char *entry;
+  char *service;
+  char *path;
+  GDBusProxy *proxy;
+  GtkWidget *image;
+
+  /* An item's menu, opened lazily and kept for the next right click.  The tree
+   * is owned here because the rows hold pointers into it; it is freed only
+   * after the popover that drew it has lost its child. */
+  GtkWidget *menu;
+  WhelkDBusMenuRequest *menu_request;
+  GPtrArray *menu_tree;
+} TrayItem;
+
+struct TrayState {
   GDBusConnection *bus;
   GDBusProxy *watcher;
   guint watcher_id;
@@ -51,7 +67,9 @@ typedef struct {
   char *hide;
   gboolean hide_network;
   gboolean hide_bluetooth;
-} TrayState;
+
+  WhelkBarConfig *style;
+};
 
 static void tray_add_entry(TrayState *state, const char *entry);
 static void tray_reflow(TrayState *state);
@@ -154,11 +172,27 @@ static void tray_item_free(gpointer data) {
   if (!item)
     return;
 
+  if (item->menu_request) {
+    whelk_dbusmenu_request_free(item->menu_request);
+    item->menu_request = NULL;
+  }
+
+  if (item->menu) {
+    if (gtk_widget_get_parent(item->menu))
+      gtk_widget_unparent(item->menu);
+
+    item->menu = NULL;
+  }
+
+  g_clear_pointer(&item->menu_tree, g_ptr_array_unref);
+
   if (item->image && gtk_widget_get_parent(item->image))
     gtk_widget_unparent(item->image);
 
   g_clear_object(&item->proxy);
   g_free(item->entry);
+  g_free(item->service);
+  g_free(item->path);
   g_free(item);
 }
 
@@ -245,6 +279,229 @@ static void tray_item_call(TrayItem *item, const char *method) {
                     G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
+/* =========================================================================
+ * THE ITEM'S OWN MENU
+ * =========================================================================
+ * StatusNotifierItem keeps its menu on com.canonical.dbusmenu, at the path the
+ * `Menu' property names.  The menu is built while it is being opened --
+ * AboutToShow -- so the read comes second: an id from GetLayout then belongs to
+ * the layout the applet just made.  The tree is the same shape the global menu
+ * reads, so the rows are the same rows.
+ */
+
+static char *tray_menu_path(TrayItem *item) {
+  g_autoptr(GVariant) menu =
+      g_dbus_proxy_get_cached_property(item->proxy, "Menu");
+
+  if (!menu)
+    return NULL;
+
+  const char *path = g_variant_get_string(menu, NULL);
+
+  /* "/" is the object root, which is not a menu any tray item publishes;
+   * the property is empty when there is none. */
+  if (!path || *path == '\0' || g_strcmp0(path, "/") == 0)
+    return NULL;
+
+  return g_strdup(path);
+}
+
+static gboolean tray_item_is_menu(TrayItem *item) {
+  g_autoptr(GVariant) is_menu =
+      g_dbus_proxy_get_cached_property(item->proxy, "ItemIsMenu");
+
+  return is_menu && g_variant_get_boolean(is_menu);
+}
+
+static void on_tray_entry_clicked(GtkButton *button, gpointer user_data) {
+  WhelkMenuEntry *entry =
+      g_object_get_data(G_OBJECT(button), "whelk-tray-entry");
+
+  (void)user_data;
+
+  GtkWidget *popover =
+      gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
+
+  if (popover)
+    gtk_popover_popdown(GTK_POPOVER(popover));
+
+  whelk_menu_entry_activate(entry, NULL);
+}
+
+static GtkWidget *tray_menu_box(WhelkMenu *menu, TrayItem *item);
+
+static GtkWidget *tray_menu_row(WhelkMenuEntry *entry, TrayItem *item) {
+  GtkWidget *button = gtk_button_new();
+
+  if (entry->accel) {
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
+    GtkWidget *label = gtk_label_new(entry->label);
+    GtkWidget *accel = gtk_label_new(entry->accel);
+
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_add_css_class(accel, "whelk-menu-accel");
+    gtk_box_append(GTK_BOX(row), label);
+    gtk_box_append(GTK_BOX(row), accel);
+    gtk_button_set_child(GTK_BUTTON(button), row);
+  } else {
+    gtk_button_set_child(GTK_BUTTON(button), gtk_label_new(entry->label));
+  }
+
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_add_css_class(button, "whelk-menu-item");
+  gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+  gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
+
+  if (!entry->enabled)
+    gtk_widget_set_sensitive(button, FALSE);
+
+  g_object_set_data(G_OBJECT(button), "whelk-tray-entry", entry);
+  g_signal_connect(button, "clicked", G_CALLBACK(on_tray_entry_clicked),
+                   item);
+
+  return button;
+}
+
+static GtkWidget *tray_menu_box(WhelkMenu *menu, TrayItem *item) {
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+  for (guint i = 0; i < menu->entries->len; i++) {
+    WhelkMenuEntry *entry = g_ptr_array_index(menu->entries, i);
+
+    if (entry->kind == WHELK_MENU_SEPARATOR) {
+      gtk_box_append(GTK_BOX(box),
+                     gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+      continue;
+    }
+
+    if (entry->submenu && entry->submenu->entries->len > 0) {
+      GtkWidget *button = gtk_menu_button_new();
+      GtkWidget *popover = gtk_popover_new();
+
+      gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(button), FALSE);
+      gtk_menu_button_set_label(GTK_MENU_BUTTON(button), entry->label);
+      gtk_menu_button_set_direction(GTK_MENU_BUTTON(button),
+                                    GTK_ARROW_RIGHT);
+      gtk_widget_add_css_class(button, "flat");
+      gtk_widget_add_css_class(button, "whelk-menu-item");
+      gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+
+      if (item->state->style)
+        whelk_style_popover(GTK_POPOVER(popover), item->state->style);
+
+      gtk_popover_set_child(GTK_POPOVER(popover),
+                            tray_menu_box(entry->submenu, item));
+      gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
+      gtk_box_append(GTK_BOX(box), button);
+      continue;
+    }
+
+    gtk_box_append(GTK_BOX(box), tray_menu_row(entry, item));
+  }
+
+  return box;
+}
+
+static GtkWidget *tray_menu_popover(TrayItem *item) {
+  if (item->menu)
+    return item->menu;
+
+  GtkWidget *popover = gtk_popover_new();
+
+  gtk_widget_set_parent(popover, item->image);
+  gtk_popover_set_position(GTK_POPOVER(popover), GTK_POS_BOTTOM);
+  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+
+  if (item->state->style)
+    whelk_style_popover(GTK_POPOVER(popover), item->state->style);
+
+  item->menu = popover;
+
+  return popover;
+}
+
+static void on_tray_menu(GPtrArray *menus, gpointer user_data) {
+  TrayItem *item = user_data;
+  GtkWidget *popover = tray_menu_popover(item);
+
+  /* The request that called us is done; free it before the tree replaces the
+   * rows it fed. */
+  whelk_dbusmenu_request_free(item->menu_request);
+  item->menu_request = NULL;
+
+  if (!menus) {
+    GtkWidget *empty = gtk_label_new("This applet has no menu");
+
+    gtk_widget_add_css_class(empty, "whelk-tray-empty");
+    gtk_popover_set_child(GTK_POPOVER(popover), empty);
+    g_clear_pointer(&item->menu_tree, g_ptr_array_unref);
+    return;
+  }
+
+  /* GetLayout's top level is usually one menu holding the entries; a tree
+   * with several top levels is drawn as one after another. */
+  GtkWidget *box;
+
+  if (menus->len == 1) {
+    box = tray_menu_box(g_ptr_array_index(menus, 0), item);
+  } else {
+    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+    for (guint i = 0; i < menus->len; i++)
+      gtk_box_append(GTK_BOX(box),
+                     tray_menu_box(g_ptr_array_index(menus, i), item));
+  }
+
+  /* Replacing the child destroys the rows that pointed into the old tree,
+   * and only then is it safe to free it. */
+  gtk_popover_set_child(GTK_POPOVER(popover), box);
+  g_clear_pointer(&item->menu_tree, g_ptr_array_unref);
+  item->menu_tree = menus;
+
+  LOG_C_DEBUG("Tray", "%s publishes %u menu(s)", item->entry, menus->len);
+}
+
+static void tray_item_show_menu(TrayItem *item) {
+  if (!item || !item->proxy)
+    return;
+
+  char *path = tray_menu_path(item);
+
+  if (!path) {
+    tray_item_call(item, "ContextMenu");
+    return;
+  }
+
+  const char *owner = g_dbus_proxy_get_name_owner(item->proxy);
+  const char *service = owner ? owner : item->service;
+
+  if (!item->state->bus || !service) {
+    g_free(path);
+    tray_item_call(item, "ContextMenu");
+    return;
+  }
+
+  if (item->menu_request) {
+    whelk_dbusmenu_request_free(item->menu_request);
+    item->menu_request = NULL;
+  }
+
+  GtkWidget *popover = tray_menu_popover(item);
+  GtkWidget *loading = gtk_label_new("Loading menu…");
+
+  gtk_widget_add_css_class(loading, "whelk-tray-empty");
+  gtk_popover_set_child(GTK_POPOVER(popover), loading);
+  g_clear_pointer(&item->menu_tree, g_ptr_array_unref);
+  gtk_popover_popup(GTK_POPOVER(popover));
+
+  item->menu_request = whelk_dbusmenu_fetch(
+      item->state->bus, service, path, WHELK_CHORD_CUA, on_tray_menu, item);
+
+  g_free(path);
+}
+
 static void on_item_click(GtkGestureClick *gesture, int n_press, double x,
                           double y, gpointer user_data) {
   (void)gesture;
@@ -252,7 +509,14 @@ static void on_item_click(GtkGestureClick *gesture, int n_press, double x,
   (void)x;
   (void)y;
 
-  tray_item_call(user_data, "Activate");
+  TrayItem *item = user_data;
+
+  /* An item whose menu is its primary action opens it on a left click too,
+   * the way a tray icon with a menu and no window does. */
+  if (tray_item_is_menu(item))
+    tray_item_show_menu(item);
+  else
+    tray_item_call(item, "Activate");
 }
 
 static void on_item_right_click(GtkGestureClick *gesture, int n_press, double x,
@@ -262,7 +526,7 @@ static void on_item_right_click(GtkGestureClick *gesture, int n_press, double x,
   (void)x;
   (void)y;
 
-  tray_item_call(user_data, "ContextMenu");
+  tray_item_show_menu(user_data);
 }
 
 static void on_item_properties(GDBusProxy *proxy, GVariant *changed,
@@ -346,7 +610,9 @@ static void on_item_proxy_ready(GObject *source, GAsyncResult *result,
   }
 
   TrayItem *item = g_new0(TrayItem, 1);
+  item->state = request->state;
   item->entry = g_strdup(request->entry);
+  split_entry(request->entry, &item->service, &item->path);
   item->proxy = proxy;
   item->image = gtk_image_new();
 
@@ -532,6 +798,7 @@ static void tray_destroy(WhelkModule *module) {
   g_clear_object(&state->watcher);
   g_clear_pointer(&state->items, g_ptr_array_unref);
   g_clear_object(&state->bus);
+  g_clear_pointer(&state->style, whelk_bar_config_free);
   g_free(state->hide);
   g_free(state);
 
@@ -546,6 +813,7 @@ WhelkModule *whelk_tray_module_new(const WhelkModuleSpec *spec,
 
   state->box = module->root;
   state->items = g_ptr_array_new_with_free_func(tray_item_free);
+  state->style = bar ? whelk_bar_config_copy(bar) : whelk_bar_config_new("tray");
   state->hide = g_strdup(whelk_spec_str(spec, "hide", NULL));
   state->hide_network = bar ? bar->native_network : FALSE;
   state->hide_bluetooth = bar ? bar->native_bluetooth : FALSE;

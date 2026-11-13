@@ -64,6 +64,7 @@ typedef struct {
   char *icon;
   char *search; /* lowercase haystack */
   char *action; /* a desktop file, a window id, a command, a path, a URL */
+  int clipboard_index; /* the entry in WhelkClipboard's history, or -1 */
   gboolean disabled; /* rofi's `nonselectable': shown, never chosen */
   WhelkMenuSearchItem *menu_item; /* a copy of a menu entry, when that is what
                                    * this row is */
@@ -101,6 +102,9 @@ struct _WhelkLauncher {
   char *menu_command;
   char *last_file_query;
 
+  WhelkClipboard *clipboard_store;
+  gulong clipboard_changed_id;
+
   gboolean apps_loaded;
   gboolean commands_loaded;
   gboolean hosts_loaded;
@@ -127,6 +131,7 @@ static LauncherItem *item_new(ItemKind kind, const char *name,
   item->name = g_strdup(name ? name : "");
   item->detail = g_strdup(detail ? detail : "");
   item->search = g_ascii_strdown(item->name, -1);
+  item->clipboard_index = -1;
 
   return item;
 }
@@ -813,6 +818,14 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
       (app && *app) ? g_strdup_printf("%s — %s — %u", label, app, count)
                     : g_strdup_printf("%s — %u", label, count);
 
+  if (g_strcmp0(mode, "clipboard") == 0) {
+    g_autofree char *with_keys =
+        g_strdup_printf("%s · Ctrl+P pins · Ctrl+Delete removes", text);
+
+    gtk_label_set_text(GTK_LABEL(self->mode_label), with_keys);
+    return;
+  }
+
   gtk_label_set_text(GTK_LABEL(self->mode_label), text);
 }
 
@@ -841,6 +854,18 @@ static char *clipboard_label(const char *text) {
   return g_strdup(*line ? line : "(blank line)");
 }
 
+/* An image has no text to take a first line from; its type is what identifies
+ * it in a list that cannot show the picture itself. */
+static char *clipboard_entry_label(WhelkClipboardEntry *entry) {
+  if (entry->text && *entry->text)
+    return clipboard_label(entry->text);
+
+  const char *kind =
+      g_str_has_prefix(entry->mime, "image/") ? "Image" : "Rich content";
+
+  return g_strdup_printf("[%s — %s]", kind, entry->mime);
+}
+
 static void load_clipboard(WhelkLauncher *self) {
   g_ptr_array_set_size(self->clipboard, 0);
 
@@ -853,12 +878,19 @@ static void load_clipboard(WhelkLauncher *self) {
   GPtrArray *entries = whelk_clipboard_entries(clipboard);
 
   for (guint i = 0; entries && i < entries->len; i++) {
-    const char *text = g_ptr_array_index(entries, i);
-    g_autofree char *label = clipboard_label(text);
-    LauncherItem *item =
-        item_new(ITEM_CLIPBOARD, label, "Enter copies it again");
+    WhelkClipboardEntry *entry = g_ptr_array_index(entries, i);
+    g_autofree char *label = clipboard_entry_label(entry);
+    LauncherItem *item = item_new(
+        ITEM_CLIPBOARD, label,
+        entry->pinned
+            ? "Pinned — Enter puts it back · Ctrl+P unpins · Ctrl+Delete removes"
+            : "Enter puts it back · Ctrl+P pins · Ctrl+Delete removes");
 
-    item->action = g_strdup(text);
+    item->clipboard_index = (int)i;
+
+    if (entry->pinned)
+      item->icon = g_strdup("view-pin-symbolic");
+
     g_ptr_array_add(self->clipboard, item);
   }
 
@@ -869,6 +901,23 @@ static void load_clipboard(WhelkLauncher *self) {
     empty->disabled = TRUE;
     g_ptr_array_add(self->clipboard, empty);
   }
+}
+
+/* A copy arriving while the picker is open changes every index below it, and
+ * so does a delete.  The picker rebuilds from the store on the store's own
+ * signal instead of trusting the rows it drew a moment ago. */
+static void on_clipboard_store_changed(WhelkClipboard *clipboard,
+                                       gpointer user_data) {
+  (void)clipboard;
+
+  WhelkLauncher *self = user_data;
+  GtkWindow *window = whelk_surface_get_window(self->surface);
+
+  if (!window || !gtk_widget_get_visible(GTK_WIDGET(window)) ||
+      g_strcmp0(self->mode, "clipboard") != 0)
+    return;
+
+  refresh_results(self);
 }
 
 /* One row per entry of the focused application's menubar, whichever producer
@@ -1133,8 +1182,8 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
     WhelkShell *shell = whelk_shell_get_default();
     WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
 
-    if (clipboard)
-      whelk_clipboard_copy(clipboard, item->action);
+    if (clipboard && item->clipboard_index >= 0)
+      whelk_clipboard_restore(clipboard, (guint)item->clipboard_index);
     break;
   }
   case ITEM_MENU_ITEM:
@@ -1201,8 +1250,6 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller,
                                GdkModifierType state, gpointer user_data) {
   (void)controller;
   (void)keycode;
-  (void)state;
-
   WhelkLauncher *self = user_data;
 
   switch (keyval) {
@@ -1222,6 +1269,46 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller,
   case GDK_KEY_KP_Enter:
     activate_item(self, selected_item(self));
     return TRUE;
+  case GDK_KEY_Delete: {
+    /* Plain Delete belongs to the search field; Ctrl+Delete is the one that
+     * removes the selected copy. */
+    if (!(state & GDK_CONTROL_MASK) ||
+        g_strcmp0(self->mode, "clipboard") != 0)
+      return FALSE;
+
+    LauncherItem *item = selected_item(self);
+    WhelkShell *shell = whelk_shell_get_default();
+    WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
+
+    if (!item || !clipboard || item->clipboard_index < 0)
+      return FALSE;
+
+    whelk_clipboard_remove(clipboard, (guint)item->clipboard_index);
+    refresh_results(self);
+    return TRUE;
+  }
+  case GDK_KEY_p:
+  case GDK_KEY_P: {
+    if (!(state & GDK_CONTROL_MASK) ||
+        g_strcmp0(self->mode, "clipboard") != 0)
+      return FALSE;
+
+    LauncherItem *item = selected_item(self);
+    WhelkShell *shell = whelk_shell_get_default();
+    WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
+
+    if (!item || !clipboard || item->clipboard_index < 0)
+      return FALSE;
+
+    GPtrArray *entries = whelk_clipboard_entries(clipboard);
+    WhelkClipboardEntry *entry = g_ptr_array_index(
+        entries, (guint)item->clipboard_index);
+
+    whelk_clipboard_pin(clipboard, (guint)item->clipboard_index,
+                        !entry->pinned);
+    refresh_results(self);
+    return TRUE;
+  }
   default:
     return FALSE;
   }
@@ -1248,6 +1335,15 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   self->clipboard = g_ptr_array_new_with_free_func(item_free);
   self->menu_items = g_ptr_array_new_with_free_func(item_free);
   self->results = g_ptr_array_new();
+
+  WhelkShell *shell = whelk_shell_get_default();
+
+  if (shell && whelk_shell_clipboard(shell)) {
+    self->clipboard_store = g_object_ref(whelk_shell_clipboard(shell));
+    self->clipboard_changed_id = g_signal_connect(
+        self->clipboard_store, "changed",
+        G_CALLBACK(on_clipboard_store_changed), self);
+  }
 
   self->card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   self->entry = gtk_entry_new();
@@ -1414,6 +1510,14 @@ static void whelk_launcher_dispose(GObject *object) {
   if (self->query_timeout != 0) {
     g_source_remove(self->query_timeout);
     self->query_timeout = 0;
+  }
+
+  if (self->clipboard_store) {
+    if (self->clipboard_changed_id != 0)
+      g_signal_handler_disconnect(self->clipboard_store,
+                                  self->clipboard_changed_id);
+
+    g_clear_object(&self->clipboard_store);
   }
 
   g_clear_pointer(&self->results, g_ptr_array_unref);

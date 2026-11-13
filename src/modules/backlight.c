@@ -5,7 +5,9 @@
 
 #include "modules/modules.h"
 
+#include "shell.h"
 #include "util/sysfs.h"
+#include "util/level.h"
 
 /* =========================================================================
  * BACKLIGHT
@@ -17,6 +19,7 @@
 
 typedef struct {
   char *device;
+  WhelkLevel level;
 } BacklightState;
 
 static void backlight_update(WhelkModule *module) {
@@ -36,7 +39,19 @@ static void backlight_update(WhelkModule *module) {
   GHashTable *values = whelk_values_new();
   whelk_values_set(values, "percent", text);
 
-  whelk_module_present(module, "{icon} {percent}%", values);
+  /* The reading is the icon by default; a bar that wants the number writes
+   * "{icon} {percent}%" in its own #:format. */
+  whelk_module_present(
+      module, whelk_spec_str(module->spec, "format", "{icon}"), values);
+
+  if (whelk_level_update(&state->level, percent, FALSE)) {
+    WhelkShell *shell = whelk_shell_get_default();
+    WhelkOsd *osd = shell ? whelk_shell_osd(shell) : NULL;
+
+    if (osd)
+      whelk_osd_show(osd, whelk_spec_str(module->spec, "icon", "\uf185"),
+                     percent);
+  }
 }
 
 static void backlight_destroy(WhelkModule *module) {

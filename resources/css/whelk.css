@@ -410,6 +410,7 @@ window.whelk-about-window {
 
 .whelk-wifi.off,
 .whelk-bluetooth.off,
+.whelk-clipboard.empty,
 .whelk-notifications.empty {
   opacity: 0.55;
 }
@@ -466,4 +467,32 @@ window.whelk-about-window {
 .whelk-menubar-title label {
   font-weight: 700;
   opacity: 1;
+}
+
+/* --- volume and brightness HUD -------------------------------------------- */
+
+.whelk-osd {
+  padding: 14px 22px;
+  border-radius: 16px;
+  min-width: 250px;
+}
+
+.whelk-osd-icon {
+  font-size: 30px;
+}
+
+.whelk-osd-value {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.whelk-osd progressbar trough,
+.whelk-osd progressbar progress {
+  min-height: 6px;
+  border-radius: 3px;
+}
+
+.whelk-tray-empty {
+  padding: 10px 14px;
+  opacity: 0.7;
 }

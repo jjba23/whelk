@@ -7,7 +7,9 @@
 
 #include <string.h>
 
+#include "shell.h"
 #include "util/format.h"
+#include "util/level.h"
 
 /* =========================================================================
  * AUDIO
@@ -20,6 +22,21 @@
 static const char *audio_command(void) {
   return "wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || "
          "pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null";
+}
+
+typedef struct {
+  WhelkLevel level;
+} AudioState;
+
+static void audio_show_osd(int volume, gboolean muted, const char *icon,
+                           const char *muted_icon) {
+  WhelkShell *shell = whelk_shell_get_default();
+  WhelkOsd *osd = shell ? whelk_shell_osd(shell) : NULL;
+
+  if (!osd)
+    return;
+
+  whelk_osd_show(osd, muted ? muted_icon : icon, muted ? 0 : volume);
 }
 
 static void audio_apply(WhelkModule *module, const char *output) {
@@ -60,21 +77,31 @@ static void audio_apply(WhelkModule *module, const char *output) {
   whelk_values_set(values, "volume", percent);
 
   const char *muted_format = whelk_spec_str(module->spec, "muted-format", NULL);
-  const char *format = whelk_spec_str(module->spec, "format", "{icon} {volume}%");
+  /* The reading is the speaker by default; a bar that wants the number writes
+   * "{icon} {volume}%" in its own #:format. */
+  const char *format = whelk_spec_str(module->spec, "format", "{icon}");
   const char *icon = whelk_spec_str(module->spec, "icon", "");
+  const char *plain_icon = whelk_spec_str(module->spec, "icon", "\uf028");
+  const char *muted_icon = whelk_spec_str(module->spec, "muted-icon", "\uf026");
 
   if (muted) {
-    const char *muted_icon = whelk_spec_str(module->spec, "muted-icon", NULL);
+    const char *configured_muted =
+        whelk_spec_str(module->spec, "muted-icon", NULL);
 
     if (muted_format)
       format = muted_format;
-    if (muted_icon)
-      icon = muted_icon;
+    if (configured_muted)
+      icon = configured_muted;
   }
 
   whelk_module_present_format(module, format, icon,
                               whelk_spec_str(module->spec, "tooltip", NULL),
                               values);
+
+  AudioState *state = module->data;
+
+  if (state && whelk_level_update(&state->level, volume, muted))
+    audio_show_osd(volume, muted, plain_icon, muted_icon);
 }
 
 static void audio_on_command(WhelkModule *module, const char *text,
@@ -88,10 +115,18 @@ static void audio_update(WhelkModule *module) {
   whelk_module_command(module, audio_command(), audio_on_command, NULL);
 }
 
+static void audio_destroy(WhelkModule *module) {
+  g_free(module->data);
+  module->data = NULL;
+}
+
 WhelkModule *whelk_audio_module_new(const WhelkModuleSpec *spec,
                                     const WhelkBarConfig *bar) {
   WhelkModule *module = whelk_module_base_new("audio", spec, bar);
+  AudioState *state = g_new0(AudioState, 1);
 
+  module->data = state;
+  module->destroy = audio_destroy;
   whelk_module_add_label(module);
   module->update = audio_update;
   whelk_module_install(module, 2);

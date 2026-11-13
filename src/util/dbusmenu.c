@@ -28,6 +28,19 @@ struct _WhelkDBusMenuWatch {
   gboolean cancelled;
 };
 
+struct _WhelkDBusMenuRequest {
+  GDBusConnection *bus;
+  char *service;
+  char *path;
+  WhelkChordStyle style;
+  WhelkDBusMenuFetchedFunc fetched;
+  gpointer user_data;
+
+  GCancellable *cancellable;
+  gint refs;
+  gboolean cancelled;
+};
+
 static void watch_unref(WhelkDBusMenuWatch *watch);
 
 static WhelkDBusMenuWatch *watch_ref(WhelkDBusMenuWatch *watch) {
@@ -65,6 +78,132 @@ static void on_layout(GObject *source, GAsyncResult *result,
     g_variant_unref(reply);
 
   watch_unref(watch);
+}
+
+/* =========================================================================
+ * ONE READ, IN THE APPLET'S ORDER
+ * ========================================================================= */
+
+static void request_unref(WhelkDBusMenuRequest *request);
+
+static WhelkDBusMenuRequest *request_ref(WhelkDBusMenuRequest *request) {
+  g_atomic_int_inc(&request->refs);
+
+  return request;
+}
+
+static void request_unref(WhelkDBusMenuRequest *request) {
+  if (!request || !g_atomic_int_dec_and_test(&request->refs))
+    return;
+
+  g_clear_object(&request->cancellable);
+  g_clear_object(&request->bus);
+  g_free(request->service);
+  g_free(request->path);
+  g_free(request);
+}
+
+static void on_fetch_layout(GObject *source, GAsyncResult *result,
+                            gpointer user_data) {
+  WhelkDBusMenuRequest *request = user_data;
+  g_autoptr(GError) error = NULL;
+  GVariant *reply =
+      g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+  if (error)
+    LOG_C_DEBUG("Menu", "tray GetLayout failed: %s", error->message);
+
+  if (!request->cancelled) {
+    GPtrArray *menus = NULL;
+
+    if (reply) {
+      menus = whelk_menubar_from_dbusmenu_context(
+          reply, request->service, request->path, request->style);
+
+      LOG_C_DEBUG("Menu", "tray menu from %s: %u menu(s)", request->service,
+                  menus->len);
+
+      if (menus->len == 0)
+        g_clear_pointer(&menus, g_ptr_array_unref);
+    }
+
+    if (request->fetched)
+      request->fetched(menus, request->user_data);
+  }
+
+  if (reply)
+    g_variant_unref(reply);
+
+  request_unref(request);
+}
+
+static void request_layout(WhelkDBusMenuRequest *request) {
+  if (request->cancelled)
+    return;
+
+  g_dbus_connection_call(
+      request->bus, request->service, request->path, "com.canonical.dbusmenu",
+      "GetLayout", g_variant_new("(ii)", 0, -1),
+      G_VARIANT_TYPE("(u(ia{sv}av))"), G_DBUS_CALL_FLAGS_NONE,
+      WHELK_DBUSMENU_TIMEOUT_MS, request->cancellable, on_fetch_layout,
+      request_ref(request));
+}
+
+static void on_about_to_show(GObject *source, GAsyncResult *result,
+                             gpointer user_data) {
+  WhelkDBusMenuRequest *request = user_data;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GVariant) reply =
+      g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+
+  (void)reply;
+
+  if (error)
+    LOG_C_DEBUG("Menu", "tray AboutToShow failed: %s", error->message);
+
+  request_layout(request);
+  request_unref(request);
+}
+
+WhelkDBusMenuRequest *whelk_dbusmenu_fetch(
+    GDBusConnection *bus, const char *service, const char *path,
+    WhelkChordStyle style, WhelkDBusMenuFetchedFunc fetched,
+    gpointer user_data) {
+  if (!bus || !service || !path)
+    return NULL;
+
+  WhelkDBusMenuRequest *request = g_new0(WhelkDBusMenuRequest, 1);
+
+  request->bus = g_object_ref(bus);
+  request->service = g_strdup(service);
+  request->path = g_strdup(path);
+  request->style = style;
+  request->fetched = fetched;
+  request->user_data = user_data;
+  request->refs = 1;
+  request->cancellable = g_cancellable_new();
+
+  g_dbus_connection_call(bus, service, path, "com.canonical.dbusmenu",
+                         "AboutToShow", g_variant_new("(i)", 0),
+                         G_VARIANT_TYPE("(b)"), G_DBUS_CALL_FLAGS_NONE,
+                         WHELK_DBUSMENU_TIMEOUT_MS, request->cancellable,
+                         on_about_to_show, request_ref(request));
+
+  return request;
+}
+
+void whelk_dbusmenu_request_free(WhelkDBusMenuRequest *request) {
+  if (!request)
+    return;
+
+  request->cancelled = TRUE;
+  request->fetched = NULL;
+  request->user_data = NULL;
+
+  if (request->cancellable)
+    g_cancellable_cancel(request->cancellable);
+
+  request_unref(request);
 }
 
 static void fetch(WhelkDBusMenuWatch *watch) {

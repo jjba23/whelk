@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.9.0',
+  version: '0.10.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -149,6 +149,7 @@ whelk_sources = files(
   'src/network_panel.c',
   'src/notification_center.c',
   'src/notifications.c',
+  'src/osd.c',
   'src/shell.c',
   'src/style.c',
   'src/surface.c',
@@ -157,8 +158,10 @@ whelk_sources = files(
   'src/modules/battery.c',
   'src/modules/bluetooth.c',
   'src/modules/clock.c',
+  'src/modules/clipboard.c',
   'src/modules/cpu.c',
   'src/modules/custom.c',
+  'src/modules/dnd.c',
   'src/modules/keyboard.c',
   'src/modules/language.c',
   'src/modules/memory.c',
@@ -180,6 +183,7 @@ whelk_sources = files(
   'src/util/format.c',
   'src/util/fuzzy.c',
   'src/util/json.c',
+  'src/util/level.c',
   'src/util/menuaction.c',
   'src/util/menudict.c',
   'src/util/menusearch.c',
@@ -309,6 +313,10 @@ unit_tests = [
       'src/config.c',
       'src/util/format.c',
     ],
+  },
+  {
+    'id': 'level',
+    'sources': ['src/util/level.c'],
   },
 ]
 
