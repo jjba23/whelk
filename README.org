@@ -110,8 +110,9 @@ the documented one -- see [[#configuration][Configuration]].
   notification centre, a reload and the way out -- not a click handed to
   =rofi=.
 - *The focused application's menus.* Its own =File=/=Edit=/=View= where it
-  publishes a menubar over D-Bus; otherwise the documented shortcuts of nine
-  applications, each entry showing its chord and typing it; otherwise the
+  publishes a menubar over D-Bus; otherwise the documented shortcuts of
+  ninety-four applications, each entry showing its chord and typing it;
+  otherwise the
   shortcuts every application shares.  Never an invented menu.
 - *A notification daemon.* whelk owns =org.freedesktop.Notifications= when
   nothing else does: toasts top right, a centre grouped by application, actions
@@ -540,7 +541,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (left click: centre, right: DND)    |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:hide= (fragments to leave out)            |
 | =start-module=         | the shell's own menu                             | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip=   |
-| =menu-module=          | the focused application's menubar                | =#:shortcuts?=, =#:shortcut-tool=                         |
+| =menu-module=          | the focused application's menubar                | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?= |
 
 A worked example of the whole set is in =settings/settings.scm=, which also has a
 commented-out workspace switcher for the centre of the bar.
@@ -619,17 +620,35 @@ producers, in that order:
   application, which is where a program that runs more than one instance
   publishes.
 - *The dictionary.*  Most applications publish nothing, so their menus are
-  written from their documented shortcuts: fifty applications answering to a
-  hundred and fifty-five ids -- the browsers, terminals, editors, file managers,
-  office suites, mail clients, graphics tools, media players, PDF readers, chat
-  clients, video editors, DAWs, note-taking applications and developer tools a
-  desktop actually has -- each with the menus it
-  really has.  Every entry shows its chord on the right and types it into the
-  focused window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
+  written from their documented shortcuts: ninety-four applications answering
+  to two hundred and seventy-seven ids -- the browsers, terminals, editors,
+  file managers, office suites, mail clients, graphics tools, media players,
+  PDF readers, chat clients, video editors, DAWs, note-taking applications,
+  developer tools, archive managers, system panels and the CAD and 3D
+  applications a desktop actually has -- each with the menus it really has.
+  Every entry shows its chord on the right and types it into the focused
+  window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
   application the dictionary does not know is not given a File menu it might
   not have.
 - *The shared Edit and View.*  For everything else, the shortcuts every
   application shares, in the same shape and with the same chords on the right.
+
+Every producer shows the key its entries answer to.  A D-Bus menubar may
+publish an =accel= attribute for an item, and it is read and printed beside
+the label; the dictionary's entries print the chord they type.  What a chord
+is stored as and what is printed are separate: the dictionary may write one in
+Emacs notation (=C-v=, =M-F4=, =C-S-p=) or in CUA notation (=Ctrl+V=,
+=Alt+F4=), and the runtime translates either into the keys the focused window
+receives.  =#:accelerator-style= chooses what the menu prints -- ='cua= by
+default, ='emacs= for the notation an Emacs user reads -- and the same entry
+types the same keys either way.
+
+The application's name comes first, as a label rather than an invented menu,
+and the menu bar is usable from the keyboard: Down and Up walk the entries,
+Home and End go to the ends, Left and Right move between File, Edit and View,
+Right opens a submenu, and Escape closes.  A submenu wears a chevron rather
+than a second label.  =#:app-name?= (on by default) turns the name off for a
+bar that would rather have the extra pixels.
 
 Both fallbacks are only offered when something can type a chord: with neither
 =wtype= nor =xdotool= installed, an application that declares no desktop
@@ -654,28 +673,32 @@ corrected without giving up the rest of the table.  Both are available in a
 settings file and at the REPL:
 
 #+begin_src scheme
-  ;; An application the table does not know: name, ids, menus.
+  ;; An application the table does not know: name, ids, menus.  Chords may be
+  ;; written the Emacs way: C-, M- and S- are Ctrl, Alt and Shift.
   (add-menu-app "Steam" '("steam" "com.valvesoftware.Steam")
-                '(("File" ("Settings" "Ctrl+," "ctrl" "comma"))
-                  ("View" ("Full Screen" "F11" #f "F11"))))
+                '(("File" ("Settings" "C-,"))
+                  ("View" ("Full Screen" "F11"))))
 
   ;; The built-in Firefox, with the menus you want instead.
   (replace-menu-app "firefox" "Firefox"
                     '("firefox" "org.mozilla.firefox")
-                    '(("File" ("Open" "Ctrl+O" "ctrl" "o"))
-                      ("Edit" ("Undo" "Ctrl+Z" "ctrl" "z"))))
+                    '(("File" ("Open" "C-o"))
+                      ("Edit" ("Undo" "C-z"))))
 #+end_src
 
-An item is =(label chord modifiers key)=, =modifiers= =#f= when the key is typed
-alone; the chord is what the menu shows, the rest is what gets typed.  Neither
-form trusts its argument: an entry whose item has no chord, whose menu is empty,
-or whose two items type the same chord is refused and logged with the reason --
-=[WARN][whelk][Scheme:Menus] Broken is not a menu application: an item needs a
-label, the chord shown, the modifiers and the key= -- because a dictionary that
-silently drops what you wrote is worse than one that says why.  Replacing an id
-the table does not answer to is reported too, and added rather than lost.  A
-reload starts from the built-in table again, so saving the file replaces your
-edits instead of stacking another copy of them in front.
+An item is =(label chord)=: the chord is written in Emacs notation or in CUA
+notation, and the runtime translates it into the modifiers to hold and the key
+to press.  The long form =(label chord modifiers key)= is still read for a key
+the parser cannot spell, with =modifiers= =#f= when the key is typed alone.
+Neither form trusts its argument: an entry whose item has no chord, whose menu
+is empty, or whose two items type the same chord is refused and logged with the
+reason -- =[WARN][whelk][Scheme:Menus] Broken is not a menu application: an
+item needs a label and a chord, or the long label/chord/modifiers/key form= --
+because a dictionary that silently drops what you wrote is worse than one that
+says why.  Replacing an id the table does not answer to is reported too, and
+added rather than lost.  A reload starts from the built-in table again, so
+saving the file replaces your edits instead of stacking another copy of them in
+front.
 
 *** What the menus do not do yet
 :PROPERTIES:
@@ -685,10 +708,13 @@ edits instead of stacking another copy of them in front.
 A menu that changes while it is open is only re-read when the focus moves, a
 window action (=win.*=) is sent to the application's first window object, and
 the D-Bus menubar is probed at the conventional object paths rather than
-discovered.  The dictionary covers forty applications and their documented
-shortcuts: it is a curated list, not a guess, and an application that is not in
-it gets the shared Edit and View -- unless a settings file adds it.  The panels, the toasts and the menus
-open on the compositor's first monitor; a bar's =#:monitor= is its own.
+discovered.  The application's name is a label, not a menu of its own: About
+and Preferences are offered when the application exports them, not invented.
+The dictionary covers ninety-four applications and their documented shortcuts:
+it is a curated list, not a guess, and an application that is not in it gets the
+shared Edit and View -- unless a settings file adds it.  The panels, the toasts
+and the menus open on the compositor's first monitor; a bar's =#:monitor= is
+its own.
 
 ** Hot reload and the REPL
 :PROPERTIES:

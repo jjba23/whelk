@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "logger.h"
+#include "util/chord.h"
 #include "util/menudict.h"
 
 /* =========================================================================
@@ -405,7 +406,9 @@ static char **scheme_text_list(SCM list) {
   return words;
 }
 
-/* (label accel modifiers key), with #f for a bare key. */
+/* (label accel modifiers key), with #f for a bare key, or the shorter
+ * (label chord), where the chord is written in Emacs or CUA notation and this
+ * is where it stops being text and becomes modifiers and a keysym. */
 static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
   guint length = scheme_list_length(list);
   WhelkDictItem *items = whelk_dict_items_new(length);
@@ -414,6 +417,29 @@ static WhelkDictItem *scheme_items(SCM list, guint *n_items) {
     SCM spec = scheme_list_ref(list, i);
 
     items[i].label = scm_text(scheme_list_ref(spec, 0));
+
+    if (scheme_list_length(spec) == 2) {
+      g_autofree char *written = scm_text(scheme_list_ref(spec, 1));
+      WhelkChord chord;
+
+      if (written && whelk_chord_parse(written, &chord)) {
+        /* What the dictionary stores is not what the menu shows: the table
+         * keeps the chord as CUA, and the bar writes it in the style its
+         * configuration asked for. */
+        items[i].accel = whelk_chord_format(&chord, WHELK_CHORD_CUA);
+        items[i].modifiers = whelk_chord_modifiers(&chord);
+        items[i].key = g_strdup(chord.key);
+
+        whelk_chord_clear(&chord);
+      } else {
+        /* A chord this shell cannot read still prints: the entry is shown
+         * disabled rather than silently dropped. */
+        items[i].accel = g_strdup(written ? written : "");
+      }
+
+      continue;
+    }
+
     items[i].accel = scm_text(scheme_list_ref(spec, 1));
     items[i].modifiers = scm_text(scheme_list_ref(spec, 2));
     items[i].key = scm_text(scheme_list_ref(spec, 3));

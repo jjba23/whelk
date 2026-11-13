@@ -109,6 +109,17 @@ static void test_covers_the_desktop(void) {
       "org.wireshark.Wireshark",
       "org.keepassxc.KeePassXC",
       "audacity",
+      "foot",
+      "qutebrowser",
+      "geany",
+      "pcmanfm",
+      "onlyoffice-desktopeditors",
+      "zathura",
+      "joplin",
+      "postman",
+      "freecad",
+      "anki",
+      "org.gnome.Settings",
   };
 
   for (guint i = 0; i < G_N_ELEMENTS(installed); i++) {
@@ -120,7 +131,7 @@ static void test_covers_the_desktop(void) {
 }
 
 static void test_every_entry_is_complete(void) {
-  g_assert_cmpuint(whelk_menudict_size(), >=, 35);
+  g_assert_cmpuint(whelk_menudict_size(), >=, 90);
   g_assert_null(whelk_menudict_at(whelk_menudict_size()));
 
   for (guint i = 0; i < whelk_menudict_size(); i++) {
@@ -148,6 +159,12 @@ static void test_every_entry_is_complete(void) {
       g_assert_cmpuint(strlen(menu->label), >, 0);
       g_assert_cmpuint(menu->n_items, >, 0);
 
+      /* Two entries typing one chord in one menu: one of them is a typo and
+       * the other is unreachable.  Compared after parsing, so the short
+       * Emacs form and the long form are held to the same rule. */
+      GHashTable *chords = g_hash_table_new_full(g_str_hash, g_str_equal,
+                                                 g_free, NULL);
+
       for (guint k = 0; k < menu->n_items; k++) {
         const WhelkDictItem *item = &menu->items[k];
 
@@ -161,7 +178,15 @@ static void test_every_entry_is_complete(void) {
         /* The modifiers are either #f (a bare key) or a chord to hold. */
         if (item->modifiers)
           g_assert_cmpuint(strlen(item->modifiers), >, 0);
+
+        g_autofree char *signature = g_strdup_printf(
+            "%s|%s", item->modifiers ? item->modifiers : "", item->key);
+
+        g_assert_false(g_hash_table_contains(chords, signature));
+        g_hash_table_add(chords, g_steal_pointer(&signature));
       }
+
+      g_hash_table_unref(chords);
     }
   }
 }

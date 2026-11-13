@@ -24,7 +24,15 @@
 ;; The entries follow the machine this shell is developed on -- the desktop
 ;; entries actually installed there -- and the applications most people run:
 ;; browsers, terminals, editors, file managers, office suites, mail, graphics,
-;; media players, PDF readers and chat clients.
+;; media players, PDF readers, chat clients, note-taking applications, CAD,
+;; audio and video production, and the system's own panels.
+;;
+;; A chord may be written the way Emacs writes it: ("Copy" "C-c"), ("Quit"
+;; "M-F4"), ("Find" "C-S-f").  The runtime reads C- as Control, M- as Alt,
+;; S- as Shift and s- as Super, and translates either notation into the keys
+;; it types -- so a settings file can be written in the notation its author
+;; thinks in, and the menu can still show Ctrl+C or C-c, whichever the bar
+;; asked for.
 
 ;;; Code:
 
@@ -42,9 +50,10 @@
   "One application: the name for the log, the ids it answers to, its menus.
 
 A menu is a list whose first element is its label and whose rest are items.
-An item is (label accel modifiers key): what the entry says, the chord printed
-dim on its right, the modifiers to hold, and the key to press.  A #f for the
-modifiers means a bare key, like F11."
+An item is (label chord): what the entry says, and the chord to show and
+type -- C-v in Emacs notation, Ctrl+V in CUA notation, or a bare key such
+as F11.  The long form (label accel modifiers key) is still read for a
+chord the parser cannot spell, with #f for the modifiers of a bare key."
   (list (cons 'name name)
         (cons 'ids ids)
         (cons 'menus menus)))
@@ -54,9 +63,10 @@ modifiers means a bare key, like F11."
 (define firefox
   (dict-app
    "Firefox"
-   '("firefox" "firefox-esr" "firefox-developer-edition" "firefox-nightly"
-     "org.mozilla.firefox" "librewolf" "waterfox" "zen" "zen-browser"
-     "app.zen_browser.zen")
+        '("firefox" "firefox-esr" "firefox-developer-edition" "firefox-nightly"
+     "org.mozilla.firefox" "org.mozilla.firefox-esr" "librewolf"
+     "io.gitlab.librewolf-community" "waterfox" "zen" "zen-browser"
+     "app.zen_browser.zen" "mullvad-browser" "org.mullvad.MullvadBrowser")
    '(("File"
       ("New Tab" "Ctrl+T" "ctrl" "t")
       ("New Window" "Ctrl+N" "ctrl" "n")
@@ -86,9 +96,11 @@ modifiers means a bare key, like F11."
 (define chromium
   (dict-app
    "Chromium"
-   '("chromium" "chromium-browser" "google-chrome" "google-chrome-stable"
+        '("chromium" "chromium-browser" "chromium-freeworld" "google-chrome"
+     "google-chrome-stable" "google-chrome-beta" "chrome"
      "brave-browser" "brave" "com.brave.Browser" "microsoft-edge"
-     "microsoft-edge-stable" "vivaldi" "vivaldi-stable" "thorium"
+     "microsoft-edge-stable" "vivaldi" "vivaldi-stable" "opera"
+     "opera-stable" "com.opera.Opera" "yandex-browser" "thorium"
      "ungoogled-chromium")
    '(("File"
       ("New Tab" "Ctrl+T" "ctrl" "t")
@@ -148,8 +160,10 @@ modifiers means a bare key, like F11."
 (define terminals
   (dict-app
    "Terminal"
-   '("gnome-terminal" "org.gnome.Terminal" "tilix" "com.gexperts.Tilix"
-     "org.gnome.Console" "kgx")
+        '("gnome-terminal" "org.gnome.Terminal" "tilix" "com.gexperts.Tilix"
+     "org.gnome.Console" "kgx" "mate-terminal" "org.mate.terminal"
+     "xfce4-terminal" "org.xfce.terminal" "terminator" "sakura"
+     "lxterminal")
    '(("File"
       ("New Tab" "Ctrl+Shift+T" "ctrl shift" "t")
       ("New Window" "Ctrl+Shift+N" "ctrl shift" "n")
@@ -262,7 +276,7 @@ modifiers means a bare key, like F11."
 (define kate
   (dict-app
    "Kate"
-   '("kate" "org.kde.kate")
+        '("kate" "org.kde.kate" "kwrite" "org.kde.kwrite")
    '(("File"
       ("New" "Ctrl+N" "ctrl" "n")
       ("Open" "Ctrl+O" "ctrl" "o")
@@ -362,7 +376,7 @@ modifiers means a bare key, like F11."
 (define nautilus
   (dict-app
    "Files"
-   '("nautilus" "org.gnome.Nautilus")
+        '("nautilus" "org.gnome.Nautilus" "caja" "org.mate.caja")
    '(("File"
       ("New Window" "Ctrl+N" "ctrl" "n")
       ("New Tab" "Ctrl+T" "ctrl" "t")
@@ -965,8 +979,8 @@ modifiers means a bare key, like F11."
 (define image_viewer
   (dict-app
    "Image Viewer"
-   '("org.gnome.Loupe" "loupe" "org.gnome.eog" "eog" "org.kde.gwenview"
-     "gwenview")
+        '("org.gnome.Loupe" "loupe" "org.gnome.eog" "eog" "org.kde.gwenview"
+     "gwenview" "ristretto" "org.xfce.ristretto")
    '(("File"
       ("Open" "Ctrl+O" "ctrl" "o")
       ("Save As" "Ctrl+Shift+S" "ctrl shift" "s")
@@ -984,8 +998,9 @@ modifiers means a bare key, like F11."
 (define music
   (dict-app
    "Music"
-   '("org.gnome.Music" "gnome-music" "io.bassi.Amberol" "amberol"
-     "org.kde.elisa" "elisa" "lollypop" "rhythmbox")
+        '("org.gnome.Music" "gnome-music" "io.bassi.Amberol" "amberol"
+     "org.kde.elisa" "elisa" "lollypop" "rhythmbox" "clementine"
+     "org.clementine_player.Clementine")
    '(("File"
       ("Quit" "Ctrl+Q" "ctrl" "q"))
      ("Playback"
@@ -1129,6 +1144,547 @@ modifiers means a bare key, like F11."
       ("Goto Symbol" "Ctrl+R" "ctrl" "r")
       ("Full Screen" "F11" #f "F11")))))
 
+;;; --- menus several applications share --------------------------------------
+;;; Still data: a list of menus appended to an application's own.  They keep
+;;; the table short without inventing anything -- these are the menus the
+;;; applications document, written once because they spell them the same way.
+
+(define standard-document-file
+  '(("File"
+     ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+     ("Print" "C-p") ("Quit" "C-q"))))
+
+(define standard-edit
+  '(("Edit"
+     ("Undo" "C-z") ("Redo" "C-S-z")
+     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+     ("Find" "C-f") ("Replace" "C-h"))))
+
+(define standard-edit-y
+  '(("Edit"
+     ("Undo" "C-z") ("Redo" "C-y")
+     ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+     ("Find" "C-f") ("Replace" "C-h"))))
+
+(define standard-view
+  '(("View"
+     ("Zoom In" "C-+") ("Zoom Out" "C--") ("Reset Zoom" "C-0")
+     ("Full Screen" "F11"))))
+
+(define terminal-edit
+  '(("Edit"
+     ("Copy" "C-S-c") ("Paste" "C-S-v") ("Select All" "C-S-a")
+     ("Find" "C-S-f"))))
+
+;;; --- terminals, continued --------------------------------------------------
+
+(define foot
+  (dict-app
+   "foot"
+   '("foot" "org.codeberg.dnkl.foot")
+   (append terminal-edit
+           '(("View" ("Zoom In" "C-+") ("Zoom Out" "C--")
+                      ("Reset Zoom" "C-0") ("Full Screen" "F11"))))))
+
+;;; --- browsers, continued ---------------------------------------------------
+
+(define qutebrowser
+  (dict-app
+   "qutebrowser"
+   '("qutebrowser" "org.qutebrowser.qutebrowser")
+   '(("File"
+      ("Open URL" "o") ("Open in New Tab" "S-o") ("Close Tab" "d")
+      ("Reopen Tab" "u") ("Next Tab" "S-j") ("Previous Tab" "S-k"))
+     ("Edit"
+      ("Search" "/") ("Find Next" "n") ("Find Previous" "S-n")
+      ("Copy URL" "y") ("Paste URL" "p"))
+     ("View"
+      ("Reload" "r") ("Hints" "f") ("Zoom In" "+") ("Zoom Out" "-")
+      ("Reset Zoom" "=") ("Full Screen" "F11")))))
+
+(define falkon
+  (dict-app
+   "Falkon"
+   '("falkon" "org.kde.falkon")
+   (append
+    '(("File"
+       ("New Tab" "C-t") ("New Window" "C-n")
+       ("New Private Window" "C-S-n") ("Open Location" "C-l")
+       ("Open File" "C-o") ("Save Page As" "C-s") ("Print" "C-p")
+       ("Close Tab" "C-w") ("Quit" "C-q")))
+    standard-edit
+    '(("View"
+       ("Reload" "F5") ("Zoom In" "C-+") ("Zoom Out" "C--")
+       ("Reset Zoom" "C-0") ("Full Screen" "F11"))))))
+
+;;; --- editors, continued ----------------------------------------------------
+
+(define geany
+  (dict-app
+   "Geany"
+   '("geany" "org.geany.Geany")
+   (append standard-document-file standard-edit-y standard-view)))
+
+;; The gedit-shaped editors of Xfce, MATE and Xed spell the same menus.
+(define lightweight_editor
+  (dict-app
+   "Editor"
+   '("mousepad" "org.xfce.mousepad" "pluma" "org.mate.pluma"
+     "xed" "org.x.editor")
+   (append standard-document-file standard-edit-y standard-view)))
+
+;;; --- file managers, continued ----------------------------------------------
+
+(define pcmanfm
+  (dict-app
+   "PCManFM"
+   '("pcmanfm" "pcmanfm-qt" "org.pcmanfm.PCManFM")
+   '(("File"
+      ("New Tab" "C-t") ("New Window" "C-n") ("Close Tab" "C-w")
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Rename" "F2") ("Delete" "Delete") ("Find" "C-f"))
+     ("View"
+      ("New Folder" "C-S-n") ("Show Hidden Files" "C-h")
+      ("Reload" "C-r") ("Zoom In" "C-+") ("Zoom Out" "C--")
+      ("Back" "M-Left") ("Forward" "M-Right")))))
+
+(define krusader
+  (dict-app
+   "Krusader"
+   '("krusader" "org.kde.krusader")
+   '(("File"
+      ("New Tab" "C-t") ("Close Tab" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Rename" "F2") ("Move to Trash" "F8"))
+     ("View"
+      ("Show Hidden Files" "C-h") ("Reload" "C-r")
+      ("Zoom In" "C-+") ("Zoom Out" "C--")
+      ("Back" "M-Left") ("Forward" "M-Right")))))
+
+(define doublecmd
+  (dict-app
+   "Double Commander"
+   '("doublecmd" "doublecmd-qt" "doublecmd-gtk")
+   '(("File"
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Copy" "F5") ("Move" "F6") ("New Folder" "F7") ("Delete" "F8"))
+     ("View"
+      ("Quick View" "F3") ("Edit File" "F4") ("Refresh" "C-r")
+      ("Show Hidden Files" "C-h")))))
+
+;;; --- office, continued -----------------------------------------------------
+
+(define onlyoffice
+  (dict-app
+   "ONLYOFFICE"
+   '("onlyoffice-desktopeditors" "org.onlyoffice.desktopeditors")
+   (append standard-document-file standard-edit-y standard-view)))
+
+(define abiword
+  (dict-app
+   "AbiWord"
+   '("abiword" "com.abisource.AbiWord")
+   (append standard-document-file standard-edit-y standard-view)))
+
+(define gnumeric
+  (dict-app
+   "Gnumeric"
+   '("gnumeric" "org.gnumeric.Gnumeric")
+   (append standard-document-file standard-edit-y standard-view)))
+
+;;; --- mail, continued -------------------------------------------------------
+
+(define geary
+  (dict-app
+   "Geary"
+   '("geary" "org.gnome.Geary")
+   '(("File"
+      ("New Message" "C-n") ("Print" "C-p") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f"))
+     ("Message"
+      ("Reply" "C-r") ("Reply All" "C-S-r"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Full Screen" "F11")))))
+
+;;; --- graphics, continued ---------------------------------------------------
+
+(define darktable
+  (dict-app
+   "darktable"
+   '("darktable" "org.darktable.Darktable")
+   '(("File"
+      ("Open Image" "C-o") ("Open Folder" "C-S-o") ("Export" "C-S-e")
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z") ("Copy" "C-c") ("Paste" "C-v"))
+     ("View"
+      ("Full Screen" "F11")))))
+
+(define scribus
+  (dict-app
+   "Scribus"
+   '("scribus" "net.scribus.Scribus")
+   (append
+    standard-document-file
+    standard-edit-y
+    '(("View"
+       ("Zoom In" "C-+") ("Zoom Out" "C--") ("Full Screen" "F11"))))))
+
+;;; --- video editing, continued ----------------------------------------------
+
+(define shotcut
+  (dict-app
+   "Shotcut"
+   '("shotcut" "org.shotcut.Shotcut")
+   (append
+    '(("File"
+       ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+       ("Quit" "C-q")))
+    standard-edit
+    '(("Playback" ("Play/Pause" "Space"))
+      ("View" ("Full Screen" "F11"))))))
+
+(define pitivi
+  (dict-app
+   "Pitivi"
+   '("pitivi" "org.pitivi.Pitivi")
+   (append
+    '(("File"
+       ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+       ("Quit" "C-q")))
+    standard-edit
+    '(("Playback" ("Play/Pause" "Space"))
+      ("View" ("Full Screen" "F11"))))))
+
+(define openshot
+  (dict-app
+   "OpenShot"
+   '("openshot" "org.openshot.OpenShot")
+   (append
+    '(("File"
+       ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+       ("Quit" "C-q")))
+    standard-edit-y
+    '(("Playback" ("Play/Pause" "Space"))
+      ("View" ("Full Screen" "F11"))))))
+
+;;; --- media, continued ------------------------------------------------------
+
+(define strawberry
+  (dict-app
+   "Strawberry"
+   '("strawberry" "org.strawberrymusicplayer.strawberry")
+   '(("File"
+      ("Open" "C-o") ("Quit" "C-q"))
+     ("Playback"
+      ("Play/Pause" "Space") ("Next" "C-Right") ("Previous" "C-Left"))
+     ("View"
+      ("Full Screen" "F11")))))
+
+(define parole
+  (dict-app
+   "Parole"
+   '("parole" "org.xfce.parole")
+   '(("File"
+      ("Open" "C-o") ("Quit" "C-q"))
+     ("Playback"
+      ("Play/Pause" "Space") ("Full Screen" "F11"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--")))))
+
+(define smplayer
+  (dict-app
+   "SMPlayer"
+   '("smplayer" "org.smplayer.SMPlayer")
+   '(("File"
+      ("Open File" "C-o") ("Quit" "C-q"))
+     ("Playback"
+      ("Play/Pause" "Space") ("Forward" "Right") ("Back" "Left")
+      ("Full Screen" "F"))
+     ("Audio"
+      ("Mute" "M") ("Volume Up" "Up") ("Volume Down" "Down")))))
+
+;;; --- documents, continued --------------------------------------------------
+
+(define zathura
+  (dict-app
+   "Zathura"
+   '("zathura" "org.pwmt.zathura")
+   '(("File"
+      ("Open" "C-o") ("Close" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Find" "C-f"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Reset Zoom" "C-0")
+      ("Full Screen" "F11")))))
+
+(define mupdf
+  (dict-app
+   "MuPDF"
+   '("mupdf" "com.artifex.mupdf")
+   '(("File"
+      ("Open" "C-o") ("Save" "C-s") ("Quit" "C-q"))
+     ("Edit"
+      ("Find" "C-f"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Reset Zoom" "C-0")
+      ("Full Screen" "F11")))))
+
+;;; --- chat, continued -------------------------------------------------------
+
+(define element
+  (dict-app
+   "Element"
+   '("element-desktop" "im.riot.Riot" "io.element.Element")
+   '(("File"
+      ("Settings" "C-,") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a"))
+     ("View"
+      ("Search" "C-f") ("Zoom In" "C-+") ("Zoom Out" "C--")
+      ("Reset Zoom" "C-0")))))
+
+;;; --- note-taking, continued ------------------------------------------------
+
+(define joplin
+  (dict-app
+   "Joplin"
+   '("joplin" "net.cozic.joplin_desktop")
+   '(("File"
+      ("New Note" "C-n") ("New Todo" "C-S-n") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f")))))
+
+(define typora
+  (dict-app
+   "Typora"
+   '("typora" "io.typora.Typora")
+   (append
+    standard-document-file
+    '(("Edit"
+       ("Undo" "C-z") ("Redo" "C-S-z")
+       ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+       ("Find" "C-f") ("Replace" "C-h")))
+    standard-view)))
+
+;;; --- development tools, continued ------------------------------------------
+
+(define postman
+  (dict-app
+   "Postman"
+   '("postman" "com.getpostman.Postman")
+   '(("File"
+      ("New Request" "C-n") ("Save" "C-s") ("Save As" "C-S-s")
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f"))
+     ("View"
+      ("Send Request" "C-Return")))))
+
+(define dbeaver
+  (dict-app
+   "DBeaver"
+   '("dbeaver" "io.dbeaver.DBeaverCommunity")
+   '(("File"
+      ("New Connection" "C-n") ("Open SQL File" "C-o") ("Save" "C-s")
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f"))
+     ("View"
+      ("Refresh" "F5")))))
+
+(define meld
+  (dict-app
+   "Meld"
+   '("meld" "org.gnome.Meld")
+   '(("File"
+      ("New Comparison" "C-n") ("Open" "C-o") ("Save" "C-s")
+      ("Close" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v")
+      ("Select All" "C-a"))
+     ("View"
+      ("Find" "C-f")))))
+
+(define bitwarden
+  (dict-app
+   "Bitwarden"
+   '("bitwarden" "com.bitwarden.desktop")
+   '(("File"
+      ("New Item" "C-n") ("Lock" "C-l") ("Quit" "C-q"))
+     ("Edit"
+      ("Copy" "C-c") ("Select All" "C-a") ("Find" "C-f")))))
+
+;;; --- desktop utilities -----------------------------------------------------
+
+(define flameshot
+  (dict-app
+   "Flameshot"
+   '("flameshot" "org.flameshot.Flameshot")
+   '(("File"
+      ("Save" "C-s") ("Quit" "C-q"))
+     ("Edit"
+      ("Copy" "C-c") ("Undo" "C-z")))))
+
+(define file_roller
+  (dict-app
+   "Archive Manager"
+   '("file-roller" "org.gnome.FileRoller")
+   '(("File"
+      ("New Archive" "C-n") ("Open" "C-o") ("Quit" "C-q"))
+     ("View"
+      ("Refresh" "F5")))))
+
+(define ark
+  (dict-app
+   "Ark"
+   '("ark" "org.kde.ark")
+   '(("File"
+      ("New Archive" "C-n") ("Open" "C-o") ("Quit" "C-q"))
+     ("Edit"
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")))))
+
+;;; --- audio production ------------------------------------------------------
+
+(define lmms
+  (dict-app
+   "LMMS"
+   '("lmms" "org.lmms.LMMS")
+   (append
+    '(("File"
+       ("New Project" "C-n") ("Open" "C-o") ("Save" "C-s")
+       ("Save As" "C-S-s") ("Quit" "C-q")))
+    standard-edit
+    '(("Transport" ("Play/Pause" "Space"))))))
+
+(define musescore
+  (dict-app
+   "MuseScore"
+   '("musescore" "mscore" "org.musescore.MuseScore")
+   (append
+    standard-document-file
+    '(("Edit"
+       ("Undo" "C-z") ("Redo" "C-S-z")
+       ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")))
+    '(("Playback" ("Play/Pause" "Space"))))))
+
+;;; --- CAD and 3D ------------------------------------------------------------
+
+(define freecad
+  (dict-app
+   "FreeCAD"
+   '("freecad" "org.freecad.FreeCAD")
+   (append
+    standard-document-file
+    standard-edit-y
+    '(("View" ("Fit All" "C-S-f") ("Full Screen" "F11"))))))
+
+(define openscad
+  (dict-app
+   "OpenSCAD"
+   '("openscad" "org.openscad.OpenSCAD")
+   (append
+    '(("File"
+       ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+       ("Quit" "C-q")))
+    '(("Edit"
+       ("Undo" "C-z") ("Redo" "C-S-z")
+       ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")))
+    '(("Design" ("Preview" "F5") ("Render" "F6"))))))
+
+;;; --- study and libraries ---------------------------------------------------
+
+(define anki
+  (dict-app
+   "Anki"
+   '("anki" "net.ankiweb.Anki")
+   '(("File"
+      ("Sync" "y") ("Quit" "C-q"))
+     ("Edit"
+      ("Add Note" "a") ("Browse" "b") ("Decks" "d"))
+     ("View"
+      ("Statistics" "t") ("Preferences" "C-p")))))
+
+(define calibre
+  (dict-app
+   "Calibre"
+   '("calibre" "calibre-gui")
+   '(("File"
+      ("Open" "C-o") ("Quit" "C-q"))
+     ("View"
+      ("Full Screen" "F11")))))
+
+(define foliate
+  (dict-app
+   "Foliate"
+   '("foliate" "com.github.johnfactotum.Foliate")
+   '(("File"
+      ("Open" "C-o") ("Close" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Find" "C-f"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Reset Zoom" "C-0")
+      ("Full Screen" "F11")))))
+
+(define zotero
+  (dict-app
+   "Zotero"
+   '("zotero" "org.zotero.Zotero")
+   '(("File"
+      ("New Item" "C-n") ("New Note" "C-S-n") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f")))))
+
+;;; --- the system's own panels -----------------------------------------------
+
+(define gnome_settings
+  (dict-app
+   "GNOME Settings"
+   '("gnome-control-center" "org.gnome.Settings")
+   '(("View"
+      ("Search" "C-f") ("Close" "C-w")))))
+
+(define gnome_tweaks
+  (dict-app
+   "GNOME Tweaks"
+   '("gnome-tweaks" "org.gnome.tweaks")
+   '(("View"
+      ("Close" "C-w")))))
+
+(define virt_manager
+  (dict-app
+   "Virtual Machine Manager"
+   '("virt-manager" "org.virt_manager.virt-manager")
+   '(("File"
+      ("New Virtual Machine" "C-n") ("Quit" "C-q"))
+     ("View"
+      ("Refresh" "F5")))))
+
+(define filezilla
+  (dict-app
+   "FileZilla"
+   '("filezilla" "org.filezillaproject.Filezilla")
+   '(("File"
+      ("Site Manager" "C-s") ("Quit" "C-q"))
+     ("View"
+      ("Refresh" "F5")))))
+
 ;;; --- the table -------------------------------------------------------------
 
 ;; Every application the dictionary knows, in the order it is written.
@@ -1182,7 +1738,51 @@ modifiers means a bare key, like F11."
         ardour
         obsidian
         zed
-        sublime_text))
+        sublime_text
+        foot
+        qutebrowser
+        falkon
+        geany
+        lightweight_editor
+        pcmanfm
+        krusader
+        doublecmd
+        onlyoffice
+        abiword
+        gnumeric
+        geary
+        darktable
+        scribus
+        shotcut
+        pitivi
+        openshot
+        strawberry
+        parole
+        smplayer
+        zathura
+        mupdf
+        element
+        joplin
+        typora
+        postman
+        dbeaver
+        meld
+        bitwarden
+        flameshot
+        file_roller
+        ark
+        lmms
+        musescore
+        freecad
+        openscad
+        anki
+        calibre
+        foliate
+        zotero
+        gnome_settings
+        gnome_tweaks
+        virt_manager
+        filezilla))
 
 ;;; =========================================================================
 ;;; WHAT A SETTINGS FILE MAY ADD
@@ -1233,14 +1833,24 @@ modifiers means a bare key, like F11."
 
 ;; --- what makes an entry bad ----------------------------------------------
 
+(define (chord-has-whitespace? chord)
+  (any char-whitespace? (string->list chord)))
+
 (define (item-problem item)
   (cond
     ((not (list? item)) "an item is not a list")
-    ((not (= (length item) 4))
-     "an item needs a label, the chord shown, the modifiers and the key")
+    ((not (memv (length item) '(2 4)))
+     "an item needs a label and a chord, or the long label/chord/modifiers/key form")
     ((not (string-non-empty? (list-ref item 0))) "an item has no label")
     ((not (string-non-empty? (list-ref item 1)))
      (simple-format #f "~a shows no chord" (list-ref item 0)))
+    ;; (label chord): the runtime reads Emacs or CUA notation from the one
+    ;; string, so there is nothing else here to check but that it is a chord
+    ;; and not a sentence.
+    ((= (length item) 2)
+     (and (chord-has-whitespace? (list-ref item 1))
+          (simple-format #f "~a's chord has whitespace in it"
+                         (list-ref item 0))))
     ((not (or (eq? (list-ref item 2) #f) (string-non-empty? (list-ref item 2))))
      (simple-format #f "~a has neither modifiers nor #f for none"
                     (list-ref item 0)))
@@ -1248,9 +1858,16 @@ modifiers means a bare key, like F11."
      (simple-format #f "~a types no key" (list-ref item 0)))
     (else #f)))
 
+;; Two items in one menu that would type the same keys.  The short form's one
+;; chord is compared as it is written; the runtime's C test compares the parsed
+;; modifiers and keys, which catches C-c against Ctrl+C as well.
+(define (item-chord a)
+  (if (= (length a) 2)
+      (string-downcase (list-ref a 1))
+      (cons (list-ref a 2) (string-downcase (list-ref a 3)))))
+
 (define (same-chord? a b)
-  (and (equal? (list-ref a 2) (list-ref b 2))
-       (equal? (list-ref a 3) (list-ref b 3))))
+  (equal? (item-chord a) (item-chord b)))
 
 (define (duplicate-chord rest)
   "The first item in REST that types what another item in REST types."

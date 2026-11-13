@@ -10,6 +10,55 @@ project follows [Semantic Versioning][semver].
 
 _No changes yet._
 
+## [0.7.0] - 2026-11-13
+
+### Added
+
+- **The global menu reads both chord notations.** An item may be written as
+  `(label chord)` with the chord in Emacs notation (`C-v`, `M-F4`, `C-S-p`,
+  `s-p`) or CUA notation (`Ctrl+V`, `Alt+F4`), and the runtime translates it
+  into the modifiers and keys `wtype` or `xdotool` type. The long
+  `(label chord modifiers key)` form is still read. `#:accelerator-style`
+  chooses how the menu prints every chord: `'cua` by default, `'emacs` for
+  `C-v` rather than `Ctrl+V`.
+- **The menu bar shows shortcuts wherever it can.** A menubar exported over
+  D-Bus now has its `accel` attributes read and printed beside the labels, so
+  an application that publishes its menus also shows the keys those menus
+  answer to. The dictionary's entries keep printing the chord they type.
+- **Forty-four more applications in the dictionary**, written in Emacs
+  notation: browsers (qutebrowser, Falkon), terminals (foot), editors (Geany,
+  mousepad, pluma, xed), file managers (PCManFM, Krusader, Double Commander),
+  office suites (ONLYOFFICE, AbiWord, Gnumeric), mail (Geary), graphics
+  (darktable, Scribus), video editors (Shotcut, Pitivi, OpenShot), media
+  players (Strawberry, Parole, SMPlayer), PDF readers (Zathura, MuPDF), chat
+  (Element), note-taking (Joplin, Typora), developer tools (Postman, DBeaver,
+  Meld, Bitwarden), desktop utilities (Flameshot, Archive Manager, Ark), audio
+  production (LMMS, MuseScore), CAD (FreeCAD, OpenSCAD), study (Anki, Calibre,
+  Foliate, Zotero), and the system's own panels. Ninety-four applications
+  answer to two hundred and seventy-seven ids, and more existing entries accept
+  extra ids: Opera and Chrome variants, mate-terminal, xfce4-terminal,
+  terminator, caja, kwrite, Ristretto, Clementine and Mullvad Browser.
+- **A menu bar that can be used like a menu bar.** The focused application's
+  name comes first, submenus wear a right chevron, and the keyboard walks the
+  menus: Down and Up through the items, Home and End to the ends, Left and
+  Right between top-level menus, Right into a submenu, Escape out.
+  `#:app-name?` turns the name label off.
+- `tests/test_chord.c` covers the parser, formatter and both typing tools; the
+  menutree and dictionary suites cover Emacs-stored items, the GTK `accel`
+  attribute, both display styles, and duplicate chords after translation.
+
+### Changed
+
+- The dictionary may store either notation; the four-field form remains for a
+  chord the parser cannot spell.
+- A submenu is a menu button with a right chevron rather than a second label,
+  and its entries are reachable from the keyboard like the rest.
+
+### Fixed
+
+- A bare `C-` -- a modifier prefix with no key behind it -- is refused rather
+  than read as a key name.
+
 ## [0.6.0] - 2026-11-12
 
 ### Added

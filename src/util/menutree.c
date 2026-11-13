@@ -128,10 +128,10 @@ static const char *item_label(GVariant *attrs) {
 }
 
 static void append_items(WhelkMenu *menu, GVariant *items, GHashTable *menus,
-                         guint depth);
+                         guint depth, WhelkChordStyle style);
 
 static void append_item(WhelkMenu *menu, GVariant *attrs, GHashTable *menus,
-                        guint depth) {
+                        guint depth, WhelkChordStyle style) {
   if (depth > WHELK_MENU_MAX_DEPTH)
     return;
 
@@ -147,7 +147,7 @@ static void append_item(WhelkMenu *menu, GVariant *attrs, GHashTable *menus,
       if (menu->entries->len > 0)
         whelk_menu_add_separator(menu);
 
-      append_items(menu, section, menus, depth + 1);
+      append_items(menu, section, menus, depth + 1, style);
     }
 
     return;
@@ -163,6 +163,13 @@ static void append_item(WhelkMenu *menu, GVariant *attrs, GHashTable *menus,
   g_variant_lookup(attrs, "action", "&s", &action);
 
   WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label ? label : "");
+  const char *accel = NULL;
+
+  /* An application that exports its menubar may export the chord its action
+   * answers to as well; showing it is the difference between a menu bar and a
+   * list of words. */
+  if (g_variant_lookup(attrs, "accel", "&s", &accel))
+    entry->accel = whelk_chord_display(accel, style);
 
   g_autofree char *action_copy = g_strdup(action);
   g_autofree char *target = NULL;
@@ -183,7 +190,7 @@ static void append_item(WhelkMenu *menu, GVariant *attrs, GHashTable *menus,
 
     if (submenu_items) {
       entry->submenu = whelk_menu_new(entry->label);
-      append_items(entry->submenu, submenu_items, menus, depth + 1);
+      append_items(entry->submenu, submenu_items, menus, depth + 1, style);
     }
   }
 
@@ -195,21 +202,22 @@ static void append_item(WhelkMenu *menu, GVariant *attrs, GHashTable *menus,
 }
 
 static void append_items(WhelkMenu *menu, GVariant *items, GHashTable *menus,
-                         guint depth) {
+                         guint depth, WhelkChordStyle style) {
   GVariantIter iter;
   GVariant *attrs = NULL;
 
   g_variant_iter_init(&iter, items);
 
   while (g_variant_iter_next(&iter, "@a{sv}", &attrs)) {
-    append_item(menu, attrs, menus, depth);
+    append_item(menu, attrs, menus, depth, style);
     g_variant_unref(attrs);
   }
 }
 
 /* The top of a menubar is a list of menus; a section there is a row of them. */
 static void collect_top_level(GPtrArray *bar, GVariant *items,
-                              GHashTable *menus, guint depth) {
+                              GHashTable *menus, guint depth,
+                              WhelkChordStyle style) {
   if (depth > WHELK_MENU_MAX_DEPTH)
     return;
 
@@ -226,7 +234,7 @@ static void collect_top_level(GPtrArray *bar, GVariant *items,
       GVariant *section = find_menu(menus, group, id);
 
       if (section)
-        collect_top_level(bar, section, menus, depth + 1);
+        collect_top_level(bar, section, menus, depth + 1, style);
 
       g_variant_unref(attrs);
       continue;
@@ -245,7 +253,7 @@ static void collect_top_level(GPtrArray *bar, GVariant *items,
       GVariant *submenu_items = find_menu(menus, group, id);
 
       if (submenu_items)
-        append_items(menu, submenu_items, menus, depth + 1);
+        append_items(menu, submenu_items, menus, depth + 1, style);
     } else {
       /* A menubar entry that opens something itself: one entry, its own name. */
       const char *action = NULL;
@@ -266,7 +274,8 @@ static void collect_top_level(GPtrArray *bar, GVariant *items,
   }
 }
 
-GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu) {
+GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu,
+                                 WhelkChordStyle style) {
   GPtrArray *bar = whelk_menubar_new();
 
   if (!reply ||
@@ -291,7 +300,7 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu) {
   GVariant *root = find_menu(menus, group, menu);
 
   if (root)
-    collect_top_level(bar, root, menus, 0);
+    collect_top_level(bar, root, menus, 0, style);
 
   g_hash_table_unref(menus);
 
@@ -352,10 +361,10 @@ char *whelk_shortcut_command(const char *tool, const char *modifiers,
 
 static void add_shortcut(WhelkMenu *menu, const char *label, const char *accel,
                          const char *tool, const char *modifiers,
-                         const char *key) {
+                         const char *key, WhelkChordStyle style) {
   WhelkMenuEntry *entry = whelk_menu_add_entry(menu, label);
 
-  entry->accel = g_strdup(accel);
+  entry->accel = whelk_chord_display(accel, style);
   entry->command = whelk_shortcut_command(tool, modifiers, key);
   entry->enabled = entry->command != NULL;
 }
@@ -375,7 +384,7 @@ static gboolean has_label(GPtrArray *entries, const char *label) {
 
 /* One curated menu's items, leaving out the ones the File menu already has. */
 static void append_dict_menu(WhelkMenu *menu, const WhelkDictMenu *dict,
-                             const char *tool) {
+                             const char *tool, WhelkChordStyle style) {
   for (guint i = 0; i < dict->n_items; i++) {
     const WhelkDictItem *item = &dict->items[i];
 
@@ -383,7 +392,7 @@ static void append_dict_menu(WhelkMenu *menu, const WhelkDictMenu *dict,
       continue;
 
     add_shortcut(menu, item->label, item->accel, tool, item->modifiers,
-                 item->key);
+                 item->key, style);
   }
 }
 
@@ -412,28 +421,29 @@ static gboolean has_item(WhelkMenu *menu) {
 
 /* The shortcuts every application shares.  Edit and View, and nothing that
  * claims to be the application's own File menu. */
-static void append_shared_menus(GPtrArray *bar, const char *tool) {
+static void append_shared_menus(GPtrArray *bar, const char *tool,
+                               WhelkChordStyle style) {
   WhelkMenu *edit = whelk_menu_new("Edit");
 
-  add_shortcut(edit, "Undo", "Ctrl+Z", tool, "ctrl", "z");
-  add_shortcut(edit, "Redo", "Ctrl+Shift+Z", tool, "ctrl shift", "z");
+  add_shortcut(edit, "Undo", "Ctrl+Z", tool, "ctrl", "z", style);
+  add_shortcut(edit, "Redo", "Ctrl+Shift+Z", tool, "ctrl shift", "z", style);
   whelk_menu_add_separator(edit);
-  add_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x");
-  add_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c");
-  add_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v");
-  add_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a");
+  add_shortcut(edit, "Cut", "Ctrl+X", tool, "ctrl", "x", style);
+  add_shortcut(edit, "Copy", "Ctrl+C", tool, "ctrl", "c", style);
+  add_shortcut(edit, "Paste", "Ctrl+V", tool, "ctrl", "v", style);
+  add_shortcut(edit, "Select All", "Ctrl+A", tool, "ctrl", "a", style);
   whelk_menu_add_separator(edit);
-  add_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f");
+  add_shortcut(edit, "Find", "Ctrl+F", tool, "ctrl", "f", style);
 
   g_ptr_array_add(bar, edit);
 
   WhelkMenu *view = whelk_menu_new("View");
 
-  add_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus");
-  add_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus");
-  add_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0");
+  add_shortcut(view, "Zoom In", "Ctrl++", tool, "ctrl", "plus", style);
+  add_shortcut(view, "Zoom Out", "Ctrl+-", tool, "ctrl", "minus", style);
+  add_shortcut(view, "Actual Size", "Ctrl+0", tool, "ctrl", "0", style);
   whelk_menu_add_separator(view);
-  add_shortcut(view, "Full Screen", "F11", tool, NULL, "F11");
+  add_shortcut(view, "Full Screen", "F11", tool, NULL, "F11", style);
 
   g_ptr_array_add(bar, view);
 }
@@ -444,6 +454,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  guint action_count,
                                  const char *close_command,
                                  const char *shortcut_tool,
+                                 WhelkChordStyle style,
                                  const char **out_source) {
   GPtrArray *bar = whelk_menubar_new();
   const WhelkDictApp *dict = whelk_menudict_for_app(app_id);
@@ -473,7 +484,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
     for (guint i = 0; i < dict->n_menus; i++)
       if (g_strcmp0(dict->menus[i].label, "File") == 0) {
         separate(file);
-        append_dict_menu(file, &dict->menus[i], shortcut_tool);
+        append_dict_menu(file, &dict->menus[i], shortcut_tool, style);
       }
   }
 
@@ -500,11 +511,11 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
 
       WhelkMenu *menu = whelk_menu_new(dict->menus[i].label);
 
-      append_dict_menu(menu, &dict->menus[i], shortcut_tool);
+      append_dict_menu(menu, &dict->menus[i], shortcut_tool, style);
       g_ptr_array_add(bar, menu);
     }
   } else if (!dict && can_type) {
-    append_shared_menus(bar, shortcut_tool);
+    append_shared_menus(bar, shortcut_tool, style);
   }
 
   return bar;

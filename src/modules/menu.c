@@ -12,8 +12,10 @@
 #include "style.h"
 #include "util/command.h"
 #include "util/json.h"
+#include "util/menudict.h"
 #include "util/menutree.h"
 
+#include <gdk/gdkkeysyms.h>
 #include <gio/gdesktopappinfo.h>
 
 /* =========================================================================
@@ -39,11 +41,16 @@ typedef struct {
   char *app_id;
   char *bus_name;
   char *app_path;
+  char *app_name;
   GDesktopAppInfo *desktop;
   char *shortcut_tool;
   gboolean show_shortcuts;
-  GPtrArray *menus; /* of WhelkMenu */
+  gboolean show_app_name;
+  WhelkChordStyle style;
+  GPtrArray *menus;       /* of WhelkMenu */
   GtkWidget *row;
+  GPtrArray *buttons;     /* top-level buttons, borrowed from the row */
+  GtkWidget *open_button; /* whose popover is up, borrowed */
   guint generation;
 } MenuData;
 
@@ -54,6 +61,261 @@ typedef struct {
   GPtrArray *paths; /* candidate object paths, consumed */
   guint index;
 } MenuProbe;
+
+/* One popover's place in the menu tree: whose top-level menu it belongs to
+ * (NULL for a submenu), and the module whose data tracks what is open. */
+typedef struct {
+  WhelkModule *module;
+  GtkWidget *button;
+  GtkWidget *popover;
+} MenuPopover;
+
+/* =========================================================================
+ * MOVING THROUGH A MENU
+ * =========================================================================
+ * A menu bar is usable from the keyboard or it is a picture of one: Down and
+ * Up walk the items, Home and End go to the ends, Left and Right move between
+ * the top-level menus, and a submenu opens with Right.
+ */
+
+static GtkWidget *focusable_item(GtkWidget *child) {
+  return (child && GTK_IS_BUTTON(child) && gtk_widget_get_sensitive(child))
+             ? child
+             : NULL;
+}
+
+static GtkWidget *first_item(GtkWidget *box) {
+  if (!box)
+    return NULL;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(box); child;
+       child = gtk_widget_get_next_sibling(child))
+    if (focusable_item(child))
+      return child;
+
+  return NULL;
+}
+
+static GtkWidget *last_item(GtkWidget *box);
+
+static GtkWidget *next_item(GtkWidget *box, GtkWidget *from, gboolean forward) {
+  GtkWidget *first = NULL;
+  GtkWidget *previous = NULL;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(box); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    if (!focusable_item(child))
+      continue;
+
+    if (!first)
+      first = child;
+
+    if (forward && previous == from)
+      return child;
+
+    if (!forward && child == from)
+      return previous ? previous : last_item(box);
+
+    previous = child;
+  }
+
+  /* Past the end, the menu wraps: a menu is a loop, not a page. */
+  return forward ? first : previous;
+}
+
+static GtkWidget *last_item(GtkWidget *box) {
+  GtkWidget *last = NULL;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(box); child;
+       child = gtk_widget_get_next_sibling(child))
+    if (focusable_item(child))
+      last = child;
+
+  return last;
+}
+
+static GtkWidget *focused_widget(GtkWidget *popover) {
+  GtkRoot *root = gtk_widget_get_root(popover);
+
+  return root ? gtk_root_get_focus(root) : NULL;
+}
+
+static void switch_top_level(WhelkModule *module, gint direction) {
+  MenuData *data = module->data;
+  guint index = 0;
+
+  if (!data->buttons || data->buttons->len < 2)
+    return;
+
+  for (guint i = 0; i < data->buttons->len; i++)
+    if (g_ptr_array_index(data->buttons, i) == data->open_button) {
+      index = i;
+      break;
+    }
+
+  const guint count = data->buttons->len;
+  const guint next = direction > 0 ? (index + 1) % count
+                                   : (index + count - 1) % count;
+  GtkWidget *button = g_ptr_array_index(data->buttons, next);
+
+  if (button == data->open_button)
+    return;
+
+  if (data->open_button) {
+    GtkPopover *old =
+        gtk_menu_button_get_popover(GTK_MENU_BUTTON(data->open_button));
+
+    if (old)
+      gtk_popover_popdown(old);
+  }
+
+  GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(button));
+
+  if (popover)
+    gtk_popover_popup(popover);
+}
+
+static gboolean on_menu_key(GtkEventControllerKey *controller, guint keyval,
+                            guint keycode, GdkModifierType state,
+                            gpointer user_data) {
+  (void)controller;
+  (void)keycode;
+  (void)state;
+
+  MenuPopover *context = user_data;
+  MenuData *data = context->module->data;
+  GtkWidget *box = gtk_popover_get_child(GTK_POPOVER(context->popover));
+
+  if (!box)
+    return FALSE;
+
+  GtkWidget *focus = focused_widget(context->popover);
+
+  if (focus && !gtk_widget_is_ancestor(focus, context->popover))
+    focus = NULL;
+
+  switch (keyval) {
+  case GDK_KEY_Down:
+    focus = next_item(box, focus, TRUE);
+    break;
+  case GDK_KEY_Up:
+    focus = next_item(box, focus, FALSE);
+    break;
+  case GDK_KEY_Home:
+    focus = first_item(box);
+    break;
+  case GDK_KEY_End:
+    focus = last_item(box);
+    break;
+  case GDK_KEY_Right:
+    if (focus && GTK_IS_MENU_BUTTON(focus)) {
+      GtkPopover *submenu =
+          gtk_menu_button_get_popover(GTK_MENU_BUTTON(focus));
+
+      if (submenu) {
+        gtk_popover_popup(submenu);
+        return TRUE;
+      }
+    }
+
+    if (context->button) {
+      switch_top_level(context->module, 1);
+      return TRUE;
+    }
+
+    return FALSE;
+  case GDK_KEY_Left:
+    if (context->button) {
+      switch_top_level(context->module, -1);
+      return TRUE;
+    }
+
+    gtk_popover_popdown(GTK_POPOVER(context->popover));
+
+    if (data->open_button)
+      gtk_widget_grab_focus(data->open_button);
+
+    return TRUE;
+  default:
+    return FALSE;
+  }
+
+  if (focus)
+    gtk_widget_grab_focus(focus);
+
+  return TRUE;
+}
+
+static void on_popover_visible(GObject *object, GParamSpec *pspec,
+                               gpointer user_data) {
+  (void)pspec;
+
+  MenuPopover *context = user_data;
+  MenuData *data = context->module->data;
+
+  if (gtk_widget_get_visible(GTK_WIDGET(object))) {
+    if (!context->button)
+      return;
+
+    data->open_button = context->button;
+
+    GtkWidget *first = first_item(
+        gtk_popover_get_child(GTK_POPOVER(context->popover)));
+
+    if (first)
+      gtk_widget_grab_focus(first);
+  } else if (context->button && data->open_button == context->button) {
+    data->open_button = NULL;
+  }
+}
+
+static void on_button_enter(GtkEventControllerMotion *controller, double x,
+                            double y, gpointer user_data) {
+  (void)x;
+  (void)y;
+
+  WhelkModule *module = user_data;
+  MenuData *data = module->data;
+  GtkWidget *button =
+      gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+
+  /* Once a menu is down, sliding along the bar opens the next one: the
+   * behavior every menu bar has, and the reason the labels are a row. */
+  if (!data->open_button || data->open_button == button)
+    return;
+
+  GtkPopover *old =
+      gtk_menu_button_get_popover(GTK_MENU_BUTTON(data->open_button));
+  GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(button));
+
+  if (old)
+    gtk_popover_popdown(old);
+
+  if (popover)
+    gtk_popover_popup(popover);
+}
+
+static void attach_popover(WhelkModule *module, GtkPopover *popover,
+                           GtkWidget *button) {
+  MenuPopover *context = g_new0(MenuPopover, 1);
+
+  context->module = module;
+  context->button = button;
+  context->popover = GTK_WIDGET(popover);
+
+  g_object_set_data_full(G_OBJECT(popover), "whelk-menu-popover", context,
+                         g_free);
+
+  GtkEventController *keys = gtk_event_controller_key_new();
+
+  gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_menu_key), context);
+  gtk_widget_add_controller(GTK_WIDGET(popover), keys);
+
+  if (button)
+    g_signal_connect(popover, "notify::visible", G_CALLBACK(on_popover_visible),
+                     context);
+}
 
 /* --- activation ----------------------------------------------------------- */
 
@@ -183,15 +445,21 @@ static void fill_popover(WhelkModule *module, GtkPopover *popover,
     if (entry->submenu && entry->submenu->entries->len > 0) {
       GtkWidget *submenu_button = gtk_menu_button_new();
 
+      /* A label rather than a child: the button's own arrow is the chevron a
+       * menu row uses to say "there is more behind this one". */
       gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(submenu_button), FALSE);
-      gtk_menu_button_set_child(GTK_MENU_BUTTON(submenu_button),
-                                gtk_label_new(entry->label));
+      gtk_menu_button_set_label(GTK_MENU_BUTTON(submenu_button), entry->label);
+      gtk_menu_button_set_direction(GTK_MENU_BUTTON(submenu_button),
+                                    GTK_ARROW_RIGHT);
       gtk_widget_add_css_class(submenu_button, "flat");
+      gtk_widget_add_css_class(submenu_button, "whelk-menu-item");
+      gtk_widget_set_halign(submenu_button, GTK_ALIGN_FILL);
 
       GtkWidget *submenu_popover = gtk_popover_new();
 
       apply_popover_skin(module, GTK_POPOVER(submenu_popover));
       fill_popover(module, GTK_POPOVER(submenu_popover), entry->submenu);
+      attach_popover(module, GTK_POPOVER(submenu_popover), NULL);
       gtk_menu_button_set_popover(GTK_MENU_BUTTON(submenu_button),
                                   submenu_popover);
       gtk_box_append(GTK_BOX(box), submenu_button);
@@ -209,15 +477,26 @@ static void fill_popover(WhelkModule *module, GtkPopover *popover,
 static void render(WhelkModule *module) {
   MenuData *data = module->data;
 
+  data->open_button = NULL;
+  g_ptr_array_set_size(data->buttons, 0);
   clear_row(data);
+
+  /* A menu bar is the application's name and then its menus, the way macOS
+   * puts the application first; the name is a label, not an invented menu. */
+  if (data->show_app_name && data->menus->len > 0 && data->app_name &&
+      *data->app_name != '\0') {
+    GtkWidget *name = gtk_label_new(data->app_name);
+
+    gtk_widget_add_css_class(name, "whelk-menu-app");
+    gtk_widget_set_valign(name, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(data->row), name);
+  }
 
   for (guint i = 0; i < data->menus->len; i++) {
     WhelkMenu *menu = g_ptr_array_index(data->menus, i);
     GtkWidget *button = gtk_menu_button_new();
     GtkWidget *popover = gtk_popover_new();
 
-    /* A menubar's labels open a menu; the little arrow of a combo box is not
-     * part of that vocabulary. */
     /* A child instead of a label: a menu button grows the little down arrow
      * only when it has neither, and a menubar's labels do not point at
      * anything. */
@@ -229,8 +508,15 @@ static void render(WhelkModule *module) {
 
     apply_popover_skin(module, GTK_POPOVER(popover));
     fill_popover(module, GTK_POPOVER(popover), menu);
+    attach_popover(module, GTK_POPOVER(popover), button);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
 
+    GtkEventController *motion = gtk_event_controller_motion_new();
+
+    g_signal_connect(motion, "enter", G_CALLBACK(on_button_enter), module);
+    gtk_widget_add_controller(button, motion);
+
+    g_ptr_array_add(data->buttons, button);
     gtk_box_append(GTK_BOX(data->row), button);
   }
 
@@ -268,7 +554,8 @@ static void on_start_reply(GObject *source, GAsyncResult *result,
   if (reply) {
     if (probe->generation == data->generation) {
       GVariant *parameters = g_variant_get_child_value(reply, 0);
-      GPtrArray *menus = whelk_menubar_from_gtk(parameters, 0, 0);
+      GPtrArray *menus =
+          whelk_menubar_from_gtk(parameters, 0, 0, data->style);
 
       if (menus->len > 0) {
         LOG_C_DEBUG("Menu", "%s exports a menubar: %u menu(s) from D-Bus",
@@ -356,6 +643,20 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
   g_clear_object(&data->desktop);
   data->desktop = whelk_desktop_for_app_id(data->app_id);
 
+  /* What the application calls itself: the dictionary's name, the desktop
+   * entry's, or what the compositor reported. */
+  g_free(data->app_name);
+
+  const WhelkDictApp *named = whelk_menudict_for_app(data->app_id);
+
+  if (named)
+    data->app_name = g_strdup(named->name);
+  else if (data->desktop)
+    data->app_name =
+        g_strdup(g_app_info_get_display_name(G_APP_INFO(data->desktop)));
+  else
+    data->app_name = g_strdup(data->app_id);
+
   g_free(data->bus_name);
   data->bus_name = g_strdup(data->app_id);
 
@@ -415,7 +716,7 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
                                       action_count, close_command,
                                       data->show_shortcuts ? data->shortcut_tool
                                                            : NULL,
-                                      &source));
+                                      data->style, &source));
 
   if (source)
     LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
@@ -466,8 +767,10 @@ static void menu_destroy(WhelkModule *module) {
     return;
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
+  g_clear_pointer(&data->buttons, g_ptr_array_unref);
   g_clear_object(&data->desktop);
   g_free(data->app_id);
+  g_free(data->app_name);
   g_free(data->bus_name);
   g_free(data->app_path);
   g_free(data->shortcut_tool);
@@ -481,7 +784,11 @@ WhelkModule *whelk_menu_module_new(const WhelkModuleSpec *spec,
   MenuData *data = g_new0(MenuData, 1);
 
   data->menus = whelk_menubar_new();
+  data->buttons = g_ptr_array_new();
   data->show_shortcuts = whelk_spec_bool(spec, "shortcuts", TRUE);
+  data->show_app_name = whelk_spec_bool(spec, "app-name", TRUE);
+  data->style = whelk_chord_style_from_name(
+      whelk_spec_str(spec, "accelerator-style", "cua"));
 
   /* wtype types on Wayland, xdotool on X11; #:shortcut-tool overrides the
    * choice, and a session with neither simply gets no shortcut entries. */

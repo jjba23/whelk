@@ -9,6 +9,8 @@
 #include <gio/gio.h>
 #include <glib.h>
 
+#include "util/chord.h"
+
 /* =========================================================================
  * THE GLOBAL MENU'S TREE
  * =========================================================================
@@ -63,6 +65,7 @@ GPtrArray *whelk_menubar_new(void);
  * @reply: the `a(uuaa{sv})` answer to `org.gtk.Menus.Start`, or NULL.
  * @group: the group of the menubar's root menu.
  * @menu: the menu id of the menubar's root.
+ * @style: how a chord GTK exports (its `accel' attribute) is shown.
  *
  * Turns an exported menubar into menus: `:section` links are inlined (a
  * section's items belong to the menu that holds the link), `:submenu` links
@@ -71,7 +74,8 @@ GPtrArray *whelk_menubar_new(void);
  * Returns: (transfer full): a GPtrArray of WhelkMenu; empty when nothing could
  *   be read.
  */
-GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
+GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu,
+                                 WhelkChordStyle style);
 
 /**
  * whelk_menubar_for_app:
@@ -84,6 +88,8 @@ GPtrArray *whelk_menubar_from_gtk(GVariant *reply, guint group, guint menu);
  * @shortcut_tool: (nullable): the program that types keys, "wtype" on Wayland
  *   and "xdotool" on X11; NULL when neither is installed, which leaves the
  *   menus to the entries that do not need one.
+ * @style: how every chord is written in the menus: CUA ("Ctrl+V") or Emacs
+ *   ("C-v").  The dictionary may store either notation; this is the display.
  * @out_source: (out caller-allocates) (optional): what the menus were made
  *   from, for the log: the dictionary's name for the application, or NULL
  *   when the generic menus were used.
@@ -107,6 +113,7 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  guint action_count,
                                  const char *close_command,
                                  const char *shortcut_tool,
+                                 WhelkChordStyle style,
                                  const char **out_source);
 
 /* The command that types a chord, "wtype -M ctrl -k z -m ctrl". */

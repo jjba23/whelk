@@ -59,7 +59,8 @@ Click: the launcher, the panels, a reload and the way out")
            ;; The global menu: the application in front's own File, Edit and
            ;; View, from its D-Bus menubar where it exports one and from its
            ;; desktop actions and the shared shortcuts where it does not.
-           (menu-module #:shortcuts #t))
+           (menu-module #:shortcuts #t
+                        #:accelerator-style 'cua))
 
    ;; -------------------------------------------------------------- center --
    ;; The reference keeps no centre: a menu bar is two halves.  A workspace

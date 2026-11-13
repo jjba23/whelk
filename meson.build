@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.6.0',
+  version: '0.7.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -170,6 +170,7 @@ whelk_sources = files(
   'src/modules/workspaces.c',
   'src/util/applets.c',
   'src/util/calc.c',
+  'src/util/chord.c',
   'src/util/click.c',
   'src/util/command.c',
   'src/util/filesearch.c',
@@ -211,6 +212,10 @@ unit_tests = [
     'sources': ['src/util/json.c'],
   },
   {
+    'id': 'chord',
+    'sources': ['src/util/chord.c'],
+  },
+  {
     'id': 'config',
     'sources': ['src/config.c', 'src/util/format.c'],
   },
@@ -229,6 +234,7 @@ unit_tests = [
     'id': 'menudict',
     'sources': [
       'src/util/menudict.c',
+      'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
       'src/util/format.c',
@@ -239,6 +245,7 @@ unit_tests = [
     'sources': [
       'src/util/menutree.c',
       'src/util/menudict.c',
+      'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
       'src/util/format.c',

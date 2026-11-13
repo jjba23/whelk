@@ -192,7 +192,10 @@ its D-Bus menubar where it exports one; otherwise from the dictionary's menus
 for the applications whose shortcuts are documented; otherwise from the
 shortcuts every application shares.  The base keys apply; #:shortcuts (default
 on) offers the shortcut menus at all, and #:shortcut-tool names the program
-that types a chord (wtype on Wayland, xdotool on X11)."
+that types a chord (wtype on Wayland, xdotool on X11).  #:accelerator-style
+chooses how every chord is printed -- 'cua for Ctrl+Shift+P, 'emacs for
+C-S-p -- and #:app-name? (default on) puts the application's name before its
+menus, the way a menu bar names the application first."
   (apply module 'menu kv))
 
 (define* (language-module #:rest kv)

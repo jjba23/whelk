@@ -26,7 +26,7 @@
 
 ;; The dictionary has to be worth having: the applications a desktop actually
 ;; runs, not a handful of examples.
-(check "the dictionary knows many applications" (>= (length apps) 35))
+(check "the dictionary knows many applications" (>= (length apps) 90))
 
 ;; Names are what the menu's log line says, so two entries cannot share one.
 (let ((names (map (lambda (app) (assq-ref app 'name)) apps)))
@@ -46,8 +46,13 @@
 (check "ids differ even ignoring case"
        (= (length ids) (length (delete-duplicates (map string-downcase ids)))))
 
-;; A menu needs a label and at least one thing in it; an item needs the four
-;; fields the runtime reads, and a chord it can actually type.
+;; A menu needs a label and at least one thing in it; an item needs a label
+;; and a chord, either as (label chord) or as the long four-field form.
+(define (item-signature item)
+  (if (= (length item) 2)
+      (string-downcase (list-ref item 1))
+      (cons (list-ref item 2) (string-downcase (list-ref item 3)))))
+
 (define (check-menu app label menu)
   (let ((name (assq-ref app 'name))
         (items (cdr menu)))
@@ -57,18 +62,20 @@
     (for-each
      (lambda (item)
        (let ((where (format #f "~a > ~a > ~a" name label (car item))))
-         (check (format #f "~a has four fields" where) (= (length item) 4))
+         (check (format #f "~a has a label and a chord" where)
+                (memv (length item) '(2 4)))
          (check (format #f "~a is labelled" where) (non-empty-string? (list-ref item 0)))
          (check (format #f "~a shows a chord" where) (non-empty-string? (list-ref item 1)))
-         (check (format #f "~a has modifiers or #f" where)
-                (or (eq? (list-ref item 2) #f)
-                    (non-empty-string? (list-ref item 2))))
-         (check (format #f "~a has a key" where) (non-empty-string? (list-ref item 3)))))
+         (when (= (length item) 4)
+           (check (format #f "~a has modifiers or #f" where)
+                  (or (eq? (list-ref item 2) #f)
+                      (non-empty-string? (list-ref item 2))))
+           (check (format #f "~a has a key" where) (non-empty-string? (list-ref item 3))))))
      items)
 
     ;; Two entries that type the same chord in one menu: one of them is a typo,
     ;; and the other would be unreachable.
-    (let ((chords (map (lambda (item) (cons (list-ref item 2) (list-ref item 3))) items)))
+    (let ((chords (map item-signature items)))
       (check (format #f "~a > ~a has no duplicate chords" name label)
              (= (length chords) (length (delete-duplicates chords)))))))
 
@@ -166,7 +173,7 @@
 (check "an entry whose item has no chord is refused" (eq? (car bad-entry) #f))
 (check "the refusal names the application" (string-contains bad-entry-log "Broken"))
 (check "the refusal says what is wrong"
-       (string-contains bad-entry-log "an item needs a label, the chord shown"))
+       (string-contains bad-entry-log "an item needs a label and a chord"))
 (check "the refused entry is not in the table"
        (eq? (menudict-for-id "broken") #f))
 (check "the refused entry leaves the table its size"
