@@ -266,6 +266,11 @@ void whelk_shell_start(WhelkShell *shell) {
 
   whelk_notifications_start(shell->notifications, &notification_error);
 
+  /* The settings file is read before the clipboard policy: (clipboard-settings)
+   * lives in the same configuration as the bars, and asking for it first would
+   * see the empty default. */
+  whelk_bridge_init();
+
   /* The history starts listening now, not when the picker opens: by the time
    * somebody asks what they copied, the copy has to already be in it. */
   shell->clipboard = whelk_clipboard_new(50);
@@ -322,8 +327,6 @@ void whelk_shell_start(WhelkShell *shell) {
   }
 
   whelk_clipboard_start(shell->clipboard);
-
-  whelk_bridge_init();
 
   /* The dictionary is Scheme, and the settings file may have added to it or
    * overridden an entry: read it after the configuration, before the bars. */

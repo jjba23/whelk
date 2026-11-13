@@ -15,6 +15,18 @@ Nothing yet.
 
 *[Released]*
 
+** v0.11.1 (2026-11-13)
+
+*** Fixed
+
+- *Clipboard settings are read after the settings file, not before it.* The
+  shell asked for `(clipboard-settings)` before `init-shell!` had loaded the
+  configuration, so it saw the empty default and ignored the persistence,
+  caps, retention and clear-on-lock the file configured.
+- *Clear-on-lock can retry after a failed bus lookup.* A system-bus lookup that
+  failed or was disabled in flight left the pending flag set, so enabling it
+  again would never start a new watch.
+
 ** v0.11.0 (2026-11-13)
 
 *** Added

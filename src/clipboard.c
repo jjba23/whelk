@@ -1196,6 +1196,8 @@ static void on_system_bus(GObject *source, GAsyncResult *result,
   g_autoptr(GError) error = NULL;
   GDBusConnection *bus = g_bus_get_finish(result, &error);
 
+  self->lock_watch_pending = FALSE;
+
   if (!self->clear_on_lock) {
     g_clear_object(&bus);
     g_object_unref(self);
