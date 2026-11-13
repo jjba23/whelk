@@ -495,8 +495,8 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  const char *const *action_ids,
                                  const char *const *action_labels,
                                  guint action_count,
-                                 const char *close_command,
-                                 const char *fullscreen_command,
+                                 const char *new_window_command,
+                                 const WhelkSessionWindowActions *window_actions,
                                  const char *shortcut_tool,
                                  WhelkChordStyle style,
                                  const char **out_source) {
@@ -508,10 +508,28 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
     *out_source = (dict && can_type) ? dict->name : NULL;
 
   WhelkMenu *file = whelk_menu_new("File");
+  gboolean actions_started = FALSE;
+
+  if (new_window_command && *new_window_command) {
+    WhelkMenuEntry *entry = whelk_menu_add_entry(file, "New Window");
+
+    entry->command = g_strdup(new_window_command);
+  }
 
   for (guint i = 0; i < action_count; i++) {
     if (!action_ids[i] || *action_ids[i] == '\0')
       continue;
+
+    /* The Exec command already opened the plain "new window" entry above;
+     * the desktop action with the same job is not a second line. */
+    if (new_window_command && *new_window_command &&
+        g_strcmp0(action_ids[i], "new-window") == 0)
+      continue;
+
+    if (!actions_started && file->entries->len > 0)
+      separate(file);
+
+    actions_started = TRUE;
 
     WhelkMenuEntry *entry = whelk_menu_add_entry(
         file, (action_labels && action_labels[i]) ? action_labels[i]
@@ -556,18 +574,58 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
    * an action the session cannot do gets no entry rather than a dead one. */
   WhelkMenu *window = whelk_menu_new("Window");
 
-  if (fullscreen_command && *fullscreen_command) {
-    WhelkMenuEntry *full = whelk_menu_add_entry(window, "Full Screen");
+  if (window_actions && window_actions->maximize &&
+      *window_actions->maximize) {
+    WhelkMenuEntry *maximize = whelk_menu_add_entry(window, "Maximize / Restore");
 
-    full->command = g_strdup(fullscreen_command);
+    maximize->command = g_strdup(window_actions->maximize);
   }
 
-  if (close_command && *close_command) {
+  if (window_actions && window_actions->float_window &&
+      *window_actions->float_window) {
+    WhelkMenuEntry *floating = whelk_menu_add_entry(window, "Toggle Floating");
+
+    floating->command = g_strdup(window_actions->float_window);
+  }
+
+  if (window_actions) {
+    const char *const labels[] = {"Move Left", "Move Right", "Move Up",
+                                  "Move Down"};
+    const char *const commands[] = {
+        window_actions->move_left, window_actions->move_right,
+        window_actions->move_up, window_actions->move_down};
+    gboolean moved = FALSE;
+
+    for (guint i = 0; i < G_N_ELEMENTS(labels); i++) {
+      if (!commands[i] || !*commands[i])
+        continue;
+
+      if (!moved && has_item(window))
+        separate(window);
+
+      WhelkMenuEntry *move = whelk_menu_add_entry(window, labels[i]);
+
+      move->command = g_strdup(commands[i]);
+      moved = TRUE;
+    }
+  }
+
+  if (window_actions && window_actions->fullscreen &&
+      *window_actions->fullscreen) {
+    if (has_item(window))
+      separate(window);
+
+    WhelkMenuEntry *full = whelk_menu_add_entry(window, "Full Screen");
+
+    full->command = g_strdup(window_actions->fullscreen);
+  }
+
+  if (window_actions && window_actions->close && *window_actions->close) {
     separate(window);
 
     WhelkMenuEntry *close = whelk_menu_add_entry(window, "Close Window");
 
-    close->command = g_strdup(close_command);
+    close->command = g_strdup(window_actions->close);
   }
 
   if (has_item(window))

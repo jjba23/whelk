@@ -51,6 +51,8 @@
             bar-config-modules-center
             bar-config-modules-right
             bar
+            clipboard-settings
+            get-shell-clipboard
             configure-shell!
             get-shell-config
             get-shell-bars
@@ -59,7 +61,8 @@
             get-shell-enable-repl?
             get-shell-repl-socket-path
             bar->alist
-            shell-bars->alists))
+            shell-bars->alists
+            shell-clipboard->alist))
 
 ;; =============================================================================
 ;; The bar record
@@ -104,15 +107,16 @@
 ;; The shell menu is the popover behind the mark at the far left of the bar:
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars shell-menu enable-repl? repl-socket-path)
+  (make-shell-config bars shell-menu clipboard enable-repl? repl-socket-path)
   shell-config?
   (bars shell-config-bars)
   (shell-menu shell-config-shell-menu)
+  (clipboard shell-config-clipboard)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() #f #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() #f '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -234,10 +238,39 @@ readable bar."
 ;; Configuration entry point
 ;; =============================================================================
 
+(define* (clipboard-settings #:key
+                             (persist #f)
+                             (persist-only-pinned? #f)
+                             (clear-on-lock? #f)
+                             (max-entries 50)
+                             (max-entry-bytes (* 32 1024 1024))
+                             (max-total-bytes (* 128 1024 1024))
+                             (ttl-seconds 0))
+  "Describe the clipboard history's privacy and memory policy.
+
+PERSIST is #f (memory only), #t (keep the history under the user's state
+directory), or a file path.  PERSIST-ONLY-PINNED? makes persistence a vault
+for copies pinned with Ctrl+P rather than a transcript of everything copied.
+CLEAR-ON-LOCK? watches logind's lock state and clears unpinned copies when the
+session locks; pinned copies survive.
+MAX-ENTRIES and MAX-TOTAL-BYTES bound memory; unpinned entries are evicted
+oldest first.  TTL-SECONDS, when positive, expires unpinned entries."
+  (list (cons 'configured? #t)
+        (cons 'persist (cond ((string? persist) persist)
+                             (persist "auto")
+                             (else #f)))
+        (cons 'persist-only-pinned? (if persist-only-pinned? #t #f))
+        (cons 'clear-on-lock? (if clear-on-lock? #t #f))
+        (cons 'max-entries max-entries)
+        (cons 'max-entry-bytes max-entry-bytes)
+        (cons 'max-total-bytes max-total-bytes)
+        (cons 'ttl-seconds ttl-seconds)))
+
 (define* (configure-shell! #:key
                            (config-path 'default)
                            (bars '())
                            (shell-menu #f)
+                           (clipboard '())
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
@@ -248,11 +281,17 @@ Left #f it is `default-shell-menu' from `(whelk defaults)': about this system,
 the ways into it, recent items, force quit, and the ways out of the session,
 followed by the shell's own panels.
 
+CLIPBOARD is `(clipboard-settings)' or an alist with the same keys: it sets the
+history's persistence, caps and retention.  The empty default keeps the
+environment-variable behaviour.
+
 ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
   (let* ((valid (filter bar-config? (if (list? bars) bars '())))
-         (cfg (make-shell-config valid shell-menu enable-repl?
+         (cfg (make-shell-config valid shell-menu
+                                 (if (list? clipboard) clipboard '())
+                                 enable-repl?
                                  repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
       (log-warn "State"
@@ -295,6 +334,10 @@ how a configuration is changed without restarting the compositor:
 (define (get-shell-menu . args)
   "Return the configured shell menu units, or #f for the default one."
   (shell-config-shell-menu (apply get-shell-config args)))
+
+(define (get-shell-clipboard . args)
+  "Return the clipboard-settings alist, or '() when it was not configured."
+  (shell-config-clipboard (apply get-shell-config args)))
 
 (define (shell-menu->units . args)
   "Return the shell menu as the C runtime reads it: a list of menu units.
@@ -354,3 +397,8 @@ because a settings file may want to read the menu it configured."
 (define (shell-bars->alists . args)
   "Return the configured bars as alists, for the C runtime."
   (map bar->alist (apply get-shell-bars args)))
+
+(define (shell-clipboard->alist . args)
+  "Return the clipboard settings as an alist, or '() when unconfigured."
+  (let ((settings (apply get-shell-clipboard args)))
+    (if (list? settings) settings '())))

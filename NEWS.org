@@ -15,6 +15,58 @@ Nothing yet.
 
 *[Released]*
 
+** v0.11.0 (2026-11-13)
+
+*** Added
+
+- *Privacy controls with an off switch.* The clipboard bar module's right-click
+  menu pauses and resumes capture, clears unpinned entries, confirms a full
+  clear, restarts a dead listener and opens the picker.  The same controls are
+  available as =--clipboard-pause=, =--clipboard-status=, =--clipboard-clear=,
+  =--clipboard-clear-unpinned= and =--clipboard-restart=.
+- *Retention and a lock policy.* =clipboard-settings= in Scheme sets
+  persistence (off, the state file, or a path), pinned-only persistence, an
+  expiry for unpinned entries, the entry count, per-entry and total byte
+  budgets, and clear-on-lock.  Clear-on-lock follows logind's =LockedHint= and
+  keeps pinned copies.
+- *The picker recognises what it is showing.* Images get thumbnails; every row
+  has its type, size and age; pinned entries form the first section; rows carry
+  the store's stable content id so a copy arriving while the picker is open
+  does not move the selection.  =Ctrl+Z= undoes a deletion.
+- *Copied files are recorded.* =text/uri-list= is preferred over its plain
+  text, listed as "1 file"/"N files", and restored as a URI list.
+- *Rich content restores more than one representation.* HTML offers its plain
+  rendering, and images that are not PNG also offer PNG, so ordinary
+  applications asking for the fallback still paste something.
+- *The global menu has more than Close.* File gains =New Window= from the
+  desktop entry's =Exec=, and Window gains maximize/restore, toggle floating
+  and move left/right/up/down wherever niri, sway or the X11 session can carry
+  them out.  The menu is useful without =wtype=, because these verbs do not
+  need a chord typed into the application.
+- *End-to-end clipboard tests.* Stub =wl-paste= and =wl-copy= programs exercise
+  the real helper and restore path: secret-hint refusal, image over HTML,
+  plain rendering of HTML, binary framing, an oversized source, and the exact
+  =wl-copy --type= invocation.
+
+*** Changed
+
+- The history is bounded by memory as well as count: 32 MiB per entry and
+  128 MiB total by default, evicting the oldest unpinned copy.  The helper caps
+  its own reads and times out a slow source.
+- Persistence is debounced and written on a worker thread; shutdown flushes the
+  last change.  The v1 history file still loads, and the new v2 file adds
+  stable ids and copy times.
+- Exact-MIME duplicates became content-id duplicates, so the same text under
+  =text/plain= and =text/plain;charset=utf-8= is one entry.
+
+*** Fixed
+
+- *The helper can no longer put its own diagnostics into the record stream.*
+  Debug and info lines go to stderr; before, a secret-hint or timeout message
+  became part of the next framed record and the listener dropped it.
+- A =wl-paste --watch= that dies now leaves the picker saying "listener
+  stopped" instead of "no history", and can be restarted from the bar or CLI.
+
 ** v0.10.1 (2026-11-13)
 
 *** Fixed

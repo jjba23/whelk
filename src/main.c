@@ -227,6 +227,30 @@ static int on_command_line(GApplication *application,
   else if (option_flag(command_line, "clipboard"))
     whelk_shell_show_launcher(g_shell, "clipboard");
 
+  WhelkClipboard *clipboard = whelk_shell_clipboard(g_shell);
+
+  if (clipboard && option_flag(command_line, "clipboard-status")) {
+    g_application_command_line_print(
+        command_line,
+        "%s; %u entr%s; %" G_GSIZE_FORMAT " bytes\n",
+        whelk_clipboard_status(clipboard), whelk_clipboard_count(clipboard),
+        whelk_clipboard_count(clipboard) == 1 ? "y" : "ies",
+        whelk_clipboard_bytes(clipboard));
+  }
+
+  if (clipboard && option_flag(command_line, "clipboard-pause")) {
+    whelk_clipboard_set_paused(clipboard, !whelk_clipboard_is_paused(clipboard));
+  }
+
+  if (clipboard && option_flag(command_line, "clipboard-clear"))
+    whelk_clipboard_clear(clipboard);
+
+  if (clipboard && option_flag(command_line, "clipboard-clear-unpinned"))
+    whelk_clipboard_clear_unpinned(clipboard);
+
+  if (clipboard && option_flag(command_line, "clipboard-restart"))
+    whelk_clipboard_restart(clipboard);
+
   if (option_flag(command_line, "notifications"))
     whelk_shell_toggle_notifications(g_shell);
 
@@ -254,6 +278,22 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(
       G_APPLICATION(app), "clipboard", 0, G_OPTION_FLAG_NONE,
       G_OPTION_ARG_NONE, "Show the clipboard history", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard-status", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Print clipboard availability, count and size", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard-pause", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Pause or resume clipboard capture", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard-clear", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Delete the whole clipboard history", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard-clear-unpinned", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Delete every clipboard entry that is not pinned",
+      NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "clipboard-restart", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Restart the clipboard listener", NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "menu", 'm', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
       "Show a menu from a command printing \"label<TAB>command\" lines",

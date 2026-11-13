@@ -84,6 +84,36 @@ char *whelk_session_close_window_command(WhelkSession session);
 char *whelk_session_fullscreen_window_command(WhelkSession session);
 
 /**
+ * WhelkSessionWindowActions:
+ * @close: command that closes the focused window.
+ * @fullscreen: command that toggles full screen.
+ * @maximize: command that toggles maximisation, or NULL.
+ * @float_window: command that toggles floating, or NULL.
+ * @move_left: command that moves the window left, or NULL.
+ * @move_right: command that moves it right.
+ * @move_up: command that moves it up.
+ * @move_down: command that moves it down.
+ *
+ * The focused-window verbs a session can carry out.  A NULL field is a verb
+ * the session has no reliable command for, and the menu leaves it out rather
+ * than showing an entry that does nothing.
+ */
+typedef struct {
+  char *close;
+  char *fullscreen;
+  char *maximize;
+  char *float_window;
+  char *move_left;
+  char *move_right;
+  char *move_up;
+  char *move_down;
+} WhelkSessionWindowActions;
+
+void whelk_session_window_actions(WhelkSession session,
+                                  WhelkSessionWindowActions *actions);
+void whelk_session_window_actions_clear(WhelkSessionWindowActions *actions);
+
+/**
  * whelk_session_parse_focused:
  * @session: the session the text came from.
  * @text: the command's output.

@@ -350,6 +350,40 @@ GPtrArray *whelk_bridge_bars(const char *path) {
   return bars;
 }
 
+WhelkClipboardConfig *whelk_bridge_clipboard(const char *path) {
+  WhelkClipboardConfig *config = whelk_clipboard_config_new();
+  SCM alist = call_with_path("whelk state", "shell-clipboard->alist", path);
+
+  if (!scm_is_pair(alist))
+    return config;
+
+  config->configured = alist_bool(alist, "configured?", TRUE);
+  config->persist_only_pinned =
+      alist_bool(alist, "persist-only-pinned?", FALSE);
+  config->clear_on_lock = alist_bool(alist, "clear-on-lock?", FALSE);
+
+  g_autofree char *persist = alist_optional_text(alist, "persist");
+
+  if (persist && *persist && g_strcmp0(persist, "#f") != 0) {
+    config->persist = TRUE;
+
+    if (g_strcmp0(persist, "auto") != 0 && g_strcmp0(persist, "#t") != 0)
+      config->persist_path = g_strdup(persist);
+  }
+
+  const int max_entries = alist_int(alist, "max-entries", 0);
+  const int max_entry = alist_int(alist, "max-entry-bytes", 0);
+  const int max_total = alist_int(alist, "max-total-bytes", 0);
+  const int ttl = alist_int(alist, "ttl-seconds", 0);
+
+  config->max_entries = max_entries > 0 ? (guint)max_entries : 0;
+  config->max_entry_bytes = max_entry > 0 ? (guint)max_entry : 0;
+  config->max_total_bytes = max_total > 0 ? (guint)max_total : 0;
+  config->ttl_seconds = ttl > 0 ? (guint)ttl : 0;
+
+  return config;
+}
+
 /* =========================================================================
  * THE MENU DICTIONARY
  * =========================================================================

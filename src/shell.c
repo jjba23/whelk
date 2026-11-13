@@ -270,13 +270,36 @@ void whelk_shell_start(WhelkShell *shell) {
    * somebody asks what they copied, the copy has to already be in it. */
   shell->clipboard = whelk_clipboard_new(50);
 
-  /* Persistence is opt-in: WHELK_CLIPBOARD_PERSIST=1 keeps the history in
-   * $XDG_STATE_HOME/whelk/clipboard.variant, and a value with a slash names
-   * the file itself.  Unset means memory only, as before. */
-  const char *persist = g_getenv("WHELK_CLIPBOARD_PERSIST");
+  /* The policy comes from (clipboard-settings) when the settings file has one.
+   * Older setups keep working through WHELK_CLIPBOARD_PERSIST: 1 for the
+   * state-directory file, a path for a specific one. */
+  g_autoptr(WhelkClipboardConfig) clipboard_config =
+      whelk_bridge_clipboard(shell->config_path);
 
-  if (persist && *persist && g_strcmp0(persist, "0") != 0 &&
-      g_ascii_strcasecmp(persist, "false") != 0) {
+  whelk_clipboard_set_limits(shell->clipboard, clipboard_config->max_entries,
+                             clipboard_config->max_entry_bytes,
+                             clipboard_config->max_total_bytes);
+  whelk_clipboard_set_ttl(shell->clipboard, clipboard_config->ttl_seconds);
+  whelk_clipboard_set_persist_pinned_only(
+      shell->clipboard, clipboard_config->persist_only_pinned);
+  whelk_clipboard_set_clear_on_lock(shell->clipboard,
+                                    clipboard_config->clear_on_lock);
+
+  const char *persist = NULL;
+
+  if (clipboard_config->configured) {
+    if (clipboard_config->persist)
+      persist = clipboard_config->persist_path ? clipboard_config->persist_path
+                                               : "auto";
+  } else {
+    const char *env = g_getenv("WHELK_CLIPBOARD_PERSIST");
+
+    if (env && *env && g_strcmp0(env, "0") != 0 &&
+        g_ascii_strcasecmp(env, "false") != 0)
+      persist = env;
+  }
+
+  if (persist && *persist) {
     g_autofree char *path = NULL;
 
     if (strchr(persist, '/')) {

@@ -78,6 +78,19 @@ void whelk_bridge_start_repl(const char *path);
 GPtrArray *whelk_bridge_bars(const char *path);
 
 /**
+ * whelk_bridge_clipboard:
+ * @path: the settings file whose clipboard policy is wanted (may be NULL).
+ *
+ * Reads `(clipboard-settings)': persistence mode, whether persistence is a
+ * pinned-only vault, the memory caps, and the retention time.  An empty or
+ * missing configuration answers a config with @configured FALSE, which tells
+ * the shell to keep honouring WHELK_CLIPBOARD_PERSIST.
+ *
+ * Returns: (transfer full): the resolved policy; never NULL.
+ */
+WhelkClipboardConfig *whelk_bridge_clipboard(const char *path);
+
+/**
  * whelk_bridge_menudict:
  *
  * The global menu's dictionary, from `(whelk menudict)': the menus written for

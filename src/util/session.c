@@ -263,6 +263,57 @@ char *whelk_session_fullscreen_window_command(WhelkSession session) {
   return NULL;
 }
 
+void whelk_session_window_actions(WhelkSession session,
+                                  WhelkSessionWindowActions *actions) {
+  if (!actions)
+    return;
+
+  memset(actions, 0, sizeof *actions);
+  actions->close = whelk_session_close_window_command(session);
+  actions->fullscreen = whelk_session_fullscreen_window_command(session);
+
+  switch (session) {
+  case WHELK_SESSION_NIRI:
+    actions->maximize = g_strdup("niri msg action maximize-column");
+    actions->float_window = g_strdup("niri msg action toggle-window-floating");
+    actions->move_left = g_strdup("niri msg action move-window-left");
+    actions->move_right = g_strdup("niri msg action move-window-right");
+    actions->move_up = g_strdup("niri msg action move-window-up");
+    actions->move_down = g_strdup("niri msg action move-window-down");
+    break;
+  case WHELK_SESSION_SWAY:
+    actions->float_window =
+        g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg floating toggle");
+    actions->move_left = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move left");
+    actions->move_right = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move right");
+    actions->move_up = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move up");
+    actions->move_down = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move down");
+    break;
+  case WHELK_SESSION_X11:
+    actions->maximize = g_strdup(
+        "wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz "
+        "2>/dev/null");
+    break;
+  case WHELK_SESSION_WAYLAND:
+    break;
+  }
+}
+
+void whelk_session_window_actions_clear(WhelkSessionWindowActions *actions) {
+  if (!actions)
+    return;
+
+  g_free(actions->close);
+  g_free(actions->fullscreen);
+  g_free(actions->maximize);
+  g_free(actions->float_window);
+  g_free(actions->move_left);
+  g_free(actions->move_right);
+  g_free(actions->move_up);
+  g_free(actions->move_down);
+  memset(actions, 0, sizeof *actions);
+}
+
 char *whelk_session_shortcut_tool(WhelkSession session) {
   const char *wanted = session == WHELK_SESSION_X11 ? "xdotool" : "wtype";
 

@@ -10,6 +10,7 @@
 #include <glib.h>
 
 #include "util/chord.h"
+#include "util/session.h"
 
 /* =========================================================================
  * THE GLOBAL MENU'S TREE
@@ -147,10 +148,10 @@ GPtrArray *whelk_menubar_from_text(const char *text, WhelkChordStyle style);
  * @action_ids: (array length=action_count): the application's desktop actions.
  * @action_labels: (array length=action_count): their labels.
  * @action_count: how many there are.
- * @close_command: (nullable): the command that closes the focused window on
- *   this session; NULL leaves the entry out.
- * @fullscreen_command: (nullable): the command that toggles the focused
- *   window's full-screen state; NULL leaves the entry out.
+ * @new_window_command: (nullable): the command that opens another window of
+ *   the application; NULL leaves the entry out.
+ * @window_actions: the compositor verbs for the focused window.  A NULL verb
+ *   leaves its entry out.
  * @shortcut_tool: (nullable): the program that types keys, "wtype" on Wayland
  *   and "xdotool" on X11; NULL when neither is installed, which leaves the
  *   menus to the entries that do not need one.
@@ -160,9 +161,10 @@ GPtrArray *whelk_menubar_from_text(const char *text, WhelkChordStyle style);
  *   from, for the log: the dictionary's name for the application, or NULL
  *   when the generic menus were used.
  *
- * The menubar an application that exports nothing gets.  File carries the
- * actions its desktop entry declares; Window carries Full Screen and Close
- * Window when the session can do them; then:
+ * The menubar an application that exports nothing gets.  File carries New
+ * Window and the actions its desktop entry declares; Window carries the verbs
+ * the compositor has for the focused window: maximize, float, move, full
+ * screen and close; then:
  *
  * - an application the dictionary knows gets its own menus -- the documented
  *   shortcuts of that application, each entry showing its chord and typing it;
@@ -178,8 +180,8 @@ GPtrArray *whelk_menubar_for_app(const char *app_id,
                                  const char *const *action_ids,
                                  const char *const *action_labels,
                                  guint action_count,
-                                 const char *close_command,
-                                 const char *fullscreen_command,
+                                 const char *new_window_command,
+                                 const WhelkSessionWindowActions *window_actions,
                                  const char *shortcut_tool,
                                  WhelkChordStyle style,
                                  const char **out_source);

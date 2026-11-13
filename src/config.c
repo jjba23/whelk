@@ -261,6 +261,20 @@ GPtrArray *whelk_config_default_bars(void) {
   return bars;
 }
 
+WhelkClipboardConfig *whelk_clipboard_config_new(void) {
+  WhelkClipboardConfig *config = g_new0(WhelkClipboardConfig, 1);
+
+  return config;
+}
+
+void whelk_clipboard_config_free(WhelkClipboardConfig *config) {
+  if (!config)
+    return;
+
+  g_free(config->persist_path);
+  g_free(config);
+}
+
 const char *whelk_edge_name(GtkLayerShellEdge edge) {
   switch (edge) {
   case GTK_LAYER_SHELL_EDGE_BOTTOM:

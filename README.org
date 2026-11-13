@@ -118,9 +118,10 @@ the documented one -- see [[#configuration][Configuration]].
   =org.gtk.Menus= (GTK) and =com.canonical.dbusmenu= (Qt, KDE, appmenu
   registrars) -- else a command the configuration names, else the documented
   shortcuts of ninety-five applications, each entry showing its chord and
-  typing it; and a =Window= menu with full screen and close for the
-  applications the dictionary serves.  Emacs multi-key chords such as =C-x C-s=
-  are sequences, shown and typed chord by chord.  Never an invented menu.
+  typing it; and a =Window= menu with the compositor's verbs -- maximize,
+  float, move, full screen, close -- plus =New Window= from the desktop entry's
+  =Exec= whenever it has one.  Emacs multi-key chords such as =C-x C-s= are
+  sequences, shown and typed chord by chord.  Never an invented menu.
 - *A tray that shows what is running.* StatusNotifierItems -- JetBrains
   Toolbox, network applets, chat clients -- over the standard
   =RegisteredStatusNotifierItems= list, with a chevron for icons beyond
@@ -131,13 +132,15 @@ the documented one -- see [[#configuration][Configuration]].
   centred card with the glyph, a bar and the number, then takes it away -- the
   macOS answer, drawn by the shell rather than by two modules that would each
   draw their own.
-- *A clipboard history that keeps what was copied.* =wl-paste --watch= feeds a
-  de-duplicated list of text, rich text and images; =whelk --clipboard= (or the
-  =;= prefix) puts any copy back as its own MIME type, and the default bar's
-  =clipboard-module= opens that picker on a click.  Entries can be pinned
-  (=Ctrl+P=) or deleted (=Ctrl+Delete=), a password manager's secret hint is
-  honoured, and the history is memory-only unless =WHELK_CLIPBOARD_PERSIST=
-  asks for a private file.
+- *A clipboard history with an off switch.* =wl-paste --watch= feeds a
+  de-duplicated list of text, rich text, images and copied files; =whelk
+  --clipboard= (or the =;= prefix) puts any copy back, and the default bar's
+  =clipboard-module= opens that picker on a click and its history controls on a
+  right click.  Entries can be pinned (=Ctrl+P=), deleted (=Ctrl+Delete=, with
+  =Ctrl+Z= to undo), paused, cleared or expired; a password manager's secret
+  hint is honoured.  Memory is bounded, persistence is opt-in and can be a
+  pinned-only vault, and the whole history can be cleared when the session
+  locks.
 - *A menu bar you can search.* =whelk --launcher-mode=menuitem= (prefix =:=)
   lists every entry of the focused application's live menus with its path and
   chord -- the Help menu's search field, for menus that came from GTK,
@@ -389,7 +392,7 @@ prefix picks the mode.
 | =web=      | the default browser (=WHELK_WEB_SEARCH= overrides)  | =?=        |
 | =ssh=      | the hosts =~/.ssh/config= names, in a terminal      | =%=        |
 | =quit=     | the open windows, closed instead of focused       | =!=        |
-| =clipboard= | what was copied, newest first; =Enter= puts it back, =Ctrl+P= pins, =Ctrl+Delete= removes | =;= |
+| =clipboard= | what was copied, newest first; =Enter= puts it back, =Ctrl+P= pins, =Ctrl+Delete= removes, =Ctrl+Z= undoes | =;= |
 | =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
@@ -410,18 +413,69 @@ every copy is caught even while another window has focus, and a repeated copy
 moves to the front instead of being listed twice.
 
 An entry keeps its MIME type and bytes, not just a line of text: images are
-stored as =image/png= (or JPEG/WebP) and rich text as =text/html=, with a plain
-text rendering kept for the row and for searching, and choosing it restores the
-original representation.  A selection carrying =x-kde-passwordManagerHint= is
-never stored -- that is a password manager asking to be left out of histories.
+stored as =image/png= (or JPEG/WebP), rich text as =text/html=, and copied
+files as =text/uri-list=, with a plain rendering kept for the row and for
+searching.  Restoring a rich entry offers more than one representation: HTML
+also advertises its plain text, and an image that is not PNG also advertises
+PNG, so an ordinary application asking for =text/plain= or =image/png= gets
+something rather than nothing.  A selection carrying
+=x-kde-passwordManagerHint= is never stored -- that is a password manager
+asking to be left out of histories -- but the hint is cooperative: a secret
+copied from a terminal, an editor or a browser field has no marker and is
+handled only by the controls below.
 
-=Ctrl+P= pins or unpins the selected entry, =Ctrl+Delete= removes it, and pinned
-entries are exempt from the fifty-copy cap.  The history is memory-only by
-default.  Opt in with =WHELK_CLIPBOARD_PERSIST=1= to keep it in
-=$XDG_STATE_HOME/whelk/clipboard.variant= (mode 0600) across restarts, or set
-=WHELK_CLIPBOARD_PERSIST=/some/path= to name the file.  The default bar's
-=clipboard-module= shows how many copies it holds and opens this picker on a
-click.
+The picker shows an image thumbnail, the type, size and age of every copy, and
+groups pinned entries first.  =Ctrl+P= pins or unpins the selected entry,
+=Ctrl+Delete= removes it, and =Ctrl+Z= undoes that removal.  Pinned entries are
+exempt from the fifty-copy cap.
+
+** Privacy and memory
+
+The right-click menu on =clipboard-module=, or the command line, is the off
+switch:
+
+#+begin_src sh
+whelk --clipboard-pause        # pause or resume capture
+whelk --clipboard-status       # availability, count and bytes
+whelk --clipboard-clear        # delete everything
+whelk --clipboard-clear-unpinned
+whelk --clipboard-restart      # after a dead wl-paste
+#+end_src
+
+The bar's menu confirms a full clear.  The history is bounded by a per-entry
+and whole-history byte budget as well as the entry count; unpinned entries are
+evicted oldest first, and a slow or oversized =wl-paste= source is abandoned
+instead of blocking the shell.  Persistence is debounced onto a worker thread,
+then flushed on shutdown.
+
+Persistence is opt-in.  =WHELK_CLIPBOARD_PERSIST=1= keeps the history in
+=$XDG_STATE_HOME/whelk/clipboard.variant= (mode 0600) across restarts, and a
+value with a slash names the file.  The settings file can say the same thing
+and add retention and lock behaviour:
+
+#+begin_src scheme
+(configure-shell!
+ #:clipboard (clipboard-settings
+               #:persist #t               ; or a path; #f is memory only
+               #:persist-only-pinned? #t  ; persistence is a vault, not a log
+               #:clear-on-lock? #t        ; logind lock clears unpinned copies
+               #:ttl-seconds 3600         ; unpinned entries expire
+               #:max-entries 50
+               #:max-entry-bytes (* 32 1024 1024)
+               #:max-total-bytes (* 128 1024 1024)))
+#+end_src
+
+Clear-on-lock watches logind's =LockedHint= and keeps pinned copies.  The
+history file is plaintext at mode 0600: that protects it from other users, not
+from same-user processes, backups or sync clients.  Encryption at rest is not
+implemented; use =#:persist-only-pinned? #t= for the entries you actually want
+to keep, or leave persistence off.
+
+Only the regular clipboard is managed.  Wayland's primary selection is a
+separate selection with its own lifetime, and whelk does not record it.
+
+The default bar's =clipboard-module= shows how many copies it holds, reports
+when the listener is stopped or paused, and opens this picker on a click.
 
 The =menuitem= mode is a menu bar's answer to the Help menu's search field:
 every entry of the focused application's live menubar -- whichever producer
@@ -653,7 +707,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip) |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
-| =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon} {count}"=; click: the picker) |
+| =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon} {count}"=; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
 | =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
@@ -840,13 +894,12 @@ and End go to the ends, Left and Right move between File, Edit and View, Right
 opens a submenu, and Escape closes.  A submenu wears a chevron rather than a
 second label.
 
-Both fallbacks are only offered when something can type a chord: with neither
-=wtype= nor =xdotool= installed, an application that declares no desktop
-actions and exports no menubar gets no menus at all, rather than entries that
-could not work.  In every case the actions the application's desktop entry
-declares come first in File, and a =Window= menu adds =Full Screen= and
-=Close Window= from the compositor.  An application that publishes its own
-menubar keeps the application's own Window menu instead.
+The shortcut menus need something that can type a chord: with neither =wtype=
+nor =xdotool= installed, an application gets no shared Edit and View, rather
+than entries that could not work.  Its own desktop actions and =New Window=
+still fill File, and the =Window= menu still carries the compositor's verbs, so
+a sparse menu is useful even without a typing tool.  An application that
+publishes its own menubar keeps the application's own Window menu instead.
 
 The dictionary is not a placeholder.  A Wayland shell learns a GTK
 application's menu paths from the compositor's =gtk-shell= protocol, which niri

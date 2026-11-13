@@ -85,6 +85,7 @@
                bar-config-modules-center
                bar-config-modules-right
                bar
+               clipboard-settings
                themes
                theme-palette
                theme-exists?
@@ -92,6 +93,7 @@
                get-shell-config
                get-shell-bars
                get-shell-menu
+               get-shell-clipboard
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path

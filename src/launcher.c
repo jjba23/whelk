@@ -6,6 +6,7 @@
 #include "launcher.h"
 
 #include <gio/gdesktopappinfo.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <string.h>
 
 #include "clipboard.h"
@@ -65,6 +66,8 @@ typedef struct {
   char *search; /* lowercase haystack */
   char *action; /* a desktop file, a window id, a command, a path, a URL */
   int clipboard_index; /* the entry in WhelkClipboard's history, or -1 */
+  char *clipboard_id; /* the entry's stable id, when it is a clipboard row */
+  GdkTexture *preview; /* a thumbnail for an image copy, or NULL */
   gboolean disabled; /* rofi's `nonselectable': shown, never chosen */
   WhelkMenuSearchItem *menu_item; /* a copy of a menu entry, when that is what
                                    * this row is */
@@ -147,6 +150,8 @@ static void item_free(gpointer data) {
   g_free(item->icon);
   g_free(item->search);
   g_free(item->action);
+  g_free(item->clipboard_id);
+  g_clear_object(&item->preview);
   whelk_menu_search_item_free(item->menu_item);
   g_free(item);
 }
@@ -750,7 +755,13 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
   gtk_box_append(GTK_BOX(text), name);
   gtk_box_append(GTK_BOX(text), detail);
 
-  if (item->icon && *item->icon) {
+  if (item->preview) {
+    GtkWidget *image = gtk_image_new_from_paintable(GDK_PAINTABLE(item->preview));
+
+    gtk_image_set_pixel_size(GTK_IMAGE(image), 36);
+    gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(box), image);
+  } else if (item->icon && *item->icon) {
     GtkWidget *icon = g_path_is_absolute(item->icon)
                           ? gtk_image_new_from_file(item->icon)
                           : gtk_image_new_from_icon_name(item->icon);
@@ -819,8 +830,8 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
                     : g_strdup_printf("%s — %u", label, count);
 
   if (g_strcmp0(mode, "clipboard") == 0) {
-    g_autofree char *with_keys =
-        g_strdup_printf("%s · Ctrl+P pins · Ctrl+Delete removes", text);
+    g_autofree char *with_keys = g_strdup_printf(
+        "%s · Ctrl+P pins · Ctrl+Delete removes · Ctrl+Z undoes", text);
 
     gtk_label_set_text(GTK_LABEL(self->mode_label), with_keys);
     return;
@@ -836,6 +847,27 @@ static LauncherItem *selected_item(WhelkLauncher *self) {
     return NULL;
 
   return g_object_get_data(G_OBJECT(row), "whelk-item");
+}
+
+static void select_clipboard_id(WhelkLauncher *self, const char *id) {
+  if (!self || !id)
+    return;
+
+  for (guint i = 0;; i++) {
+    GtkListBoxRow *row =
+        gtk_list_box_get_row_at_index(GTK_LIST_BOX(self->list), (int)i);
+
+    if (!row)
+      break;
+
+    LauncherItem *item =
+        row ? g_object_get_data(G_OBJECT(row), "whelk-item") : NULL;
+
+    if (item && g_strcmp0(item->clipboard_id, id) == 0) {
+      gtk_list_box_select_row(GTK_LIST_BOX(self->list), row);
+      return;
+    }
+  }
 }
 
 /* The first line is the row: a copied paragraph is many lines, and a list
@@ -854,9 +886,90 @@ static char *clipboard_label(const char *text) {
   return g_strdup(*line ? line : "(blank line)");
 }
 
-/* An image has no text to take a first line from; its type is what identifies
- * it in a list that cannot show the picture itself. */
+static char *clipboard_age(gint64 created_us) {
+  if (created_us <= 0)
+    return g_strdup("unknown age");
+
+  gint64 seconds = (g_get_real_time() - created_us) / G_TIME_SPAN_SECOND;
+
+  if (seconds < 60)
+    return g_strdup("just now");
+  if (seconds < 3600)
+    return g_strdup_printf("%" G_GINT64_FORMAT "m ago", seconds / 60);
+  if (seconds < 86400)
+    return g_strdup_printf("%" G_GINT64_FORMAT "h ago", seconds / 3600);
+
+  return g_strdup_printf("%" G_GINT64_FORMAT "d ago", seconds / 86400);
+}
+
+static char *clipboard_size(GBytes *data) {
+  const gsize bytes = data ? g_bytes_get_size(data) : 0;
+
+  if (bytes < 1024)
+    return g_strdup_printf("%" G_GSIZE_FORMAT " B", bytes);
+  if (bytes < 1024 * 1024)
+    return g_strdup_printf("%.1f KiB", (double)bytes / 1024.0);
+
+  return g_strdup_printf("%.1f MiB", (double)bytes / (1024.0 * 1024.0));
+}
+
+/* Decode a small thumbnail rather than the full image the row is showing:
+ * fifty full-size screenshots in a picker would cost more memory than the
+ * history itself. */
+static GdkTexture *clipboard_preview(WhelkClipboardEntry *entry) {
+  if (!entry || !g_str_has_prefix(entry->mime, "image/") || !entry->data)
+    return NULL;
+
+  g_autoptr(GInputStream) stream =
+      g_memory_input_stream_new_from_bytes(entry->data);
+  g_autoptr(GError) error = NULL;
+  GdkPixbuf *pixbuf = gdk_pixbuf_new_from_stream(stream, NULL, &error);
+
+  if (!pixbuf)
+    return NULL;
+
+  const int width = gdk_pixbuf_get_width(pixbuf);
+  const int height = gdk_pixbuf_get_height(pixbuf);
+  const double scale = MIN(72.0 / MAX(width, 1), 72.0 / MAX(height, 1));
+  const int thumb_width = MAX(1, (int)(width * MIN(scale, 1.0)));
+  const int thumb_height = MAX(1, (int)(height * MIN(scale, 1.0)));
+  GdkPixbuf *scaled = gdk_pixbuf_scale_simple(pixbuf, thumb_width, thumb_height,
+                                              GDK_INTERP_BILINEAR);
+  GdkTexture *texture = NULL;
+
+  if (scaled) {
+    gchar *buffer = NULL;
+    gsize buffer_size = 0;
+
+    if (gdk_pixbuf_save_to_buffer(scaled, &buffer, &buffer_size, "png", NULL,
+                                  NULL)) {
+      g_autoptr(GBytes) bytes = g_bytes_new_take(buffer, buffer_size);
+
+      texture = gdk_texture_new_from_bytes(bytes, NULL);
+    }
+  }
+
+  g_clear_object(&scaled);
+  g_clear_object(&pixbuf);
+
+  return texture;
+}
+
+/* An image has no text to take a first line from; its type and size are what
+ * identify it.  A URI list is more useful as "3 files" than as a row of
+ * file:// URLs. */
 static char *clipboard_entry_label(WhelkClipboardEntry *entry) {
+  if (g_strcmp0(entry->mime, "text/uri-list") == 0) {
+    g_auto(GStrv) lines = g_strsplit(entry->text ? entry->text : "", "\n", -1);
+    guint files = 0;
+
+    for (guint i = 0; lines[i]; i++)
+      if (*lines[i] && *lines[i] != '#')
+        files++;
+
+    return files == 1 ? g_strdup("1 file") : g_strdup_printf("%u files", files);
+  }
+
   if (entry->text && *entry->text)
     return clipboard_label(entry->text);
 
@@ -864,6 +977,27 @@ static char *clipboard_entry_label(WhelkClipboardEntry *entry) {
       g_str_has_prefix(entry->mime, "image/") ? "Image" : "Rich content";
 
   return g_strdup_printf("[%s — %s]", kind, entry->mime);
+}
+
+static char *clipboard_detail(WhelkClipboardEntry *entry) {
+  const char *kind = "Content";
+
+  if (g_str_has_prefix(entry->mime, "image/"))
+    kind = "Image";
+  else if (g_strcmp0(entry->mime, "text/html") == 0)
+    kind = "HTML";
+  else if (g_strcmp0(entry->mime, "text/uri-list") == 0)
+    kind = "Files";
+  else if (g_strcmp0(entry->mime, "text/rtf") == 0)
+    kind = "Rich text";
+  else if (whelk_clipboard_mime_is_plain_text(entry->mime))
+    kind = "Text";
+
+  g_autofree char *size = clipboard_size(entry->data);
+  g_autofree char *age = clipboard_age(entry->created_us);
+
+  return g_strdup_printf("%s%s · %s · %s", entry->pinned ? "Pinned · " : "",
+                         kind, size, age);
 }
 
 static void load_clipboard(WhelkLauncher *self) {
@@ -877,26 +1011,38 @@ static void load_clipboard(WhelkLauncher *self) {
 
   GPtrArray *entries = whelk_clipboard_entries(clipboard);
 
-  for (guint i = 0; entries && i < entries->len; i++) {
-    WhelkClipboardEntry *entry = g_ptr_array_index(entries, i);
-    g_autofree char *label = clipboard_entry_label(entry);
-    LauncherItem *item = item_new(
-        ITEM_CLIPBOARD, label,
-        entry->pinned
-            ? "Pinned — Enter puts it back · Ctrl+P unpins · Ctrl+Delete removes"
-            : "Enter puts it back · Ctrl+P pins · Ctrl+Delete removes");
+  /* Pinned copies are the first section of the list; within each section the
+   * history keeps its newest-first order. */
+  for (guint section = 0; section < 2; section++) {
+    for (guint i = 0; entries && i < entries->len; i++) {
+      WhelkClipboardEntry *entry = g_ptr_array_index(entries, i);
 
-    item->clipboard_index = (int)i;
+      if ((section == 0) != entry->pinned)
+        continue;
 
-    if (entry->pinned)
-      item->icon = g_strdup("view-pin-symbolic");
+      g_autofree char *label = clipboard_entry_label(entry);
+      g_autofree char *detail = clipboard_detail(entry);
+      LauncherItem *item = item_new(ITEM_CLIPBOARD, label, detail);
 
-    g_ptr_array_add(self->clipboard, item);
+      item->clipboard_index = (int)i;
+      item->clipboard_id = g_strdup(entry->id);
+      item->preview = clipboard_preview(entry);
+
+      if (entry->pinned && !item->preview)
+        item->icon = g_strdup("view-pin-symbolic");
+
+      g_ptr_array_add(self->clipboard, item);
+    }
   }
 
   if (self->clipboard->len == 0) {
-    LauncherItem *empty = item_new(ITEM_CLIPBOARD, "No clipboard history",
-                                   "Copy something and it will appear here");
+    const char *status = whelk_clipboard_status(clipboard);
+    gboolean degraded = whelk_clipboard_is_paused(clipboard) ||
+                        !whelk_clipboard_is_available(clipboard);
+    LauncherItem *empty = item_new(
+        ITEM_CLIPBOARD, degraded ? status : "No clipboard history",
+        degraded ? "Use whelk --clipboard-pause or reload the shell to resume"
+                 : "Copy something and it will appear here");
 
     empty->disabled = TRUE;
     g_ptr_array_add(self->clipboard, empty);
@@ -966,6 +1112,20 @@ static gboolean wants_files(WhelkLauncher *self, const char *query) {
 static void refresh_results(WhelkLauncher *self) {
   const char *query = NULL;
   const char *mode = effective_mode(self, &query);
+
+  /* A copy or a delete rebuilds the rows.  Remember which clipboard entry was
+   * selected by its content id, not by its old row number. */
+  g_autofree char *selected_clipboard_id = NULL;
+
+  if (g_strcmp0(mode, "clipboard") == 0) {
+    LauncherItem *selected = selected_item(self);
+
+    if (selected && selected->clipboard_id)
+      selected_clipboard_id = g_strdup(selected->clipboard_id);
+  }
+
+  /* Drop the rows before the arrays they point into are rebuilt. */
+  clear_list(self);
 
   g_ptr_array_set_size(self->results, 0);
 
@@ -1039,10 +1199,16 @@ static void refresh_results(WhelkLauncher *self) {
 
   update_mode_label(self, mode, self->results->len);
 
-  GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(self->list), 0);
+  if (selected_clipboard_id)
+    select_clipboard_id(self, selected_clipboard_id);
 
-  if (first)
-    gtk_list_box_select_row(GTK_LIST_BOX(self->list), first);
+  if (!selected_clipboard_id || !selected_item(self)) {
+    GtkListBoxRow *first =
+        gtk_list_box_get_row_at_index(GTK_LIST_BOX(self->list), 0);
+
+    if (first)
+      gtk_list_box_select_row(GTK_LIST_BOX(self->list), first);
+  }
 }
 
 static gboolean on_query_timeout(gpointer user_data) {
@@ -1182,7 +1348,9 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
     WhelkShell *shell = whelk_shell_get_default();
     WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
 
-    if (clipboard && item->clipboard_index >= 0)
+    if (clipboard && item->clipboard_id)
+      whelk_clipboard_restore_id(clipboard, item->clipboard_id);
+    else if (clipboard && item->clipboard_index >= 0)
       whelk_clipboard_restore(clipboard, (guint)item->clipboard_index);
     break;
   }
@@ -1280,10 +1448,10 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller,
     WhelkShell *shell = whelk_shell_get_default();
     WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
 
-    if (!item || !clipboard || item->clipboard_index < 0)
+    if (!item || !clipboard || !item->clipboard_id)
       return FALSE;
 
-    whelk_clipboard_remove(clipboard, (guint)item->clipboard_index);
+    whelk_clipboard_remove_id(clipboard, item->clipboard_id);
     refresh_results(self);
     return TRUE;
   }
@@ -1297,15 +1465,31 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller,
     WhelkShell *shell = whelk_shell_get_default();
     WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
 
-    if (!item || !clipboard || item->clipboard_index < 0)
+    if (!item || !clipboard || !item->clipboard_id)
       return FALSE;
 
-    GPtrArray *entries = whelk_clipboard_entries(clipboard);
-    WhelkClipboardEntry *entry = g_ptr_array_index(
-        entries, (guint)item->clipboard_index);
+    WhelkClipboardEntry *entry =
+        whelk_clipboard_find(clipboard, item->clipboard_id);
 
-    whelk_clipboard_pin(clipboard, (guint)item->clipboard_index,
-                        !entry->pinned);
+    if (!entry)
+      return FALSE;
+
+    whelk_clipboard_pin_id(clipboard, item->clipboard_id, !entry->pinned);
+    refresh_results(self);
+    return TRUE;
+  }
+  case GDK_KEY_z:
+  case GDK_KEY_Z: {
+    if (!(state & GDK_CONTROL_MASK) ||
+        g_strcmp0(self->mode, "clipboard") != 0)
+      return FALSE;
+
+    WhelkShell *shell = whelk_shell_get_default();
+    WhelkClipboard *clipboard = shell ? whelk_shell_clipboard(shell) : NULL;
+
+    if (!clipboard || !whelk_clipboard_undo_remove(clipboard))
+      return TRUE;
+
     refresh_results(self);
     return TRUE;
   }

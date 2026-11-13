@@ -95,6 +95,34 @@ typedef struct {
   GPtrArray *right;
 } WhelkBarConfig;
 
+/**
+ * WhelkClipboardConfig:
+ * @configured: whether the settings file described the clipboard at all.
+ * @persist: whether the history should be kept across restarts.
+ * @persist_path: (nullable): the file to use; NULL means the state directory.
+ * @persist_only_pinned: keep only pinned entries on disk.
+ * @clear_on_lock: clear unpinned entries when logind reports the session locked.
+ * @max_entries: history length; 0 means the built-in default.
+ * @max_entry_bytes: per-entry memory budget; 0 means the built-in default.
+ * @max_total_bytes: whole-history budget; 0 means the built-in default.
+ * @ttl_seconds: expiry for unpinned entries; 0 keeps them forever.
+ *
+ * The clipboard's policy, resolved from `(clipboard-settings)'.  An empty
+ * configuration leaves @configured FALSE so the environment variable still
+ * works for existing setups.
+ */
+typedef struct {
+  gboolean configured;
+  gboolean persist;
+  char *persist_path;
+  gboolean persist_only_pinned;
+  gboolean clear_on_lock;
+  guint max_entries;
+  guint max_entry_bytes;
+  guint max_total_bytes;
+  guint ttl_seconds;
+} WhelkClipboardConfig;
+
 /* --- specs ---------------------------------------------------------------- */
 
 WhelkModuleSpec *whelk_module_spec_new(const char *kind);
@@ -137,6 +165,11 @@ void whelk_config_free_bars(GPtrArray *bars);
  * machine's load, its memory, the tray, and the battery when it has one.
  */
 GPtrArray *whelk_config_default_bars(void);
+
+WhelkClipboardConfig *whelk_clipboard_config_new(void);
+void whelk_clipboard_config_free(WhelkClipboardConfig *config);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WhelkClipboardConfig, whelk_clipboard_config_free)
 
 /* Human-readable edge name, for logs. */
 const char *whelk_edge_name(GtkLayerShellEdge edge);

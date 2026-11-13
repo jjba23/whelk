@@ -31,8 +31,11 @@ static void test_synthesize_file_menus(void) {
    * what its desktop entry declares, and Window is what the compositor can
    * do to it. */
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "org.example.Unknown", ids, labels, 2, "niri msg action close-window",
-      "niri msg action fullscreen-window", NULL, WHELK_CHORD_CUA, &source);
+      "org.example.Unknown", ids, labels, 2, NULL,
+      &(WhelkSessionWindowActions){.close = "niri msg action close-window",
+                                   .fullscreen =
+                                       "niri msg action fullscreen-window"},
+      NULL, WHELK_CHORD_CUA, &source);
 
   g_assert_cmpuint(bar->len, ==, 2);
   g_assert_null(source);
@@ -82,6 +85,50 @@ static void test_synthesize_shortcuts(void) {
   g_assert_cmpstr(full->command, ==, "wtype -k F11");
 }
 
+static void test_synthesize_new_window_and_verbs(void) {
+  const char *ids[] = {"new-window"};
+  const char *labels[] = {"New Window"};
+  WhelkSessionWindowActions actions = {
+      .close = "close", .fullscreen = "fullscreen", .maximize = "maximize",
+      .float_window = "float", .move_left = "left", .move_right = "right",
+      .move_up = "up", .move_down = "down"};
+  g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
+      "org.example.Unknown", ids, labels, 1, "app --new-window", &actions,
+      NULL, WHELK_CHORD_CUA, NULL);
+
+  WhelkMenu *file = menu_at(bar, 0);
+
+  /* Exec's New Window, and the desktop action with the same job is not
+   * repeated underneath it. */
+  g_assert_cmpuint(file->entries->len, ==, 1);
+  g_assert_cmpstr(entry_at(file, 0)->label, ==, "New Window");
+  g_assert_cmpstr(entry_at(file, 0)->command, ==, "app --new-window");
+
+  WhelkMenu *window = menu_at(bar, 1);
+  g_assert_cmpstr(entry_at(window, 0)->label, ==, "Maximize / Restore");
+  g_assert_cmpstr(entry_at(window, 0)->command, ==, "maximize");
+  g_assert_cmpstr(entry_at(window, 1)->label, ==, "Toggle Floating");
+  g_assert_cmpint(entry_at(window, 2)->kind, ==, WHELK_MENU_SEPARATOR);
+  g_assert_cmpstr(entry_at(window, 3)->label, ==, "Move Left");
+
+  gboolean saw_fullscreen = FALSE;
+  gboolean saw_close = FALSE;
+
+  for (guint i = 0; i < window->entries->len; i++) {
+    WhelkMenuEntry *entry = entry_at(window, i);
+
+    if (g_strcmp0(entry->label, "Full Screen") == 0 &&
+        g_strcmp0(entry->command, "fullscreen") == 0)
+      saw_fullscreen = TRUE;
+    if (g_strcmp0(entry->label, "Close Window") == 0 &&
+        g_strcmp0(entry->command, "close") == 0)
+      saw_close = TRUE;
+  }
+
+  g_assert_true(saw_fullscreen);
+  g_assert_true(saw_close);
+}
+
 static void test_synthesize_without_tool(void) {
   /* No program can type a chord, and the application declares nothing, so
    * there is no menu that could work -- and no empty File button either. */
@@ -110,8 +157,9 @@ static void test_dictionary_menus(void) {
   const char *source = NULL;
 
   g_autoptr(GPtrArray) bar = whelk_menubar_for_app(
-      "org.mozilla.firefox", NULL, NULL, 0, "niri msg action close-window",
-      NULL, "wtype", WHELK_CHORD_CUA, &source);
+      "org.mozilla.firefox", NULL, NULL, 0, NULL,
+      &(WhelkSessionWindowActions){.close = "niri msg action close-window"},
+      "wtype", WHELK_CHORD_CUA, &source);
 
   /* The dictionary answers for Firefox: File, Edit and View of its own, plus
    * the Window menu the compositor fills. */
@@ -291,7 +339,8 @@ static void test_emacs_multi_key_sequence(void) {
 
   /* The same entry in Emacs notation is the spelling an Emacs user knows. */
   g_autoptr(GPtrArray) emacs = whelk_menubar_for_app(
-      "emacs", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_EMACS, NULL);
+      "emacs", NULL, NULL, 0, NULL, NULL, "wtype", WHELK_CHORD_EMACS,
+      NULL);
 
   g_assert_cmpstr(entry_at(menu_at(emacs, 0), 1)->accel, ==, "C-x C-s");
 }
@@ -564,6 +613,40 @@ static void test_shell_menu_from_settings(void) {
   g_unlink(path);
 }
 
+static void test_clipboard_settings_from_scheme(void) {
+  g_autofree char *path = g_build_filename(
+      g_get_tmp_dir(), "whelk-clipboard-settings-test.scm", NULL);
+  g_autofree char *settings = g_strdup_printf(
+      "(configure-shell!\n"
+      " #:config-path \"%s\"\n"
+      " #:clipboard (clipboard-settings\n"
+      "               #:persist \"/tmp/whelk-vault.variant\"\n"
+      "               #:persist-only-pinned? #t\n"
+      "               #:clear-on-lock? #t\n"
+      "               #:max-entries 12\n"
+      "               #:max-entry-bytes 4096\n"
+      "               #:max-total-bytes 8192\n"
+      "               #:ttl-seconds 3600))\n",
+      path);
+
+  g_assert_true(g_file_set_contents(path, settings, -1, NULL));
+  g_assert_true(whelk_bridge_load(path));
+
+  g_autoptr(WhelkClipboardConfig) config = whelk_bridge_clipboard(path);
+
+  g_assert_true(config->configured);
+  g_assert_true(config->persist);
+  g_assert_cmpstr(config->persist_path, ==, "/tmp/whelk-vault.variant");
+  g_assert_true(config->persist_only_pinned);
+  g_assert_true(config->clear_on_lock);
+  g_assert_cmpuint(config->max_entries, ==, 12);
+  g_assert_cmpuint(config->max_entry_bytes, ==, 4096);
+  g_assert_cmpuint(config->max_total_bytes, ==, 8192);
+  g_assert_cmpuint(config->ttl_seconds, ==, 3600);
+
+  g_unlink(path);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -575,6 +658,8 @@ int main(int argc, char **argv) {
 
   g_test_add_func("/menutree/synthesize/file", test_synthesize_file_menus);
   g_test_add_func("/menutree/synthesize/shortcuts", test_synthesize_shortcuts);
+  g_test_add_func("/menutree/synthesize/new-window-and-verbs",
+                  test_synthesize_new_window_and_verbs);
   g_test_add_func("/menutree/synthesize/no-tool", test_synthesize_without_tool);
   g_test_add_func("/menutree/synthesize/no-close",
                   test_synthesize_without_close_command);
@@ -600,6 +685,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/menutree/shell-menu", test_shell_menu);
   g_test_add_func("/menutree/shell-menu/from-settings",
                   test_shell_menu_from_settings);
+  g_test_add_func("/menutree/clipboard/settings",
+                  test_clipboard_settings_from_scheme);
 
   return g_test_run();
 }

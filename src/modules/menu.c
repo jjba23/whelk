@@ -958,8 +958,44 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   const WhelkSession session = whelk_session_detect();
   g_autofree char *close_command = whelk_session_close_window_command(session);
-  g_autofree char *fullscreen_command =
-      whelk_session_fullscreen_window_command(session);
+  WhelkSessionWindowActions window_actions;
+
+  whelk_session_window_actions(session, &window_actions);
+
+  /* The desktop entry's Exec is the command that starts another window.  Its
+   * field codes are for a file manager or a URL handler to fill in; a menu
+   * opening the application without a document drops them. */
+  g_autofree char *new_window_command = NULL;
+
+  if (data->desktop) {
+    g_autofree char *exec = g_desktop_app_info_get_string(
+        data->desktop, G_KEY_FILE_DESKTOP_KEY_EXEC);
+
+    if (exec && *exec) {
+      GString *command = g_string_new(NULL);
+
+      for (const char *cursor = exec; *cursor; cursor++) {
+        if (*cursor != '%') {
+          g_string_append_c(command, *cursor);
+          continue;
+        }
+
+        const char code = cursor[1];
+
+        if (code == '%')
+          g_string_append_c(command, '%');
+
+        if (code == '%' || (code && strchr("fFuUick", code)))
+          cursor++;
+      }
+
+      g_strstrip(command->str);
+      new_window_command = g_string_free(command, FALSE);
+
+      if (*new_window_command == '\0')
+        g_clear_pointer(&new_window_command, g_free);
+    }
+  }
 
   g_free(data->close_command);
   data->close_command = g_strdup(close_command);
@@ -968,11 +1004,13 @@ static void build_for_app(WhelkModule *module, const char *app_id) {
 
   replace_menus(module,
                 whelk_menubar_for_app(data->app_id, action_ids, action_labels,
-                                      action_count, close_command,
-                                      fullscreen_command,
+                                      action_count, new_window_command,
+                                      &window_actions,
                                       data->show_shortcuts ? data->shortcut_tool
                                                            : NULL,
                                       data->style, &source));
+
+  whelk_session_window_actions_clear(&window_actions);
 
   if (source)
     LOG_C_DEBUG("Menu", "%s: the dictionary's menus, typed as its shortcuts",
