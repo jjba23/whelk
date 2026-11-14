@@ -129,6 +129,17 @@ gboolean whelk_session_parse_focused(WhelkSession session, const char *text,
                                      char **title, char **app_id);
 
 /**
+ * whelk_session_focused_pid:
+ * @session: the session the text came from.
+ * @text: the focused-window command's output.
+ *
+ * The focused application's process id, or 0 when the session does not report
+ * one.  AT-SPI matches an application by pid first, because a name can be
+ * translated and a pid cannot.
+ */
+gint whelk_session_focused_pid(WhelkSession session, const char *text);
+
+/**
  * WhelkFocusedPaths:
  * @bus_name: the `_GTK_UNIQUE_BUS_NAME` of the focused window, or NULL.
  * @window_id: the X11 window id, or 0 when the session is not X11.

@@ -26,6 +26,8 @@ static void menu_entry_free(WhelkMenuEntry *entry) {
   g_free(entry->command);
   g_free(entry->dbus_service);
   g_free(entry->dbus_path);
+  g_free(entry->atspi_service);
+  g_free(entry->atspi_path);
 
   if (entry->submenu)
     whelk_menu_free(entry->submenu);

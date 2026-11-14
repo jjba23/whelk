@@ -12,6 +12,7 @@
 #include "util/session.h"
 
 #include "style.h"
+#include "util/atspimenus.h"
 #include "util/command.h"
 #include "util/dbusmenu.h"
 #include "util/menuaction.h"
@@ -49,6 +50,7 @@ typedef struct {
   char *app_id;
   char *bus_name;
   char *app_path;
+  gint pid; /* the focused application, when the session names it */
   WhelkFocusedPaths focused; /* X11 object paths, empty on Wayland */
   char *app_name;
   GDesktopAppInfo *desktop;
@@ -62,6 +64,7 @@ typedef struct {
   GtkWidget *open_button; /* whose popover is up, borrowed */
   WhelkDBusMenuWatch *dbus_menu; /* follows a live DBusMenu, NULL otherwise */
   WhelkGtkMenuWatch *gtk_menu;   /* follows org.gtk.Menus Changed */
+  WhelkAtspiMenuRequest *atspi;  /* the accessibility-bus read, when running */
   guint generation;
 } MenuData;
 
@@ -757,6 +760,38 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
     probe_dbus_next(probe);
 }
 
+/* The last producer: the application's own menus from its accessibility tree.
+ * It runs only after org.gtk.Menus and DBusMenu found nothing, and it is
+ * asynchronous because walking a toolkit's tree is slow. */
+static void on_atspi_menus(GPtrArray *menus, gpointer user_data) {
+  WhelkModule *module = user_data;
+  MenuData *data = module->data;
+
+  data->atspi = NULL;
+
+  if (!menus)
+    return;
+
+  if (menus->len == 0) {
+    g_ptr_array_unref(menus);
+    return;
+  }
+
+  LOG_C_DEBUG("Menu", "%s: %u menu(s) from AT-SPI", data->app_name, menus->len);
+  replace_menus(module, menus);
+}
+
+static void start_atspi_probe(WhelkModule *module) {
+  MenuData *data = module->data;
+
+  if (!data || data->atspi)
+    return;
+
+  data->atspi = whelk_atspi_menubar_async(data->app_name, data->pid,
+                                          data->style, on_atspi_menus,
+                                          module);
+}
+
 static void probe_dbus_next(MenuProbe *probe) {
   MenuData *data = probe->module->data;
   const char *bus_name =
@@ -764,6 +799,9 @@ static void probe_dbus_next(MenuProbe *probe) {
 
   if (!bus_name || !g_dbus_is_name(bus_name) ||
       probe->dbus_index >= probe->dbus_paths->len) {
+    if (probe->generation == data->generation)
+      start_atspi_probe(probe->module);
+
     probe_free(probe);
     return;
   }
@@ -885,8 +923,12 @@ static void probe_menus(WhelkModule *module) {
   const gboolean valid_bus =
       data->bus_name && g_dbus_is_name(data->bus_name);
 
-  if (!valid_bus && data->focused.window_id == 0)
+  /* A Wayland application whose id is not a bus name ("Freebuff", "Alacritty")
+   * has no protocol menus, but it may still publish a menu bar to AT-SPI. */
+  if (!valid_bus && data->focused.window_id == 0) {
+    start_atspi_probe(module);
     return;
+  }
 
   MenuProbe *probe = g_new0(MenuProbe, 1);
 
@@ -992,6 +1034,8 @@ static void build_for_app(WhelkModule *module, const char *app_id,
   /* The previous application's menu is gone, whatever published it. */
   stop_dbus_menu_watch(data);
   stop_gtk_menu_watch(data);
+  whelk_atspi_menubar_request_free(data->atspi);
+  data->atspi = NULL;
 
   data->generation++;
 
@@ -1204,10 +1248,12 @@ static void on_focused_window(WhelkModule *module, const char *text,
   const WhelkSession session = whelk_session_detect();
 
   if (!whelk_session_parse_focused(session, text, &title, &app_id)) {
+    data->pid = 0;
     build_for_app(module, "", NULL);
     return;
   }
 
+  data->pid = whelk_session_focused_pid(session, text);
   whelk_session_parse_focused_paths(session, text, &paths);
 
   if (g_strcmp0(app_id, data->app_id) != 0 ||
@@ -1241,6 +1287,8 @@ static void menu_destroy(WhelkModule *module) {
 
   stop_dbus_menu_watch(data);
   stop_gtk_menu_watch(data);
+  whelk_atspi_menubar_request_free(data->atspi);
+  data->atspi = NULL;
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
   g_clear_pointer(&data->buttons, g_ptr_array_unref);

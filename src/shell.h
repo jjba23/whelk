@@ -37,6 +37,10 @@ void whelk_shell_start(WhelkShell *shell);
 /* Re-reads the settings file and rebuilds every bar. */
 void whelk_shell_reload(WhelkShell *shell);
 
+/* Locks every output.  Also reached by logind's Lock signal and `whelk
+ * --lock`; a second call while locked does nothing. */
+void whelk_shell_lock(WhelkShell *shell);
+
 /* Opens the GUI settings window for the loaded configuration. */
 void whelk_shell_show_settings(WhelkShell *shell);
 

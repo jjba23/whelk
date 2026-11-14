@@ -1404,10 +1404,15 @@ static void widget_instance_free(WidgetInstance *widget) {
   if (widget->destroy)
     widget->destroy(widget);
 
-  if (widget->skin && widget->display)
+  /* whelk_style_detach() removes the provider from the display and frees the
+   * caller's reference; clearing the field after it would be a second unref
+   * of the same object, which is what made a reload crash once a widget had
+   * been built. */
+  if (widget->skin && widget->display) {
     whelk_style_detach(widget->skin, widget->display);
+    widget->skin = NULL;
+  }
 
-  g_clear_object(&widget->skin);
   g_clear_object(&widget->surface);
   g_clear_object(&widget->cancel);
   g_clear_object(&widget->display);

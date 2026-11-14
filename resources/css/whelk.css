@@ -30,6 +30,29 @@ window.whelk-surface {
   color: inherit;
 }
 
+.whelk-scheme-widget {
+  min-height: 1px;
+}
+
+.whelk-scheme-sparkline {
+  min-height: 8px;
+  min-width: 16px;
+}
+
+.whelk-scheme-progress trough,
+.whelk-scheme-level trough {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: alpha(currentColor, 0.14);
+}
+
+.whelk-scheme-progress progress,
+.whelk-scheme-level progress {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: currentColor;
+}
+
 .whelk-module {
   padding: 0 6px;
   border-radius: 6px;
@@ -956,4 +979,47 @@ window.whelk-settings-window {
 
 .whelk-widget-stock-change.down {
   color: #ff6b60;
+}
+
+/* --- screen locker -------------------------------------------------------- */
+
+#whelk-lock,
+.whelk-lock-background {
+  background-color: #08090b;
+  color: #f2f3f5;
+}
+
+.whelk-lock-panel {
+  padding: 36px 44px;
+  border-radius: 18px;
+  background-color: rgba(20, 22, 26, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.whelk-lock-clock {
+  font-size: 72px;
+  font-weight: 200;
+  font-feature-settings: "tnum";
+  letter-spacing: -1px;
+}
+
+.whelk-lock-date {
+  font-size: 13pt;
+  opacity: 0.62;
+}
+
+.whelk-lock-message {
+  font-size: 11pt;
+  opacity: 0.82;
+  margin-top: 12px;
+}
+
+.whelk-lock-error {
+  font-size: 9.5pt;
+  color: #ff8d84;
+  min-height: 1.4em;
+}
+
+.whelk-lock-unlock {
+  min-width: 120px;
 }

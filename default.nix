@@ -15,6 +15,7 @@
   gtk4,
   gtk4-layer-shell,
   guile,
+  pam,
   wtype,
   libX11,
   hicolor-icon-theme,
@@ -26,7 +27,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "whelk";
-  version = "0.18.0";
+  version = "0.19.0";
 
   strictDeps = true;
   __structuredAttrs = true;
@@ -59,6 +60,7 @@ stdenv.mkDerivation (finalAttrs: {
     gtk4
     gtk4-layer-shell
     guile
+    pam
     # whelk invokes wtype by name to type menu shortcuts.  The wrapper below
     # puts it on PATH for the installed program, not only in the build.
     wtype

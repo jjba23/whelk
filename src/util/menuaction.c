@@ -8,6 +8,7 @@
 #include <gio/gdesktopappinfo.h>
 #include <string.h>
 
+#include "util/atspimenus.h"
 #include "util/command.h"
 
 void whelk_menu_action_context_set(WhelkMenuActionContext *context,
@@ -78,6 +79,15 @@ void whelk_menu_entry_activate(const WhelkMenuEntry *entry,
                                          g_variant_new_int32(0), 0),
                            NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
     g_object_unref(bus);
+    return;
+  }
+
+  /* An AT-SPI entry is an accessible object, and choosing it is the action a
+   * screen reader would perform.  The object lives on the accessibility bus,
+   * not the session bus. */
+  if (entry->atspi_service && entry->atspi_path) {
+    whelk_atspi_activate(entry->atspi_service, entry->atspi_path,
+                         entry->atspi_action);
     return;
   }
 

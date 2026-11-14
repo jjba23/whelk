@@ -51,6 +51,7 @@
                language-module
                keyboard-module
                custom-module
+               scheme-module
                wifi-module
                bluetooth-module
                notifications-module
@@ -68,6 +69,8 @@
                bar-config-edge
                bar-config-layer
                bar-config-monitor
+               bar-config-monitors
+               bar-config-when
                bar-config-height
                bar-config-margin-top
                bar-config-margin-right

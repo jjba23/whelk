@@ -11,12 +11,14 @@
 #include "config.h"
 #include "guile_bridge.h"
 #include "launcher.h"
+#include "locker.h"
 #include "logger.h"
 #include "network_panel.h"
 #include "notification_center.h"
 #include "notifications.h"
 #include "osd.h"
 #include "preferences.h"
+#include "util/barmonitors.h"
 #include "util/menusearch.h"
 #include "widgets.h"
 
@@ -56,72 +58,53 @@ static void build_bars(WhelkShell *shell);
 /* =========================================================================
  * MONITORS
  * =========================================================================
- * "all" means one bar per output; a connector name means exactly one; "default"
- * (or a name no output answers to) means the compositor's own choice.
+ * A bar's monitor rule is evaluated against the display's current model every
+ * time the bars are built.  "all" means one bar per output, "default" means
+ * the compositor's own choice, a connector name means that output and no
+ * other, and #:when can hide the bar entirely on a one- or multi-output
+ * machine.  Because the monitor list is watched, a hotplug rebuilds the bars
+ * and the rule is evaluated again -- there is no separate hotplug path.
  */
 
-static GdkMonitor *find_monitor_by_connector(const char *connector) {
-  if (!connector || *connector == '\0')
-    return NULL;
-
-  GdkDisplay *display = gdk_display_get_default();
-
-  if (!display)
-    return NULL;
-
-  GListModel *monitors = gdk_display_get_monitors(display);
-  const guint count = monitors ? g_list_model_get_n_items(monitors) : 0;
-
-  for (guint i = 0; i < count; i++) {
-    GdkMonitor *monitor = GDK_MONITOR(g_list_model_get_item(monitors, i));
-    const char *name = monitor ? gdk_monitor_get_connector(monitor) : NULL;
-
-    if (name && g_strcmp0(name, connector) == 0)
-      return monitor; /* the reference goes to the caller */
-
-    g_clear_object(&monitor);
-  }
-
-  return NULL;
-}
-
-/* Builds the bars of one configuration on every output it asks for. */
+/* Builds the bars of one configuration on every output its rule selects. */
 static void build_config(WhelkShell *shell, const WhelkBarConfig *config) {
   GdkDisplay *display = gdk_display_get_default();
   GListModel *monitors = display ? gdk_display_get_monitors(display) : NULL;
   const guint count = monitors ? g_list_model_get_n_items(monitors) : 0;
+  const char **connectors = g_new0(const char *, count + 1);
+  GArray *selected = g_array_new(FALSE, FALSE, sizeof(gint));
 
-  if (g_strcmp0(config->monitor, "all") == 0 && count > 0) {
-    for (guint i = 0; i < count; i++) {
-      GdkMonitor *monitor = GDK_MONITOR(g_list_model_get_item(monitors, i));
+  for (guint i = 0; i < count; i++) {
+    GdkMonitor *monitor = GDK_MONITOR(g_list_model_get_item(monitors, i));
 
-      if (!monitor)
-        continue;
-
-      g_ptr_array_add(shell->bars, whelk_bar_new(shell->app, config, monitor));
-      g_object_unref(monitor);
-    }
-
-    return;
-  }
-
-  if (config->monitor && *config->monitor &&
-      g_strcmp0(config->monitor, "all") != 0 &&
-      g_strcmp0(config->monitor, "default") != 0) {
-    GdkMonitor *monitor = find_monitor_by_connector(config->monitor);
-
-    if (!monitor) {
-      LOG_C_WARN("Shell",
-                 "No monitor named '%s' for bar '%s': using the default one",
-                 config->monitor, config->name);
-    }
-
-    g_ptr_array_add(shell->bars, whelk_bar_new(shell->app, config, monitor));
+    connectors[i] = monitor ? gdk_monitor_get_connector(monitor) : NULL;
     g_clear_object(&monitor);
-    return;
   }
 
-  g_ptr_array_add(shell->bars, whelk_bar_new(shell->app, config, NULL));
+  whelk_bar_select_monitors(config, count, connectors, selected);
+
+  if (selected->len == 0) {
+    LOG_C_INFO("Shell",
+               "Bar '%s' is waiting for %s output(s): its monitor rule matches "
+               "no current output",
+               config->name, whelk_bar_when_name(config->when));
+  }
+
+  for (guint i = 0; i < selected->len; i++) {
+    const gint index = g_array_index(selected, gint, i);
+    GdkMonitor *monitor = NULL;
+
+    if (index != WHELK_MONITOR_DEFAULT && index >= 0 &&
+        (guint)index < count)
+      monitor = GDK_MONITOR(g_list_model_get_item(monitors, (guint)index));
+
+    g_ptr_array_add(shell->bars,
+                    whelk_bar_new(shell->app, config, monitor));
+    g_clear_object(&monitor);
+  }
+
+  g_array_unref(selected);
+  g_free(connectors);
 }
 
 static void build_bars(WhelkShell *shell) {
@@ -342,6 +325,9 @@ void whelk_shell_start(WhelkShell *shell) {
    * overridden an entry: read it after the configuration, before the bars. */
   whelk_menudict_load(whelk_bridge_menudict());
 
+  /* PAM and logind are prepared before the first `--lock` can arrive. */
+  whelk_locker_init(shell->app);
+
   shell->widgets = whelk_widgets_new(shell->app);
 
   build_bars(shell);
@@ -401,7 +387,7 @@ static void reload_after_preference_change(gpointer data) {
 }
 
 void whelk_shell_show_settings(WhelkShell *shell) {
-  if (!shell)
+  if (!shell || whelk_locker_is_locked())
     return;
 
   whelk_preferences_show(shell->app, shell->config_path,
@@ -413,6 +399,7 @@ void whelk_shell_free(WhelkShell *shell) {
     return;
 
   whelk_preferences_shutdown();
+  whelk_locker_shutdown();
 
   if (shell->reload_timeout != 0)
     g_source_remove(shell->reload_timeout);
@@ -468,18 +455,40 @@ WhelkClipboard *whelk_shell_clipboard(WhelkShell *shell) {
   return shell ? shell->clipboard : NULL;
 }
 
+void whelk_shell_lock(WhelkShell *shell) {
+  if (!shell || whelk_locker_is_locked())
+    return;
+
+  /* Nothing stays interactive underneath the lock. */
+  if (shell->launcher)
+    whelk_launcher_hide(shell->launcher);
+  if (shell->center)
+    whelk_notification_center_hide(shell->center);
+  if (shell->network)
+    whelk_network_panel_hide(shell->network);
+  if (shell->osd)
+    whelk_osd_hide(shell->osd);
+
+  if (shell->clipboard &&
+      whelk_clipboard_clear_on_lock(shell->clipboard))
+    whelk_clipboard_clear_unpinned(shell->clipboard);
+
+  whelk_preferences_shutdown();
+  whelk_locker_lock();
+}
+
 void whelk_shell_show_launcher(WhelkShell *shell, const char *mode) {
-  if (shell && shell->launcher)
+  if (shell && shell->launcher && !whelk_locker_is_locked())
     whelk_launcher_show(shell->launcher, mode);
 }
 
 void whelk_shell_show_menu(WhelkShell *shell, const char *command) {
-  if (shell && shell->launcher)
+  if (shell && shell->launcher && !whelk_locker_is_locked())
     whelk_launcher_show_menu(shell->launcher, command);
 }
 
 void whelk_shell_toggle_notifications(WhelkShell *shell) {
-  if (shell && shell->center)
+  if (shell && shell->center && !whelk_locker_is_locked())
     whelk_notification_center_toggle(shell->center);
 }
 
@@ -492,7 +501,7 @@ void whelk_shell_toggle_dnd(WhelkShell *shell) {
 }
 
 void whelk_shell_show_network_panel(WhelkShell *shell, const char *page) {
-  if (shell && shell->network)
+  if (shell && shell->network && !whelk_locker_is_locked())
     whelk_network_panel_show(shell->network, page);
 }
 

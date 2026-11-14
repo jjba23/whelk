@@ -59,6 +59,23 @@ typedef struct {
 } WhelkWidgetConfig;
 
 /**
+ * WhelkBarWhen:
+ * @WHELK_BAR_WHEN_ALWAYS: the bar exists whenever its monitor does.
+ * @WHELK_BAR_WHEN_SINGLE: only while the machine has one output.
+ * @WHELK_BAR_WHEN_MULTI: only while the machine has more than one output.
+ *
+ * A deliberate monitor rule: "this bar on the laptop, that one on the
+ * external, and nothing at all when there is only one screen" is a
+ * configuration, not a special case in the shell.  The monitor model is
+ * watched, so a hotplug re-evaluates the rule and rebuilds the bars.
+ */
+typedef enum {
+  WHELK_BAR_WHEN_ALWAYS,
+  WHELK_BAR_WHEN_SINGLE,
+  WHELK_BAR_WHEN_MULTI,
+} WhelkBarWhen;
+
+/**
  * WhelkBarConfig:
  * @name: the bar's name; also its CSS id and its log label.
  * @theme: (nullable): the theme the bar was built from, for the settings UI.
@@ -67,6 +84,11 @@ typedef struct {
  *   stays fixed over a compositor's overview; "bottom" and "background" move
  *   and zoom with the workspace on niri.
  * @monitor: "all", "default", or a connector name such as "DP-1".
+ * @monitors: (element-type utf8): the connectors this bar belongs on; when it
+ *   is non-empty it wins over @monitor.  A bar with no matching output is not
+ *   drawn at all, rather than being moved to whichever output the compositor
+ *   calls default.
+ * @when: the output-count rule the bar waits for (always, single, multi).
  * @height: its thickness: the row's height on a horizontal edge, the column's
  *   width on a vertical one.
  * @margin_top: pixels between the bar and the screen edge (and so on).
@@ -95,6 +117,8 @@ typedef struct {
   GtkLayerShellEdge edge;
   GtkLayerShellLayer layer;
   char *monitor;
+  GPtrArray *monitors;
+  WhelkBarWhen when;
   int height;
   int margin_top;
   int margin_right;
@@ -210,5 +234,9 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(WhelkClipboardConfig, whelk_clipboard_config_free)
 
 /* Human-readable edge name, for logs. */
 const char *whelk_edge_name(GtkLayerShellEdge edge);
+
+/* "always", "single" or "multi"; unknown text falls back to always. */
+WhelkBarWhen whelk_bar_when_from_text(const char *text);
+const char *whelk_bar_when_name(WhelkBarWhen when);
 
 #endif // WHELK_CONFIG_H

@@ -28,6 +28,7 @@ static const WhelkModuleEntry factories[] = {
     {"clipboard", whelk_clipboard_module_new},
     {"cpu", whelk_cpu_module_new},
     {"custom", whelk_custom_module_new},
+    {"scheme", whelk_scheme_module_new},
     {"dnd", whelk_dnd_module_new},
     {"keyboard", whelk_keyboard_module_new},
     {"language", whelk_language_module_new},

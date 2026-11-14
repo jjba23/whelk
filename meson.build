@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.18.0',
+  version: '0.19.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -61,6 +61,9 @@ wayland_client_dep = dependency('wayland-client', include_type: 'system')
 # g_desktop_app_info_new_from_filename() lives in gio-unix; the launcher reads
 # the machine's .desktop entries with it.
 gio_unix_dep = dependency('gio-unix-2.0', include_type: 'system')
+# PAM: the screen locker asks the session's authentication service, never a
+# password file of its own.  Optional: without it the locker fails closed.
+pam_dep = dependency('pam', required: false)
 
 # libm: the workspace bar and the metric readouts use round()/fabs().
 libm_dep = cc.find_library('m', required: false)
@@ -82,6 +85,11 @@ whelk_deps = [
 if x11_dep.found()
   whelk_deps += x11_dep
   add_project_arguments('-DHAVE_X11', language: 'c')
+endif
+
+if pam_dep.found()
+  whelk_deps += pam_dep
+  add_project_arguments('-DHAVE_PAM', language: 'c')
 endif
 
 # ------------------------------------------------------------------------------
@@ -138,13 +146,13 @@ install_subdir(
 inc = include_directories('src')
 
 whelk_sources = files(
-  'src/main.c',
   'src/about.c',
   'src/bar.c',
   'src/clipboard.c',
   'src/config.c',
   'src/guile_bridge.c',
   'src/launcher.c',
+  'src/locker.c',
   'src/module.c',
   'src/network_panel.c',
   'src/notification_center.c',
@@ -169,12 +177,15 @@ whelk_sources = files(
   'src/modules/menu.c',
   'src/modules/notifications.c',
   'src/modules/power_profile.c',
+  'src/modules/scheme.c',
   'src/modules/start.c',
   'src/modules/tray.c',
   'src/modules/wifi.c',
   'src/modules/window.c',
   'src/modules/workspaces.c',
   'src/util/applets.c',
+  'src/util/atspimenus.c',
+  'src/util/barmonitors.c',
   'src/util/calc.c',
   'src/util/chord.c',
   'src/util/click.c',
@@ -186,6 +197,7 @@ whelk_sources = files(
   'src/util/json.c',
   'src/util/level.c',
   'src/util/launchergeometry.c',
+  'src/util/lockpolicy.c',
   'src/util/menuaction.c',
   'src/util/menudict.c',
   'src/util/menusearch.c',
@@ -201,13 +213,27 @@ whelk_sources = files(
   'src/widgets.c',
 )
 
+whelk_main_source = files('src/main.c')
+
 whelk_exe = executable('whelk',
   whelk_sources,
+  whelk_main_source,
   whelk_resources,
   include_directories: inc,
   dependencies: whelk_deps,
   gnu_symbol_visibility: 'hidden',
   install: true,
+)
+
+# The golden-image renderer is the shell without its entry point: it builds a
+# real bar, presents it on Broadway, snapshots it and compares the pixels.
+bar_preview = executable('bar_preview',
+  'tests/bar_preview.c',
+  whelk_sources,
+  whelk_resources,
+  include_directories: inc,
+  dependencies: whelk_deps,
+  install: false,
 )
 
 # ------------------------------------------------------------------------------
@@ -259,6 +285,10 @@ unit_tests = [
     'sources': ['src/config.c', 'src/util/format.c'],
   },
   {
+    'id': 'barmonitors',
+    'sources': ['src/config.c', 'src/util/barmonitors.c'],
+  },
+  {
     'id': 'preferences',
     'sources': [
       'src/preferences.c',
@@ -272,6 +302,17 @@ unit_tests = [
   },
   {
     'id': 'widgetconfig',
+    'sources': [
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/format.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/util/menutree.c',
+    ],
+  },
+  {
+    'id': 'schemewidget',
     'sources': [
       'src/guile_bridge.c',
       'src/config.c',
@@ -383,6 +424,18 @@ unit_tests = [
     ],
   },
   {
+    'id': 'lockpolicy',
+    'sources': ['src/util/lockpolicy.c'],
+  },
+  {
+    'id': 'atspimenus',
+    'sources': [
+      'src/util/atspimenus.c',
+      'src/util/menutree.c',
+      'src/util/chord.c',
+    ],
+  },
+  {
     'id': 'dbusmenu',
     'sources': [
       'src/util/dbusmenu.c',
@@ -415,6 +468,26 @@ foreach t : unit_tests
   test(t['id'] + '_unit_tests', exe, env: test_env)
 endforeach
 
+# Drawing is the half the pure tests cannot see.  The renderer runs under
+# Broadway (a display server with no monitor), saves the bar and diffs it with
+# the committed reference; a colour, padding or font regression is a failure.
+broadwayd = find_program('gtk4-broadwayd', required: false)
+
+if broadwayd.found()
+  test(
+    'golden_bar_image',
+    find_program('tests/golden-bar.sh'),
+    args: [
+      meson.current_build_dir(),
+      meson.project_source_root(),
+      join_paths(meson.current_build_dir(), 'bar-golden.png'),
+      join_paths(meson.project_source_root(), 'tests', 'golden', 'bar.png'),
+    ],
+    env: test_env,
+    timeout: 60,
+  )
+endif
+
 # The configuration engine is Scheme, and so is its share of the tests: a
 # settings file is read without a display or a running shell.
 guile = find_program('guile', required: false)
@@ -446,6 +519,17 @@ if guile.found()
 
   # The built-in bar and the shipped example have to stay the same bar.
   test(
+    'schememodule_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_schememodule.scm'),
+    ],
+    env: test_env,
+  )
+
+  test(
     'defaults_unit_tests',
     guile,
     args: [
@@ -453,6 +537,17 @@ if guile.found()
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_defaults.scm'),
       join_paths(meson.project_source_root(), 'settings', 'settings.scm'),
+    ],
+    env: test_env,
+  )
+
+  test(
+    'barmonitors_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_barmonitors.scm'),
     ],
     env: test_env,
   )

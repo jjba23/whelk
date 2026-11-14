@@ -64,7 +64,7 @@ just the one that ships."
      (menu-item "Restart…" "systemctl reboot")
      (menu-item "Shut Down…" "systemctl poweroff")
      (menu-separator)
-     (menu-item "Lock Screen" "loginctl lock-session")
+     (menu-item "Lock Screen" "shell:lock")
      (menu-item (format #f "Log Out ~a…" user)
                 "loginctl terminate-session \"$XDG_SESSION_ID\"")
      (menu-separator)

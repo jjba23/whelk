@@ -62,6 +62,16 @@ statements that should be true in a few years and are not true yet:
    on a session without focus IPC, whelk still starts, still runs its launcher
    and notifications, and says in one log line what it could not do.
 
+## Built since this file was written
+
+0.19 closed five gaps this file used to list: a deliberate bar per monitor with
+hotplug, menus read from AT-SPI, a Scheme module whose update is a Guile
+procedure returning a widget, golden-image tests on a headless compositor, and
+a fail-closed PAM screen locker. They are documented in the README and covered
+by the test suite. The compositor-enforced `ext-session-lock-v1` variant of the
+last one is still future work; the locker is a user-space overlay with an
+exclusive keyboard.
+
 ## Features that are in scope and not built yet
 
 These are the ones the code already anticipates.
@@ -78,8 +88,6 @@ These are the ones the code already anticipates.
 - **Hyprland and river.** The session layer is a small interface with three
   implementations; `hyprctl` and river's IPC are two more. The workspaces and
   window modules would light up on two more desktops.
-- **Session lock.** `ext-session-lock-v1` -- whelk already knows how to clear
-  the clipboard when the session locks, which is half of a lock screen.
 - **An idle and inhibit daemon.** One process that owns idle timers, inhibitor
   locks and the do-not-disturb flag, because "why did my screen not blank" is
   exactly the kind of question a single-process shell should be able to answer.
@@ -88,19 +96,6 @@ These are the ones the code already anticipates.
 
 Not reserved for by the code, but plausible and in character.
 
-- **Menus from AT-SPI.** Reading an application's menus through the
-  accessibility bus is the principled answer to the dictionary: GTK, Qt and
-  Electron applications all expose their menu trees there. It is slow and
-  fiddly, but it would replace hand-written entries with the application's own
-  labels, translated into the session language.
-- **A module that is a Scheme procedure.** `(custom-module ...)` today runs a
-  command and formats its output. A `(scheme-module ...)` whose `update` is a
-  Guile procedure returning a widget would make a module a first-class user
-  object: an animated graph, a sparkline, a socket client, a personal
-  integration, all without touching C.
-- **Golden-image tests.** The suite covers the pure halves well; the drawing
-  half is untested. Rendering a bar in a headless compositor and diffing pixels
-  is the only way to catch a theme regression before a screenshot does.
 - **A Waybar converter.** `waybar-to-whelk config.jsonc style.css` printing a
   `settings.scm`, so a migration is a command rather than an afternoon. whelk
   already documents module-by-module parity with the heks-linux Waybar bar;
@@ -108,9 +103,6 @@ Not reserved for by the code, but plausible and in character.
 - **A reference generator.** Modes, bar keys, module options and settings
   docstrings are already in the source; a `whelk --docs` that emits the
   reference would keep the README from drifting.
-- **A bar for every monitor, deliberately.** The surface layer knows monitors;
-  the configuration should be able to say "this bar on the laptop, that bar on
-  the external monitor, nothing when there is only one", and follow hotplug.
 
 ## Contributions that would move the needle
 

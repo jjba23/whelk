@@ -17,6 +17,7 @@
 (define-module (whelk loader)
   #:use-module (whelk logger)
   #:use-module (whelk menudict)
+  #:use-module (whelk modules)
   #:use-module (whelk state)
   #:export (get-config-path
             default-config-dir
@@ -59,6 +60,9 @@ still asks for the bars afterwards rather than aborting the shell."
      ;; reload must replace what the last version of the file added, not stack
      ;; another copy of it in front.
      (reset-menu-edits!)
+     ;; A scheme-module's procedure belongs to the file that defined it; the
+     ;; token the previous file handed to C must not resolve against this one.
+     (reset-module-procedures!)
      (forget-shell-config! file-path)
      (let ((anon (fresh-settings-module)))
        (catch #t

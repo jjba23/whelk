@@ -225,7 +225,7 @@ char *whelk_session_focused_window_command(WhelkSession session) {
         "id=$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | sed 's/.* //'); "
         "[ -n \"$id\" ] && [ \"$id\" != 0x0 ] && "
         "printf 'WHELK_ACTIVE_WINDOW=%s\\n' \"$id\" && "
-        "xprop -id \"$id\" WM_NAME WM_CLASS _GTK_UNIQUE_BUS_NAME "
+        "xprop -id \"$id\" WM_NAME WM_CLASS _NET_WM_PID _GTK_UNIQUE_BUS_NAME "
         "_GTK_APPLICATION_OBJECT_PATH _GTK_WINDOW_OBJECT_PATH "
         "_GTK_MENUBAR_OBJECT_PATH _GTK_APP_MENU_OBJECT_PATH 2>/dev/null");
   case WHELK_SESSION_WAYLAND:
@@ -511,6 +511,68 @@ void whelk_session_parse_focused_paths(WhelkSession session, const char *text,
     else if (g_str_has_prefix(line, "_GTK_APP_MENU_OBJECT_PATH("))
       paths->appmenu_path = xprop_quoted_value(line, 0);
   }
+}
+
+static gint sway_focused_pid(WhelkJson *node) {
+  if (!node)
+    return 0;
+
+  if (whelk_json_object_bool(node, "focused", FALSE))
+    return (gint)whelk_json_object_number(node, "pid", 0);
+
+  WhelkJson *nodes = whelk_json_object_get(node, "nodes");
+  const guint count = nodes ? whelk_json_array_length(nodes) : 0;
+
+  for (guint i = 0; i < count; i++) {
+    const gint pid = sway_focused_pid(whelk_json_array_get(nodes, i));
+
+    if (pid > 0)
+      return pid;
+  }
+
+  WhelkJson *floating = whelk_json_object_get(node, "floating_nodes");
+  const guint floating_count = floating ? whelk_json_array_length(floating) : 0;
+
+  for (guint i = 0; i < floating_count; i++) {
+    const gint pid = sway_focused_pid(whelk_json_array_get(floating, i));
+
+    if (pid > 0)
+      return pid;
+  }
+
+  return 0;
+}
+
+gint whelk_session_focused_pid(WhelkSession session, const char *text) {
+  if (!text || *text == '\0')
+    return 0;
+
+  if (session == WHELK_SESSION_X11) {
+    const char *line = strstr(text, "_NET_WM_PID(CARDINAL) = ");
+
+    if (!line)
+      return 0;
+
+    return (gint)g_ascii_strtoll(line + strlen("_NET_WM_PID(CARDINAL) = "),
+                                 NULL, 10);
+  }
+
+  if (session != WHELK_SESSION_NIRI && session != WHELK_SESSION_SWAY)
+    return 0;
+
+  g_autoptr(GError) error = NULL;
+  WhelkJson *root = whelk_json_parse(text, &error);
+
+  if (!root)
+    return 0;
+
+  const gint pid =
+      session == WHELK_SESSION_NIRI
+          ? (gint)whelk_json_object_number(root, "pid", 0)
+          : sway_focused_pid(root);
+
+  whelk_json_free(root);
+  return pid;
 }
 
 gboolean whelk_session_parse_focused(WhelkSession session, const char *text,

@@ -58,6 +58,9 @@
             language-module
             keyboard-module
             custom-module
+            scheme-module
+            call-module-procedure
+            reset-module-procedures!
             clipboard-module
             dnd-module
             wifi-module
@@ -115,14 +118,64 @@ wrapper."
   (let ((pair (assq key (shell-module-options mod))))
     (if pair (cdr pair) #f)))
 
+;; =============================================================================
+;; Procedures as module readings
+;; =============================================================================
+;; A <shell-module> is intentionally plain data, but a `scheme-module' carries
+;; a procedure in its option alist.  A procedure is not a value the C bridge
+;; can read, and handing it over as a foreign pointer would make its lifetime
+;; GC's business.  Instead the Scheme side keeps the procedure in a registry
+;; and gives the bridge a token; the token resolves for as long as the settings
+;; file that made it is the loaded one.  `reset-module-procedures!' runs before
+;; each settings load, so a reload cannot call a procedure from the file it
+;; replaced.
+
+(define *module-procedures* (make-hash-table))
+(define *module-procedure-count* 0)
+
+(define (reset-module-procedures!)
+  "Forget every procedure a previous settings load registered."
+  (hash-clear! *module-procedures*)
+  (set! *module-procedure-count* 0))
+
+(define (register-module-procedure! proc)
+  "Register PROC and return the token the C bridge will call it by."
+  (set! *module-procedure-count* (+ *module-procedure-count* 1))
+  (let ((token (string-append "whelk-proc-"
+                              (number->string *module-procedure-count*))))
+    (hash-set! *module-procedures* token proc)
+    token))
+
+(define (call-module-procedure token)
+  "Call the procedure TOKEN names, or return #f when it is gone.
+
+This is what a `scheme-module' calls on every refresh.  The procedure runs on
+the GTK thread, because the C side calls it from the module's timer."
+  (let ((proc (hash-ref *module-procedures*
+                        (cond ((symbol? token) (symbol->string token))
+                              ((string? token) token)
+                              (else ""))
+                        #f)))
+    (if (procedure? proc) (proc) #f)))
+
+(define (option->bridge-pair pair)
+  "Return PAIR with a procedure value replaced by its registry token."
+  (if (procedure? (cdr pair))
+      (cons (car pair)
+            (string->symbol (register-module-procedure! (cdr pair))))
+      pair))
+
 (define (module->alist mod)
   "Return MOD as a plain alist for the C runtime.
 
 SRFI-9's accessors are macros, and a macro is not something the C bridge can
 call, so the bridge asks for this shape instead: a kind and an option alist, read
-with `assq' on either side and with no record syntax crossing the boundary."
+with `assq' on either side and with no record syntax crossing the boundary.
+A procedure option becomes a token, which is the one conversion this boundary
+needs."
   (list (cons 'kind (shell-module-kind mod))
-        (cons 'options (shell-module-options mod))))
+        (cons 'options
+              (map option->bridge-pair (shell-module-options mod)))))
 
 (define (module-options-ref mod key default)
   "Return the value of KEY in MOD, or DEFAULT when it has none."
@@ -238,6 +291,29 @@ once."
   "A reading produced by a shell command.  #:exec is the command; its first line
 of standard output is the reading; #:interval 0 renders it once."
   (apply module 'custom kv))
+
+(define* (scheme-module #:key update #:allow-other-keys #:rest kv)
+  "A module whose reading is a Guile procedure.
+
+UPDATE runs on the GTK thread every #:interval seconds and returns a widget
+built with the `whelk-widget-*' primitives: `(whelk-widget-label text)',
+`(whelk-widget-markup markup)', `(whelk-widget-progress value)',
+`(whelk-widget-level value)', `(whelk-widget-sparkline values)',
+`(whelk-widget-image icon-name)', `(whelk-widget-box orientation child ...)',
+`(whelk-widget-button label thunk)' and `(whelk-widget-add-class widget
+class)'.  A plain string or number is accepted too and becomes a label.
+
+Because UPDATE is ordinary Scheme, it can read a socket, a file, an API or a
+closure the settings file built.  A returned widget replaces the previous one;
+returning #f leaves the last reading on screen.  The procedure's lifetime is
+the loaded configuration's: a reload re-evaluates it."
+  (if (procedure? update)
+      (apply module 'scheme (append kv (list #:update update)))
+      (begin
+        (log-warn "Modules"
+                  "scheme-module needs #:update to be a procedure, got: ~s"
+                  update)
+        (apply module 'scheme kv))))
 
 (define* (clipboard-module #:rest kv)
   "The clipboard history's glyph.  #:format uses {count} and defaults to

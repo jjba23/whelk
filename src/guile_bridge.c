@@ -6,6 +6,7 @@
 #include "guile_bridge.h"
 
 #include <libguile.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -247,6 +248,36 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   g_free(bar->monitor);
   bar->monitor = alist_text(alist, "monitor", "all");
 
+  g_autofree char *when = alist_text(alist, "when", "always");
+
+  bar->when = whelk_bar_when_from_text(when);
+
+  /* A list of connectors is the deliberate form: each output in it gets this
+   * bar, and an output that is not in it gets none. */
+  SCM monitors = alist_get(alist, "monitors");
+  gboolean monitors_all = FALSE;
+
+  for (SCM cursor = monitors; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    g_autofree char *connector = scm_text(SCM_CAR(cursor));
+
+    if (!connector || *connector == '\0')
+      continue;
+
+    if (g_strcmp0(connector, "all") == 0) {
+      monitors_all = TRUE;
+      break;
+    }
+
+    g_ptr_array_add(bar->monitors, g_strdup(connector));
+  }
+
+  /* "all" in a list is the same rule as #:monitor "all". */
+  if (monitors_all) {
+    g_ptr_array_set_size(bar->monitors, 0);
+    g_free(bar->monitor);
+    bar->monitor = g_strdup("all");
+  }
+
   bar->font = alist_optional_text(alist, "font");
   bar->font_size = alist_optional_text(alist, "font-size");
   bar->icon_font = alist_optional_text(alist, "icon-font");
@@ -261,6 +292,567 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   collect_modules(bar->right, alist_get(alist, "modules-right"));
 
   return bar;
+}
+
+/* =========================================================================
+ * WIDGETS FROM SCHEME
+ * =========================================================================
+ * A `scheme-module' returns a GTK widget.  Guile has no GTK bindings here, so
+ * the primitives below are the small, deliberate surface through which a
+ * settings file builds one: a label, markup, a progress bar, a level bar, a
+ * sparkline, an icon, a box and a button.  A procedure may also return a
+ * plain string or a list such as `(label "42")' for the same widgets; the
+ * explicit primitives exist because they make the common case read like the
+ * thing it creates and because a button needs a Scheme closure.
+ *
+ * Ownership is explicit.  A widget created by a primitive lives in a smob
+ * until the module takes it; taking it clears the smob's ownership, so a GC
+ * after the handover cannot free a widget the bar is drawing.  A smob that is
+ * never taken destroys its widget when Guile collects it.
+ */
+
+typedef struct {
+  GtkWidget *widget;
+  gboolean transferred;
+} ScmWidget;
+
+static scm_t_bits scm_widget_tag;
+
+static char *scm_text_copy(SCM value) {
+  SCM text = value;
+
+  if (scm_is_symbol(value))
+    text = scm_symbol_to_string(value);
+  else if (!scm_is_string(value))
+    return NULL;
+
+  char *raw = scm_to_utf8_string(text);
+
+  if (!raw)
+    return NULL;
+
+  char *copy = g_strdup(raw);
+
+  free(raw);
+  return copy;
+}
+
+static size_t scm_widget_free(SCM smob) {
+  ScmWidget *box = (ScmWidget *)SCM_SMOB_DATA(smob);
+
+  if (box) {
+    if (!box->transferred && box->widget) {
+      if (gtk_widget_get_parent(box->widget))
+        gtk_widget_unparent(box->widget);
+
+      g_object_unref(box->widget);
+    }
+
+    scm_gc_free(box, sizeof *box, "whelk widget");
+  }
+
+  return 0;
+}
+
+static SCM widget_smob(GtkWidget *widget) {
+  ScmWidget *box = scm_gc_malloc(sizeof *box, "whelk widget");
+
+  box->widget = widget;
+  box->transferred = FALSE;
+
+  /* The smob owns a real reference, so a widget that left a box can still be
+   * handed back by the procedure and outlive the expression that made it. */
+  g_object_ref_sink(widget);
+
+  SCM_RETURN_NEWSMOB(scm_widget_tag, box);
+}
+
+static GtkWidget *widget_from_description(SCM value);
+
+/* Takes the widget out of VALUE, or builds it from a description.  The caller
+ * owns a reference and must release it after appending the widget. */
+static GtkWidget *take_widget(SCM value) {
+  if (SCM_SMOB_PREDICATE(scm_widget_tag, value)) {
+    ScmWidget *box = (ScmWidget *)SCM_SMOB_DATA(value);
+
+    if (!box || box->transferred)
+      return NULL;
+
+    box->transferred = TRUE;
+    return box->widget;
+  }
+
+  GtkWidget *widget = widget_from_description(value);
+
+  if (widget)
+    g_object_ref_sink(widget);
+
+  return widget;
+}
+
+static GtkWidget *label_widget(const char *text, const char *css) {
+  GtkWidget *label = gtk_label_new(text ? text : "");
+
+  gtk_widget_set_valign(label, GTK_ALIGN_CENTER);
+
+  if (css && *css)
+    gtk_widget_add_css_class(label, css);
+
+  return label;
+}
+
+typedef struct {
+  double *values;
+  guint count;
+  GdkRGBA ink;
+} Sparkline;
+
+static void sparkline_free(gpointer data) {
+  Sparkline *spark = data;
+
+  if (!spark)
+    return;
+
+  g_free(spark->values);
+  g_free(spark);
+}
+
+static void draw_sparkline(GtkDrawingArea *area, cairo_t *cr, int width,
+                           int height, gpointer data) {
+  (void)area;
+
+  Sparkline *spark = data;
+
+  if (!spark || spark->count == 0 || width <= 2 || height <= 2)
+    return;
+
+  double minimum = spark->values[0];
+  double maximum = spark->values[0];
+
+  for (guint i = 1; i < spark->count; i++) {
+    minimum = MIN(minimum, spark->values[i]);
+    maximum = MAX(maximum, spark->values[i]);
+  }
+
+  if (maximum - minimum < 0.000001)
+    maximum = minimum + 1.0;
+
+  const double step = spark->count > 1
+                          ? (double)(width - 2) / (double)(spark->count - 1)
+                          : 0.0;
+
+  for (guint i = 0; i < spark->count; i++) {
+    const double x = 1.0 + step * (double)i;
+    const double y = (double)(height - 1) -
+                     ((spark->values[i] - minimum) / (maximum - minimum)) *
+                         (double)(height - 2);
+
+    if (i == 0)
+      cairo_move_to(cr, x, y);
+    else
+      cairo_line_to(cr, x, y);
+  }
+
+  cairo_set_line_width(cr, 1.4);
+  cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+  cairo_set_source_rgba(cr, spark->ink.red, spark->ink.green, spark->ink.blue,
+                        0.92);
+  cairo_stroke_preserve(cr);
+
+  cairo_line_to(cr, (double)(width - 1), (double)(height - 1));
+  cairo_line_to(cr, 1.0, (double)(height - 1));
+  cairo_close_path(cr);
+  cairo_set_source_rgba(cr, spark->ink.red, spark->ink.green, spark->ink.blue,
+                        0.16);
+  cairo_fill(cr);
+}
+
+static GtkWidget *sparkline_widget(SCM values, int width, int height,
+                                   const char *color) {
+  if (!scm_is_pair(values) && !scm_is_null(values))
+    return NULL;
+
+  guint count = 0;
+
+  for (SCM cursor = values; scm_is_pair(cursor); cursor = SCM_CDR(cursor))
+    if (scm_is_number(SCM_CAR(cursor)))
+      count++;
+
+  if (count == 0)
+    return NULL;
+
+  Sparkline *spark = g_new0(Sparkline, 1);
+
+  spark->values = g_new0(double, count);
+  spark->count = count;
+  spark->ink = (GdkRGBA){0.92, 0.92, 0.94, 1.0};
+
+  if (color && *color)
+    gdk_rgba_parse(&spark->ink, color);
+
+  guint at = 0;
+
+  for (SCM cursor = values; scm_is_pair(cursor) && at < count;
+       cursor = SCM_CDR(cursor))
+    if (scm_is_number(SCM_CAR(cursor)))
+      spark->values[at++] = scm_to_double(SCM_CAR(cursor));
+
+  GtkWidget *area = gtk_drawing_area_new();
+
+  gtk_widget_add_css_class(area, "whelk-scheme-sparkline");
+  gtk_widget_set_size_request(area, width, height);
+  gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(area), width);
+  gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(area), height);
+  gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), draw_sparkline, spark,
+                                 sparkline_free);
+
+  return area;
+}
+
+typedef struct {
+  SCM proc;
+} ScmButton;
+
+static void scm_button_free(gpointer data, GClosure *closure) {
+  (void)closure;
+
+  ScmButton *button = data;
+
+  if (!button)
+    return;
+
+  scm_gc_unprotect_object(button->proc);
+  g_free(button);
+}
+
+static SCM call_scm_button(void *data) {
+  return scm_call_0(*(SCM *)data);
+}
+
+static SCM on_scm_button_error(void *data, SCM tag, SCM args) {
+  (void)data;
+  (void)tag;
+  (void)args;
+
+  LOG_C_WARN("Guile", "a scheme-module button's procedure raised");
+
+  return SCM_BOOL_F;
+}
+
+static void on_scm_button_clicked(GtkButton *button, gpointer data) {
+  (void)button;
+
+  ScmButton *context = data;
+
+  scm_internal_catch(SCM_BOOL_T, call_scm_button, &context->proc,
+                     on_scm_button_error, NULL);
+}
+
+static GtkWidget *button_widget(const char *label, SCM proc) {
+  GtkWidget *button = gtk_button_new_with_label(label ? label : "");
+  ScmButton *context = g_new0(ScmButton, 1);
+
+  context->proc = proc;
+  scm_gc_protect_object(proc);
+  g_signal_connect_data(button, "clicked", G_CALLBACK(on_scm_button_clicked),
+                        context, scm_button_free, 0);
+
+  return button;
+}
+
+static GtkWidget *box_widget(SCM orientation, SCM children) {
+  g_autofree char *direction = scm_text_copy(orientation);
+  const GtkOrientation horizontal =
+      (direction && g_strcmp0(direction, "vertical") == 0)
+          ? GTK_ORIENTATION_VERTICAL
+          : GTK_ORIENTATION_HORIZONTAL;
+  GtkWidget *box = gtk_box_new(horizontal, 6);
+
+  gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+
+  for (SCM cursor = children; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    GtkWidget *child = take_widget(SCM_CAR(cursor));
+
+    if (!child)
+      continue;
+
+    gtk_box_append(GTK_BOX(box), child);
+    g_object_unref(child);
+  }
+
+  return box;
+}
+
+static GtkWidget *widget_from_description(SCM value) {
+  if (scm_is_string(value) || scm_is_number(value) || scm_is_symbol(value)) {
+    g_autofree char *text = scm_is_number(value)
+                                ? g_strdup_printf("%g", scm_to_double(value))
+                                : scm_text_copy(value);
+
+    return label_widget(text, NULL);
+  }
+
+  if (!scm_is_pair(value))
+    return NULL;
+
+  g_autofree char *kind = scm_text_copy(SCM_CAR(value));
+
+  if (!kind)
+    return NULL;
+
+  SCM args = SCM_CDR(value);
+
+  if (g_strcmp0(kind, "label") == 0 || g_strcmp0(kind, "markup") == 0) {
+    g_autofree char *text = scm_is_pair(args) ? scm_text_copy(SCM_CAR(args))
+                                              : NULL;
+    g_autofree char *css =
+        (scm_is_pair(args) && scm_is_pair(SCM_CDR(args)))
+            ? scm_text_copy(SCM_CADR(args))
+            : NULL;
+    GtkWidget *label = label_widget(NULL, css);
+
+    if (g_strcmp0(kind, "markup") == 0)
+      gtk_label_set_markup(GTK_LABEL(label), text ? text : "");
+    else
+      gtk_label_set_text(GTK_LABEL(label), text ? text : "");
+
+    return label;
+  }
+
+  if (g_strcmp0(kind, "progress") == 0 || g_strcmp0(kind, "level") == 0) {
+    const double fraction =
+        scm_is_pair(args) && scm_is_number(SCM_CAR(args))
+            ? CLAMP(scm_to_double(SCM_CAR(args)), 0.0, 1.0)
+            : 0.0;
+
+    if (g_strcmp0(kind, "level") == 0) {
+      GtkWidget *level = gtk_level_bar_new_for_interval(0.0, 1.0);
+
+      gtk_widget_add_css_class(level, "whelk-scheme-level");
+      gtk_level_bar_set_value(GTK_LEVEL_BAR(level), fraction);
+      gtk_widget_set_hexpand(level, TRUE);
+      return level;
+    }
+
+    GtkWidget *progress = gtk_progress_bar_new();
+
+    gtk_widget_add_css_class(progress, "whelk-scheme-progress");
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), fraction);
+    gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress), FALSE);
+    gtk_widget_set_hexpand(progress, TRUE);
+    return progress;
+  }
+
+  if (g_strcmp0(kind, "sparkline") == 0 && scm_is_pair(args)) {
+    const int width =
+        scm_is_pair(SCM_CDR(args)) && scm_is_number(SCM_CADR(args))
+            ? scm_to_int(SCM_CADR(args))
+            : 90;
+    const int height =
+        scm_is_pair(SCM_CDR(args)) && scm_is_pair(SCM_CDDR(args)) &&
+                scm_is_number(SCM_CADDR(args))
+            ? scm_to_int(SCM_CADDR(args))
+            : 22;
+    g_autofree char *color =
+        scm_is_pair(SCM_CDR(args)) && scm_is_pair(SCM_CDDR(args)) &&
+                scm_is_pair(SCM_CDDDR(args))
+            ? scm_text_copy(SCM_CADDDR(args))
+            : NULL;
+
+    return sparkline_widget(SCM_CAR(args), MAX(16, width), MAX(8, height),
+                            color);
+  }
+
+  if (g_strcmp0(kind, "image") == 0 && scm_is_pair(args)) {
+    g_autofree char *name = scm_text_copy(SCM_CAR(args));
+    const int size =
+        scm_is_pair(SCM_CDR(args)) && scm_is_number(SCM_CADR(args))
+            ? scm_to_int(SCM_CADR(args))
+            : 16;
+    GtkWidget *image = gtk_image_new_from_icon_name(name ? name : "") ;
+
+    gtk_image_set_pixel_size(GTK_IMAGE(image), size);
+    return image;
+  }
+
+  if (g_strcmp0(kind, "box") == 0 && scm_is_pair(args))
+    return box_widget(SCM_CAR(args), SCM_CDR(args));
+
+  if (g_strcmp0(kind, "button") == 0 && scm_is_pair(args) &&
+      scm_is_pair(SCM_CDR(args))) {
+    g_autofree char *label = scm_text_copy(SCM_CAR(args));
+    SCM proc = SCM_CADR(args);
+
+    if (scm_is_true(scm_procedure_p(proc)))
+      return button_widget(label, proc);
+  }
+
+  return NULL;
+}
+
+/* --- the primitives ------------------------------------------------------- */
+
+static SCM scm_widget_label(SCM text, SCM css) {
+  g_autofree char *value = scm_text_copy(text);
+  g_autofree char *class = scm_text_copy(css);
+
+  return widget_smob(label_widget(value, class));
+}
+
+static SCM scm_widget_markup(SCM markup, SCM css) {
+  g_autofree char *value = scm_text_copy(markup);
+  g_autofree char *class = scm_text_copy(css);
+  GtkWidget *label = label_widget(NULL, class);
+
+  gtk_label_set_markup(GTK_LABEL(label), value ? value : "");
+  return widget_smob(label);
+}
+
+static SCM scm_widget_progress(SCM fraction) {
+  const double value = scm_is_number(fraction) ? scm_to_double(fraction) : 0.0;
+  GtkWidget *progress = gtk_progress_bar_new();
+
+  gtk_widget_add_css_class(progress, "whelk-scheme-progress");
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress),
+                                CLAMP(value, 0.0, 1.0));
+  gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress), FALSE);
+  gtk_widget_set_hexpand(progress, TRUE);
+
+  return widget_smob(progress);
+}
+
+static SCM scm_widget_level(SCM fraction) {
+  const double value = scm_is_number(fraction) ? scm_to_double(fraction) : 0.0;
+  GtkWidget *level = gtk_level_bar_new_for_interval(0.0, 1.0);
+
+  gtk_widget_add_css_class(level, "whelk-scheme-level");
+  gtk_level_bar_set_value(GTK_LEVEL_BAR(level), CLAMP(value, 0.0, 1.0));
+  gtk_widget_set_hexpand(level, TRUE);
+
+  return widget_smob(level);
+}
+
+static SCM scm_widget_sparkline(SCM values, SCM width, SCM height, SCM color) {
+  const int w = scm_is_number(width) ? scm_to_int(width) : 90;
+  const int h = scm_is_number(height) ? scm_to_int(height) : 22;
+  g_autofree char *ink = scm_text_copy(color);
+  GtkWidget *area = sparkline_widget(values, MAX(16, w), MAX(8, h), ink);
+
+  return area ? widget_smob(area) : SCM_BOOL_F;
+}
+
+static SCM scm_widget_image(SCM name, SCM size) {
+  g_autofree char *icon = scm_text_copy(name);
+  const int pixels = scm_is_number(size) ? scm_to_int(size) : 16;
+  GtkWidget *image = gtk_image_new_from_icon_name(icon ? icon : "");
+
+  gtk_image_set_pixel_size(GTK_IMAGE(image), pixels);
+  return widget_smob(image);
+}
+
+static SCM scm_widget_box(SCM orientation, SCM children) {
+  return widget_smob(box_widget(orientation, children));
+}
+
+static SCM scm_widget_button(SCM label, SCM proc) {
+  g_autofree char *text = scm_text_copy(label);
+
+  if (!scm_is_true(scm_procedure_p(proc)))
+    return SCM_BOOL_F;
+
+  return widget_smob(button_widget(text, proc));
+}
+
+static SCM scm_widget_add_class(SCM widget, SCM css) {
+  g_autofree char *class = scm_text_copy(css);
+
+  if (!SCM_SMOB_PREDICATE(scm_widget_tag, widget) || !class)
+    return widget;
+
+  ScmWidget *box = (ScmWidget *)SCM_SMOB_DATA(widget);
+
+  if (box && box->widget)
+    gtk_widget_add_css_class(box->widget, class);
+
+  return widget;
+}
+
+static void define_widget_primitive(const char *name, scm_t_subr fn, int required,
+                                    int optional, int rest) {
+  scm_c_define_gsubr(name, required, optional, rest, fn);
+  scm_c_export(name, NULL);
+}
+
+void whelk_bridge_register_widget_primitives(void) {
+  static gboolean registered = FALSE;
+
+  if (registered)
+    return;
+
+  SCM module = scm_c_resolve_module("whelk core");
+  SCM previous = scm_set_current_module(module);
+
+  scm_widget_tag = scm_make_smob_type("whelk-widget", sizeof(ScmWidget));
+  scm_set_smob_free(scm_widget_tag, scm_widget_free);
+
+  define_widget_primitive("whelk-widget-label",
+                          (scm_t_subr)(intptr_t)scm_widget_label, 1, 1, 0);
+  define_widget_primitive("whelk-widget-markup",
+                          (scm_t_subr)(intptr_t)scm_widget_markup, 1, 1, 0);
+  define_widget_primitive("whelk-widget-progress",
+                          (scm_t_subr)(intptr_t)scm_widget_progress, 1, 0, 0);
+  define_widget_primitive("whelk-widget-level",
+                          (scm_t_subr)(intptr_t)scm_widget_level, 1, 0, 0);
+  define_widget_primitive("whelk-widget-sparkline",
+                          (scm_t_subr)(intptr_t)scm_widget_sparkline, 1, 3, 0);
+  define_widget_primitive("whelk-widget-image",
+                          (scm_t_subr)(intptr_t)scm_widget_image, 1, 1, 0);
+  define_widget_primitive("whelk-widget-box",
+                          (scm_t_subr)(intptr_t)scm_widget_box, 1, 0, 1);
+  define_widget_primitive("whelk-widget-button",
+                          (scm_t_subr)(intptr_t)scm_widget_button, 2, 0, 0);
+  define_widget_primitive("whelk-widget-add-class",
+                          (scm_t_subr)(intptr_t)scm_widget_add_class, 2, 0, 0);
+
+  scm_set_current_module(previous);
+  registered = TRUE;
+}
+
+static SCM call_module_widget_thunk(void *data) {
+  return call1("whelk modules", "call-module-procedure",
+               scm_from_utf8_string((const char *)data));
+}
+
+static SCM on_module_widget_error(void *data, SCM tag, SCM args) {
+  (void)data;
+  (void)tag;
+  (void)args;
+
+  LOG_C_WARN("Guile",
+             "a scheme-module update raised: keeping its previous widget");
+
+  return SCM_BOOL_F;
+}
+
+GtkWidget *whelk_bridge_call_module_widget(const char *token) {
+  if (!token || *token == '\0')
+    return NULL;
+
+  SCM result = scm_internal_catch(SCM_BOOL_T, call_module_widget_thunk,
+                                  (void *)token, on_module_widget_error, NULL);
+
+  if (scm_is_eq(result, SCM_BOOL_F) || scm_is_eq(result, SCM_UNSPECIFIED) ||
+      scm_is_null(result))
+    return NULL;
+
+  GtkWidget *widget = take_widget(result);
+
+  if (!widget)
+    LOG_C_DEBUG("Guile",
+                "a scheme-module update returned something that is not a "
+                "widget");
+
+  return widget;
 }
 
 /* =========================================================================
@@ -313,6 +905,9 @@ gboolean whelk_bridge_use_core(void) {
                      on_use_core_error, NULL);
 
   core_loaded = public_proc("whelk core", "init-shell!") != SCM_BOOL_F;
+
+  if (core_loaded)
+    whelk_bridge_register_widget_primitives();
 
   return core_loaded;
 }

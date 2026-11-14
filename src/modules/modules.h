@@ -33,6 +33,8 @@ WhelkModule *whelk_cpu_module_new(const WhelkModuleSpec *spec,
                                   const WhelkBarConfig *bar);
 WhelkModule *whelk_custom_module_new(const WhelkModuleSpec *spec,
                                      const WhelkBarConfig *bar);
+WhelkModule *whelk_scheme_module_new(const WhelkModuleSpec *spec,
+                                     const WhelkBarConfig *bar);
 WhelkModule *whelk_dnd_module_new(const WhelkModuleSpec *spec,
                                   const WhelkBarConfig *bar);
 WhelkModule *whelk_keyboard_module_new(const WhelkModuleSpec *spec,

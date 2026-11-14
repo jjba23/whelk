@@ -31,6 +31,8 @@
             bar-config-edge
             bar-config-layer
             bar-config-monitor
+            bar-config-monitors
+            bar-config-when
             bar-config-height
             bar-config-margin-top
             bar-config-margin-right
@@ -87,7 +89,7 @@
 ;; =============================================================================
 
 (define-record-type <bar-config>
-  (make-bar-config name theme edge layer monitor height
+  (make-bar-config name theme edge layer monitor monitors when height
                    margin-top margin-right margin-bottom margin-left
                    exclusive? spacing padding
                    font font-size icon-font
@@ -99,6 +101,8 @@
   (edge bar-config-edge)
   (layer bar-config-layer)
   (monitor bar-config-monitor)
+  (monitors bar-config-monitors)
+  (when bar-config-when)
   (height bar-config-height)
   (margin-top bar-config-margin-top)
   (margin-right bar-config-margin-right)
@@ -296,11 +300,47 @@ in CSS order (top right bottom left)."
 ;; The constructor a settings file calls
 ;; =============================================================================
 
+(define (normalize-monitors monitors)
+  "Return MONITORS as a list of connector names.
+
+A settings file may write one connector, a list of them, or \"all\"; each
+becomes the same list so the C side has one shape to evaluate."
+  (define (name value)
+    (cond ((string? value) value)
+          ((symbol? value) (symbol->string value))
+          (else #f)))
+  (cond ((list? monitors)
+         (filter-map name monitors))
+        ((or (string? monitors) (symbol? monitors))
+         (let ((value (name monitors)))
+           (if (and value (not (string-null? value))) (list value) '())))
+        (else '())))
+
+(define (normalize-when condition)
+  "Return CONDITION as 'always, 'single or 'multi."
+  (let* ((value (cond ((symbol? condition) condition)
+                      ((string? condition) (string->symbol condition))
+                      (else #f)))
+         (known (and value
+                     (memq value '(always single single-monitor multi
+                                   multi-monitor)))))
+    (cond ((not known)
+           (if value
+               (log-warn "State"
+                         "Unknown bar monitor condition ~s: using 'always"
+                         condition))
+           'always)
+          ((memq value '(single single-monitor)) 'single)
+          ((memq value '(multi multi-monitor)) 'multi)
+          (else 'always))))
+
 (define* (bar #:key
               (name 'main)
               (position 'top)
               (layer 'top)
               (monitor "all")
+              (monitors '())
+              (when 'always)
               (height 32)
               (margin 0)
               (exclusive? #t)
@@ -324,8 +364,12 @@ in CSS order (top right bottom left)."
 POSITION is the edge it is anchored to ('top, 'bottom, 'left, 'right).  HEIGHT
 is its thickness -- the row's height on the top and bottom edges, its column's
 width on the left and right ones.  MONITOR is \"all\", \"default\" or a connector
-name such as \"DP-1\".  MARGIN is a number or a CSS-style list (top right bottom
-left) of pixels between the bar and the screen edge.  EXCLUSIVE? reserves the
+name such as \"DP-1\".  MONITORS is a list of connector names: the bar appears
+on each of them and on no other output.  WHEN is the output-count rule --
+'always, 'single or 'multi -- so a laptop bar can be hidden the moment an
+external screen is plugged in, and an external bar can exist only while there
+is more than one screen.  MARGIN is a number or a CSS-style list (top right
+bottom left) of pixels between the bar and the screen edge.  EXCLUSIVE? reserves the
 bar's thickness so maximised windows stop at it, which is what makes the bar a
 bar rather than an overlay.  LEFT, CENTER and RIGHT are lists of modules from
 (whelk modules).
@@ -344,8 +388,10 @@ readable bar."
          ;; A theme is a starting point: whatever the bar sets itself wins.
          (from-theme (lambda (key explicit)
                        (if explicit explicit (assq-ref palette key)))))
-    (when (and (not (list? left)) (not (list? center)) (not (list? right)))
-      (log-warn "State" "Bar ~a: module lists should be lists" name))
+    ;; `when' is also this function's keyword argument, so the conditional is
+    ;; spelled with `if' rather than shadowing the syntax form.
+    (if (and (not (list? left)) (not (list? center)) (not (list? right)))
+        (log-warn "State" "Bar ~a: module lists should be lists" name))
     (make-bar-config name
                      (cond ((symbol? theme) theme)
                            ((string? theme) (string->symbol theme))
@@ -355,6 +401,8 @@ readable bar."
                      (cond ((symbol? monitor) (symbol->string monitor))
                            ((string? monitor) monitor)
                            (else "all"))
+                     (normalize-monitors monitors)
+                     (normalize-when when)
                      (as-int height 32)
                      (list-ref margins 0)
                      (list-ref margins 1)
@@ -558,6 +606,8 @@ because a settings file may want to read the menu it configured."
         (cons 'edge (bar-config-edge b))
         (cons 'layer (bar-config-layer b))
         (cons 'monitor (bar-config-monitor b))
+        (cons 'monitors (bar-config-monitors b))
+        (cons 'when (bar-config-when b))
         (cons 'height (bar-config-height b))
         (cons 'margin-top (bar-config-margin-top b))
         (cons 'margin-right (bar-config-margin-right b))

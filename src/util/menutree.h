@@ -51,6 +51,13 @@ typedef struct {
   char *dbus_service;
   char *dbus_path;
   int dbus_item;
+  /* An entry that lives in an application's accessibility tree.  AT-SPI is
+   * not a menu protocol: it addresses the accessible object, and choosing the
+   * entry sends DoAction to it.  The path is on the accessibility bus, not the
+   * session bus, which is why it cannot reuse dbus_service/dbus_path. */
+  char *atspi_service;
+  char *atspi_path;
+  int atspi_action;
   WhelkMenu *submenu;
 } WhelkMenuEntry;
 

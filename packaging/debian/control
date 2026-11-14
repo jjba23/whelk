@@ -9,6 +9,7 @@ Build-Depends: debhelper-compat (= 13),
                libgtk-4-dev,
                libgtk4-layer-shell-dev,
                guile-3.0-dev,
+               libpam0g-dev,
                libwayland-dev,
                libglib2.0-dev-bin
 Standards-Version: 4.6.2

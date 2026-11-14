@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.4.0
+Version:        0.19.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -31,9 +31,11 @@ BuildRequires:  pkgconfig(gio-unix-2.0)
 BuildRequires:  pkgconfig(gtk4)
 BuildRequires:  pkgconfig(gtk4-layer-shell-0)
 BuildRequires:  pkgconfig(guile-3.0)
+BuildRequires:  pkgconfig(pam)
 BuildRequires:  pkgconfig(wayland-client)
 Requires:       gtk4
 Requires:       guile
+Requires:       pam
 Requires:       hicolor-icon-theme
 Requires:       wtype
 
@@ -72,6 +74,10 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.19.0
+- AT-SPI menus, Scheme modules, per-monitor bars, golden-image tests and a
+  fail-closed PAM screen locker.  Desktop widgets are visible again.
+
 * Thu Nov 12 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.3.3
 - The X11 dock hints are exercised on a real X server: struts match the bar.
 

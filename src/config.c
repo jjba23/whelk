@@ -179,6 +179,8 @@ WhelkBarConfig *whelk_bar_config_new(const char *name) {
   bar->edge = GTK_LAYER_SHELL_EDGE_TOP;
   bar->layer = GTK_LAYER_SHELL_LAYER_TOP;
   bar->monitor = g_strdup("all");
+  bar->monitors = g_ptr_array_new_with_free_func(g_free);
+  bar->when = WHELK_BAR_WHEN_ALWAYS;
   bar->height = 32;
   bar->margin_top = 0;
   bar->margin_right = 0;
@@ -240,6 +242,11 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
 
   g_free(copy->monitor);
   copy->monitor = g_strdup(bar->monitor ? bar->monitor : "all");
+  copy->when = bar->when;
+
+  for (guint i = 0; bar->monitors && i < bar->monitors->len; i++)
+    g_ptr_array_add(copy->monitors,
+                    g_strdup(g_ptr_array_index(bar->monitors, i)));
 
   copy->font = g_strdup(bar->font);
   copy->theme = g_strdup(bar->theme);
@@ -265,6 +272,7 @@ void whelk_bar_config_free(WhelkBarConfig *bar) {
   g_free(bar->name);
   g_free(bar->theme);
   g_free(bar->monitor);
+  g_clear_pointer(&bar->monitors, g_ptr_array_unref);
   g_free(bar->font);
   g_free(bar->font_size);
   g_free(bar->icon_font);
@@ -334,6 +342,35 @@ void whelk_clipboard_config_free(WhelkClipboardConfig *config) {
 
   g_free(config->persist_path);
   g_free(config);
+}
+
+WhelkBarWhen whelk_bar_when_from_text(const char *text) {
+  if (!text)
+    return WHELK_BAR_WHEN_ALWAYS;
+
+  if (g_strcmp0(text, "single") == 0 ||
+      g_strcmp0(text, "single-monitor") == 0 ||
+      g_strcmp0(text, "one") == 0)
+    return WHELK_BAR_WHEN_SINGLE;
+
+  if (g_strcmp0(text, "multi") == 0 ||
+      g_strcmp0(text, "multi-monitor") == 0 ||
+      g_strcmp0(text, "several") == 0)
+    return WHELK_BAR_WHEN_MULTI;
+
+  return WHELK_BAR_WHEN_ALWAYS;
+}
+
+const char *whelk_bar_when_name(WhelkBarWhen when) {
+  switch (when) {
+  case WHELK_BAR_WHEN_SINGLE:
+    return "single";
+  case WHELK_BAR_WHEN_MULTI:
+    return "multi";
+  case WHELK_BAR_WHEN_ALWAYS:
+  default:
+    return "always";
+  }
 }
 
 const char *whelk_edge_name(GtkLayerShellEdge edge) {

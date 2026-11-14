@@ -89,10 +89,11 @@ the documented one -- see [[#configuration][Configuration]].
   and Stocks fetch live data; every card can be moved, resized, restyled or
   replaced by a command-backed =custom= widget from =settings.scm=; see
   [[#desktop-widgets][Desktop widgets]].
-- *Twenty module kinds, one shape.* Clock, CPU, memory, battery, backlight,
+- *Twenty-two module kinds, one shape.* Clock, CPU, memory, battery, backlight,
   audio, power profile, workspaces, focused window, keyboard layout, Caps Lock,
   Wi-Fi, Bluetooth, notifications, do not disturb, the clipboard, tray, the
-  shell menu, the global menu, and =custom-module= for anything else.  All of them take the same keyword options:
+  shell menu, the global menu, =custom-module=, and =scheme-module= for a Guile
+  procedure that returns a widget.  All of them take the same keyword options:
   an icon, a format, an interval, a tooltip and six mouse actions.
 - *The configuration is a program.* =settings.scm= is evaluated, not parsed:
   bars can be built with =map=, a module list can be computed, and a settings
@@ -109,16 +110,17 @@ the documented one -- see [[#configuration][Configuration]].
   value a reload away from being on screen.  The network, Bluetooth and
   notification panels have their own modules, CLI flags and keybindings and do
   not need a second home in the session menu.
-- *The focused application's menus, from five producers.* Its own
+- *The focused application's menus, from six producers.* Its own
   =File=/=Edit=/=View= where it publishes a menubar over D-Bus -- both
   =org.gtk.Menus= (GTK) and =com.canonical.dbusmenu= (Qt, KDE, appmenu
-  registrars) -- else a command the configuration names, else the documented
-  shortcuts of ninety-five applications, each entry showing its chord and
-  typing it; File also carries =Close Window= and =New Window= from the
-  desktop entry's =Exec= whenever it has one; and =Window= holds the
-  compositor's arranging verbs -- maximize, float, move and full screen.
-  Emacs multi-key chords such as =C-x C-s= are sequences, shown and typed
-  chord by chord.  Never an invented menu.
+  registrars) -- else the same tree read through AT-SPI, the accessibility bus
+  GTK, Qt and Electron applications already expose; else a command the
+  configuration names, else the documented shortcuts of ninety-five
+  applications, each entry showing its chord and typing it; File also carries
+  =Close Window= and =New Window= from the desktop entry's =Exec= whenever it
+  has one; and =Window= holds the compositor's arranging verbs -- maximize,
+  float, move and full screen.  Emacs multi-key chords such as =C-x C-s= are
+  sequences, shown and typed chord by chord.  Never an invented menu.
 - *A tray that shows what is running.* StatusNotifierItems -- JetBrains
   Toolbox, network applets, chat clients -- over the standard
   =RegisteredStatusNotifierItems= list, with a chevron for icons beyond
@@ -477,6 +479,44 @@ to keep, or leave persistence off.
 Only the regular clipboard is managed.  Wayland's primary selection is a
 separate selection with its own lifetime, and whelk does not record it.
 
+** The lock screen
+:PROPERTIES:
+:CUSTOM_ID: lock-screen
+:END:
+
+=whelk --lock= locks every output; =shell:lock= in the shell menu and
+logind's =Lock= signal (which is what =loginctl lock-session= sends) reach the
+same code.  Each output gets an overlay layer surface and the primary one takes
+the keyboard exclusively.  There is no close button, no Escape and no
+click-outside: the only thing that removes the surfaces is a successful PAM
+authentication for the session user.
+
+The security properties are deliberate:
+
+- fail closed -- a missing PAM, a conversation error, a failed account check or
+a missing display leaves the session locked;
+- no username field -- PAM is asked about =g_get_user_name()=, never about a
+name typed at the lock screen;
+- one attempt at a time, on a worker thread; the password is wiped as soon as
+PAM has seen it, and failures double the wait from one second to a 30-second
+cap;
+- logind's =Lock= signal locks the session, and =clear-on-lock= clears unpinned
+clipboard entries at the same moment;
+- no command-line or D-Bus unlock path exists.
+
+The locker uses the =login= PAM stack.  A machine that wants a narrower policy
+can install a =/etc/pam.d/whelk-lock= stack; whelk uses it when PAM can start
+it, and falls back to =login= otherwise.  Without PAM headers at build time the
+locker still locks, says authentication is unavailable and never opens.
+
+On X11 there is no layer shell: the lock is ordinary fullscreen windows and a
+window manager that allows another window above them is outside whelk's
+control.  On Wayland the overlay is above ordinary windows, but it is still a
+user-space process: a user who can kill whelk can end the lock.  A
+compositor-enforced =ext-session-lock-v1= surface would close that gap and is
+not implemented; the locker is the deliberate, fail-closed part whelk can own
+without changing the compositor.
+
 The default bar's =clipboard-module= shows the history glyph, reports when the
 listener is stopped or paused, and opens this picker on a click.  The depth is
 opt-in: =#:format "{icon} {count}"= puts the number back on the tile.
@@ -760,6 +800,8 @@ widgets whose data comes from another program.
 | =#:position=      | ='top=, ='bottom=, ='left=, ='right= (strings accepted too)               |
 | =#:layer=        | ='top= (default), ='bottom=, ='background= or ='overlay=; see [[#overview][the overview note]] |
 | =#:monitor=       | ="all"= (one bar per output), ="default"=, or a connector such as ="DP-1"= |
+| =#:monitors=      | a list of connectors; wins over =#:monitor= and draws nothing on an output it does not name |
+| =#:when=          | ='always= (default), ='single= or ='multi=: the output-count rule |
 | =#:height=        | thickness: the row's height, or a vertical bar's width; a vertical bar widens to its widest module and reserves that width |
 | =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
 | =#:exclusive?=    | reserve the thickness so maximised windows stop at the bar              |
@@ -773,6 +815,25 @@ widgets whose data comes from another program.
 Every colour, font and radius is optional: leave one out and the structural
 stylesheet's colour applies, so a bare =(bar)= is still readable.  A bar can also
 wear a whole palette at once with =#:theme= -- see [[#themes][themes]].
+
+A bar can be deliberate about where it lives.  =#:monitors= names the exact
+connectors and never falls back to the compositor's default output:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars
+   (list (bar #:name 'laptop #:monitors '("eDP-1")
+              #:left (list (start-module)) #:right (list (clock-module)))
+         (bar #:name 'desk   #:monitors '("DP-1")
+              #:left (list (start-module)) #:right (list (clock-module)))
+         (bar #:name 'solo   #:when 'single
+              #:left (list (start-module)) #:right (list (clock-module)))))
+#+end_src
+
+=#:when 'single= draws only while there is one output, and =#:when 'multi=
+only while there is more than one.  The monitor model is watched, so plugging
+the external screen in rebuilds the bars and a bar with no matching output
+disappears instead of moving to another screen.
 
 ** The compositor's overview and =#:layer=
 :PROPERTIES:
@@ -835,6 +896,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
 | =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
 | =custom-module=        | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
+| =scheme-module=        | a Guile procedure's widget                       | =#:update= (a procedure returning a widget), =#:interval= |
 | =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
 | =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip) |
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
@@ -933,7 +995,7 @@ listed and Enter closes the chosen one.
 An action is one of two things, and the spelling is the difference: a string
 beginning with =shell:= is something the shell does itself (=about=, =settings=,
 =launcher=, =force-quit=, =network=, =bluetooth=, =notifications=, =dnd=,
-=reload=), and anything else is a command line.  A submenu given a string
+=lock=, =reload=), and anything else is a command line.  A submenu given a string
 instead of children is a slot the shell fills when it opens.
 
 #+begin_src scheme
@@ -947,7 +1009,7 @@ instead of children is a slot the shell fills when it opens.
          (menu-item "Force Quit…" "shell:force-quit")
          (menu-separator)
          (menu-item "Sleep" "systemctl suspend")
-         (menu-item "Lock Screen" "loginctl lock-session")
+         (menu-item "Lock Screen" "shell:lock")
          (menu-item "Search…" "shell:launcher"))
    #:bars (list (default-bar)))
 #+end_src
@@ -1005,6 +1067,16 @@ supply them, in that order:
   to live at =/MenuBar/1=.  Its answer is tried before the conventional
   DBusMenu paths; the registrar is optional, and its absence costs one failed
   call and never the bar.
+- *The accessibility tree, as a last protocol.*  AT-SPI is not a menu protocol,
+  but GTK, Qt and Electron already publish their menus there as accessible
+  objects: a =MENU_BAR= whose children are =MENU= objects and =MENU_ITEM=s with
+  names, states, key bindings and an =Action= interface.  Reading those labels
+  is the one producer that gives an application's own translated menu when it
+  publishes neither =org.gtk.Menus= nor DBusMenu.  The tree is walked on a
+  worker thread, after both D-Bus protocols have found nothing; choosing an
+  entry sends =DoAction= to its accessible object.  A program that only builds
+  its menu after the native menu was opened once has no passive tree to read,
+  and falls back to the dictionary like before.
 - *The dictionary.*  Most applications publish nothing, so their menus are
   written from their documented shortcuts: ninety-five applications answering
   to two hundred and eighty ids -- the browsers, terminals, editors (Emacs
@@ -1464,8 +1536,9 @@ has.
   meson test -C build --print-errorlogs
 #+end_src
 
-Two layers of tests cover the halves that can be tested without a compositor.
-The C tests start with the pure logic and end with real widgets:
+Three layers of tests cover the pure halves, real widgets and a real bar
+presented on a headless display.  The C tests start with the pure logic and end
+with real widgets:
 
 - =tests/test_json.c= -- the JSON reader against niri's real answer shapes
   (workspaces, focused window), including escapes, surrogate pairs and the
@@ -1508,6 +1581,19 @@ The C tests start with the pure logic and end with real widgets:
 - =tests/test_gtkmenu.c= -- a live =org.gtk.Menus= on a private bus: =Changed=
   closes the old tree, =Start= is called again, and the next tree is the
   application's new one.
+- =tests/test_atspimenus.c= -- a fake AT-SPI application on a private bus:
+  menu bars, nested menus, separators, disabled items, key bindings and the
+  =DoAction= address each entry carries.
+- =tests/test_lockpolicy.c= -- the unlock backoff: one second, doubling, capped
+  at thirty seconds, including the overflow boundary.
+
+Drawing has its own layer.  =tests/bar_preview.c= builds a deterministic bar,
+presents it under =gtk4-broadwayd= (a display server for a machine with no
+monitor), snapshots it to PNG and compares every pixel with
+=tests/golden/bar.png=.  =meson test -C build golden_bar_image= fails on a
+colour, padding or font regression instead of waiting for a screenshot to show
+it.  Broadway is a headless compositor, not a mock: the same layer-shell
+fallback path a real session takes is exercised.
 
 The Guile tests cover the configuration layer:
 

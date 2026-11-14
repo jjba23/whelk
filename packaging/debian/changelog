@@ -1,3 +1,13 @@
+whelk (0.19.0-1) unstable; urgency=medium
+
+  * AT-SPI global menus, Scheme modules, per-monitor bars and a fail-closed
+    PAM screen locker.  Golden-image tests render a real bar on a headless
+    Broadway display and diff its pixels.
+  * Desktop widgets are visible again: preference changes no longer replace
+    the configured widget list with the empty default.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 14 Nov 2026 12:00:00 +0100
+
 whelk (0.4.0-1) unstable; urgency=medium
 
   * The documented bar is the built-in bar: scheme/whelk/defaults.scm holds it,

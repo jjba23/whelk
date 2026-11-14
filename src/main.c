@@ -450,6 +450,9 @@ static int on_command_line(GApplication *application,
   if (option_flag(command_line, "reload"))
     whelk_shell_reload(g_shell);
 
+  if (option_flag(command_line, "lock"))
+    whelk_shell_lock(g_shell);
+
   const char *menu = option_text(command_line, "menu");
 
   if (menu && *menu)
@@ -539,6 +542,9 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(
       G_APPLICATION(app), "network", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
       "Show the network panel: wifi or bluetooth", "PAGE");
+  g_application_add_main_option(
+      G_APPLICATION(app), "lock", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+      "Lock the screen and require the session password", NULL);
   g_application_add_main_option(G_APPLICATION(app), "reload", 'r',
                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
                                 "Re-read the settings file", NULL);

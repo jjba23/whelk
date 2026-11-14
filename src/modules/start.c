@@ -92,6 +92,12 @@ static void run_shell_action(const char *name, const WhelkBarConfig *bar) {
     return;
   }
 
+  if (g_strcmp0(name, "lock") == 0) {
+    if (shell)
+      whelk_shell_lock(shell);
+    return;
+  }
+
   if (g_strcmp0(name, "reload") == 0) {
     if (shell)
       whelk_shell_reload(shell);

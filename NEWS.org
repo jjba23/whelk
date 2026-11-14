@@ -15,6 +15,69 @@ Nothing yet.
 
 *[Released]*
 
+** v0.19.0 (2026-11-14)
+
+*** Added
+
+- *Global menus from AT-SPI.*  GTK, Qt and Electron applications already publish
+  their menu bars, labels, states, key bindings and action objects on the
+  accessibility bus.  =menu-module= now reads that tree after
+  =org.gtk.Menus= and DBusMenu have found nothing, on a worker thread with
+  bounded depth and timeouts; choosing an entry sends
+  =org.a11y.atspi.Action.DoAction= to the accessible object.  Labels are the
+  application's own, in the session language.  An application that only builds
+  its native menu after it was opened once has no passive tree and keeps the
+  dictionary fallback.
+- *=(scheme-module ...)= -- a module that is a Guile procedure.*  Its
+  =#:update= returns a real GTK widget: label, markup, progress, level,
+  sparkline, image, box, button and CSS class are the first primitives.  A
+  module can now be an animated graph, a socket client or a personal
+  integration without a line of C.
+- *Per-monitor bars, deliberately.*  =(bar ...)= accepts =#:monitors=, an exact
+  list of connectors, and =#:when= (='always=, ='single=, ='multi=).  A named
+  monitor that is not present draws nothing instead of falling back to the
+  default output; the monitor model is watched, so hotplug rebuilds the bars
+  and the rules are re-evaluated.
+- *A fail-closed screen locker.*  =whelk --lock=, =shell:lock= and logind's
+  =Lock= signal lock every output with overlay layer surfaces and an exclusive
+  keyboard.  Authentication is PAM on a worker thread, about
+  =g_get_user_name()=, with the password wiped after the call and a doubling
+  retry delay capped at 30 seconds.  A dedicated =/etc/pam.d/whelk-lock= stack
+  is used when present, with =login= as the fallback; a build without PAM locks
+  and never opens.  There is no command-line unlock path.
+- *Golden-image tests.*  =tests/bar_preview.c= builds a deterministic bar,
+  presents it under =gtk4-broadwayd=, snapshots it to PNG and compares every
+  pixel with =tests/golden/bar.png=.  A colour, padding, font or layout
+  regression now fails the suite before a screenshot shows it.
+
+*** Fixed
+
+- *Desktop widgets are visible again.*  Applying any preference re-registered
+  the shell with only =#:bars=, which replaced the configured widget list with
+  the empty default.  =apply-shell-preferences!= now carries
+  =(get-shell-widgets config-path)= through the re-registration.
+- *A desktop widget no longer loses its skin.*  =whelk_style_detach()= already
+  cleared the widget's skin; the extra =g_object_unref()= that followed was a
+  double free during rebuild.
+
+*** Changed
+
+- The default shell menu's =Lock Screen= now runs =shell:lock=, so it reaches
+  whelk's locker instead of only asking logind to announce a lock.
+- Packaging declares PAM: Arch =pam=, Debian =libpam0g-dev=, openSUSE
+  =pkgconfig(pam)=, and the Nix and Guix expressions build with it.
+- README and VISION describe AT-SPI menus, Scheme modules, monitor rules,
+  golden-image tests and the locker as built, including the honest limits of a
+  user-space lock overlay.
+
+*** Verified
+
+- Host build: strict =-Werror= Meson build passes.
+- Host suite: all tests pass, including the new AT-SPI, monitor-rule, Scheme
+  module, lock-policy and golden-image tests.
+- Golden image: 0 changed pixels against the committed reference under
+  =gtk4-broadwayd= with the cairo renderer.
+
 ** v0.18.0 (2026-11-14)
 
 *** Added

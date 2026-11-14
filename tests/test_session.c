@@ -81,6 +81,27 @@ static void test_parse_niri(void) {
                                   &app_id));
 }
 
+static void test_parse_pid(void) {
+  const char *niri =
+      "{\"id\": 5, \"title\": \"Home\", \"app_id\": \"org.gnome.Nautilus\","
+      " \"pid\": 4846}";
+  const char *sway =
+      "{\"nodes\": [{\"name\": \"1\", \"nodes\": [{\"focused\": true,"
+      " \"pid\": 911}]}], \"floating_nodes\": []}";
+
+  g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_NIRI, niri), ==,
+                  4846);
+  g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_SWAY, sway), ==,
+                  911);
+  g_assert_cmpint(whelk_session_focused_pid(
+                      WHELK_SESSION_X11,
+                      "_NET_WM_PID(CARDINAL) = 1234\nWM_NAME(UTF8_STRING) = \"x\"\n"),
+                  ==, 1234);
+  g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_X11, "no pid"), ==,
+                  0);
+  g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_NIRI, NULL), ==, 0);
+}
+
 static void test_parse_sway(void) {
   const char *tree =
       "{\"name\": \"root\", \"focused\": false,"
@@ -283,6 +304,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/session/names", test_session_names);
   g_test_add_func("/session/commands", test_session_commands);
   g_test_add_func("/session/parse/niri", test_parse_niri);
+  g_test_add_func("/session/parse/pid", test_parse_pid);
   g_test_add_func("/session/parse/sway", test_parse_sway);
   g_test_add_func("/session/parse/sway-x11", test_parse_sway_x11_window);
   g_test_add_func("/session/parse/x11", test_parse_x11);

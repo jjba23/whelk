@@ -59,6 +59,26 @@ gboolean whelk_bridge_use_core(void);
  */
 char *whelk_bridge_config_path(void);
 
+/* Defines the `whelk-widget-*' primitives a `scheme-module' procedure uses to
+ * build the GTK widget it returns.  Idempotent; called by
+ * whelk_bridge_use_core() and by a harness that boots Guile itself. */
+void whelk_bridge_register_widget_primitives(void);
+
+/**
+ * whelk_bridge_call_module_widget:
+ * @token: a `scheme-module' update token, from the module spec's `update'
+ *   option.
+ *
+ * Calls the registered procedure on the current thread and takes the widget it
+ * returns.  A plain string or a `(label "...")'-shaped description is accepted
+ * as well as a widget made by a `whelk-widget-*' primitive.
+ *
+ * Returns: (transfer full) (nullable): a widget the caller owns, or NULL when
+ *   the procedure raised, returned nothing, or its token belongs to a settings
+ *   file that is no longer loaded.  GTK calls must be on the main thread.
+ */
+GtkWidget *whelk_bridge_call_module_widget(const char *token);
+
 /* Calls the Scheme entry point that reads the settings file and the fallback
  * bar: `init-shell!'.  Returns TRUE when the Scheme side ran. */
 gboolean whelk_bridge_init(void);

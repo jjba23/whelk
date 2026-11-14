@@ -32,7 +32,9 @@
 
 (call-with-output-file config-path
   (lambda (port)
-    (display "(configure-shell! #:bars\n" port)
+    (display "(configure-shell!\n" port)
+    (display " #:widgets (list (desktop-widget 'clock #:x 20 #:y 30))\n" port)
+    (display " #:bars\n" port)
     (display " (list (bar #:name 'main #:position 'top #:height 32\n" port)
     (display "             #:spacing 8 #:padding 12 #:theme 'gloss-2007\n" port)
     (display "             #:right\n" port)
@@ -47,6 +49,12 @@
 
 (check "the file's spacing starts at eight"
        (= (bar-config-spacing (car (get-shell-bars config-path))) 8))
+
+;; A preference is a bar edit.  It must not unregister the desktop widgets the
+;; settings file configured: that regression left every card off the desktop
+;; as soon as anything was changed in the settings window.
+(check "a settings file's widgets are registered"
+       (= (length (get-shell-widgets config-path)) 1))
 (check "a fresh configuration has no GUI overrides"
        (null? (preferences-read config-path)))
 (check "the override file is named after the settings file"
@@ -73,6 +81,10 @@
        (equal? (assq-ref (preferences-read config-path) 'bar-height) 44))
 
 (apply-shell-preferences! config-path)
+
+(check "applying a preference keeps the desktop widgets"
+       (equal? (map widget-config-kind (get-shell-widgets config-path))
+               '(clock)))
 
 (define applied (car (get-shell-bars config-path)))
 (define frost (theme-palette 'frost))

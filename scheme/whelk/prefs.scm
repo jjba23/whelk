@@ -211,6 +211,8 @@ duplicate happens to win."
      (normalize-edge (preference prefs 'bar-edge (bar-config-edge bar)))
      (normalize-layer (preference prefs 'bar-layer (bar-config-layer bar)))
      (bar-config-monitor bar)
+     (bar-config-monitors bar)
+     (bar-config-when bar)
      (integer-preference prefs 'bar-height (bar-config-height bar))
      (bar-config-margin-top bar)
      (bar-config-margin-right bar)
@@ -279,6 +281,12 @@ the settings window's reload callback, so the two paths cannot drift apart."
           (configure-shell!
            #:config-path config-path
            #:bars updated
+           ;; A GUI edit changes a bar, not the desktop: the widgets the
+           ;; settings file registered are carried across unchanged.  Leaving
+           ;; them out here re-registered the shell with no widgets at all,
+           ;; which is how every desktop widget disappeared the first time a
+           ;; preference was saved.
+           #:widgets (get-shell-widgets config-path)
            #:shell-menu (get-shell-menu config-path)
            #:clipboard (get-shell-clipboard config-path)
            #:enable-repl? (get-shell-enable-repl? config-path)
