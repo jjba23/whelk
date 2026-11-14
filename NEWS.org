@@ -15,6 +15,46 @@ Nothing yet.
 
 *[Released]*
 
+** v0.25.0 (2026-11-14)
+
+*** Added
+
+- *Presets.* A named bundle of bars, desktop widgets, shell menu and clipboard
+  settings can be applied with one call.  =(use-preset! 'current)= is the
+  shipped configuration; =(use-preset! 'xp)= is a Luna-blue bottom taskbar
+  with Start, the focused window's title, the notification area and a 24-hour
+  clock, tracking windows on Wayland and X11.  Presets are Scheme modules, so
+  a third is a new file rather than an edit to the shell.
+
+- *An About window with more to say.* It shows the real processor model and
+  thread count (the per-core `processor : 0` line used to be read as the
+  model), memory as total and available, the display and its refresh rate,
+  disk use as a percentage, the session's protocol, and a GLib version beside
+  the GTK one.  The report is copied by Ctrl+C as well as by the button, and a
+  Settings button opens whelk's own window.
+
+*** Changed
+
+- *The right row has one chevron.* The automatic fold used to be a second
+  chevron beside the overflow shelf's toggle, so two arrows in the same row
+  both meant "more". The fold is now a `+N` count of the readings that did not
+  fit, with a tooltip that says how many and what clicking it shows; the
+  shelf's chevron keeps its arrow and its own "Extra items" tooltip.
+
+*** Fixed
+
+- *A plugged-in battery that is not filling is no longer called charging.*
+  Only the kernel's =Charging= state hides the percentage and drops the
+  warning colours; =Full= and =Not charging= keep both.  The status rule lives
+  beside the other sysfs readings now, with a unit test.
+
+- *The About window no longer shows the desktop through itself.* It painted a
+  translucent panel inside a transparent window, so a system report sat over
+  the wallpaper with two frames around it.  The window now paints the bar's
+  palette opaquely and the content box paints nothing.
+
+
+
 ** v0.24.0 (2026-11-14)
 
 *** Added

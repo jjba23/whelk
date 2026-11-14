@@ -12,22 +12,25 @@ tell which pull request is on the path and which one is a detour.
 
 ## Where whelk is today
 
-The pieces that exist and work: twenty module kinds behind one keyword-driven
-shape; hot reload and a socket REPL; a notification daemon with toasts, a
-grouped centre, actions and do-not-disturb; a Wi-Fi and Bluetooth panel over
-`nmcli` and `bluetoothctl`; a launcher with nine modes including rofi's own
-script protocol; the focused application's `File`/`Edit`/`View` from five
-producers (`org.gtk.Menus`, `com.canonical.dbusmenu`, a configured command, a
-dictionary of ninety-five applications, and the compositor's own window verbs);
-a StatusNotifierItem tray with real `dbusmenu` popovers; a clipboard history
-with pinning, expiry, a password-manager hint and lock-time clearing; a volume
-and brightness HUD; twelve themes; and a supervisor that restarts a crashed UI.
+The pieces that exist and work: twenty-two module kinds behind one
+keyword-driven shape; hot reload and a socket REPL; a notification daemon with
+toasts, a grouped centre, actions and do-not-disturb; a Wi-Fi and Bluetooth
+panel over `nmcli` and `bluetoothctl`; a launcher with nine modes including
+rofi's own script protocol; the focused application's `File`/`Edit`/`View` from
+five producers (`org.gtk.Menus`, `com.canonical.dbusmenu`, a configured command,
+a dictionary of ninety-five applications, and the compositor's own window
+verbs); a StatusNotifierItem tray with real `dbusmenu` popovers; a clipboard
+history with pinning, expiry, a password-manager hint and lock-time clearing; a
+volume and brightness HUD; a right row that folds behind a `+N` count with an
+optional shelf; an About window that reports the machine; presets as Scheme
+modules, the shipped bar and an XP-shaped taskbar included; twelve themes; and a
+supervisor that restarts a crashed UI.
 
 Three things in the code are load-bearing for everything that comes next:
 
 - **A module is a value, not a subclass.** A kind, a root widget, an `update`
   function and a destroy function, all in one uniform struct. Adding the
-  twenty-first module kind is a small local change.
+  twenty-third module kind is a small local change.
 - **A surface is a `WhelkSurface`, not a window.** Edge, anchors, margins,
   exclusive zone, monitor and layer are properties of the surface, so the next
   thing whelk grows does not re-learn layer-shell.
@@ -39,6 +42,92 @@ The architecture's reserved surface is now **floating desktop widgets**: a
 `WhelkSurface` with `#:exclusive? #f`, margins and a fixed card.  The Golden
 Gate collection uses it; dragging a card and remembering its position are the
 next step, not a missing foundation.
+
+## The bar after the overflow shelf
+
+The shelf and the automatic fold gave the right row a way to lose width without
+losing modules; the battery now knows that only a pack that is filling is quiet;
+and a preset is a name a settings file can apply.  The next bar work, ranked by
+the value it adds to a desktop that uses whelk every day and by how much of the
+foundation is already in place.  The order is an argument, not a promise.
+
+1. **A task-list module.** Every open window as a button, grouped by workspace,
+   click to focus, middle-click to close.  *Why:* `window-module` names only the
+   focused window, so no whelk bar can be a taskbar; this is the missing half of
+   the XP preset and of every bottom-bar layout.  The session layer already has
+   focus, close and workspace commands for niri, sway and X11; the work is a
+   list command and a parser per backend.  Effort: high.
+
+2. **Fold priorities, reflow and shelf memory.** Let a module declare that it
+   must stay (`#:keep?`, or a priority), recompute the fold when the bar's
+   width, font, scale or monitor changes instead of once after first
+   allocation, and remember whether the shelf was open across reloads.  *Why:*
+   the fold is positional today, so a clock can disappear while a CPU meter
+   stays; a bar that loses its time is worse than one that loses a load average.
+   It also finishes the feature we just shipped.  Effort: low.
+
+3. **Preset overrides and switching without editing.** `use-preset!` with
+   `#:bars`/`#:widgets` overrides, plus a way to select a preset outside
+   `settings.scm` (a CLI flag or an environment variable) and remember the
+   choice.  *Why:* presets just landed; without overrides, changing one colour
+   means forking the bundle, and trying the XP bar means editing the live
+   configuration by hand.  This is what makes `current` and `xp` feel like
+   themes rather than templates.  Effort: low-medium.
+
+4. **Battery time remaining and aggregate packs.** Report `{time}` from
+   `energy_now`/`power_now` (or charge/current), and `#:device "all"` to sum two
+   packs.  *Why:* a percentage does not answer "how long"; two-pack laptops and
+   charge thresholds are common.  The parsers are pure sysfs, so they are
+   testable without a display.  Effort: low-medium.
+
+5. **A native MPRIS module.** Title, artist, album, art, play state,
+   previous/play/next and progress; choose the active player.  *Why:* the
+   default now-playing tile shells out to `playerctl` every two seconds; a
+   native module is live, has controls, and removes a subprocess from a bar
+   that is supposed to be one process.  Effort: medium.
+
+6. **Accessibility and keyboard navigation.** AT-SPI roles and names for every
+   module and popover, a tab/arrow path through the bar, focus that does not
+   jump when a popover opens, and a screen-reader pass in CI.  *Why:* the bar is
+   mouse-first; a shell that ignores assistive technology excludes people from
+   the part of the desktop they look at most.  This is the most valuable
+   unglamorous work on the list.  Effort: medium-high.
+
+7. **A quick-settings popover.** One bar module opening volume, brightness,
+   Wi-Fi, Bluetooth, battery and power profile in a single card.  *Why:* the
+   data and panels exist separately; a single obvious place is what people
+   expect from a modern bar, and it gives the network and power readings a home
+   that is not a chevron.  Effort: high.
+
+8. **Auto-hide and reveal.** Hide the bar except for a hot edge or keybinding,
+   toggling the exclusive zone so maximised windows use the space.  *Why:*
+   vertical space matters on laptops and for fullscreen media; auto-hide is the
+   one common bar behaviour whelk lacks.  Effort: medium.
+
+9. **A per-monitor window tile.** The window module shows the focused window on
+   the bar's own monitor, with the application icon, click-to-focus and
+   scroll-to-cycle.  *Why:* with two monitors the global focus title is wrong on
+   every bar but one; this is a small step toward the task list and makes the XP
+   centre honest on a multi-monitor desk.  Effort: low-medium.
+
+10. **A bar and preset preview.** `whelk --preview` (or a button in the settings
+    window) renders a chosen preset, bar or theme in a floating surface or a
+    PNG, reusing `bar_preview` and the golden harness.  *Why:* trying the XP
+    preset or a new theme should not mean taking over the session and
+    restarting; a preview is also how a screenshot in the README stops going
+    stale.  Effort: low-medium.
+
+11. **A bar inspector and icon fallback.** `whelk --inspect-bar` prints module
+    widths, the fold boundary and what is hidden, and a startup check falls
+    back from a missing icon font to symbolic icons.  *Why:* `+3` is hard to
+    debug from the outside, and a fresh machine with no Font Awesome shows
+    boxes instead of glyphs.  Both are small and protect first impressions.
+    Effort: low.
+
+12. **A sparkline module.** A small history of CPU, memory or network
+    throughput, drawn as a graph rather than a number.  *Why:* a bar is for
+    glancing, and a number without a trend is half the story; the module
+    protocol already supplies the timer and the widget tree.  Effort: medium.
 
 ## The vision
 
@@ -53,7 +142,8 @@ statements that should be true in a few years and are not true yet:
 2. **The configuration is a library.** `settings.scm` is not a config file with
    Lisp syntax: it can `(use-modules ...)`, ship its own procedures, and import
    a shared module from another repository. A bar becomes something you can
-   publish.
+   publish.  Presets are the first proof: `(use-preset! 'xp)` is a library a
+   settings file calls, not a copy of one.
 3. **The menu bar is honest.** Wherever an application can be made to tell the
    truth about its menus, whelk reads that truth; the dictionary of known
    shortcuts is the fallback it falls back to, and it shrinks over time rather
@@ -73,6 +163,12 @@ implements `ext-session-lock-v1` the lock is compositor-enforced, so another
 client cannot cover it and a dead shell cannot unlock it. The layer-shell
 overlay remains only as the documented fallback for compositors without the
 protocol.
+
+0.24 made the right row's overflow a feature rather than an accident -- a
+configurable shelf, a `+N` fold that counts what it hides -- and taught the
+battery the difference between filling and merely plugged in.  The current line
+adds an About window that reports the machine and presets as Scheme modules,
+with a first XP-shaped taskbar.
 
 ## Features that are in scope and not built yet
 
@@ -171,7 +267,7 @@ willingness to say in the log exactly which capability is missing.
 - **A regression suite you can trust with a release.** Golden images, a headless
   niri, a stub notification client, and a Waybar-configured desktop replayed
   against whelk's output. The tests are what would let the project grow past
-  twenty module kinds without fear.
+  twenty-two module kinds without fear.
 - **A shell someone installs by default.** The honest long-term measure: a
   distribution image or a desktop spin that ships whelk as its shell, because
   the bar, the launcher and the notifications all came from one place and

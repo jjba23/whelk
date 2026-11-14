@@ -28,6 +28,9 @@
   #:use-module (whelk menudict)
   #:use-module (whelk modules)
   #:use-module (whelk prefs)
+  #:use-module (whelk presets)
+  #:use-module (whelk presets current)
+  #:use-module (whelk presets xp)
   #:use-module (whelk state)
   #:use-module (whelk themes)
   #:use-module (whelk loader)
@@ -111,6 +114,18 @@
                widget->alist
                shell-widgets->alists
                bar
+               preset
+               preset?
+               preset-name
+               preset-description
+               preset-bars
+               preset-widgets
+               preset-shell-menu
+               preset-clipboard
+               register-preset!
+               preset-ref
+               presets
+               use-preset!
                clipboard-settings
                themes
                theme-palette

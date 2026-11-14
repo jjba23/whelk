@@ -80,6 +80,13 @@ static char *color_with_alpha(const char *color, double scale) {
   return gdk_rgba_to_string(&rgba);
 }
 
+char *whelk_style_solid(const char *color) {
+  if (!color || !*color)
+    return NULL;
+
+  return color_with_alpha(color, 1.0);
+}
+
 static void append_shadow(GString *css, const WhelkBarConfig *config) {
   gboolean comma = FALSE;
 

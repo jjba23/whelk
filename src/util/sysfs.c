@@ -155,6 +155,10 @@ static gboolean is_battery(const char *parent, const char *name,
   return g_file_test(capacity_path, G_FILE_TEST_EXISTS);
 }
 
+gboolean whelk_battery_is_charging(const char *status) {
+  return g_strcmp0(status, "Charging") == 0;
+}
+
 gboolean whelk_battery_read(const char *device, WhelkBatteryInfo *out) {
   const char *root = "/sys/class/power_supply";
   g_autofree char *name = NULL;

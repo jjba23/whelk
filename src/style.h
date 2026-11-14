@@ -46,6 +46,16 @@ char *whelk_style_css(const char *widget_id, const WhelkBarConfig *config,
                       const char *root_class, const char *extra_css);
 
 /**
+ * whelk_style_solid:
+ * @color: (nullable): a CSS colour.
+ *
+ * Returns: (transfer full) (nullable): @color with its alpha forced to 1.0,
+ *   for a surface that must not show what is behind it.  NULL when there is no
+ *   colour to make opaque, so the structural stylesheet's surface applies.
+ */
+char *whelk_style_solid(const char *color);
+
+/**
  * whelk_style_apply:
  * @widget_id: the window's widget name, from whelk_style_widget_id().
  * @config: the bar whose palette the surface wears.
@@ -60,7 +70,7 @@ GtkCssProvider *whelk_style_apply(const char *widget_id,
                                   const char *root_class,
                                   const char *extra_css);
 
-/* Removes and frees a provider installed by whelk_style_apply(). */
+/* Removes a provider from @display, when there is one, and frees it. */
 void whelk_style_detach(GtkCssProvider *provider, GdkDisplay *display);
 
 /**

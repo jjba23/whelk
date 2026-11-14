@@ -63,6 +63,11 @@ typedef struct {
 gboolean whelk_battery_read(const char *device, WhelkBatteryInfo *out);
 void whelk_battery_clear(WhelkBatteryInfo *info);
 
+/* TRUE only for "Charging".  A full pack, or one that is plugged in but not
+ * taking power ("Not charging"), is not filling: it keeps its capacity and
+ * its warning colours. */
+gboolean whelk_battery_is_charging(const char *status);
+
 /* --- backlight ------------------------------------------------------------ */
 
 /**

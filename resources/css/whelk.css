@@ -185,24 +185,7 @@ window.whelk-surface {
   padding: 4px;
 }
 
-.whelk-overflow-more {
-  padding: 0 4px;
-  min-width: 0;
-  min-height: 0;
-  opacity: 0.7;
-}
-
-.whelk-overflow-more:hover {
-  opacity: 1;
-  background-color: alpha(currentColor, 0.12);
-}
-
-/* The configured overflow area: a group of modules laid out inline when the
- * chevron opens it, and the chevron itself. */
-.whelk-overflow {
-  padding: 0;
-}
-
+.whelk-overflow-more,
 .whelk-overflow-toggle {
   padding: 0 4px;
   min-width: 0;
@@ -210,6 +193,14 @@ window.whelk-surface {
   opacity: 0.7;
 }
 
+/* The automatic fold's "+3": a count of the readings the row could not fit,
+ * not a chevron, because the shelf's toggle is the row's chevron. */
+.whelk-folded-count {
+  font-feature-settings: "tnum";
+  font-size: 0.92em;
+}
+
+.whelk-overflow-more:hover,
 .whelk-overflow-toggle:hover {
   opacity: 1;
   background-color: alpha(currentColor, 0.12);
@@ -339,14 +330,9 @@ window.whelk-surface {
 
 /* --- about this system --------------------------------------------------- */
 
-window.whelk-about-window {
-  background: transparent;
-}
-
-.whelk-about {
-  padding: 24px;
-  border-radius: 16px;
-}
+/* The window paints the palette itself (src/about.c): its background is solid,
+ * because a system report must not show the desktop through it, and the content
+ * box carries no second frame inside the decoration's. */
 
 .whelk-about-badge {
   padding: 10px;

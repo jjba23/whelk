@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.24.0',
+  version: '0.25.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -208,6 +208,7 @@ whelk_sources = files(
   'src/util/menutree.c',
   'src/util/menuprobe.c',
   'src/util/gtkmenu.c',
+  'src/util/hostinfo.c',
   'src/util/session.c',
   'src/util/shortcutmaps.c',
   'src/util/desktop.c',
@@ -297,6 +298,10 @@ unit_tests = [
   {
     'id': 'config',
     'sources': ['src/config.c', 'src/util/format.c', 'src/util/sysfs.c'],
+  },
+  {
+    'id': 'sysfs',
+    'sources': ['src/util/sysfs.c'],
   },
   {
     'id': 'barmonitors',
@@ -400,6 +405,16 @@ unit_tests = [
   {
     'id': 'session',
     'sources': ['src/util/session.c', 'src/util/json.c'],
+  },
+  # The About window's readings: the parsers take the text, so the per-core
+  # "processor : 0" line and a missing MemAvailable are testable here.
+  {
+    'id': 'hostinfo',
+    'sources': [
+      'src/util/hostinfo.c',
+      'src/util/session.c',
+      'src/util/json.c',
+    ],
   },
   {
     'id': 'desktop',
@@ -559,6 +574,19 @@ if guile.found()
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_defaults.scm'),
       join_paths(meson.project_source_root(), 'settings', 'settings.scm'),
+    ],
+    env: test_env,
+  )
+
+  # A preset is a bundle of everything configure-shell! takes; the shipped
+  # two have to register and still describe the layouts they claim.
+  test(
+    'presets_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_presets.scm'),
     ],
     env: test_env,
   )

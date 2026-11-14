@@ -11,7 +11,9 @@
 ;; of on a placeholder.
 ;;
 ;; Copy this file to ~/.config/whelk/settings.scm and change it there; whelk
-;; reloads the bar when the file is saved.
+;; reloads the bar when the file is saved.  This is the `current' preset written
+;; out: to switch to another one instead, replace the call below with
+;; (use-preset! 'xp) -- see the Presets section of the README.
 
 (define icon-font "Font Awesome 6 Free Solid")
 

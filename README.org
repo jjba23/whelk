@@ -148,13 +148,15 @@ the documented one -- see [[#configuration][Configuration]].
   chord -- the Help menu's search field, for menus that came from GTK,
   DBusMenu, a script or the dictionary -- and choosing one does what clicking
   it in the bar does.
-- *An About window that describes the machine.* =About This System= opens a
-  card with the host name, system, processor, memory, disk, kernel and session,
-  with a button that copies the whole summary.
+- *An About window that describes the machine.* =About This System= opens an
+  opaque card with the host name, system, processor model and thread count,
+  memory (total and available), display, disk (free, total and used percent),
+  kernel, session and protocol, and uptime.  The whole report is one Ctrl+C or
+  one Copy away, and a Settings button goes straight to whelk's own window.
 - *A right half that folds instead of overflowing.* When the readings no
-  longer fit, the trailing modules move behind a chevron and keep updating and
-  clicking there.  A bar can also keep a deliberate shelf: modules named by
-  =#:overflow= sit behind a chevron of their own and open horizontally on a
+  longer fit, the trailing modules move behind a =+N= count and keep updating
+  and clicking there.  A bar can also keep a deliberate shelf: modules named by
+  =#:overflow= sit behind the row's one chevron and open horizontally on a
   click, closed by default.
 - *A notification daemon.* whelk owns =org.freedesktop.Notifications= when
   nothing else does: toasts top right, a centre grouped by application, actions
@@ -191,7 +193,7 @@ the documented one -- see [[#configuration][Configuration]].
 | Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |
 | Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
 | Launcher                   | working: applications, windows, commands, calculator, files, web, menus   |
-| Right-side overflow        | working: trailing right modules fold behind a chevron; a configured shelf opens on a click |
+| Right-side overflow        | working: trailing right modules fold behind a =+N= count; a configured shelf opens on a click |
 | Desktop widgets            | working: eight Golden Gate cards, Scheme placement, live Weather/Stocks |
 
 ------------------
@@ -656,10 +658,11 @@ on screen; choosing a row sends =Event(id, "clicked")=.  An item with no =Menu=
 path still receives =ContextMenu=, and an item that says its menu is its primary
 action opens it on a left click too.
 
-Ordinary modules fold the same way.  When the right row is too full for the
-monitor, the trailing modules move behind a chevron in the row and keep
-updating and clicking there, rather than being clipped off the screen.  The
-left half and the centre keep their room.
+Ordinary modules fold the same way, except that their fold shows a =+N= count
+rather than a chevron, so it cannot be mistaken for the shelf's toggle.  When
+the right row is too full for the monitor, the trailing modules move behind that
+count and keep updating and clicking there, rather than being clipped off the
+screen.  The left half and the centre keep their room.
 
 ------------------
 
@@ -695,6 +698,47 @@ wants that bar and nothing else says:
 #+begin_src scheme
   (configure-shell! #:bars (list (default-bar)))
 #+end_src
+
+** Presets
+:PROPERTIES:
+:CUSTOM_ID: presets
+:END:
+
+A preset is everything a shell can be switched to in one call: its bars, its
+desktop widgets, its shell menu and its clipboard settings.  The build ships
+two.
+
+- =current= is the bar above and the Golden Gate widgets, exactly as
+  =settings/settings.scm= describes them.
+- =xp= is a Windows-XP-shaped taskbar: a Luna-blue bar on the bottom edge,
+  Start at the left, the focused window's title in the centre, the notification
+  area, battery and a 24-hour clock at the right, and a Start menu with
+  Programs, My Computer and Control Panel.  The centre is =window-module=, so
+  it tracks the focused window on Wayland (niri and sway over IPC) and on X11
+  (xprop) with the same preset.
+
+A settings file chooses one by name:
+
+#+begin_src scheme
+  (use-preset! 'current)
+  ;; or
+  (use-preset! 'xp)
+#+end_src
+
+=use-preset!= is =configure-shell!= with the bundle's parts filled in, so a
+preset can be overridden by calling =configure-shell!= yourself, and a settings
+file can mix the two.  Presets live in their own Scheme modules under
+=scheme/whelk/presets/=; a third is a new module that calls
+
+#+begin_src scheme
+  (register-preset! (preset #:name 'mine
+                            #:bars (list (bar ...))
+                            #:widgets '()))
+#+end_src
+
+and is added to the imports in =(whelk core)= so every settings file can name
+it.  The XP preset is an arrangement, not a finished imitation: listing every
+open window as a task button needs a module whelk does not have yet.
 
 ** A bar, from scratch
 :PROPERTIES:

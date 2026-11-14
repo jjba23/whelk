@@ -19,7 +19,8 @@ struct _WhelkBar {
   GtkWidget *start_box; /* module rows */
   GtkWidget *center_box;
   GtkWidget *end_box;
-  GtkWidget *end_more;        /* the chevron for a row that does not fit */
+  GtkWidget *end_more;        /* the +N count for a row that does not fit */
+  GtkWidget *end_more_count;  /* its label, updated by collapse_end() */
   GtkWidget *end_overflow_box;
   GtkWidget *overflow_box;    /* the configured overflow area, inline */
   GtkWidget *overflow_toggle; /* the chevron that opens it */
@@ -27,53 +28,15 @@ struct _WhelkBar {
   GtkWidget *context_menu;    /* the bar's own right-click menu */
   GPtrArray *modules;   /* WhelkModule* */
   GtkCssProvider *skin; /* this bar's generated CSS */
-  GdkDisplay *display;  /* borrowed */
 };
 
 G_DEFINE_TYPE(WhelkBar, whelk_bar, G_TYPE_OBJECT)
 
-/* =========================================================================
- * THE SKIN
- * =========================================================================
- * The bar's material is generated from its configuration and scoped to its
- * window id, so two bars can have two skins: the structural stylesheet stays
- * the structure, and this is the one rule that paints a bar.
- */
-
-static char *css_id_for(const char *name) {
-  GString *id = g_string_new("whelk-");
-  const char *cursor = name ? name : "main";
-
-  for (const char *p = cursor; *p; p++)
-    g_string_append_c(id, (g_ascii_isalnum(*p) || *p == '-' || *p == '_')
-                              ? *p
-                              : '-');
-
-  return g_string_free(id, FALSE);
-}
-
-static char *build_skin(const WhelkBarConfig *config, const char *widget_id) {
-  /* One generator paints every surface, so a material option cannot mean one
-   * thing on a bar and another on a panel. */
-  return whelk_style_css(widget_id, config, "whelk-bar", config->css);
-}
-
-static void apply_skin(WhelkBar *bar) {
-  g_autofree char *widget_id = css_id_for(bar->config->name);
-  g_autofree char *css = build_skin(bar->config, widget_id);
-  g_autoptr(GError) error = NULL;
-
-  bar->skin = gtk_css_provider_new();
-  gtk_css_provider_load_from_string(bar->skin, css);
-
-  if (error)
-    LOG_C_WARN("Bar", "the skin for '%s' did not load: %s", bar->config->name,
-               error->message);
-
-  if (bar->display)
-    gtk_style_context_add_provider_for_display(
-        bar->display, GTK_STYLE_PROVIDER(bar->skin),
-        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+/* The bar's material is generated from its configuration and scoped to its
+ * window id, so two bars can wear two skins. */
+static void apply_skin(WhelkBar *bar, const char *widget_id) {
+  bar->skin = whelk_style_apply(widget_id, bar->config, "whelk-bar",
+                                bar->config->css);
 }
 
 /* =========================================================================
@@ -112,14 +75,19 @@ static void add_modules(WhelkBar *bar, GPtrArray *specs, GtkWidget *box) {
  * =========================================================================
  * A bar has a fixed width and a growing set of readings.  The left and centre
  * keep their room; the right row folds its trailing modules into a popover
- * when they no longer fit, leaving a chevron where the rest went.  The modules
- * stay alive behind the chevron, so their timers and clicks still work.
+ * when they no longer fit, leaving a "+3" where the rest went.  The modules
+ * stay alive behind that count, so their timers and clicks still work.
+ *
+ * The count is not a chevron on purpose: the shelf at the end of the row has
+ * the row's one chevron, and a number also says how many readings are missing.
  *
  * This runs once, after the first allocation.  A bar is pinned to a monitor
  * and its modules are stable, so there is nothing to reflow every frame.
  */
 
-#define WHELK_OVERFLOW_BUTTON_WIDTH 28
+/* The fold's label can reach two digits ("+14"), so the room kept for it is a
+ * little wider than the chevron it replaced was. */
+#define WHELK_OVERFLOW_BUTTON_WIDTH 34
 
 static int widget_width(GtkWidget *widget, int fallback) {
   if (!widget || !gtk_widget_get_visible(widget))
@@ -135,7 +103,8 @@ static int widget_width(GtkWidget *widget, int fallback) {
 }
 
 static void collapse_end(WhelkBar *bar) {
-  if (!bar || !bar->end_box || !bar->end_more || !bar->end_overflow_box)
+  if (!bar || !bar->end_box || !bar->end_more || !bar->end_more_count ||
+      !bar->end_overflow_box)
     return;
 
   const int root_width = gtk_widget_get_width(bar->root);
@@ -156,8 +125,8 @@ static void collapse_end(WhelkBar *bar) {
 
   for (GtkWidget *child = gtk_widget_get_first_child(bar->end_box); child;
        child = gtk_widget_get_next_sibling(child)) {
-    /* The configured overflow area and the two chevrons are the row's
-     * structure, not readings that happen to be wide: never fold them. */
+    /* The count and the shelf are the row's structure, not readings: never
+     * fold them. */
     if (child != bar->end_more && child != bar->overflow_box &&
         child != bar->overflow_toggle)
       g_ptr_array_add(modules, child);
@@ -201,6 +170,17 @@ static void collapse_end(WhelkBar *bar) {
 
   const gboolean overflowed = visible < modules->len;
 
+  if (overflowed) {
+    const guint folded = modules->len - visible;
+    g_autofree char *count = g_strdup_printf("+%u", folded);
+    g_autofree char *tip =
+        g_strdup_printf("%u reading%s did not fit · click to see %s", folded,
+                        folded == 1 ? "" : "s", folded == 1 ? "it" : "them");
+
+    gtk_label_set_text(GTK_LABEL(bar->end_more_count), count);
+    gtk_widget_set_tooltip_text(bar->end_more, tip);
+  }
+
   gtk_widget_set_visible(bar->end_more, overflowed);
   g_ptr_array_unref(modules);
 }
@@ -215,8 +195,8 @@ static gboolean collapse_end_idle(gpointer user_data) {
  * =========================================================================
  * Some readings are reference rather than status: the machine's load, the ways
  * into its own tools, the brightness that is set once in a while.  They are
- * named by `#:overflow` and live behind a chevron at the end of the right row,
- * laid out only while it is open.  Their modules are built with the bar, so
+ * named by `#:overflow` and live behind the row's one chevron, laid out only
+ * while it is open.  Their modules are built with the bar, so
  * opening the area costs a layout pass and nothing restarts.
  */
 
@@ -235,8 +215,8 @@ static void update_overflow(WhelkBar *bar) {
                                           : "pan-start-symbolic");
 
   gtk_widget_set_tooltip_text(bar->overflow_toggle,
-                              expanded ? "Hide extra items"
-                                       : "Show extra items");
+                              expanded ? "Extra items · click to hide"
+                                       : "Extra items · click to show");
 }
 
 static void on_overflow_toggled(GtkToggleButton *toggle, gpointer user_data) {
@@ -388,13 +368,13 @@ static void build_layout(WhelkBar *bar) {
   gtk_widget_add_css_class(bar->end_overflow_box, "whelk-overflow-box");
 
   bar->end_more = gtk_menu_button_new();
-  GtkWidget *chevron = gtk_image_new_from_icon_name("pan-down-symbolic");
-
-  gtk_image_set_pixel_size(GTK_IMAGE(chevron), 16);
-  gtk_menu_button_set_child(GTK_MENU_BUTTON(bar->end_more), chevron);
+  bar->end_more_count = gtk_label_new("+1");
+  gtk_widget_add_css_class(bar->end_more_count, "whelk-folded-count");
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(bar->end_more),
+                            bar->end_more_count);
   gtk_widget_add_css_class(bar->end_more, "flat");
   gtk_widget_add_css_class(bar->end_more, "whelk-overflow-more");
-  gtk_widget_set_tooltip_text(bar->end_more, "More bar items");
+  gtk_widget_set_tooltip_text(bar->end_more, "Readings that did not fit");
 
   GtkWidget *popover = gtk_popover_new();
 
@@ -458,14 +438,11 @@ static void whelk_bar_dispose(GObject *object) {
     g_clear_pointer(&self->modules, g_ptr_array_unref);
   }
 
-  if (self->skin && self->display) {
-    gtk_style_context_remove_provider_for_display(
-        self->display, GTK_STYLE_PROVIDER(self->skin));
-  }
+  if (self->skin)
+    whelk_style_detach(self->skin, gdk_display_get_default());
 
-  g_clear_object(&self->skin);
+  self->skin = NULL;
   g_clear_object(&self->surface);
-  g_clear_object(&self->display);
 
   G_OBJECT_CLASS(whelk_bar_parent_class)->dispose(object);
 }
@@ -496,10 +473,6 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
 
   bar->config = whelk_bar_config_copy(config);
   bar->surface = whelk_surface_new(app, bar->config->name);
-  bar->display = gdk_display_get_default();
-
-  if (bar->display)
-    g_object_ref(bar->display);
 
   whelk_surface_set_edge(bar->surface, bar->config->edge);
   whelk_surface_set_layer(bar->surface, bar->config->layer);
@@ -511,10 +484,10 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
   whelk_surface_set_monitor(bar->surface, monitor);
   whelk_surface_set_namespace(bar->surface, "whelk-bar");
 
-  g_autofree char *widget_id = css_id_for(bar->config->name);
+  g_autofree char *widget_id = whelk_style_widget_id(bar->config->name);
   whelk_surface_set_widget_id(bar->surface, widget_id);
 
-  apply_skin(bar);
+  apply_skin(bar, widget_id);
   build_layout(bar);
 
   note_native_modules(bar->config, bar->config->left);
@@ -527,8 +500,6 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
   add_modules(bar, bar->config->right, bar->end_box);
   build_overflow(bar);
 
-  /* The chevron belongs after every ordinary right-hand module, and it is
-   * created before them because its popover is part of the layout. */
   gtk_box_append(GTK_BOX(bar->end_box), bar->end_more);
 
   whelk_surface_set_child(bar->surface, bar->root);
