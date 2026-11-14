@@ -15,6 +15,41 @@ Nothing yet.
 
 *[Released]*
 
+** v0.20.1 (2026-11-14)
+
+*** Fixed
+
+- *Launcher placeholder uses the search-entry API.*  The launcher is a
+  =GtkSearchEntry=; calling =gtk_entry_set_placeholder_text= on it produced a
+  GTK critical warning.  It now uses
+  =gtk_search_entry_set_placeholder_text=.
+- *The locker's retry delay cannot be bypassed.*  After a failed PAM attempt
+  the entry is insensitive while the retry timer runs.  Activating =Unlock=
+  during that interval could still call =submit_password= again, because the
+  button remains clickable.  Submission now requires a zero retry timer and a
+  sensitive entry as well.
+
+*** Verified
+
+- Real =pam_unix= authentication was exercised through a temporary
+  =/etc/pam.d/whelk-lock= service under headless Sway.  A wrong password kept
+  the session locked, showed the retry state, and a second activation during
+  the retry delay did not start another PAM attempt.  The real account
+  password then unlocked the session.
+- Output hotplug was exercised while locked: creating a second headless output
+  produced a second =whelk lock= surface, and unplugging that output removed
+  it.
+- The logind =Lock= path was exercised on a private system bus with a fake
+  =org.freedesktop.login1= service emitting =Lock= from the expected object
+  path and interface.  The real logind daemon was not used.
+
+*** Not covered
+
+- The real logind daemon, a live desktop session, and physical keyboard events
+  were not tested.  The lock tests ran under headless Sway, and the password
+  and button actions were driven through AT-SPI rather than =wtype=.  The
+  layer-shell fallback was not re-exercised in this round.
+
 ** v0.20.0 (2026-11-14)
 
 *** Added

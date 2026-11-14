@@ -439,7 +439,8 @@ static gpointer lock_auth_worker(gpointer data) {
 
 static void submit_password(WhelkLocker *self) {
   if (!self || self->closing || self->unlocked || self->authenticating ||
-      !self->entry)
+      self->retry_id != 0 || !self->entry ||
+      !gtk_widget_get_sensitive(self->entry))
     return;
 
   const char *buffer = gtk_editable_get_text(GTK_EDITABLE(self->entry));

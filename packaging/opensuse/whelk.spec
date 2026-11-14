@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.20.0
+Version:        0.20.1
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -74,6 +74,12 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.20.1
+- The launcher uses the search-entry placeholder API, and the screen locker
+  enforces its retry delay so Unlock cannot bypass the backoff.  Real pam_unix,
+  a logind-style Lock signal and output hotplug were exercised under headless
+  Sway.
+
 * Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.20.0
 - The screen locker asks the compositor for an ext-session-lock-v1 session
   lock; the layer-shell overlay is only the fallback for compositors without

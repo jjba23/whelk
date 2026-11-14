@@ -1,3 +1,14 @@
+whelk (0.20.1-1) unstable; urgency=medium
+
+  * The launcher uses the search-entry placeholder API, avoiding a GTK
+    critical warning.
+  * The screen locker enforces its retry delay: activating Unlock while the
+    entry is insensitive no longer starts another PAM attempt.
+  * Real pam_unix, logind-style Lock signals and output hotplug were exercised
+    under headless Sway; see NEWS.org for the exact coverage.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 14 Nov 2026 13:00:00 +0100
+
 whelk (0.20.0-1) unstable; urgency=medium
 
   * The screen locker uses the compositor's ext-session-lock-v1 protocol when

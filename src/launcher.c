@@ -1643,8 +1643,9 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
 
   gtk_widget_add_css_class(self->card, "whelk-launcher");
   gtk_widget_add_css_class(self->entry, "whelk-launcher-entry");
-  gtk_entry_set_placeholder_text(
-      GTK_ENTRY(self->entry), "Search applications, windows, commands…");
+  gtk_search_entry_set_placeholder_text(
+      GTK_SEARCH_ENTRY(self->entry),
+      "Search applications, windows, commands…");
   gtk_widget_set_size_request(self->card, WHELK_LAUNCHER_WIDTH, -1);
 
   GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
