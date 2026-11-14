@@ -32,7 +32,8 @@
         (bar-config-height b)
         (kinds (bar-config-modules-left b))
         (kinds (bar-config-modules-center b))
-        (kinds (bar-config-modules-right b))))
+        (kinds (bar-config-modules-right b))
+        (kinds (bar-config-modules-overflow b))))
 
 (define built-in (default-bar))
 
@@ -80,7 +81,8 @@
 (define (default-reading kind)
   (let find ((modules (append (bar-config-modules-left built-in)
                               (bar-config-modules-center built-in)
-                              (bar-config-modules-right built-in))))
+                              (bar-config-modules-right built-in)
+                              (bar-config-modules-overflow built-in))))
     (cond ((null? modules) #f)
           ((eq? (shell-module-kind (car modules)) kind) (car modules))
           (else (find (cdr modules))))))
@@ -115,7 +117,8 @@
 (define (default-modules b)
   (append (bar-config-modules-left b)
           (bar-config-modules-center b)
-          (bar-config-modules-right b)))
+          (bar-config-modules-right b)
+          (bar-config-modules-overflow b)))
 
 (check "no default tile shells out to mako or clipman"
        (not (any (lambda (m)
@@ -170,9 +173,33 @@
 ;; ask the shell for their state instead of spawning clipman or makoctl.
 (check "the right half keeps the reference's order"
        (equal? (kinds (bar-config-modules-right built-in))
-               '(custom clipboard custom dnd language custom custom custom
-                 custom custom cpu memory backlight audio keyboard battery
-                 power-profile wifi bluetooth tray notifications custom clock)))
+               '(custom clipboard custom dnd custom custom memory audio keyboard
+                 battery power-profile wifi bluetooth tray notifications custom
+                 clock)))
+
+;; The readings that are consulted rather than glanced at -- the load, the ways
+;; into the machine's own tools, the keyboard layout and the brightness -- live
+;; on the row's shelf instead of taking its width all day.
+(check "the reference shelf is the configured overflow"
+       (equal? (kinds (bar-config-modules-overflow built-in))
+               '(cpu custom custom custom language backlight)))
+
+(check "the overflow starts closed"
+       (not (bar-config-overflow-expanded? built-in)))
+
+(check "a bar can open its overflow at start"
+       (bar-config-overflow-expanded? (bar #:overflow-expanded? #t)))
+
+(check "the bridge carries the overflow"
+       (let ((alist (bar->alist (bar #:overflow-expanded? #t
+                                     #:overflow (list (cpu-module))))))
+         (and (eq? (assq-ref alist 'overflow-expanded?) #t)
+              (= (length (assq-ref alist 'overflow)) 1))))
+
+(check "the shipped battery hides its number while charging"
+       (equal? (module-option (default-reading 'battery)
+                              'show-capacity-when-charging?)
+               #f))
 
 (check "the bar is a top bar"
        (and (eq? (bar-config-edge built-in) 'top)

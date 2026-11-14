@@ -196,6 +196,8 @@ WhelkBarConfig *whelk_bar_config_new(const char *name) {
   bar->reflection = 0.0;
   bar->flare = 0.0;
 
+  bar->overflow = g_ptr_array_new_with_free_func(
+      (GDestroyNotify)whelk_module_spec_free);
   bar->left = g_ptr_array_new_with_free_func(
       (GDestroyNotify)whelk_module_spec_free);
   bar->center = g_ptr_array_new_with_free_func(
@@ -249,6 +251,7 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   copy->flare = bar->flare;
   copy->native_network = bar->native_network;
   copy->native_bluetooth = bar->native_bluetooth;
+  copy->overflow_expanded = bar->overflow_expanded;
 
   g_free(copy->monitor);
   copy->monitor = g_strdup(bar->monitor ? bar->monitor : "all");
@@ -271,6 +274,7 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   copy_modules(copy->left, bar->left);
   copy_modules(copy->center, bar->center);
   copy_modules(copy->right, bar->right);
+  copy_modules(copy->overflow, bar->overflow);
 
   return copy;
 }
@@ -294,6 +298,7 @@ void whelk_bar_config_free(WhelkBarConfig *bar) {
   g_clear_pointer(&bar->left, g_ptr_array_unref);
   g_clear_pointer(&bar->center, g_ptr_array_unref);
   g_clear_pointer(&bar->right, g_ptr_array_unref);
+  g_clear_pointer(&bar->overflow, g_ptr_array_unref);
   g_free(bar);
 }
 
@@ -330,7 +335,9 @@ GPtrArray *whelk_config_default_bars(void) {
 
   add_spec(bar->left, "custom", "exec", "printf '%s' \"$(date '+%a %d %b')\"",
            "interval", "60", "format", "{text}", NULL);
-  add_spec(bar->right, "cpu", "interval", "2", NULL);
+  /* The load is reference rather than status: the fallback bar keeps it on the
+   * right row's shelf, the same place the Scheme default puts it. */
+  add_spec(bar->overflow, "cpu", "interval", "2", NULL);
   add_spec(bar->right, "memory", "interval", "5", NULL);
   add_spec(bar->right, "battery", "interval", "30", "format",
            "{capacity}%", "tooltip", "Battery: {capacity}% — {state}", NULL);

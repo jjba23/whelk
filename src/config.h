@@ -112,6 +112,10 @@ typedef enum {
  * @left: (element-type WhelkModuleSpec): modules at the start of the bar.
  * @center: (element-type WhelkModuleSpec): modules in the middle.
  * @right: (element-type WhelkModuleSpec): modules at the end.
+ * @overflow_expanded: whether the right row's overflow area starts open.
+ * @overflow: (element-type WhelkModuleSpec): modules behind the right row's
+ *   chevron.  They are built with the bar, so they keep their timers and
+ *   clicks whether the area is open or closed.
  *
  * One bar, resolved.  This is a description, not a widget: src/bar.c turns it
  * into a surface, and a reload compares descriptions by simply replacing them.
@@ -152,6 +156,13 @@ typedef struct {
    * is redundant, and the tray hides it (src/modules/tray.c). */
   gboolean native_network;
   gboolean native_bluetooth;
+
+  /* The right row's overflow: modules built with the bar but laid out only
+   * while the area is open.  The settings decide the starting state; the
+   * chevron toggles it afterwards. */
+  gboolean overflow_expanded;
+  GPtrArray *overflow;
+
   GPtrArray *left;
   GPtrArray *center;
   GPtrArray *right;
@@ -232,8 +243,9 @@ void whelk_config_free_bars(GPtrArray *bars);
  * whelk_config_default_bars:
  *
  * Returns: (transfer full) (element-type WhelkBarConfig): the bar the shell
- * falls back to when no configuration arrived: a top bar with a clock, the
- * machine's load, its memory, the tray, and the battery when it has one.
+ * falls back to when no configuration arrived: a top bar with a clock, its
+ * memory, the tray, the battery when it has one, and the machine's load on the
+ * right row's overflow shelf.
  */
 GPtrArray *whelk_config_default_bars(void);
 

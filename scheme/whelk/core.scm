@@ -96,6 +96,8 @@
                bar-config-modules-left
                bar-config-modules-center
                bar-config-modules-right
+               bar-config-overflow-expanded?
+               bar-config-modules-overflow
                <widget-config>
                widget-config?
                widget-config-kind

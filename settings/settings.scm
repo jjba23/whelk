@@ -89,40 +89,8 @@ Click: open it"
                         #:format "{icon}"
                         #:tooltip "Do not disturb is on — click to let notifications through")
 
-            ;; Keyboard layout: two letters, from niri.
-            (language-module #:codes "us,nl"
-                             #:interval 2
-                             #:format " {text}"
-                             #:tooltip "Keyboard layout: {text}
-Click: next layout · Right-click: previous layout"
-                             #:on-click "niri msg action switch-layout next"
-                             #:on-click-right "niri msg action switch-layout prev")
 
-            ;; Desktop appearance, wallpaper, documentation, capture, keys.
-            (custom-module #:exec "printf '\\uf53f'"
-                           #:interval 0
-                           #:format "{icon}"
-                           #:icon "\uf53f"
-                           #:tooltip "Palette: browse the palettes
-Click: browse · Right-click: the material settings"
-                           #:on-click "heks-toon palettes"
-                           #:on-click-right "whelk --settings")
-            (custom-module #:exec "printf '\\uf03e'"
-                           #:interval 0
-                           #:format "{icon}"
-                           #:icon "\uf03e"
-                           #:tooltip "Wallpaper: browse the collection
-Click: browse · Right-click: shuffle"
-                           #:on-click "heks-toon walls"
-                           #:on-click-right "heks-wallpaper random")
-            (custom-module #:exec "printf '\\uf518'"
-                           #:interval 0
-                           #:format "{icon}"
-                           #:icon "\uf518"
-                           #:tooltip "Heks documentation
-Click: read · Right-click: the API reference"
-                           #:on-click "heks-toon docs"
-                           #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
+            ;; Capture and the keyboard-shortcut reference.
             (custom-module #:exec "printf '\\uf030'"
                            #:interval 0
                            #:format "{icon}"
@@ -141,13 +109,6 @@ Click: the reference · Right-click: the project page"
                            #:on-click-right "xdg-open 'https://codeberg.org/jjba23/heks-linux'")
 
             ;; Hardware readouts.
-            (cpu-module #:icon "\uf2db"
-                        #:format "{icon} {usage}%"
-                        #:interval 2
-                        #:tooltip "CPU: {usage}% of every core
-Click: system monitor · Right-click: btop"
-                        #:on-click "gnome-system-monitor"
-                        #:on-click-right "wezterm start -- btop")
             (memory-module #:icon "\uf0c9"
                            #:format "{icon} {percentage}%"
                            #:interval 5
@@ -157,15 +118,6 @@ Swap: {swap-used} GiB of {swap-total} GiB
 Click: system monitor · Right-click: btop"
                            #:on-click "gnome-system-monitor"
                            #:on-click-right "wezterm start -- btop")
-            (backlight-module #:icon "\uf185"
-                              #:format "{icon}"
-                              #:interval 2
-                              #:tooltip "Brightness: {percent}%
-Click: brighter · Right-click: full · Scroll: adjust"
-                              #:on-click "brightnessctl set 5%+"
-                              #:on-click-right "brightnessctl set 100%"
-                              #:on-scroll-up "brightnessctl set 5%+"
-                              #:on-scroll-down "brightnessctl set 5%-")
             (audio-module #:icon "\uf028"
                           #:muted-icon "\uf026"
                           #:format "{icon}"
@@ -184,8 +136,9 @@ Click: mixer · Right-click: mute · Middle: mute the microphone · Scroll: volu
                              #:tooltip "Caps Lock is on")
             ;; Auto-detect the pack: BAT0 on many machines, BAT1 on others.
             (battery-module #:icon "\uf240"
+                            #:charging-icon "\uf0e7"
                             #:format "{icon} {capacity}%"
-                            #:charging-format "⚡ {capacity}%"
+                            #:show-capacity-when-charging? #f
                             #:warning 30
                             #:critical 15
                             #:interval 30
@@ -233,7 +186,62 @@ Click: the launcher · Right-click: switch windows"
                           #:tooltip "{calendar}
 Click: calendar · Right-click: copy the time"
                           #:on-click "gnome-calendar"
-                          #:on-click-right "wl-copy \"$(date '+%Y-%m-%d %H:%M:%S')\""))))
+                          #:on-click-right "wl-copy \"$(date '+%Y-%m-%d %H:%M:%S')\""))
+
+   ;; ------------------------------------------------------------- overflow --
+   ;; Reference, not status: the load, the ways into the machine's own tools,
+   ;; and the two hardware dials that are set once in a while.  They are built
+   ;; with the bar but stay behind a chevron at the end of the right row, and
+   ;; open horizontally when it is clicked.  #:overflow-expanded? #t opens the
+   ;; area at start.
+   #:overflow (list
+               (cpu-module #:icon "\uf2db"
+                           #:format "{icon} {usage}%"
+                           #:interval 2
+                           #:tooltip "CPU: {usage}% of every core
+Click: system monitor · Right-click: btop"
+                           #:on-click "gnome-system-monitor"
+                           #:on-click-right "wezterm start -- btop")
+               (custom-module #:exec "printf '\\uf518'"
+                              #:interval 0
+                              #:format "{icon}"
+                              #:icon "\uf518"
+                              #:tooltip "Heks documentation
+Click: read · Right-click: the API reference"
+                              #:on-click "heks-toon docs"
+                              #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
+               (custom-module #:exec "printf '\\uf03e'"
+                              #:interval 0
+                              #:format "{icon}"
+                              #:icon "\uf03e"
+                              #:tooltip "Wallpaper: browse the collection
+Click: browse · Right-click: shuffle"
+                              #:on-click "heks-toon walls"
+                              #:on-click-right "heks-wallpaper random")
+               (custom-module #:exec "printf '\\uf53f'"
+                              #:interval 0
+                              #:format "{icon}"
+                              #:icon "\uf53f"
+                              #:tooltip "Palette: browse the palettes
+Click: browse · Right-click: the material settings"
+                              #:on-click "heks-toon palettes"
+                              #:on-click-right "whelk --settings")
+               (language-module #:codes "us,nl"
+                                #:interval 2
+                                #:format " {text}"
+                                #:tooltip "Keyboard layout: {text}
+Click: next layout · Right-click: previous layout"
+                                #:on-click "niri msg action switch-layout next"
+                                #:on-click-right "niri msg action switch-layout prev")
+               (backlight-module #:icon "\uf185"
+                                 #:format "{icon}"
+                                 #:interval 2
+                                 #:tooltip "Brightness: {percent}%
+Click: brighter · Right-click: full · Scroll: adjust"
+                                 #:on-click "brightnessctl set 5%+"
+                                 #:on-click-right "brightnessctl set 100%"
+                                 #:on-scroll-up "brightnessctl set 5%+"
+                                 #:on-scroll-down "brightnessctl set 5%-"))))
 
  ;; The standard macOS Golden Gate desktop-widget collection: Clock,
  ;; Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.

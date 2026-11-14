@@ -19,8 +19,11 @@ struct _WhelkBar {
   GtkWidget *start_box; /* module rows */
   GtkWidget *center_box;
   GtkWidget *end_box;
-  GtkWidget *end_more;        /* the chevron for the right row's overflow */
+  GtkWidget *end_more;        /* the chevron for a row that does not fit */
   GtkWidget *end_overflow_box;
+  GtkWidget *overflow_box;    /* the configured overflow area, inline */
+  GtkWidget *overflow_toggle; /* the chevron that opens it */
+  GtkWidget *overflow_icon;
   GtkWidget *context_menu;    /* the bar's own right-click menu */
   GPtrArray *modules;   /* WhelkModule* */
   GtkCssProvider *skin; /* this bar's generated CSS */
@@ -145,14 +148,18 @@ static void collapse_end(WhelkBar *bar) {
   const int spacing = bar->config->spacing;
   const int used_by_others =
       widget_width(bar->start_box, 0) + widget_width(bar->center_box, 0) +
-      2 * bar->config->padding;
+      widget_width(bar->overflow_box, 0) +
+      widget_width(bar->overflow_toggle, 0) + 2 * bar->config->padding;
   const int available = MAX(0, root_width - used_by_others - 16);
 
   GPtrArray *modules = g_ptr_array_new();
 
   for (GtkWidget *child = gtk_widget_get_first_child(bar->end_box); child;
        child = gtk_widget_get_next_sibling(child)) {
-    if (child != bar->end_more)
+    /* The configured overflow area and the two chevrons are the row's
+     * structure, not readings that happen to be wide: never fold them. */
+    if (child != bar->end_more && child != bar->overflow_box &&
+        child != bar->overflow_toggle)
       g_ptr_array_add(modules, child);
   }
 
@@ -201,6 +208,70 @@ static void collapse_end(WhelkBar *bar) {
 static gboolean collapse_end_idle(gpointer user_data) {
   collapse_end(user_data);
   return G_SOURCE_REMOVE;
+}
+
+/* =========================================================================
+ * THE CONFIGURED OVERFLOW
+ * =========================================================================
+ * Some readings are reference rather than status: the machine's load, the ways
+ * into its own tools, the brightness that is set once in a while.  They are
+ * named by `#:overflow` and live behind a chevron at the end of the right row,
+ * laid out only while it is open.  Their modules are built with the bar, so
+ * opening the area costs a layout pass and nothing restarts.
+ */
+
+static void update_overflow(WhelkBar *bar) {
+  if (!bar || !bar->overflow_box || !bar->overflow_toggle)
+    return;
+
+  const gboolean expanded =
+      gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(bar->overflow_toggle));
+
+  gtk_widget_set_visible(bar->overflow_box, expanded);
+
+  if (bar->overflow_icon)
+    gtk_image_set_from_icon_name(GTK_IMAGE(bar->overflow_icon),
+                                 expanded ? "pan-end-symbolic"
+                                          : "pan-start-symbolic");
+
+  gtk_widget_set_tooltip_text(bar->overflow_toggle,
+                              expanded ? "Hide extra items"
+                                       : "Show extra items");
+}
+
+static void on_overflow_toggled(GtkToggleButton *toggle, gpointer user_data) {
+  (void)toggle;
+  update_overflow(user_data);
+}
+
+static void build_overflow(WhelkBar *bar) {
+  if (!bar->config || bar->config->overflow->len == 0)
+    return;
+
+  const GtkOrientation orientation = whelk_surface_is_horizontal(bar->surface)
+                                         ? GTK_ORIENTATION_HORIZONTAL
+                                         : GTK_ORIENTATION_VERTICAL;
+
+  bar->overflow_box = gtk_box_new(orientation, bar->config->spacing);
+  gtk_widget_add_css_class(bar->overflow_box, "whelk-overflow");
+  gtk_widget_set_valign(bar->overflow_box, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(bar->end_box), bar->overflow_box);
+  add_modules(bar, bar->config->overflow, bar->overflow_box);
+
+  bar->overflow_toggle = gtk_toggle_button_new();
+  bar->overflow_icon = gtk_image_new_from_icon_name("pan-start-symbolic");
+  gtk_image_set_pixel_size(GTK_IMAGE(bar->overflow_icon), 16);
+  gtk_button_set_child(GTK_BUTTON(bar->overflow_toggle), bar->overflow_icon);
+  gtk_widget_add_css_class(bar->overflow_toggle, "flat");
+  gtk_widget_add_css_class(bar->overflow_toggle, "whelk-overflow-toggle");
+  gtk_widget_set_valign(bar->overflow_toggle, GTK_ALIGN_CENTER);
+  g_signal_connect(bar->overflow_toggle, "toggled",
+                   G_CALLBACK(on_overflow_toggled), bar);
+  gtk_box_append(GTK_BOX(bar->end_box), bar->overflow_toggle);
+
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bar->overflow_toggle),
+                               bar->config->overflow_expanded);
+  update_overflow(bar);
 }
 
 /* =========================================================================
@@ -449,10 +520,12 @@ WhelkBar *whelk_bar_new(GtkApplication *app, const WhelkBarConfig *config,
   note_native_modules(bar->config, bar->config->left);
   note_native_modules(bar->config, bar->config->center);
   note_native_modules(bar->config, bar->config->right);
+  note_native_modules(bar->config, bar->config->overflow);
 
   add_modules(bar, bar->config->left, bar->start_box);
   add_modules(bar, bar->config->center, bar->center_box);
   add_modules(bar, bar->config->right, bar->end_box);
+  build_overflow(bar);
 
   /* The chevron belongs after every ordinary right-hand module, and it is
    * created before them because its popover is part of the layout. */

@@ -58,6 +58,8 @@
             bar-config-modules-left
             bar-config-modules-center
             bar-config-modules-right
+            bar-config-overflow-expanded?
+            bar-config-modules-overflow
             <widget-config>
             widget-config?
             widget-config-kind
@@ -100,7 +102,8 @@
                    font font-size icon-font
                    foreground background accent border-color radius
                    opacity blur shine reflection flare css
-                   modules-left modules-center modules-right)
+                   modules-left modules-center modules-right
+                   overflow-expanded? modules-overflow)
   bar-config?
   (name bar-config-name)
   (theme bar-config-theme)
@@ -133,7 +136,9 @@
   (css bar-config-css)
   (modules-left bar-config-modules-left)
   (modules-center bar-config-modules-center)
-  (modules-right bar-config-modules-right))
+  (modules-right bar-config-modules-right)
+  (overflow-expanded? bar-config-overflow-expanded?)
+  (modules-overflow bar-config-modules-overflow))
 
 ;; =============================================================================
 ;; The desktop widget record
@@ -377,7 +382,9 @@ becomes the same list so the C side has one shape to evaluate."
               (css #f)
               (left '())
               (center '())
-              (right '()))
+              (right '())
+              (overflow '())
+              (overflow-expanded? #f))
   "Describe one bar.
 
 POSITION is the edge it is anchored to ('top, 'bottom, 'left, 'right).  HEIGHT
@@ -408,7 +415,13 @@ designed as 82% glass stays 82% at 1.0 and becomes lighter at 0.7.  BLUR is the
 soft outer shadow radius in pixels.  SHINE, REFLECTION and FLARE are 0..1
 strengths for the top highlight, the lower inner reflection and the accent
 glow along the top edge.  A theme supplies these starting points; a keyword on
-the bar overrides one without touching the others."
+the bar overrides one without touching the others.
+
+OVERFLOW is a list of modules kept behind a chevron at the end of the right
+row.  The area is laid out horizontally only while it is open, and
+OVERFLOW-EXPANDED? decides whether it starts open; the chevron toggles it after
+that.  The modules are built with the bar, so their readings keep updating and
+their clicks keep working while the area is closed."
   (let* ((margins (normalize-margins margin))
          (palette (theme-palette theme))
          ;; A theme is a starting point: whatever the bar sets itself wins.
@@ -422,7 +435,8 @@ the bar overrides one without touching the others."
                       (if (number? value) (exact->inexact value) fallback))))
     ;; `when' is also this function's keyword argument, so the conditional is
     ;; spelled with `if' rather than shadowing the syntax form.
-    (if (and (not (list? left)) (not (list? center)) (not (list? right)))
+    (if (and (not (list? left)) (not (list? center)) (not (list? right))
+             (not (list? overflow)))
         (log-warn "State" "Bar ~a: module lists should be lists" name))
     (make-bar-config name
                      (cond ((symbol? theme) theme)
@@ -459,7 +473,9 @@ the bar overrides one without touching the others."
                      (from-theme 'css css)
                      (if (list? left) left '())
                      (if (list? center) center '())
-                     (if (list? right) right '()))))
+                     (if (list? right) right '())
+                     (if overflow-expanded? #t #f)
+                     (if (list? overflow) overflow '()))))
 
 ;; =============================================================================
 ;; Configuration entry point
@@ -557,7 +573,8 @@ how a configuration is changed without restarting the compositor:
                              (bar-config-edge b)
                              (+ (length (bar-config-modules-left b))
                                 (length (bar-config-modules-center b))
-                                (length (bar-config-modules-right b)))))
+                                (length (bar-config-modules-right b))
+                                (length (bar-config-modules-overflow b)))))
                    valid)
               (length valid-widgets)
               enable-repl?)))
@@ -672,7 +689,10 @@ because a settings file may want to read the menu it configured."
         (cons 'modules-center
               (map module->alist (bar-config-modules-center b)))
         (cons 'modules-right
-              (map module->alist (bar-config-modules-right b)))))
+              (map module->alist (bar-config-modules-right b)))
+        (cons 'overflow-expanded? (bar-config-overflow-expanded? b))
+        (cons 'overflow
+              (map module->alist (bar-config-modules-overflow b)))))
 
 (define (shell-bars->alists . args)
   "Return the configured bars as alists, for the C runtime."

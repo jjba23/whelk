@@ -256,6 +256,7 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   bar->reflection =
       CLAMP(alist_double(alist, "reflection", 0.0), 0.0, 1.0);
   bar->flare = CLAMP(alist_double(alist, "flare", 0.0), 0.0, 1.0);
+  bar->overflow_expanded = alist_bool(alist, "overflow-expanded?", FALSE);
 
   g_free(bar->monitor);
   bar->monitor = alist_text(alist, "monitor", "all");
@@ -302,6 +303,7 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   collect_modules(bar->left, alist_get(alist, "modules-left"));
   collect_modules(bar->center, alist_get(alist, "modules-center"));
   collect_modules(bar->right, alist_get(alist, "modules-right"));
+  collect_modules(bar->overflow, alist_get(alist, "overflow"));
 
   return bar;
 }

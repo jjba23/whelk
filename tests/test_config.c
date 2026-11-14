@@ -67,8 +67,12 @@ static void test_bar_copy(void) {
   WhelkBarConfig *bar = whelk_bar_config_new("main");
   WhelkModuleSpec *clock = whelk_module_spec_new("clock");
 
+  WhelkModuleSpec *cpu = whelk_module_spec_new("cpu");
+
   whelk_module_spec_set(clock, "format", "%H:%M");
   g_ptr_array_add(bar->right, clock);
+  g_ptr_array_add(bar->overflow, cpu);
+  bar->overflow_expanded = TRUE;
 
   g_free(bar->monitor);
   bar->monitor = g_strdup("DP-1");
@@ -99,11 +103,17 @@ static void test_bar_copy(void) {
   g_assert_cmpfloat_with_epsilon(copy->reflection, 0.25, 0.0001);
   g_assert_cmpfloat_with_epsilon(copy->flare, 0.15, 0.0001);
   g_assert_cmpuint(copy->right->len, ==, 1);
+  g_assert_true(copy->overflow_expanded);
+  g_assert_cmpuint(copy->overflow->len, ==, 1);
 
   WhelkModuleSpec *copied_clock = g_ptr_array_index(copy->right, 0);
 
   g_assert_cmpstr(copied_clock->kind, ==, "clock");
   g_assert_cmpstr(whelk_spec_str(copied_clock, "format", ""), ==, "%H:%M");
+
+  WhelkModuleSpec *copied_cpu = g_ptr_array_index(copy->overflow, 0);
+
+  g_assert_cmpstr(copied_cpu->kind, ==, "cpu");
 
   whelk_bar_config_free(copy);
 }
@@ -118,6 +128,11 @@ static void test_default_bar(void) {
   g_assert_cmpint(bar->edge, ==, GTK_LAYER_SHELL_EDGE_TOP);
   g_assert_cmpint(bar->layer, ==, GTK_LAYER_SHELL_LAYER_TOP);
   g_assert_true(bar->right->len > 0);
+  g_assert_cmpuint(bar->overflow->len, ==, 1);
+  g_assert_cmpstr(
+      ((WhelkModuleSpec *)g_ptr_array_index(bar->overflow, 0))->kind, ==,
+      "cpu");
+  g_assert_false(bar->overflow_expanded);
 
   gboolean has_battery = FALSE;
 

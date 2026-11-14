@@ -117,9 +117,10 @@ window.whelk-surface {
   font-weight: bold;
 }
 
-.whelk-battery.charging {
-  color: #8fd16a;
-}
+/* A pack that is filling is a reading, not an alert: the charging class keeps
+ * the bar's own ink, so the bolt is white on a dark bar and black on a light
+ * one.  `#:charging-color` paints over it when a machine wants a tint; the
+ * warning and critical colours stay for a battery that is running down. */
 
 .welk-hidden {
   opacity: 0;
@@ -192,6 +193,24 @@ window.whelk-surface {
 }
 
 .whelk-overflow-more:hover {
+  opacity: 1;
+  background-color: alpha(currentColor, 0.12);
+}
+
+/* The configured overflow area: a group of modules laid out inline when the
+ * chevron opens it, and the chevron itself. */
+.whelk-overflow {
+  padding: 0;
+}
+
+.whelk-overflow-toggle {
+  padding: 0 4px;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0.7;
+}
+
+.whelk-overflow-toggle:hover {
   opacity: 1;
   background-color: alpha(currentColor, 0.12);
 }

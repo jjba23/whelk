@@ -272,7 +272,10 @@ duplicate happens to win."
      (map (lambda (mod) (apply-module mod prefs))
           (bar-config-modules-center bar))
      (map (lambda (mod) (apply-module mod prefs))
-          (bar-config-modules-right bar)))))
+          (bar-config-modules-right bar))
+     (bar-config-overflow-expanded? bar)
+     (map (lambda (mod) (apply-module mod prefs))
+          (bar-config-modules-overflow bar)))))
 
 (define (set-option-if-present mod prefs preference-key option-key)
   (let ((pair (assq preference-key prefs)))

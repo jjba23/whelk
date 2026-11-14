@@ -15,6 +15,21 @@ Nothing yet.
 
 *[Released]*
 
+** v0.24.0 (2026-11-14)
+
+*** Added
+
+- *A configurable overflow shelf on the right row.* =#:overflow= names modules
+  that are built with the bar but laid out only while their chevron is open;
+  =#:overflow-expanded?= decides whether the shelf starts open, and it starts
+  closed by default.  The default bar moves the CPU meter, the documentation,
+  wallpaper and palette tiles, the keyboard layout and the brightness there.
+  The automatic fold for a row that does not fit is unchanged.
+- *A charging battery is quieter.*  Its bolt keeps the bar's own ink (white on
+  a dark bar, black on a light one) instead of a green alert, the percentage is
+  hidden while the pack is charging -- the capacity stays in the tooltip -- and
+  =#:show-capacity-when-charging?= and =#:charging-color= bring either back.
+
 ** v0.23.0 (2026-11-14)
 
 *** Added
