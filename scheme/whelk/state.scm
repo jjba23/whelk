@@ -201,8 +201,11 @@ pixels from the top-left of MONITOR (\"default\" or a connector such as
 \"DP-1\").  WIDTH and HEIGHT default to the standard size for KIND.  OPTIONS is
 an alist of the widget's own keys: the weather takes latitude, longitude and
 location, Notes takes text or file, Reminders takes items, and every widget
-accepts title, css, tooltip and on-click.  The C side ignores a key it does not
-know, exactly as a module does."
+accepts title, css, tooltip and the mouse actions on-click, on-click-middle,
+on-click-right, on-scroll-up and on-scroll-down.  The C side ignores a key it
+does not know, exactly as a module does.  Where a card sits is only the start:
+the grip in its header drags it, and the position is saved as runtime state
+rather than written back into this file."
   (let* ((kind (normalize-widget-kind kind))
          (preset (or (assq kind %widget-sizes) '(default 320 220)))
          (preset-width (cadr preset))

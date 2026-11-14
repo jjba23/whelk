@@ -24,9 +24,10 @@ G_BEGIN_DECLS
 
 typedef struct _WhelkWidgets WhelkWidgets;
 
-WhelkWidgets *whelk_widgets_new(GtkApplication *app);
+WhelkWidgets *whelk_widgets_new(GtkApplication *app, const char *config_path);
 
-/* Replaces every widget with CONFIGS, drawing them in STYLE's palette. */
+/* Replaces every widget with CONFIGS, drawing them in STYLE's palette.  A
+ * dragged position saved for CONFIG_PATH is applied over the configured one. */
 void whelk_widgets_build(WhelkWidgets *widgets, const GPtrArray *configs,
                          const WhelkBarConfig *style);
 

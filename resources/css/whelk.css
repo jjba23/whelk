@@ -809,6 +809,21 @@ window.whelk-settings-window {
   min-width: 1px;
 }
 
+.whelk-widget-grip {
+  font-size: 12pt;
+  min-width: 18px;
+  padding: 0 2px;
+  opacity: 0.28;
+}
+
+.whelk-widget-grip:hover {
+  opacity: 0.8;
+}
+
+.whelk-widget-card.dragging {
+  box-shadow: 0 24px 62px alpha(black, 0.42);
+}
+
 .whelk-widget-subtle {
   font-size: 9.5pt;
   opacity: 0.62;
@@ -843,10 +858,32 @@ window.whelk-settings-window {
 
 /* --- calendar ------------------------------------------------------------- */
 
+.whelk-widget-calendar-nav {
+  margin: 4px 0 8px 0;
+}
+
+.whelk-widget-calendar-button {
+  min-width: 18px;
+  min-height: 22px;
+  padding: 2px 5px;
+  border-radius: 8px;
+  opacity: 0.66;
+}
+
+.whelk-widget-calendar-button:hover {
+  background-color: alpha(currentColor, 0.10);
+  opacity: 1;
+}
+
 .whelk-widget-calendar-month {
   font-size: 18pt;
   font-weight: 600;
-  margin: 6px 0 10px 0;
+  padding: 2px 4px;
+  border-radius: 8px;
+}
+
+.whelk-widget-calendar-month:hover {
+  background-color: alpha(currentColor, 0.08);
 }
 
 .whelk-widget-calendar-grid {
@@ -927,6 +964,15 @@ window.whelk-settings-window {
 
 .whelk-widget-reminder-list {
   margin-top: 4px;
+}
+
+.whelk-widget-reminder-row {
+  padding: 3px 4px;
+  border-radius: 8px;
+}
+
+.whelk-widget-reminder-row:hover {
+  background-color: alpha(currentColor, 0.08);
 }
 
 .whelk-widget-reminder {

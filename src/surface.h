@@ -52,6 +52,12 @@ whelk_surface_set_keyboard_mode(WhelkSurface *surface,
 void whelk_surface_set_thickness(WhelkSurface *surface, int thickness);
 void whelk_surface_set_margins(WhelkSurface *surface, int top, int right,
                                int bottom, int left);
+
+/* Move a visible surface to (X, Y) from its monitor's top-left corner.  This is
+ * the layer-shell position, not a GTK allocation: it changes the margins of a
+ * surface anchored top and left.  Before presentation it only records the
+ * position for whelk_surface_present(); after it, it applies it at once. */
+void whelk_surface_set_position(WhelkSurface *surface, int x, int y);
 void whelk_surface_set_exclusive(WhelkSurface *surface, gboolean exclusive);
 
 /* The monitor to pin to, or NULL for the compositor's default. */

@@ -792,17 +792,18 @@ be written out one at a time, placed anywhere on any output:
 | =#:monitor=       | ="default"= or a connector such as ="DP-1"=                            |
 | =#:options=       | the widget's own alist; an unknown key is ignored                     |
 
-Every kind accepts =#:title=, =#:css=, =#:tooltip= and =#:on-click= in that
-option alist.  The kind-specific options are:
+Every kind accepts =#:title=, =#:css=, =#:tooltip= and the mouse actions in that
+option alist: =on-click=, =on-click-middle=, =on-click-right=, =on-scroll-up=
+and =on-scroll-down=, each a command line.  The kind-specific options are:
 
 | Kind        | Options                                                              |
 |-------------+----------------------------------------------------------------------|
 | =clock=       | =style= (=analog= or =digital=), =show-seconds?=                        |
-| =calendar=    | the current month, with today marked                                 |
+| =calendar=    | the current month, with today marked; =‹= and =›= change it, the month title returns to today |
 | =weather=     | =latitude=, =longitude=, =location=, =units= (=metric= or =imperial=)   |
 | =battery=     | =device=, =warning=, =critical=                                        |
 | =notes=       | =text=, or =file= to read the note from disk                          |
-| =reminders=   | =items=, a list; prefix an item with =x= to mark it done               |
+| =reminders=   | =items=, a list; prefix an item with =x= to mark it done; a row toggles when clicked |
 | =world-clock= | =cities=, as ="Name=Zone"= entries separated by commas                |
 | =stocks=      | =symbols=, a list of Yahoo Finance tickers                            |
 | =custom=      | =exec=, =interval=, =empty=; anything a command can print              |
@@ -814,10 +815,33 @@ both keep their request off the main loop.  A card sits on the layer-shell
 visible on the desktop and under the windows rather than over them.  Saving the
 settings file rebuilds every card with the bars.
 
+*** Clicking, dragging and the grid
+
+A widget is a window you can move, not a printout.  The small grip at the
+top-right of every card is its drag handle: hold it with the primary button and
+the card follows the pointer, snaps to an eight-pixel grid and stops at the
+monitor's edges.  The grip is deliberately not the whole card, so the card's own
+buttons and its calendar and reminder rows keep their clicks.  The position is
+written to =$XDG_STATE_HOME/whelk/widgets-<settings-stem>.ini= (normally
+=~/.local/state/whelk/widgets-settings.ini=) and restored on the next reload or
+start; deleting that file returns every card to the position in the settings
+file.  Dragging is a Wayland layer-shell move: the position is the surface's
+margin from the monitor's top-left corner, not an X11 window coordinate.
+
+Every card's primary, middle and right click and its two scroll directions are
+commands from the settings file, so a Notes card can open the note in an editor,
+a Weather card can refresh a script and a right click can show a menu.  What
+needs no configuration is built in: the calendar's =‹= and =›= buttons change
+the month and its month title returns to today; a Reminders row toggles between
+done and not done and that state is saved in the same state file; a clock, a
+weather card and a stock card keep their own refresh timers.  Notes remains
+read-only: its text is what the settings file or the note file says.
+
 The standard set is a starting layout down the left and middle of a 1080p
-desktop.  It is not privileged: use =map=, a helper procedure, or a list of
-your own to place exactly the cards you want.  =custom= is the escape hatch for
-widgets whose data comes from another program.
+desktop, aligned to the same eight-pixel grid a dragged card snaps to.  It is
+not privileged: use =map=, a helper procedure, or a list of your own to place
+exactly the cards you want.  =custom= is the escape hatch for widgets whose data
+comes from another program.
 
 ** The bar keys
 :PROPERTIES:
@@ -1523,9 +1547,10 @@ the same shutdown path by itself.
 :CUSTOM_ID: next
 :END:
 
-- *Editable desktop widgets*: Notes and Reminders render the values a settings
-  file gives them.  Editing from the card would write through a preference
-  override, the same reversible path the settings window already uses.
+- *Editable notes*: Notes renders the value a settings file or a note file
+  gives it.  Editing the prose from the card would write through a preference
+  override, the same reversible path the settings window already uses; a
+  reminder's done state already takes that path.
 - *Tray menus*: the DBusMenu interface an item's own menu lives on.  Until then
   a right click asks the item to show its menu itself.
 - *Configured surfaces*: =bar->alist= in =state.scm= is the pattern; a record for

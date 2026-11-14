@@ -96,6 +96,31 @@
                             (>= (widget-config-y w) 0)))
                      standard))))
 
+;; Dragging snaps to the same grid, so the shipped layout starts on it: a
+;; card that has never been moved has the position the first drag would pick.
+(check "the standard layout sits on the eight-pixel drag grid"
+       (every (lambda (w)
+                (and (zero? (modulo (widget-config-x w) 8))
+                     (zero? (modulo (widget-config-y w) 8))))
+              standard))
+
+;; Every card has the whole mouse vocabulary, not only the primary click the
+;; first implementation wired.
+(check "a widget keeps all of its mouse actions"
+       (let ((w (desktop-widget
+                 'notes
+                 #:options '((on-click . "a")
+                             (on-click-middle . "b")
+                             (on-click-right . "c")
+                             (on-scroll-up . "d")
+                             (on-scroll-down . "e")))))
+         (equal? (widget-config-options w)
+                 '((on-click . "a")
+                   (on-click-middle . "b")
+                   (on-click-right . "c")
+                   (on-scroll-up . "d")
+                   (on-scroll-down . "e")))))
+
 (define (widget-overlap? a b)
   (and (< (widget-config-x a)
           (+ (widget-config-x b) (widget-config-width b)))

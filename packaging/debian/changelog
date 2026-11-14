@@ -1,4 +1,4 @@
-whelk (0.21.1-1) unstable; urgency=medium
+whelk (0.22.0-1) unstable; urgency=medium
 
   * The lock screen no longer rejects every password when the optional
     /etc/pam.d/whelk-lock service is absent.  whelk now chooses the login

@@ -15,6 +15,48 @@ Nothing yet.
 
 *[Released]*
 
+** v0.22.0 (2026-11-14)
+
+*** Added
+
+- *A desktop widget answers the whole mouse, not only its primary click.*  Every
+  card now reads the same action vocabulary a bar module does: =on-click=,
+  =on-click-middle=, =on-click-right=, =on-scroll-up= and =on-scroll-down=.
+  A Notes card can open its note in an editor, a Weather card can refresh a
+  script, and a right click can open a menu; none of that needs a module of its
+  own.  A card with no actions configured still moves.
+- *Widgets move.*  The grip at the top-right of every header is a drag handle:
+  the card follows the pointer, snaps to an eight-pixel grid and stops at the
+  monitor's edges.  The position is stored in
+  =$XDG_STATE_HOME/whelk/widgets-<settings-stem>.ini= and restored on a reload
+  or the next start, and a position saved on a larger monitor is clamped onto
+  the current one.  The settings file is never rewritten; deleting the state
+  file returns every card to the layout it declares.
+- *Calendar and Reminders are interactive without configuration.*  The
+  calendar's =‹= and =›= buttons move a month at a time and its month title
+  returns to today.  Clicking a Reminders row toggles it between done and not
+  done, and that state is saved beside the widget positions.
+- *The Golden Gate layout starts on the drag grid.*  Its eight cards are placed
+  on the same eight-pixel grid a dragged card snaps to, with consistent gutters
+  between the columns.
+
+*** Changed
+
+- *A widget's input is the bar's input.*  The bespoke primary-click gesture is
+  gone; every card installs ~whelk_click_attach()~, so the option names and the
+  pointer cursor are the ones the bar already documents.  The header's grip is
+  deliberately separate from the card's click, and the calendar and reminder
+  controls are real buttons rather than clickable labels, so each action keeps
+  its own click.
+
+*** Verified
+
+- The host build and the Meson suite pass: 36 tests, including the new
+  =widgetstate= unit tests for snapping, clamping and persisted positions, the
+  expanded widget contract, the golden bar image and the Scheme widget tests.
+
+---------
+
 ** v0.21.1 (2026-11-14)
 
 *** Fixed

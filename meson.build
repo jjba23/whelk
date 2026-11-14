@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.21.1',
+  version: '0.22.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -214,6 +214,7 @@ whelk_sources = files(
   'src/util/nmcli.c',
   'src/util/sysfs.c',
   'src/util/trayicon.c',
+  'src/util/widgetstate.c',
   'src/widgets.c',
 )
 
@@ -471,6 +472,10 @@ unit_tests = [
   {
     'id': 'trayicon',
     'sources': ['src/util/trayicon.c'],
+  },
+  {
+    'id': 'widgetstate',
+    'sources': ['src/util/widgetstate.c'],
   },
 ]
 

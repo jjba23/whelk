@@ -328,7 +328,7 @@ void whelk_shell_start(WhelkShell *shell) {
   /* PAM and logind are prepared before the first `--lock` can arrive. */
   whelk_locker_init(shell->app);
 
-  shell->widgets = whelk_widgets_new(shell->app);
+  shell->widgets = whelk_widgets_new(shell->app, shell->config_path);
 
   build_bars(shell);
 

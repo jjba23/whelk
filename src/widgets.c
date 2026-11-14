@@ -8,9 +8,11 @@
 #include "surface.h"
 #include "style.h"
 #include "logger.h"
+#include "util/click.h"
 #include "util/command.h"
 #include "util/json.h"
 #include "util/sysfs.h"
+#include "util/widgetstate.h"
 
 #include <gio/gio.h>
 #include <math.h>
@@ -40,6 +42,9 @@ static void reminders_destroy(WidgetInstance *widget);
 static void world_clock_destroy(WidgetInstance *widget);
 static void stocks_destroy(WidgetInstance *widget);
 static void custom_destroy(WidgetInstance *widget);
+static void reminders_render(WidgetInstance *widget);
+static void reminders_toggle_row(GtkButton *button, gpointer user_data);
+static GdkMonitor *widget_monitor(const char *connector);
 
 /* One liveness token per widget.  An asynchronous answer can outlive the card
  * that asked; the token is killed before the widget is freed, so the callback
@@ -85,6 +90,10 @@ struct _WidgetInstance {
   GtkCssProvider *skin;
   GdkDisplay *display; /* owned reference */
   char *widget_id;
+  char *state_path; /* owned copy of the manager's widget state path */
+
+  int drag_origin_x;
+  int drag_origin_y;
 
   WidgetGuard *guard;
   guint timer_id;
@@ -99,6 +108,7 @@ struct _WidgetInstance {
 
 struct _WhelkWidgets {
   GtkApplication *app;
+  char *state_path; /* widget positions and per-widget runtime state */
   GPtrArray *instances; /* WidgetInstance* */
 };
 
@@ -137,6 +147,129 @@ static GtkWidget *widget_label(const char *text, const char *css_class,
   return label;
 }
 
+/* The area the widget may be dragged across: the monitor it names, the one its
+ * surface is on, or the display's first monitor.  A display with no monitor
+ * model (the headless test renderer) leaves the fallback untouched. */
+static void widget_monitor_area(WidgetInstance *widget, int *width,
+                                int *height) {
+  *width = 1920;
+  *height = 1080;
+
+  GdkMonitor *monitor = widget_monitor(widget->config->monitor);
+
+  if (!monitor && widget->display) {
+    GtkWindow *window = whelk_surface_get_window(widget->surface);
+    GdkSurface *surface =
+        window ? gtk_native_get_surface(GTK_NATIVE(window)) : NULL;
+
+    if (surface) {
+      /* This accessor returns a borrowed monitor; the drag path owns the
+       * reference for as long as it needs the geometry. */
+      GdkMonitor *at_surface =
+          gdk_display_get_monitor_at_surface(widget->display, surface);
+
+      if (at_surface)
+        monitor = g_object_ref(at_surface);
+    }
+  }
+
+  if (!monitor && widget->display) {
+    GListModel *monitors = gdk_display_get_monitors(widget->display);
+
+    if (monitors && g_list_model_get_n_items(monitors) > 0)
+      monitor = GDK_MONITOR(g_list_model_get_item(monitors, 0));
+  }
+
+  if (monitor) {
+    GdkRectangle geometry;
+
+    gdk_monitor_get_geometry(monitor, &geometry);
+
+    if (geometry.width > 0 && geometry.height > 0) {
+      *width = geometry.width;
+      *height = geometry.height;
+    }
+
+    g_object_unref(monitor);
+  }
+}
+
+static void widget_drag_begin(GtkGestureDrag *gesture, double start_x,
+                              double start_y, gpointer user_data) {
+  (void)start_x;
+  (void)start_y;
+
+  WidgetInstance *widget = user_data;
+  GtkWidget *handle = gtk_event_controller_get_widget(
+      GTK_EVENT_CONTROLLER(gesture));
+
+  widget->drag_origin_x = widget->config->x;
+  widget->drag_origin_y = widget->config->y;
+  gtk_widget_add_css_class(widget->card, "dragging");
+
+  if (handle)
+    gtk_widget_set_cursor_from_name(handle, "grabbing");
+}
+
+static void widget_drag_update(GtkGestureDrag *gesture, double offset_x,
+                               double offset_y, gpointer user_data) {
+  (void)gesture;
+
+  WidgetInstance *widget = user_data;
+  int area_width = 0;
+  int area_height = 0;
+
+  widget_monitor_area(widget, &area_width, &area_height);
+
+  int x = whelk_widget_snap((int)lround(widget->drag_origin_x + offset_x),
+                            WHELK_WIDGET_GRID);
+  int y = whelk_widget_snap((int)lround(widget->drag_origin_y + offset_y),
+                            WHELK_WIDGET_GRID);
+
+  whelk_widget_clamp(&x, &y, widget->config->width, widget->config->height,
+                     area_width, area_height);
+  widget->config->x = x;
+  widget->config->y = y;
+  whelk_surface_set_position(widget->surface, x, y);
+}
+
+static void widget_drag_end(GtkGestureDrag *gesture, double offset_x,
+                            double offset_y, gpointer user_data) {
+  (void)offset_x;
+  (void)offset_y;
+
+  WidgetInstance *widget = user_data;
+  GtkWidget *handle = gtk_event_controller_get_widget(
+      GTK_EVENT_CONTROLLER(gesture));
+
+  gtk_widget_remove_css_class(widget->card, "dragging");
+
+  if (handle)
+    gtk_widget_set_cursor_from_name(handle, "grab");
+
+  if (widget->state_path && widget->widget_id)
+    whelk_widget_state_save_position(widget->state_path, widget->widget_id,
+                                     widget->config->x, widget->config->y);
+}
+
+/* The grip is the drag handle, not the whole card: a card's own on-click and
+ * its calendar or reminder buttons keep their clicks, and a desktop widget is
+ * moved the way a window is -- by the small piece that says so. */
+static GtkWidget *widget_grip(WidgetInstance *widget) {
+  GtkWidget *grip = widget_label("⠿", "whelk-widget-grip", 1.0);
+  GtkGesture *drag = gtk_gesture_drag_new();
+
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(drag), GDK_BUTTON_PRIMARY);
+  g_signal_connect(drag, "drag-begin", G_CALLBACK(widget_drag_begin), widget);
+  g_signal_connect(drag, "drag-update", G_CALLBACK(widget_drag_update), widget);
+  g_signal_connect(drag, "drag-end", G_CALLBACK(widget_drag_end), widget);
+  gtk_widget_add_controller(grip, GTK_EVENT_CONTROLLER(drag));
+  gtk_widget_set_cursor_from_name(grip, "grab");
+  gtk_widget_set_tooltip_text(grip, "Drag to move this widget");
+
+  return grip;
+}
+
 static GtkWidget *widget_header(WidgetInstance *widget, const char *glyph,
                                 const char *default_title) {
   GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -148,6 +281,7 @@ static GtkWidget *widget_header(WidgetInstance *widget, const char *glyph,
   gtk_box_append(GTK_BOX(row), widget_label(title, "whelk-widget-title", 0));
   gtk_widget_set_hexpand(fill, TRUE);
   gtk_box_append(GTK_BOX(row), fill);
+  gtk_box_append(GTK_BOX(row), widget_grip(widget));
 
   return row;
 }
@@ -160,20 +294,6 @@ static GdkRGBA widget_ink(WidgetInstance *widget) {
     gdk_rgba_parse(&ink, widget->style->foreground);
 
   return ink;
-}
-
-static void on_widget_clicked(GtkGestureClick *gesture, int n_press,
-                              double x, double y, gpointer user_data) {
-  (void)gesture;
-  (void)n_press;
-  (void)x;
-  (void)y;
-
-  WidgetInstance *widget = user_data;
-  const char *command = widget_option(widget, "on-click", NULL);
-
-  if (command && *command)
-    whelk_command_spawn(command);
 }
 
 static gboolean widget_tick(gpointer user_data) {
@@ -431,7 +551,13 @@ static void clock_destroy(WidgetInstance *widget) {
 typedef struct {
   GtkWidget *month;
   GtkWidget *grid;
+  GDateTime *shown; /* the first day of the month on the card */
 } CalendarWidget;
+
+static GDateTime *calendar_first_of_month(GDateTime *date) {
+  return g_date_time_new_local(g_date_time_get_year(date),
+                               g_date_time_get_month(date), 1, 0, 0, 0.0);
+}
 
 static void calendar_update(WidgetInstance *widget) {
   CalendarWidget *calendar = widget->data;
@@ -440,22 +566,29 @@ static void calendar_update(WidgetInstance *widget) {
   if (!now)
     return;
 
-  const int year = g_date_time_get_year(now);
-  const int month = g_date_time_get_month(now);
-  g_autoptr(GDateTime) first =
-      g_date_time_new_local(year, month, 1, 0, 0, 0.0);
+  if (!calendar->shown)
+    calendar->shown = calendar_first_of_month(now);
+
+  if (!calendar->shown)
+    return;
+
+  const int year = g_date_time_get_year(calendar->shown);
+  const int month = g_date_time_get_month(calendar->shown);
+  g_autoptr(GDateTime) first = calendar_first_of_month(calendar->shown);
 
   if (!first)
     return;
 
   g_autoptr(GDateTime) next_month = g_date_time_add_months(first, 1);
   g_autoptr(GDateTime) last = g_date_time_add_days(next_month, -1);
-  g_autofree char *heading = g_date_time_format(now, "%B %Y");
+  g_autofree char *heading = g_date_time_format(first, "%B %Y");
   const int days = g_date_time_get_day_of_month(last);
   const int today = g_date_time_get_day_of_month(now);
   const int leading = g_date_time_get_day_of_week(first) - 1;
+  const gboolean this_month = year == g_date_time_get_year(now) &&
+                              month == g_date_time_get_month(now);
 
-  gtk_label_set_text(GTK_LABEL(calendar->month), heading);
+  gtk_button_set_label(GTK_BUTTON(calendar->month), heading);
 
   GtkWidget *child = gtk_widget_get_first_child(calendar->grid);
 
@@ -485,7 +618,7 @@ static void calendar_update(WidgetInstance *widget) {
     gtk_widget_set_hexpand(label, TRUE);
     gtk_widget_set_valign(label, GTK_ALIGN_FILL);
 
-    if (day == today)
+    if (this_month && day == today)
       gtk_widget_add_css_class(label, "today");
 
     gtk_grid_attach(GTK_GRID(calendar->grid), label, slot % 7,
@@ -493,14 +626,97 @@ static void calendar_update(WidgetInstance *widget) {
   }
 }
 
+static void calendar_shift(WidgetInstance *widget, int months) {
+  CalendarWidget *calendar = widget->data;
+  g_autoptr(GDateTime) now = g_date_time_new_now_local();
+
+  if (!calendar->shown && now)
+    calendar->shown = calendar_first_of_month(now);
+
+  if (!calendar->shown)
+    return;
+
+  GDateTime *next = g_date_time_add_months(calendar->shown, months);
+
+  if (!next)
+    return;
+
+  g_date_time_unref(calendar->shown);
+  calendar->shown = next;
+  calendar_update(widget);
+}
+
+static void calendar_today(WidgetInstance *widget) {
+  CalendarWidget *calendar = widget->data;
+  g_autoptr(GDateTime) now = g_date_time_new_now_local();
+
+  if (!now)
+    return;
+
+  GDateTime *first = calendar_first_of_month(now);
+
+  if (!first)
+    return;
+
+  if (calendar->shown)
+    g_date_time_unref(calendar->shown);
+
+  calendar->shown = first;
+  calendar_update(widget);
+}
+
+static void on_calendar_previous(GtkButton *button, gpointer user_data) {
+  (void)button;
+  calendar_shift(user_data, -1);
+}
+
+static void on_calendar_next(GtkButton *button, gpointer user_data) {
+  (void)button;
+  calendar_shift(user_data, 1);
+}
+
+static void on_calendar_today(GtkButton *button, gpointer user_data) {
+  (void)button;
+  calendar_today(user_data);
+}
+
+static GtkWidget *calendar_button(const char *label, const char *tooltip,
+                                  GCallback callback, WidgetInstance *widget) {
+  GtkWidget *button = gtk_button_new_with_label(label);
+
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_add_css_class(button, "whelk-widget-calendar-button");
+  gtk_widget_set_focusable(button, FALSE);
+  gtk_widget_set_tooltip_text(button, tooltip);
+  g_signal_connect(button, "clicked", callback, widget);
+
+  return button;
+}
+
 static gboolean calendar_build(WidgetInstance *widget) {
   CalendarWidget *calendar = g_new0(CalendarWidget, 1);
+  GtkWidget *navigation = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+  g_autoptr(GDateTime) now = g_date_time_new_now_local();
+
+  if (now)
+    calendar->shown = calendar_first_of_month(now);
 
   gtk_box_append(GTK_BOX(widget->card),
                  widget_header(widget, "▦", "Calendar"));
 
-  calendar->month = widget_label("", "whelk-widget-calendar-month", 0);
-  gtk_box_append(GTK_BOX(widget->card), calendar->month);
+  gtk_widget_add_css_class(navigation, "whelk-widget-calendar-nav");
+  gtk_box_append(GTK_BOX(navigation),
+                 calendar_button("‹", "The previous month",
+                                 G_CALLBACK(on_calendar_previous), widget));
+  calendar->month = calendar_button("", "Back to today",
+                                    G_CALLBACK(on_calendar_today), widget);
+  gtk_widget_add_css_class(calendar->month, "whelk-widget-calendar-month");
+  gtk_widget_set_hexpand(calendar->month, TRUE);
+  gtk_box_append(GTK_BOX(navigation), calendar->month);
+  gtk_box_append(GTK_BOX(navigation),
+                 calendar_button("›", "The next month",
+                                 G_CALLBACK(on_calendar_next), widget));
+  gtk_box_append(GTK_BOX(widget->card), navigation);
 
   calendar->grid = gtk_grid_new();
   gtk_widget_add_css_class(calendar->grid, "whelk-widget-calendar-grid");
@@ -517,6 +733,11 @@ static gboolean calendar_build(WidgetInstance *widget) {
 }
 
 static void calendar_destroy(WidgetInstance *widget) {
+  CalendarWidget *calendar = widget->data;
+
+  if (calendar)
+    g_clear_pointer(&calendar->shown, g_date_time_unref);
+
   g_free(widget->data);
   widget->data = NULL;
 }
@@ -852,6 +1073,7 @@ static void notes_destroy(WidgetInstance *widget) {
 
 typedef struct {
   GtkWidget *list;
+  GPtrArray *items; /* char*, in the order the card draws them */
 } RemindersWidget;
 
 static gboolean reminder_done(const char *text) {
@@ -868,12 +1090,29 @@ static const char *reminder_text(const char *text) {
   return text;
 }
 
+static void reminders_save(WidgetInstance *widget) {
+  RemindersWidget *reminders = widget->data;
+  GString *value = g_string_new(NULL);
+
+  if (!widget->state_path || !widget->widget_id) {
+    g_string_free(value, TRUE);
+    return;
+  }
+
+  for (guint i = 0; i < reminders->items->len; i++) {
+    if (i > 0)
+      g_string_append_c(value, '\n');
+
+    g_string_append(value, g_ptr_array_index(reminders->items, i));
+  }
+
+  whelk_widget_state_set(widget->state_path, widget->widget_id, "items",
+                         value->str);
+  g_string_free(value, TRUE);
+}
+
 static void reminders_render(WidgetInstance *widget) {
   RemindersWidget *reminders = widget->data;
-  const char *items = widget_option(
-      widget, "items", "Review the release,Water the plants,Read the manual");
-  char **parts = g_strsplit_set(items, ",\n", -1);
-  int shown = 0;
 
   GtkWidget *child = gtk_widget_get_first_child(reminders->list);
 
@@ -884,18 +1123,15 @@ static void reminders_render(WidgetInstance *widget) {
     child = next;
   }
 
-  for (guint i = 0; parts[i] && shown < 8; i++) {
-    char *text = g_strstrip(parts[i]);
-
-    if (*text == '\0')
-      continue;
-
+  for (guint i = 0; i < reminders->items->len && i < 8; i++) {
+    const char *text = g_ptr_array_index(reminders->items, i);
     const gboolean done = reminder_done(text);
     const char *plain = reminder_text(text);
     g_autofree char *markup =
         done ? g_markup_printf_escaped("<s>%s</s>", plain)
              : g_markup_escape_text(plain, -1);
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *row = gtk_button_new();
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *mark = widget_label(done ? "✓" : "○",
                                    done ? "whelk-widget-reminder-done"
                                         : "whelk-widget-reminder-mark",
@@ -906,22 +1142,70 @@ static void reminders_render(WidgetInstance *widget) {
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(label), 28);
     gtk_widget_set_hexpand(label, TRUE);
-    gtk_box_append(GTK_BOX(row), mark);
-    gtk_box_append(GTK_BOX(row), label);
+    gtk_box_append(GTK_BOX(content), mark);
+    gtk_box_append(GTK_BOX(content), label);
+    gtk_button_set_child(GTK_BUTTON(row), content);
+    gtk_widget_add_css_class(row, "flat");
+    gtk_widget_add_css_class(row, "whelk-widget-reminder-row");
+    gtk_widget_set_tooltip_text(
+        row, done ? "Mark this reminder as not done" : "Mark this reminder done");
+    g_object_set_data(G_OBJECT(row), "whelk-reminder-index",
+                      GUINT_TO_POINTER(i));
+    g_signal_connect(row, "clicked", G_CALLBACK(reminders_toggle_row), widget);
     gtk_box_append(GTK_BOX(reminders->list), row);
-    shown++;
   }
+}
 
-  g_strfreev(parts);
+static void reminders_toggle_row(GtkButton *button, gpointer user_data) {
+  WidgetInstance *widget = user_data;
+  RemindersWidget *reminders = widget->data;
+  const guint index =
+      GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button),
+                                         "whelk-reminder-index"));
+
+  if (index >= reminders->items->len)
+    return;
+
+  const char *old = g_ptr_array_index(reminders->items, index);
+  const gboolean done = reminder_done(old);
+  char *next = done ? g_strdup(reminder_text(old))
+                    : g_strdup_printf("[x] %s", reminder_text(old));
+
+  g_free(g_ptr_array_index(reminders->items, index));
+  g_ptr_array_index(reminders->items, index) = next;
+  reminders_save(widget);
+  reminders_render(widget);
+}
+
+static void reminders_add(RemindersWidget *reminders, const char *text) {
+  g_autofree char *clean = g_strdup(text);
+
+  g_strstrip(clean);
+
+  if (*clean != '\0')
+    g_ptr_array_add(reminders->items, g_steal_pointer(&clean));
 }
 
 static gboolean reminders_build(WidgetInstance *widget) {
   RemindersWidget *reminders = g_new0(RemindersWidget, 1);
+  const char *defaults =
+      "Review the release,Water the plants,Read the manual";
+  g_autofree char *saved =
+      whelk_widget_state_get(widget->state_path, widget->widget_id, "items");
+  const char *items =
+      (saved && *saved) ? saved : widget_option(widget, "items", defaults);
+  char **parts = g_strsplit_set(items, ",\n", -1);
 
+  reminders->items = g_ptr_array_new_with_free_func(g_free);
   gtk_box_append(GTK_BOX(widget->card),
                  widget_header(widget, "☑", "Reminders"));
 
-  reminders->list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  for (guint i = 0; parts[i]; i++)
+    reminders_add(reminders, parts[i]);
+
+  g_strfreev(parts);
+
+  reminders->list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_widget_add_css_class(reminders->list, "whelk-widget-reminder-list");
   gtk_widget_set_vexpand(reminders->list, TRUE);
   gtk_box_append(GTK_BOX(widget->card), reminders->list);
@@ -934,6 +1218,11 @@ static gboolean reminders_build(WidgetInstance *widget) {
 }
 
 static void reminders_destroy(WidgetInstance *widget) {
+  RemindersWidget *reminders = widget->data;
+
+  if (reminders)
+    g_clear_pointer(&reminders->items, g_ptr_array_unref);
+
   g_free(widget->data);
   widget->data = NULL;
 }
@@ -1322,12 +1611,16 @@ static GdkMonitor *widget_monitor(const char *connector) {
 static WidgetInstance *widget_instance_new(GtkApplication *app,
                                            const WhelkWidgetConfig *config,
                                            const WhelkBarConfig *style,
+                                           const char *state_path,
                                            guint index) {
   WidgetInstance *widget = g_new0(WidgetInstance, 1);
 
   widget->app = app;
   widget->style = style;
   widget->config = whelk_widget_config_copy(config);
+  widget->state_path = g_strdup(state_path);
+  widget->widget_id =
+      g_strdup_printf("widget-%s-%u", config->spec->kind, index);
   widget->guard = widget_guard_new();
 
   widget->card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 9);
@@ -1336,11 +1629,10 @@ static WidgetInstance *widget_instance_new(GtkApplication *app,
   gtk_widget_set_halign(widget->card, GTK_ALIGN_FILL);
   gtk_widget_set_valign(widget->card, GTK_ALIGN_FILL);
 
-  GtkGesture *click = gtk_gesture_click_new();
-
-  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), GDK_BUTTON_PRIMARY);
-  g_signal_connect(click, "released", G_CALLBACK(on_widget_clicked), widget);
-  gtk_widget_add_controller(widget->card, GTK_EVENT_CONTROLLER(click));
+  /* The whole mouse vocabulary a bar module has: primary, middle and right
+   * clicks, and the two scroll directions, all read from the same option
+   * names.  A widget with none configured is still draggable by its grip. */
+  whelk_click_attach(widget->card, config->spec);
 
   g_autofree char *kind_class =
       g_strdup_printf("whelk-widget-%s", config->spec->kind);
@@ -1352,8 +1644,6 @@ static WidgetInstance *widget_instance_new(GtkApplication *app,
   if (tooltip && *tooltip)
     gtk_widget_set_tooltip_text(widget->card, tooltip);
 
-  widget->widget_id =
-      g_strdup_printf("widget-%s-%u", config->spec->kind, index);
   widget->display = gdk_display_get_default();
 
   if (widget->display)
@@ -1385,6 +1675,27 @@ static WidgetInstance *widget_instance_new(GtkApplication *app,
     whelk_surface_set_monitor(widget->surface, monitor);
     g_object_unref(monitor);
   }
+
+  /* A dragged position wins over the settings file.  It is clamped again here
+   * because the monitor may have been resized or replaced since it was saved,
+   * and a card that is off-screen after a hotplug cannot be dragged back. */
+  int x = widget->config->x;
+  int y = widget->config->y;
+
+  if (whelk_widget_state_load_position(widget->state_path, widget->widget_id,
+                                       &x, &y)) {
+    int area_width = 0;
+    int area_height = 0;
+
+    widget_monitor_area(widget, &area_width, &area_height);
+    whelk_widget_clamp(&x, &y, widget->config->width, widget->config->height,
+                       area_width, area_height);
+    widget->config->x = x;
+    widget->config->y = y;
+  }
+
+  whelk_surface_set_position(widget->surface, widget->config->x,
+                             widget->config->y);
 
   return widget;
 }
@@ -1419,6 +1730,7 @@ static void widget_instance_free(WidgetInstance *widget) {
   g_clear_pointer(&widget->config, whelk_widget_config_free);
   g_clear_pointer(&widget->guard, widget_guard_unref);
   g_free(widget->widget_id);
+  g_free(widget->state_path);
   g_free(widget);
 }
 
@@ -1446,10 +1758,11 @@ static gboolean widget_instance_present(WidgetInstance *widget) {
   return TRUE;
 }
 
-WhelkWidgets *whelk_widgets_new(GtkApplication *app) {
+WhelkWidgets *whelk_widgets_new(GtkApplication *app, const char *config_path) {
   WhelkWidgets *widgets = g_new0(WhelkWidgets, 1);
 
   widgets->app = app;
+  widgets->state_path = whelk_widget_state_path(config_path);
   widgets->instances = g_ptr_array_new_with_free_func(
       (GDestroyNotify)widget_instance_free);
 
@@ -1468,8 +1781,8 @@ void whelk_widgets_build(WhelkWidgets *widgets, const GPtrArray *configs,
 
   for (guint i = 0; i < configs->len; i++) {
     const WhelkWidgetConfig *config = g_ptr_array_index(configs, i);
-    WidgetInstance *widget =
-        widget_instance_new(widgets->app, config, style, i);
+    WidgetInstance *widget = widget_instance_new(
+        widgets->app, config, style, widgets->state_path, i);
 
     if (!widget_instance_present(widget)) {
       widget_instance_free(widget);
@@ -1491,5 +1804,6 @@ void whelk_widgets_free(WhelkWidgets *widgets) {
     return;
 
   g_clear_pointer(&widgets->instances, g_ptr_array_unref);
+  g_free(widgets->state_path);
   g_free(widgets);
 }

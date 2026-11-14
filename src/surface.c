@@ -40,6 +40,7 @@ struct _WhelkSurface {
   gboolean anchor_bottom;
   gboolean anchor_left;
   GdkMonitor *monitor; /* borrowed from the display's model */
+  gboolean layer_ready; /* gtk_layer_init_for_window() has run */
 #ifdef HAVE_X11
   gboolean x11_connected; /* the resize handler is installed */
 #endif
@@ -164,6 +165,21 @@ void whelk_surface_set_margins(WhelkSurface *surface, int top, int right,
   surface->margin_right = right;
   surface->margin_bottom = bottom;
   surface->margin_left = left;
+}
+
+void whelk_surface_set_position(WhelkSurface *surface, int x, int y) {
+  if (!surface)
+    return;
+
+  surface->margin_top = MAX(0, y);
+  surface->margin_left = MAX(0, x);
+
+  if (surface->layer_ready && surface->window) {
+    gtk_layer_set_margin(surface->window, GTK_LAYER_SHELL_EDGE_TOP,
+                         surface->margin_top);
+    gtk_layer_set_margin(surface->window, GTK_LAYER_SHELL_EDGE_LEFT,
+                         surface->margin_left);
+  }
 }
 
 void whelk_surface_set_exclusive(WhelkSurface *surface, gboolean exclusive) {
@@ -501,6 +517,7 @@ void whelk_surface_present(WhelkSurface *surface) {
   }
 
   gtk_layer_init_for_window(window);
+  surface->layer_ready = TRUE;
   gtk_layer_set_namespace(window, surface->namespace_name);
   gtk_layer_set_layer(window, surface->layer);
 

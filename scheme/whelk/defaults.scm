@@ -312,10 +312,10 @@ tickers and can be replaced with any symbol Yahoo Finance knows."
                                (show-seconds? . #t)
                                (on-click . "gnome-clocks")))
    (desktop-widget 'calendar
-                   #:x 276 #:y 64
+                   #:x 280 #:y 64
                    #:options '((on-click . "gnome-calendar")))
    (desktop-widget 'weather
-                   #:x 624 #:y 64
+                   #:x 632 #:y 64
                    #:options '((location . "San Francisco")
                                (latitude . 37.7749)
                                (longitude . -122.4194)
@@ -324,23 +324,23 @@ tickers and can be replaced with any symbol Yahoo Finance knows."
                    #:x 32 #:y 320
                    #:options '((on-click . "gnome-power-statistics")))
    (desktop-widget 'notes
-                   #:x 32 #:y 516
+                   #:x 32 #:y 520
                    #:width 220
                    #:height 260
                    #:options '((title . "Notes")
                                (text . "Golden Gate widgets\nEdit settings.scm to make this note yours.")))
    (desktop-widget 'reminders
-                   #:x 276 #:y 410
+                   #:x 280 #:y 416
                    #:options '((items . ("Review the release"
                                          "Water the plants"
                                          "Read the Guile manual"))))
    (desktop-widget 'world-clock
-                   #:x 624 #:y 300
+                   #:x 632 #:y 304
                    #:width 260
                    #:height 220
                    #:options '((cities . "Cupertino=America/Los_Angeles,London=Europe/London,Tokyo=Asia/Tokyo")))
    (desktop-widget 'stocks
-                   #:x 624 #:y 536
+                   #:x 632 #:y 536
                    #:width 300
                    #:height 220
                    #:options '((symbols . ("AAPL" "MSFT" "NVDA"))))))
