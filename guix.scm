@@ -12,6 +12,7 @@
              (gnu packages gtk)
              (gnu packages glib)
              (gnu packages guile)
+             (gnu packages linux)
              (gnu packages freedesktop)
              (gnu packages pkg-config))
 
@@ -28,6 +29,7 @@
                  #:select? (git-predicate %source-dir)))
     (build-system meson-build-system)
     (native-inputs (list (list glib "bin")
+                         dbus ; the fake-bus tests spawn dbus-daemon
                          pkg-config))
     (inputs (list gtk
                   gtk4-layer-shell

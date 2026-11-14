@@ -27,9 +27,12 @@ G_BEGIN_DECLS
  *
  * The bus is slow and the tree is large, so the read runs on a worker thread
  * and the bar asks for it only after the protocol producers (org.gtk.Menus and
- * DBusMenu) have found nothing.  That order matters: a menu is stale the moment
- * the application rebuilds it, and a protocol that has a change signal is
- * better than a tree that must be re-walked.
+ * DBusMenu) have found nothing.  Once an application is found, the worker also
+ * registers for its object events and subscribes to ChildrenChanged,
+ * PropertyChange, StateChanged and VisibleDataChanged, so a menu that changes
+ * while the application is focused is re-read and replaced instead of being a
+ * photograph of the first walk.  This is the accessibility equivalent of
+ * following org.gtk.Menus' Changed signal.
  *
  * Known limits, stated rather than hidden: some applications (Firefox is the
  * usual example) do not populate a top-level menu until it has been opened
@@ -38,42 +41,44 @@ G_BEGIN_DECLS
  * behaviour it had before AT-SPI.
  */
 
-typedef struct _WhelkAtspiMenuRequest WhelkAtspiMenuRequest;
+typedef struct _WhelkAtspiMenuWatch WhelkAtspiMenuWatch;
 
 /**
  * WhelkAtspiMenuFunc:
  * @menus: (transfer full): the menubar; empty when the application publishes
  *   no menu bar on the accessibility bus.
- * @user_data: the pointer given to whelk_atspi_menubar_async().
+ * @user_data: the pointer given to whelk_atspi_menubar_watch_new().
  *
- * Called once on the main thread, unless the request was freed first.
+ * Called on the main thread with the initial tree, then again after every
+ * relevant accessibility event, unless the watch was freed first.
  */
 typedef void (*WhelkAtspiMenuFunc)(GPtrArray *menus, gpointer user_data);
 
 /**
- * whelk_atspi_menubar_async:
+ * whelk_atspi_menubar_watch_new:
  * @app_name: (nullable): the focused application's short name, as the desktop
  *   entry and AT-SPI spell it.
  * @pid: the focused application's process id, or 0 when the session cannot
  *   report one.  A pid is the reliable match; the name is the fallback.
  * @style: how every key binding is written.
- * @done: called with the tree.
- * @user_data: passed to @done.
+ * @changed: called with the tree.
+ * @user_data: passed to @changed.
  *
- * Reads the accessible tree on a worker thread.  The accessibility bus address
- * comes from org.a11y.Bus on the session bus; every call has a short timeout
- * and a bounded tree walk, so a hung or enormous application costs the bar a
- * background task rather than a frame.
+ * Reads the accessible tree on a worker thread and keeps following it.  The
+ * accessibility bus address comes from org.a11y.Bus on the session bus; every
+ * call has a short timeout and a bounded tree walk, so a hung or enormous
+ * application costs the bar a background task rather than a frame.  The watch
+ * registers for object events on the application and debounces a burst of
+ * changes into one fresh walk.
  *
- * Returns: (transfer full): the request; free it to cancel.
+ * Returns: (transfer full): the watch; free it to stop following.
  */
-WhelkAtspiMenuRequest *whelk_atspi_menubar_async(const char *app_name, gint pid,
-                                                 WhelkChordStyle style,
-                                                 WhelkAtspiMenuFunc done,
-                                                 gpointer user_data);
+WhelkAtspiMenuWatch *whelk_atspi_menubar_watch_new(
+    const char *app_name, gint pid, WhelkChordStyle style,
+    WhelkAtspiMenuFunc changed, gpointer user_data);
 
-/* Cancels the read.  A callback that has not run yet will not run. */
-void whelk_atspi_menubar_request_free(WhelkAtspiMenuRequest *request);
+/* Stops following.  A callback that has not run yet will not run. */
+void whelk_atspi_menubar_watch_free(WhelkAtspiMenuWatch *watch);
 
 /**
  * whelk_menubar_from_atspi_connection:

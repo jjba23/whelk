@@ -64,7 +64,7 @@ typedef struct {
   GtkWidget *open_button; /* whose popover is up, borrowed */
   WhelkDBusMenuWatch *dbus_menu; /* follows a live DBusMenu, NULL otherwise */
   WhelkGtkMenuWatch *gtk_menu;   /* follows org.gtk.Menus Changed */
-  WhelkAtspiMenuRequest *atspi;  /* the accessibility-bus read, when running */
+  WhelkAtspiMenuWatch *atspi;    /* follows the accessibility tree */
   guint generation;
 } MenuData;
 
@@ -762,12 +762,12 @@ static void on_layout_reply(GObject *source, GAsyncResult *result,
 
 /* The last producer: the application's own menus from its accessibility tree.
  * It runs only after org.gtk.Menus and DBusMenu found nothing, and it is
- * asynchronous because walking a toolkit's tree is slow. */
+ * asynchronous because walking a toolkit's tree is slow.  After the first
+ * read the watch stays alive: AT-SPI object events make it walk again, the
+ * same way org.gtk.Menus' Changed signal makes the GTK producer re-read. */
 static void on_atspi_menus(GPtrArray *menus, gpointer user_data) {
   WhelkModule *module = user_data;
   MenuData *data = module->data;
-
-  data->atspi = NULL;
 
   if (!menus)
     return;
@@ -787,9 +787,8 @@ static void start_atspi_probe(WhelkModule *module) {
   if (!data || data->atspi)
     return;
 
-  data->atspi = whelk_atspi_menubar_async(data->app_name, data->pid,
-                                          data->style, on_atspi_menus,
-                                          module);
+  data->atspi = whelk_atspi_menubar_watch_new(
+      data->app_name, data->pid, data->style, on_atspi_menus, module);
 }
 
 static void probe_dbus_next(MenuProbe *probe) {
@@ -1034,7 +1033,7 @@ static void build_for_app(WhelkModule *module, const char *app_id,
   /* The previous application's menu is gone, whatever published it. */
   stop_dbus_menu_watch(data);
   stop_gtk_menu_watch(data);
-  whelk_atspi_menubar_request_free(data->atspi);
+  whelk_atspi_menubar_watch_free(data->atspi);
   data->atspi = NULL;
 
   data->generation++;
@@ -1287,7 +1286,7 @@ static void menu_destroy(WhelkModule *module) {
 
   stop_dbus_menu_watch(data);
   stop_gtk_menu_watch(data);
-  whelk_atspi_menubar_request_free(data->atspi);
+  whelk_atspi_menubar_watch_free(data->atspi);
   data->atspi = NULL;
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);

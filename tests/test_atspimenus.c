@@ -17,7 +17,13 @@
 typedef struct {
   char *address;
   char *unique_name;
+  gboolean registry_acquired;
+  gboolean bus_acquired;
+  gint registrations;
 } FakeServer;
+
+/* Changed by the live-menu test between two reads of the fake tree. */
+static gboolean fake_extra_item = FALSE;
 
 static const char introspection_xml[] =
     "<node>"
@@ -43,6 +49,22 @@ static const char introspection_xml[] =
     "      <arg type='b' direction='out'/>"
     "    </method>"
     "    <property name='NActions' type='i' access='read'/>"
+    "  </interface>"
+    "  <interface name='org.a11y.atspi.Registry'>"
+    "    <method name='RegisterEvent'>"
+    "      <arg type='s' direction='in'/>"
+    "      <arg type='as' direction='in'/>"
+    "      <arg type='s' direction='in'/>"
+    "    </method>"
+    "    <method name='DeregisterEvent'>"
+    "      <arg type='s' direction='in'/>"
+    "      <arg type='s' direction='in'/>"
+    "    </method>"
+    "  </interface>"
+    "  <interface name='org.a11y.Bus'>"
+    "    <method name='GetAddress'>"
+    "      <arg type='s' direction='out'/>"
+    "    </method>"
     "  </interface>"
     "</node>";
 
@@ -116,6 +138,9 @@ static const char *fake_name(const char *path) {
   if (g_strcmp0(path, "/paste") == 0)
     return "Paste";
 
+  if (g_strcmp0(path, "/export") == 0)
+    return "Export";
+
   return "";
 }
 
@@ -125,6 +150,9 @@ static const char *fake_binding(const char *path) {
 
   if (g_strcmp0(path, "/copy") == 0)
     return "Ctrl+C";
+
+  if (g_strcmp0(path, "/export") == 0)
+    return "Ctrl+E";
 
   return "";
 }
@@ -138,6 +166,8 @@ static const char **fake_children(const char *path) {
   static const char *app[] = {"/menubar", NULL};
   static const char *menubar[] = {"/file", "/edit", NULL};
   static const char *file[] = {"/quit", "/separator", "/recent", "/prefs", NULL};
+  static const char *file_extra[] = {"/quit", "/separator", "/recent",
+                                     "/prefs", "/export", NULL};
   static const char *edit[] = {"/copy", "/paste", NULL};
   static const char *recent[] = {"/recent_menu", NULL};
   static const char *recent_menu[] = {"/document", NULL};
@@ -152,7 +182,7 @@ static const char **fake_children(const char *path) {
     return menubar;
 
   if (g_strcmp0(path, "/file") == 0)
-    return file;
+    return fake_extra_item ? file_extra : file;
 
   if (g_strcmp0(path, "/edit") == 0)
     return edit;
@@ -233,6 +263,26 @@ static void on_method_call(GDBusConnection *connection, const char *sender,
     }
   }
 
+  if (g_strcmp0(interface_name, "org.a11y.atspi.Registry") == 0) {
+    if (g_strcmp0(method_name, "RegisterEvent") == 0) {
+      server->registrations++;
+      g_dbus_method_invocation_return_value(invocation, NULL);
+      return;
+    }
+
+    if (g_strcmp0(method_name, "DeregisterEvent") == 0) {
+      g_dbus_method_invocation_return_value(invocation, NULL);
+      return;
+    }
+  }
+
+  if (g_strcmp0(interface_name, "org.a11y.Bus") == 0 &&
+      g_strcmp0(method_name, "GetAddress") == 0) {
+    g_dbus_method_invocation_return_value(
+        invocation, g_variant_new("(s)", server->address));
+    return;
+  }
+
   g_dbus_method_invocation_return_error(invocation, G_IO_ERROR,
                                         G_IO_ERROR_NOT_SUPPORTED,
                                         "no such method");
@@ -268,9 +318,12 @@ static const GDBusInterfaceVTable vtable = {
 static void on_name_acquired(GDBusConnection *connection, const char *name,
                              gpointer user_data) {
   (void)connection;
-  (void)name;
+  FakeServer *server = user_data;
 
-  *(gboolean *)user_data = TRUE;
+  if (g_strcmp0(name, "org.a11y.atspi.Registry") == 0)
+    server->registry_acquired = TRUE;
+  else if (g_strcmp0(name, "org.a11y.Bus") == 0)
+    server->bus_acquired = TRUE;
 }
 
 static FakeServer *fake_server_start(GDBusConnection **out_connection) {
@@ -294,13 +347,18 @@ static FakeServer *fake_server_start(GDBusConnection **out_connection) {
   server->address = g_strdup(address);
   server->unique_name = g_strdup(g_dbus_connection_get_unique_name(connection));
 
-  gboolean acquired = FALSE;
+  /* The watch asks the session bus for the accessibility-bus address, then
+   * connects to that address.  Point both at this test bus. */
+  g_setenv("DBUS_SESSION_BUS_ADDRESS", address, TRUE);
 
   g_bus_own_name_on_connection(connection, "org.a11y.atspi.Registry",
                                G_BUS_NAME_OWNER_FLAGS_NONE, on_name_acquired,
-                               NULL, &acquired, NULL);
+                               NULL, server, NULL);
+  g_bus_own_name_on_connection(connection, "org.a11y.Bus",
+                               G_BUS_NAME_OWNER_FLAGS_NONE, on_name_acquired,
+                               NULL, server, NULL);
 
-  while (!acquired)
+  while (!server->registry_acquired || !server->bus_acquired)
     g_main_context_iteration(NULL, TRUE);
 
   g_autoptr(GDBusNodeInfo) node =
@@ -312,13 +370,18 @@ static FakeServer *fake_server_start(GDBusConnection **out_connection) {
       g_dbus_node_info_lookup_interface(node, "org.a11y.atspi.Accessible");
   GDBusInterfaceInfo *action =
       g_dbus_node_info_lookup_interface(node, "org.a11y.atspi.Action");
+  GDBusInterfaceInfo *registry =
+      g_dbus_node_info_lookup_interface(node, "org.a11y.atspi.Registry");
+  GDBusInterfaceInfo *a11y_bus =
+      g_dbus_node_info_lookup_interface(node, "org.a11y.Bus");
   static const char *paths[] = {"/org/a11y/atspi/accessible/root",        "/app",
                                 "/menubar",     "/file",
                                 "/edit",        "/recent",
                                 "/recent_menu", "/quit",
                                 "/separator",   "/prefs",
                                 "/document",    "/copy",
-                                "/paste",       NULL};
+                                "/paste",       "/export",
+                                NULL};
 
   for (guint i = 0; paths[i]; i++) {
     g_dbus_connection_register_object(connection, paths[i], accessible, &vtable,
@@ -328,6 +391,13 @@ static FakeServer *fake_server_start(GDBusConnection **out_connection) {
                                       server, NULL, &error);
     g_assert_no_error(error);
   }
+
+  g_dbus_connection_register_object(connection, "/org/a11y/atspi/registry",
+                                    registry, &vtable, server, NULL, &error);
+  g_assert_no_error(error);
+  g_dbus_connection_register_object(connection, "/org/a11y/bus", a11y_bus,
+                                    &vtable, server, NULL, &error);
+  g_assert_no_error(error);
 
   *out_connection = connection;
   return server;
@@ -432,11 +502,128 @@ static void test_unknown_application_is_empty(void) {
   g_free(server);
 }
 
+typedef struct {
+  GMainLoop *loop;
+  guint calls;
+  guint target;
+  gboolean timed_out;
+  guint timeout_id;
+  GPtrArray *menus;
+} WatchJob;
+
+static void on_watch_menus(GPtrArray *menus, gpointer user_data) {
+  WatchJob *job = user_data;
+
+  g_clear_pointer(&job->menus, g_ptr_array_unref);
+  job->menus = menus;
+  job->calls++;
+
+  if (job->calls >= job->target)
+    g_main_loop_quit(job->loop);
+}
+
+static gboolean on_watch_timeout(gpointer user_data) {
+  WatchJob *job = user_data;
+
+  job->timed_out = TRUE;
+  job->timeout_id = 0;
+  g_main_loop_quit(job->loop);
+  return G_SOURCE_REMOVE;
+}
+
+static void wait_for_watch(WatchJob *job, guint target) {
+  job->target = target;
+
+  if (job->calls >= target)
+    return;
+
+  GSource *timeout = g_timeout_source_new_seconds(5);
+
+  g_source_set_callback(timeout, on_watch_timeout, job, NULL);
+  job->timeout_id = g_source_attach(timeout, NULL);
+  g_source_unref(timeout);
+  g_main_loop_run(job->loop);
+
+  if (job->timeout_id != 0) {
+    g_source_remove(job->timeout_id);
+    job->timeout_id = 0;
+  }
+
+  g_assert_false(job->timed_out);
+}
+
+static void emit_children_changed(GDBusConnection *connection,
+                                  const FakeServer *server) {
+  GVariantBuilder properties;
+
+  g_variant_builder_init(&properties, G_VARIANT_TYPE("a{sv}"));
+  g_autoptr(GError) error = NULL;
+  gboolean sent = g_dbus_connection_emit_signal(
+      connection, NULL, "/menubar", "org.a11y.atspi.Event.Object",
+      "ChildrenChanged",
+      g_variant_new("(siiva{sv})", "insert", 4, 0,
+                    g_variant_new("(so)", server->unique_name, "/export"),
+                    &properties),
+      &error);
+
+  g_assert_no_error(error);
+  g_assert_true(sent);
+}
+
+static void test_follows_menu_changes(void) {
+  GDBusConnection *connection = NULL;
+  FakeServer *server = fake_server_start(&connection);
+  WatchJob job = {
+      .loop = g_main_loop_new(NULL, FALSE),
+  };
+
+  fake_extra_item = FALSE;
+
+  WhelkAtspiMenuWatch *watch = whelk_atspi_menubar_watch_new(
+      "Fake App", 0, WHELK_CHORD_CUA, on_watch_menus, &job);
+
+  wait_for_watch(&job, 1);
+
+  g_assert_cmpuint(job.menus->len, ==, 2);
+
+  WhelkMenu *file = g_ptr_array_index(job.menus, 0);
+
+  g_assert_cmpstr(file->label, ==, "File");
+  g_assert_cmpuint(file->entries->len, ==, 4);
+
+  /* The fake application rebuilds File; its ChildrenChanged must make the
+   * watch walk the tree again and deliver the new row. */
+  fake_extra_item = TRUE;
+  emit_children_changed(connection, server);
+  wait_for_watch(&job, 2);
+
+  g_assert_cmpint(server->registrations, >, 0);
+  g_assert_cmpuint(job.menus->len, ==, 2);
+
+  file = g_ptr_array_index(job.menus, 0);
+  g_assert_cmpuint(file->entries->len, ==, 5);
+
+  WhelkMenuEntry *export = g_ptr_array_index(file->entries, 4);
+
+  g_assert_cmpstr(export->label, ==, "Export");
+  g_assert_cmpstr(export->accel, ==, "Ctrl+E");
+
+  whelk_atspi_menubar_watch_free(watch);
+  g_clear_pointer(&job.menus, g_ptr_array_unref);
+  g_main_loop_unref(job.loop);
+  fake_extra_item = FALSE;
+  g_object_unref(connection);
+  g_free(server->address);
+  g_free(server->unique_name);
+  g_free(server);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
   g_test_add_func("/atspi/menubar", test_reads_menu_bar);
   g_test_add_func("/atspi/unknown", test_unknown_application_is_empty);
+  g_test_add_func("/atspi/live-menu-changes", test_follows_menu_changes);
 
   return g_test_run();
 }

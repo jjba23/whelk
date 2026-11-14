@@ -15,6 +15,52 @@ Nothing yet.
 
 *[Released]*
 
+** v0.20.0 (2026-11-14)
+
+*** Added
+
+- *Compositor-enforced screen locking.*  On Wayland compositors that implement
+  =ext-session-lock-v1= -- niri, Sway, Hyprland, River and other compositors
+  that implement it -- =whelk --lock=, =shell:lock= and logind's
+  =Lock= signal now ask the compositor for a session lock through
+  =gtk4-layer-shell='s =GtkSessionLockInstance=.  The compositor owns the lock
+  surfaces, so another client cannot place a window above them, and the
+  session stays locked if the whelk process dies.  PAM authentication, the
+  one-attempt worker, password wiping and the doubling failure delay are
+  unchanged.
+
+*** Changed
+
+- *The layer-shell overlay is now the fallback.*  Compositors without
+  =ext-session-lock-v1= (including GNOME and KDE Wayland) and X11 still get
+  the fail-closed overlay path.  The README and =locker.h= state plainly that
+  it is a user-space overlay and cannot make the same guarantees as the
+  compositor-enforced lock.
+
+*** Fixed
+
+- *AT-SPI menus follow the application.*  The accessibility producer used to
+  walk the tree once; it now registers for the focused application's object
+  events and subscribes to =ChildrenChanged=, =PropertyChange=,
+  =StateChanged= and =VisibleDataChanged=, debouncing a burst into one fresh
+  walk.  A menu that adds, removes or relabels an entry while its application
+  stays in front updates the bar, just as =org.gtk.Menus'= =Changed= does.
+- *The Guix expression evaluates again.*  =linux-pam= lives in
+  =(gnu packages linux)=; the module is imported, so
+  =guix time-machine --channels=channels.scm -- shell -f guix.scm -- whelk=
+  no longer stops at an unbound variable.
+
+*** Verified
+
+- Host strict build passes with =-Werror=; all 35 Meson tests pass.  The
+  hermetic Guix build passes with its 34 tests.
+- The real protocol path was exercised under a nested niri 26.04: whelk asked
+  for and received =ext-session-lock-v1=, and a =SIGKILL= of whelk left the
+  nested session locked until niri itself exited.  The fallback path was
+  exercised under Broadway and selected the layer-shell overlay.
+
+---------
+
 ** v0.19.1 (2026-11-14)
 
 *** Fixed

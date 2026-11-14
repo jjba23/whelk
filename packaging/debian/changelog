@@ -1,3 +1,14 @@
+whelk (0.20.0-1) unstable; urgency=medium
+
+  * The screen locker uses the compositor's ext-session-lock-v1 protocol when
+    available, so other clients cannot cover it and the session stays locked
+    if the shell process dies.  The layer-shell overlay remains the documented
+    fallback for compositors without the protocol.
+  * AT-SPI menus follow live application tree changes, and the Guix expression
+    evaluates again.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 14 Nov 2026 13:00:00 +0100
+
 whelk (0.19.1-1) unstable; urgency=medium
 
   * The bar's battery indicator auto-detects the first pack the kernel

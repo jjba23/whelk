@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.19.1',
+  version: '0.20.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -56,7 +56,11 @@ add_project_arguments('-D_GNU_SOURCE', language: 'c')
 # ------------------------------------------------------------------------------
 gtk_dep = dependency('gtk4', include_type: 'system')
 guile_dep = dependency('guile-3.0', include_type: 'system')
-layer_shell_dep = dependency('gtk4-layer-shell-0', include_type: 'system')
+# 1.2 added GtkSessionLockInstance, the GTK4 binding for ext-session-lock-v1
+# used by the hardened locker.  The fallback overlay still uses the same
+# library's layer-shell half.
+layer_shell_dep = dependency('gtk4-layer-shell-0', version: '>= 1.2.0',
+  include_type: 'system')
 wayland_client_dep = dependency('wayland-client', include_type: 'system')
 # g_desktop_app_info_new_from_filename() lives in gio-unix; the launcher reads
 # the machine's .desktop entries with it.

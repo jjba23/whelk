@@ -15,8 +15,23 @@
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
 
+/* GTK's failed initialization is not a state to enter repeatedly: a test
+ * runner without a display gets one answer, and the remaining tests skip
+ * from that answer rather than calling gtk_init_check() again. */
+static gboolean gtk_ready(void) {
+  static gboolean checked = FALSE;
+  static gboolean ready = FALSE;
+
+  if (!checked) {
+    checked = TRUE;
+    ready = gtk_init_check();
+  }
+
+  return ready;
+}
+
 static void test_scheme_widgets(void) {
-  if (!gtk_init_check()) {
+  if (!gtk_ready()) {
     g_test_skip("no display for GTK widget creation");
     return;
   }
@@ -92,7 +107,7 @@ static void test_scheme_widgets(void) {
 }
 
 static void test_description_widget(void) {
-  if (!gtk_init_check()) {
+  if (!gtk_ready()) {
     g_test_skip("no display for GTK widget creation");
     return;
   }
@@ -131,7 +146,7 @@ static void test_description_widget(void) {
 }
 
 static void test_pointer_cursors(void) {
-  if (!gtk_init_check()) {
+  if (!gtk_ready()) {
     g_test_skip("no display for GTK cursor creation");
     return;
   }

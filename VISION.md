@@ -68,9 +68,11 @@ statements that should be true in a few years and are not true yet:
 hotplug, menus read from AT-SPI, a Scheme module whose update is a Guile
 procedure returning a widget, golden-image tests on a headless compositor, and
 a fail-closed PAM screen locker. They are documented in the README and covered
-by the test suite. The compositor-enforced `ext-session-lock-v1` variant of the
-last one is still future work; the locker is a user-space overlay with an
-exclusive keyboard.
+by the test suite. 0.20 closes the locker's remaining gap: on a compositor that
+implements `ext-session-lock-v1` the lock is compositor-enforced, so another
+client cannot cover it and a dead shell cannot unlock it. The layer-shell
+overlay remains only as the documented fallback for compositors without the
+protocol.
 
 ## Features that are in scope and not built yet
 

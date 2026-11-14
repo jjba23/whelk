@@ -205,7 +205,7 @@ the documented one -- see [[#configuration][Configuration]].
 :END:
 
 - GTK 4 (>= 4.10 for =gdk_monitor_get_connector=; developed against 4.24)
-- =gtk4-layer-shell= (0.x)
+- =gtk4-layer-shell= (>= 1.2, for =ext-session-lock-v1= and the fallback)
 - GNU Guile 3.0, with its development headers
 - Meson, Ninja, a C17 compiler, =pkg-config=
 - Optional, found at build time: =libx11= (the X11 dock fallback)
@@ -486,10 +486,26 @@ separate selection with its own lifetime, and whelk does not record it.
 
 =whelk --lock= locks every output; =shell:lock= in the shell menu and
 logind's =Lock= signal (which is what =loginctl lock-session= sends) reach the
-same code.  Each output gets an overlay layer surface and the primary one takes
-the keyboard exclusively.  There is no close button, no Escape and no
-click-outside: the only thing that removes the surfaces is a successful PAM
-authentication for the session user.
+same code.  On a Wayland compositor that implements =ext-session-lock-v1= --
+niri, Sway, Hyprland, River and other compositors that implement it -- whelk asks
+the compositor for a session lock through =gtk4-layer-shell='s
+=GtkSessionLockInstance=.  The compositor owns the lock surfaces: another
+client cannot put a window above them, and if the whelk process dies while the
+lock is up, the compositor keeps the session locked.  This is the hardened
+path; it needs =gtk4-layer-shell= 1.2 or newer.
+
+On a compositor without the protocol -- GNOME and KDE Wayland, and older
+compositors -- whelk falls back to one overlay layer surface per output, with
+the keyboard taken exclusively on the primary output.  The fallback is still
+fail-closed, but it is a user-space overlay: a client the compositor allows
+above the overlay layer, or a process that can kill whelk, is outside whelk's
+control.  On X11 the fallback is ordinary fullscreen windows, and a window
+manager that lets another window above them is likewise outside whelk's
+control.  The fallback is a compatibility path, not a claim of compositor
+enforcement.
+
+There is no close button, no Escape and no click-outside: the only thing that
+removes the lock is a successful PAM authentication for the session user.
 
 The security properties are deliberate:
 
@@ -509,13 +525,10 @@ can install a =/etc/pam.d/whelk-lock= stack; whelk uses it when PAM can start
 it, and falls back to =login= otherwise.  Without PAM headers at build time the
 locker still locks, says authentication is unavailable and never opens.
 
-On X11 there is no layer shell: the lock is ordinary fullscreen windows and a
-window manager that allows another window above them is outside whelk's
-control.  On Wayland the overlay is above ordinary windows, but it is still a
-user-space process: a user who can kill whelk can end the lock.  A
-compositor-enforced =ext-session-lock-v1= surface would close that gap and is
-not implemented; the locker is the deliberate, fail-closed part whelk can own
-without changing the compositor.
+The fallback is deliberately kept so a session without =ext-session-lock-v1=
+still locks rather than silently doing nothing.  It is weaker than the
+compositor-enforced path, and the hardened path is selected whenever the
+compositor advertises the protocol.
 
 The default bar's =clipboard-module= shows the history glyph, reports when the
 listener is stopped or paused, and opens this picker on a click.  The depth is
@@ -1073,10 +1086,14 @@ supply them, in that order:
   names, states, key bindings and an =Action= interface.  Reading those labels
   is the one producer that gives an application's own translated menu when it
   publishes neither =org.gtk.Menus= nor DBusMenu.  The tree is walked on a
-  worker thread, after both D-Bus protocols have found nothing; choosing an
-  entry sends =DoAction= to its accessible object.  A program that only builds
-  its menu after the native menu was opened once has no passive tree to read,
-  and falls back to the dictionary like before.
+  worker thread, after both D-Bus protocols have found nothing, and that walk
+  is followed: the registry is told which object events matter and
+  =ChildrenChanged=, =PropertyChange=, =StateChanged= and
+  =VisibleDataChanged= for the focused application re-read and replace the
+  tree, just as =org.gtk.Menus'= =Changed= does.  Choosing an entry sends
+  =DoAction= to its accessible object.  A program that only builds its menu
+  after the native menu was opened once has no passive tree to read, and falls
+  back to the dictionary like before.
 - *The dictionary.*  Most applications publish nothing, so their menus are
   written from their documented shortcuts: ninety-five applications answering
   to two hundred and eighty ids -- the browsers, terminals, editors (Emacs
@@ -1582,8 +1599,9 @@ with real widgets:
   closes the old tree, =Start= is called again, and the next tree is the
   application's new one.
 - =tests/test_atspimenus.c= -- a fake AT-SPI application on a private bus:
-  menu bars, nested menus, separators, disabled items, key bindings and the
-  =DoAction= address each entry carries.
+  menu bars, nested menus, separators, disabled items, key bindings, the
+  =DoAction= address each entry carries, and a live =ChildrenChanged= that
+  makes the watch deliver the application's new =File= menu.
 - =tests/test_lockpolicy.c= -- the unlock backoff: one second, doubling, capped
   at thirty seconds, including the overflow boundary.
 

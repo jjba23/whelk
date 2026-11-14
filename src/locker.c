@@ -10,6 +10,7 @@
 #include "surface.h"
 #include "util/lockpolicy.h"
 
+#include <gtk4-session-lock.h>
 #include <string.h>
 
 #ifdef HAVE_PAM
@@ -45,6 +46,9 @@ typedef struct {
   GThread *auth_thread;
   GListModel *monitor_model; /* owned while the lock is up */
   gulong monitor_handler;
+  GtkSessionLockInstance *session_lock; /* owned while the protocol is in use */
+  gboolean session_has_primary;
+  guint protocol_unlock_id;
 } WhelkLocker;
 
 typedef struct {
@@ -52,6 +56,19 @@ typedef struct {
   char *password;
   LockAuthResult result;
 } LockAuthJob;
+
+/* One protocol lock window.  The session-lock library owns the GtkWindow and
+ * destroys it when the lock ends or its monitor disappears; keep the widget
+ * pointers here so the clock and the password field can be detached before
+ * the window's children are freed. */
+typedef struct {
+  WhelkLocker *locker;
+  GtkWidget *clock;
+  GtkWidget *date;
+  GtkWidget *entry;
+  GtkWidget *error;
+  gboolean primary;
+} LockView;
 
 static WhelkLocker *locker = NULL;
 static GtkApplication *lock_app = NULL;
@@ -85,6 +102,15 @@ static void stop_timer(guint *id) {
   }
 }
 
+static void locker_clear_session_lock(WhelkLocker *self) {
+  if (!self->session_lock)
+    return;
+
+  /* A pending library signal must not reach a locker that is being freed. */
+  g_signal_handlers_disconnect_by_data(self->session_lock, self);
+  g_clear_object(&self->session_lock);
+}
+
 static void destroy_surfaces(WhelkLocker *self) {
   stop_timer(&self->focus_id);
 
@@ -105,6 +131,9 @@ static void locker_free(WhelkLocker *self) {
   stop_timer(&self->clock_id);
   stop_timer(&self->retry_id);
   stop_timer(&self->focus_id);
+  stop_timer(&self->protocol_unlock_id);
+
+  locker_clear_session_lock(self);
 
   if (self->rebuild_idle != 0) {
     g_source_remove(self->rebuild_idle);
@@ -332,7 +361,9 @@ static void locker_fail(WhelkLocker *self, LockAuthResult result) {
   self->retry_id = g_timeout_add(delay, on_retry_ready, self);
 }
 
-static void locker_unlock(WhelkLocker *self) {
+/* End the local lock state.  `request_unlock` is FALSE when the compositor
+ * already ended the session lock; asking it again would be redundant. */
+static void locker_release(WhelkLocker *self, gboolean request_unlock) {
   if (!self || self->unlocked)
     return;
 
@@ -340,12 +371,31 @@ static void locker_unlock(WhelkLocker *self) {
 
   stop_timer(&self->clock_id);
   stop_timer(&self->retry_id);
+  stop_timer(&self->protocol_unlock_id);
+
+  if (request_unlock && self->session_lock)
+    gtk_session_lock_instance_unlock(self->session_lock);
+
   destroy_surfaces(self);
+  locker_clear_session_lock(self);
 
   if (locker == self) {
     locker = NULL;
     locker_unref(self); /* the process-wide reference */
   }
+}
+
+static void locker_unlock(WhelkLocker *self) {
+  locker_release(self, TRUE);
+}
+
+static gboolean on_protocol_unlocked_idle(gpointer data) {
+  WhelkLocker *self = data;
+
+  self->protocol_unlock_id = 0;
+  locker_release(self, FALSE);
+
+  return G_SOURCE_REMOVE;
 }
 
 static gboolean on_auth_delivered(gpointer data) {
@@ -446,7 +496,20 @@ static gboolean on_close_request(GtkWindow *window, gpointer data) {
   return TRUE;
 }
 
-static GtkWidget *build_lock_content(WhelkLocker *self, gboolean primary) {
+static GtkWidget *build_lock_content(WhelkLocker *self, gboolean primary,
+                                     GtkWidget **out_clock,
+                                     GtkWidget **out_date,
+                                     GtkWidget **out_entry,
+                                     GtkWidget **out_error) {
+  if (out_clock)
+    *out_clock = NULL;
+  if (out_date)
+    *out_date = NULL;
+  if (out_entry)
+    *out_entry = NULL;
+  if (out_error)
+    *out_error = NULL;
+
   GtkWidget *overlay = gtk_overlay_new();
   GtkWidget *background = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
@@ -474,6 +537,11 @@ static GtkWidget *build_lock_content(WhelkLocker *self, gboolean primary) {
   gtk_box_append(GTK_BOX(panel), date);
   g_ptr_array_add(self->dates, date);
 
+  if (out_clock)
+    *out_clock = clock;
+  if (out_date)
+    *out_date = date;
+
   GtkWidget *message = gtk_label_new(
       primary ? "Enter your password" : "Locked");
 
@@ -491,6 +559,9 @@ static GtkWidget *build_lock_content(WhelkLocker *self, gboolean primary) {
     gtk_box_append(GTK_BOX(panel), entry);
     self->entry = entry;
 
+    if (out_entry)
+      *out_entry = entry;
+
     GtkWidget *unlock = gtk_button_new_with_label("Unlock");
 
     gtk_widget_add_css_class(unlock, "whelk-lock-unlock");
@@ -503,9 +574,176 @@ static GtkWidget *build_lock_content(WhelkLocker *self, gboolean primary) {
     gtk_widget_add_css_class(error, "whelk-lock-error");
     gtk_box_append(GTK_BOX(panel), error);
     self->error = error;
+
+    if (out_error)
+      *out_error = error;
   }
 
   return overlay;
+}
+
+/* The session-lock library destroys a lock window when the lock ends or when
+ * its output disappears.  Detach its widgets from the locker's borrowed lists
+ * before GTK frees the children. */
+static void lock_view_detach(LockView *view) {
+  if (!view || !view->locker)
+    return;
+
+  WhelkLocker *self = view->locker;
+
+  if (view->clock) {
+    g_ptr_array_remove_fast(self->clocks, view->clock);
+    view->clock = NULL;
+  }
+
+  if (view->date) {
+    g_ptr_array_remove_fast(self->dates, view->date);
+    view->date = NULL;
+  }
+
+  if (view->entry && self->entry == view->entry)
+    self->entry = NULL;
+
+  if (view->error && self->error == view->error)
+    self->error = NULL;
+
+  view->entry = NULL;
+  view->error = NULL;
+
+  if (view->primary)
+    self->session_has_primary = FALSE;
+}
+
+static void lock_view_free(gpointer data) {
+  LockView *view = data;
+
+  lock_view_detach(view);
+  locker_unref(view->locker);
+  g_free(view);
+}
+
+static void on_lock_window_destroy(GtkWidget *window, gpointer data) {
+  (void)window;
+  lock_view_detach(data);
+}
+
+static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
+                                       gboolean primary) {
+  GtkWidget *clock = NULL;
+  GtkWidget *date = NULL;
+  GtkWidget *entry = NULL;
+  GtkWidget *error = NULL;
+  GtkWidget *content = build_lock_content(self, primary, &clock, &date, &entry,
+                                          &error);
+  GtkWindow *window = GTK_WINDOW(gtk_application_window_new(self->app));
+
+  gtk_window_set_title(window, "whelk lock");
+  gtk_window_set_child(window, content);
+  gtk_window_set_deletable(window, FALSE);
+  g_signal_connect(window, "close-request", G_CALLBACK(on_close_request),
+                   self);
+
+  LockView *view = g_new0(LockView, 1);
+
+  view->locker = self;
+  view->clock = clock;
+  view->date = date;
+  view->entry = entry;
+  view->error = error;
+  view->primary = primary;
+  locker_ref(self);
+
+  g_signal_connect(window, "destroy", G_CALLBACK(on_lock_window_destroy), view);
+  g_object_set_data_full(G_OBJECT(window), "whelk-lock-view", view,
+                         lock_view_free);
+
+  /* The library presents the window and gives the surface its role; calling
+   * gtk_window_present() here would realize it too early. */
+  gtk_session_lock_instance_assign_window_to_monitor(self->session_lock, window,
+                                                     monitor);
+
+  if (primary)
+    self->focus_id = g_idle_add(focus_entry, self);
+
+  on_clock_tick(self);
+}
+
+static void on_session_lock_monitor(GtkSessionLockInstance *instance,
+                                    GdkMonitor *monitor, gpointer data) {
+  (void)instance;
+
+  WhelkLocker *self = data;
+
+  if (!self->session_lock || self->closing || self->unlocked ||
+      self->protocol_unlock_id != 0)
+    return;
+
+  const gboolean primary = !self->session_has_primary;
+
+  if (primary)
+    self->session_has_primary = TRUE;
+
+  create_session_lock_window(self, monitor, primary);
+}
+
+static void on_session_lock_locked(GtkSessionLockInstance *instance,
+                                   gpointer data) {
+  (void)instance;
+
+  WhelkLocker *self = data;
+
+  if (!self->closing && !self->unlocked)
+    LOG_C_INFO("Locker", "screen locked (ext-session-lock-v1)");
+}
+
+static void on_session_lock_failed(GtkSessionLockInstance *instance,
+                                   gpointer data) {
+  (void)instance;
+
+  WhelkLocker *self = data;
+
+  if (!self->closing && !self->unlocked)
+    LOG_C_WARN("Locker",
+               "ext-session-lock-v1 refused the lock; the session stays "
+               "locked");
+}
+
+static void on_session_lock_unlocked(GtkSessionLockInstance *instance,
+                                     gpointer data) {
+  (void)instance;
+
+  WhelkLocker *self = data;
+
+  if (self->closing || self->unlocked || self->protocol_unlock_id != 0)
+    return;
+
+  self->protocol_unlock_id = g_idle_add(on_protocol_unlocked_idle, self);
+}
+
+/* Pick the compositor-enforced path whenever the compositor advertises it.
+ * A refusal does not fall through to the weaker overlay: another locker may
+ * already own the session, and an ordinary layer surface would not be the
+ * compositor's lock. */
+static gboolean start_session_lock(WhelkLocker *self) {
+  if (!gtk_session_lock_is_supported())
+    return FALSE;
+
+  self->session_lock = gtk_session_lock_instance_new();
+  g_signal_connect(self->session_lock, "monitor",
+                   G_CALLBACK(on_session_lock_monitor), self);
+  g_signal_connect(self->session_lock, "locked",
+                   G_CALLBACK(on_session_lock_locked), self);
+  g_signal_connect(self->session_lock, "failed",
+                   G_CALLBACK(on_session_lock_failed), self);
+  g_signal_connect(self->session_lock, "unlocked",
+                   G_CALLBACK(on_session_lock_unlocked), self);
+
+  if (!gtk_session_lock_instance_lock(self->session_lock))
+    LOG_C_WARN("Locker",
+               "ext-session-lock-v1 could not start; no weaker lock surface "
+               "will cover an already-locked session");
+
+  return TRUE;
 }
 
 static void create_lock_surface(WhelkLocker *self, GdkMonitor *monitor,
@@ -526,7 +764,8 @@ static void create_lock_surface(WhelkLocker *self, GdkMonitor *monitor,
   if (monitor)
     whelk_surface_set_monitor(surface, monitor);
 
-  whelk_surface_set_child(surface, build_lock_content(self, primary));
+  whelk_surface_set_child(
+      surface, build_lock_content(self, primary, NULL, NULL, NULL, NULL));
 
   GtkWindow *window = whelk_surface_get_window(surface);
 
@@ -581,7 +820,8 @@ static gboolean on_rebuild_idle(gpointer data) {
 }
 
 static void locker_rebuild(WhelkLocker *self) {
-  if (!self || self->closing || self->unlocked || self->rebuild_idle != 0)
+  if (!self || self->session_lock || self->closing || self->unlocked ||
+      self->rebuild_idle != 0)
     return;
 
   /* Rebuilding while the monitor model is emitting is reentrant: a surface
@@ -596,7 +836,14 @@ static void on_monitors_changed(GListModel *monitors, guint position,
   (void)removed;
   (void)added;
 
-  locker_rebuild(data);
+  WhelkLocker *self = data;
+
+  /* The session-lock library reports new outputs itself and owns the window
+   * for each one; only the layer-shell fallback rebuilds from the model. */
+  if (self->session_lock)
+    return;
+
+  locker_rebuild(self);
 }
 
 /* =========================================================================
@@ -694,25 +941,35 @@ void whelk_locker_lock(void) {
   self->dates = g_ptr_array_new();
   locker = self;
 
-  GdkDisplay *display = gdk_display_get_default();
+  /* Prefer the compositor's own lock.  The layer-shell overlay is only the
+   * compatibility path for X11 and compositors without ext-session-lock-v1. */
+  const gboolean using_session_lock = start_session_lock(self);
 
-  if (display) {
-    GListModel *monitors = gdk_display_get_monitors(display);
+  if (!using_session_lock) {
+    GdkDisplay *display = gdk_display_get_default();
 
-    if (monitors) {
-      self->monitor_model = g_object_ref(monitors);
-      self->monitor_handler = g_signal_connect(
-          monitors, "items-changed", G_CALLBACK(on_monitors_changed), self);
+    if (display) {
+      GListModel *monitors = gdk_display_get_monitors(display);
+
+      if (monitors) {
+        self->monitor_model = g_object_ref(monitors);
+        self->monitor_handler = g_signal_connect(
+            monitors, "items-changed", G_CALLBACK(on_monitors_changed), self);
+      }
     }
+
+    build_surfaces(self);
   }
 
-  build_surfaces(self);
   self->clock_id = g_timeout_add_seconds(1, on_clock_tick, self);
 
   /* Fill the labels immediately instead of waiting for the first tick. */
   on_clock_tick(self);
 
-  LOG_C_INFO("Locker", "screen locked");
+  if (using_session_lock)
+    LOG_C_INFO("Locker", "screen lock requested (ext-session-lock-v1)");
+  else
+    LOG_C_INFO("Locker", "screen locked (layer-shell fallback)");
 }
 
 void whelk_locker_shutdown(void) {
@@ -739,7 +996,13 @@ void whelk_locker_shutdown(void) {
 
     stop_timer(&self->clock_id);
     stop_timer(&self->retry_id);
+    stop_timer(&self->protocol_unlock_id);
+
+    if (self->session_lock)
+      gtk_session_lock_instance_unlock(self->session_lock);
+
     destroy_surfaces(self);
+    locker_clear_session_lock(self);
     locker_unref(self);
   }
 

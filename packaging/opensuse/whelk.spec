@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.19.1
+Version:        0.20.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -74,6 +74,11 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.20.0
+- The screen locker asks the compositor for an ext-session-lock-v1 session
+  lock; the layer-shell overlay is only the fallback for compositors without
+  the protocol.  AT-SPI menus follow live application changes.
+
 * Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.19.1
 - The bar's battery indicator finds BAT0, BAT1 and any other pack instead of
   only BAT0; buttons use the cursor theme's pointer cursor.

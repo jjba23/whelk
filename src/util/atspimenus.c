@@ -16,6 +16,10 @@
 
 #define WHELK_ATSPI_ROOT_SERVICE "org.a11y.atspi.Registry"
 #define WHELK_ATSPI_ROOT_PATH "/org/a11y/atspi/accessible/root"
+#define WHELK_ATSPI_REGISTRY_PATH "/org/a11y/atspi/registry"
+#define WHELK_ATSPI_EVENT_OBJECT "org.a11y.atspi.Event.Object"
+#define WHELK_ATSPI_EVENT_REGISTRATION "Object:"
+#define WHELK_ATSPI_CHANGE_DELAY_MS 150
 
 /* The wire values from atspi-constants.h.  They are part of AT-SPI's ABI, and
  * spelling them here keeps libatspi out of the build: the bus is the API. */
@@ -454,6 +458,20 @@ static GPtrArray *atspi_menubar(AtspiWalk *walk, const AtspiRef *application) {
   return bar;
 }
 
+static GPtrArray *atspi_menubar_for_application(GDBusConnection *bus,
+                                                const AtspiRef *application,
+                                                WhelkChordStyle style,
+                                                GCancellable *cancel) {
+  AtspiWalk walk = {
+      .bus = bus,
+      .cancel = cancel,
+      .style = style,
+      .budget = WHELK_ATSPI_MAX_NODES,
+  };
+
+  return atspi_menubar(&walk, application);
+}
+
 GPtrArray *whelk_menubar_from_atspi_connection(GDBusConnection *bus,
                                                const char *app_name, gint pid,
                                                WhelkChordStyle style) {
@@ -469,13 +487,8 @@ GPtrArray *whelk_menubar_from_atspi_connection(GDBusConnection *bus,
     return whelk_menubar_new();
   }
 
-  AtspiWalk walk = {
-      .bus = bus,
-      .cancel = cancel,
-      .style = style,
-      .budget = WHELK_ATSPI_MAX_NODES,
-  };
-  GPtrArray *bar = atspi_menubar(&walk, application);
+  GPtrArray *bar =
+      atspi_menubar_for_application(bus, application, style, cancel);
 
   LOG_C_DEBUG("AT-SPI", "read %u menu(s) from %s", bar->len,
               app_name ? app_name : application->service);
@@ -486,54 +499,76 @@ GPtrArray *whelk_menubar_from_atspi_connection(GDBusConnection *bus,
 }
 
 /* =========================================================================
- * THE ASYNCHRONOUS READ
+ * THE LIVE WATCH
  * ========================================================================= */
 
-struct _WhelkAtspiMenuRequest {
+struct _WhelkAtspiMenuWatch {
   gint refs;
   gint cancelled;
   GCancellable *cancel;
+  GMainContext *context;
+  GMainLoop *loop;
+  GDBusConnection *bus;
+  AtspiRef *application;
   char *app_name;
   gint pid;
   WhelkChordStyle style;
-  WhelkAtspiMenuFunc done;
+  WhelkAtspiMenuFunc changed;
   gpointer user_data;
-  GPtrArray *menus;
+  guint refresh_id;
+  guint subscriptions[4];
 };
 
-static void atspi_request_unref(WhelkAtspiMenuRequest *request) {
-  if (!request)
+typedef struct {
+  WhelkAtspiMenuWatch *watch;
+  GPtrArray *menus;
+} AtspiDelivery;
+
+static void atspi_watch_unref(WhelkAtspiMenuWatch *watch) {
+  if (!watch)
     return;
 
-  if (g_atomic_int_dec_and_test(&request->refs)) {
-    g_clear_object(&request->cancel);
-    g_free(request->app_name);
-    g_clear_pointer(&request->menus, g_ptr_array_unref);
-    g_free(request);
+  if (g_atomic_int_dec_and_test(&watch->refs)) {
+    g_clear_object(&watch->bus);
+    g_clear_object(&watch->cancel);
+    atspi_ref_free(watch->application);
+    g_free(watch->app_name);
+    g_main_loop_unref(watch->loop);
+    g_main_context_unref(watch->context);
+    g_free(watch);
   }
 }
 
 static gboolean atspi_deliver(gpointer data) {
-  WhelkAtspiMenuRequest *request = data;
+  AtspiDelivery *delivery = data;
+  WhelkAtspiMenuWatch *watch = delivery->watch;
 
-  if (g_atomic_int_get(&request->cancelled)) {
-    atspi_request_unref(request);
-    return G_SOURCE_REMOVE;
-  }
+  if (!g_atomic_int_get(&watch->cancelled) && watch->changed)
+    watch->changed(delivery->menus, watch->user_data);
+  else
+    g_ptr_array_unref(delivery->menus);
 
-  GPtrArray *menus = g_steal_pointer(&request->menus);
+  atspi_watch_unref(watch);
+  g_free(delivery);
 
+  return G_SOURCE_REMOVE;
+}
+
+static void atspi_deliver_menus(WhelkAtspiMenuWatch *watch, GPtrArray *menus) {
   if (!menus)
     menus = whelk_menubar_new();
 
-  if (request->done)
-    request->done(menus, request->user_data);
-  else
+  if (g_atomic_int_get(&watch->cancelled)) {
     g_ptr_array_unref(menus);
+    return;
+  }
 
-  atspi_request_unref(request);
+  AtspiDelivery *delivery = g_new0(AtspiDelivery, 1);
 
-  return G_SOURCE_REMOVE;
+  delivery->watch = watch;
+  delivery->menus = menus;
+  g_atomic_int_inc(&watch->refs);
+  g_main_context_invoke(NULL, atspi_deliver, delivery);
 }
 
 static GDBusConnection *atspi_connect(GCancellable *cancel) {
@@ -579,58 +614,193 @@ static GDBusConnection *atspi_connect(GCancellable *cancel) {
   return a11y;
 }
 
-static gpointer atspi_thread(gpointer data) {
-  WhelkAtspiMenuRequest *request = data;
-  GDBusConnection *bus = atspi_connect(request->cancel);
+/* Tell the registry which object events this watch cares about.  The
+ * registration is for this application's unique bus name, so unrelated
+ * applications do not wake the worker.  A registry that does not implement
+ * the call is not fatal: some test buses and older stacks still emit the
+ * events, and the subscription below is what actually receives them. */
+static void atspi_register_events(GDBusConnection *bus,
+                                  const AtspiRef *application,
+                                  GCancellable *cancel, gboolean add) {
+  if (!bus || !application)
+    return;
 
-  if (bus) {
-    request->menus = whelk_menubar_from_atspi_connection(
-        bus, request->app_name, request->pid, request->style);
-    g_object_unref(bus);
+  if (!add) {
+    g_autoptr(GVariant) reply = atspi_call(
+        bus, WHELK_ATSPI_ROOT_SERVICE, WHELK_ATSPI_REGISTRY_PATH,
+        "org.a11y.atspi.Registry", "DeregisterEvent",
+        g_variant_new("(ss)", WHELK_ATSPI_EVENT_REGISTRATION,
+                      application->service),
+        cancel);
+
+    (void)reply;
+    return;
   }
 
-  if (g_atomic_int_get(&request->cancelled) || !request->menus) {
-    atspi_request_unref(request);
-    return NULL;
-  }
+  GVariantBuilder properties;
 
-  g_main_context_invoke(NULL, atspi_deliver, request);
+  g_variant_builder_init(&properties, G_VARIANT_TYPE("as"));
+
+  g_autoptr(GVariant) reply = atspi_call(
+      bus, WHELK_ATSPI_ROOT_SERVICE, WHELK_ATSPI_REGISTRY_PATH,
+      "org.a11y.atspi.Registry", "RegisterEvent",
+      g_variant_new("(sass)", WHELK_ATSPI_EVENT_REGISTRATION, &properties,
+                    application->service),
+      cancel);
+
+  (void)reply;
+}
+
+static gboolean atspi_watch_refresh(gpointer data) {
+  WhelkAtspiMenuWatch *watch = data;
+
+  watch->refresh_id = 0;
+
+  if (g_atomic_int_get(&watch->cancelled))
+    return G_SOURCE_REMOVE;
+
+  GPtrArray *menus = atspi_menubar_for_application(
+      watch->bus, watch->application, watch->style, watch->cancel);
+
+  atspi_deliver_menus(watch, menus);
+
+  return G_SOURCE_REMOVE;
+}
+
+/* One event is a menu change; a burst (a rebuild adds several children) is
+ * one refresh.  The timer runs on the worker's context, where the bus
+ * delivers its signals. */
+static void on_atspi_object_event(GDBusConnection *connection,
+                                  const char *sender, const char *path,
+                                  const char *interface, const char *member,
+                                  GVariant *parameters, gpointer user_data) {
+  (void)connection;
+  (void)sender;
+  (void)path;
+  (void)interface;
+  (void)member;
+  (void)parameters;
+
+  WhelkAtspiMenuWatch *watch = user_data;
+
+  if (g_atomic_int_get(&watch->cancelled) || watch->refresh_id != 0)
+    return;
+
+  GSource *source = g_timeout_source_new(WHELK_ATSPI_CHANGE_DELAY_MS);
+
+  g_source_set_callback(source, atspi_watch_refresh, watch, NULL);
+  watch->refresh_id = g_source_attach(source, watch->context);
+  g_source_unref(source);
+}
+
+static gpointer atspi_watch_thread(gpointer data) {
+  WhelkAtspiMenuWatch *watch = data;
+  GDBusConnection *bus = NULL;
+  AtspiRef *application = NULL;
+  gboolean subscribed = FALSE;
+
+  g_main_context_push_thread_default(watch->context);
+
+  bus = atspi_connect(watch->cancel);
+
+  if (!bus || g_atomic_int_get(&watch->cancelled))
+    goto done;
+
+  application = atspi_application(bus, watch->app_name, watch->pid,
+                                  watch->cancel);
+
+  if (!application)
+    goto done;
+
+  watch->bus = bus;
+  watch->application = application;
+  bus = NULL;
+  application = NULL;
+
+  atspi_register_events(watch->bus, watch->application, watch->cancel, TRUE);
+
+  static const char *members[] = {
+      "ChildrenChanged",
+      "PropertyChange",
+      "StateChanged",
+      "VisibleDataChanged",
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS(members); i++)
+    watch->subscriptions[i] = g_dbus_connection_signal_subscribe(
+        watch->bus, watch->application->service, WHELK_ATSPI_EVENT_OBJECT,
+        members[i], NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+        on_atspi_object_event, watch, NULL);
+
+  subscribed = TRUE;
+
+  /* Register and subscribe before the first delivery so a change racing the
+   * first read is followed rather than lost. */
+  GPtrArray *menus = atspi_menubar_for_application(
+      watch->bus, watch->application, watch->style, watch->cancel);
+
+  atspi_deliver_menus(watch, menus);
+
+  if (!g_atomic_int_get(&watch->cancelled))
+    g_main_loop_run(watch->loop);
+
+done:
+  if (subscribed)
+    for (guint i = 0; i < G_N_ELEMENTS(watch->subscriptions); i++) {
+      if (watch->subscriptions[i] != 0)
+        g_dbus_connection_signal_unsubscribe(watch->bus,
+                                             watch->subscriptions[i]);
+
+      watch->subscriptions[i] = 0;
+    }
+
+  atspi_register_events(watch->bus, watch->application, watch->cancel, FALSE);
+  g_clear_object(&watch->bus);
+  atspi_ref_free(watch->application);
+  watch->application = NULL;
+  g_clear_object(&bus);
+  atspi_ref_free(application);
+  g_main_context_pop_thread_default(watch->context);
+  atspi_watch_unref(watch);
 
   return NULL;
 }
 
-WhelkAtspiMenuRequest *whelk_atspi_menubar_async(const char *app_name, gint pid,
-                                                 WhelkChordStyle style,
-                                                 WhelkAtspiMenuFunc done,
-                                                 gpointer user_data) {
-  WhelkAtspiMenuRequest *request = g_new0(WhelkAtspiMenuRequest, 1);
+WhelkAtspiMenuWatch *whelk_atspi_menubar_watch_new(
+    const char *app_name, gint pid, WhelkChordStyle style,
+    WhelkAtspiMenuFunc changed, gpointer user_data) {
+  WhelkAtspiMenuWatch *watch = g_new0(WhelkAtspiMenuWatch, 1);
 
-  request->refs = 1;
-  request->cancel = g_cancellable_new();
-  request->app_name = g_strdup(app_name);
-  request->pid = pid;
-  request->style = style;
-  request->done = done;
-  request->user_data = user_data;
+  watch->refs = 1;
+  watch->cancel = g_cancellable_new();
+  watch->context = g_main_context_new();
+  watch->loop = g_main_loop_new(watch->context, FALSE);
+  watch->app_name = g_strdup(app_name);
+  watch->pid = pid;
+  watch->style = style;
+  watch->changed = changed;
+  watch->user_data = user_data;
 
-  /* The worker owns a reference until it has delivered; the caller may free
-   * its own reference immediately after starting the read. */
-  g_atomic_int_inc(&request->refs);
+  /* The worker owns a reference until it has stopped following; the caller
+   * may free its own reference immediately after starting the watch. */
+  g_atomic_int_inc(&watch->refs);
 
-  GThread *thread = g_thread_new("whelk-atspi", atspi_thread, request);
+  GThread *thread = g_thread_new("whelk-atspi-watch", atspi_watch_thread,
+                                 watch);
 
   g_thread_unref(thread);
 
-  return request;
+  return watch;
 }
 
-void whelk_atspi_menubar_request_free(WhelkAtspiMenuRequest *request) {
-  if (!request)
+void whelk_atspi_menubar_watch_free(WhelkAtspiMenuWatch *watch) {
+  if (!watch)
     return;
 
-  g_atomic_int_set(&request->cancelled, 1);
-  g_cancellable_cancel(request->cancel);
-  atspi_request_unref(request);
+  g_atomic_int_set(&watch->cancelled, 1);
+  g_cancellable_cancel(watch->cancel);
+  g_main_loop_quit(watch->loop);
+  atspi_watch_unref(watch);
 }
 
 /* =========================================================================
