@@ -48,6 +48,20 @@ also means the passing tests are the ones that match the checked out sources."
              "; ")))
    #:verbose? #t))
 
+(define (test-asan)
+  "Build and run the suite with AddressSanitizer and UndefinedBehaviorSanitizer."
+  (time-machine-manifest-shell
+   (list "/bin/sh" "-c"
+         (~ "'~a'"
+            (string-join
+             (list "set -eu"
+                   "rm -rf build-asan"
+                   "ASAN_OPTIONS=detect_leaks=0 meson setup build-asan -Db_sanitize=address,undefined -Db_lto=false -Dbuildtype=debugoptimized -Dstrip=false"
+                   "ninja -C build-asan"
+                   "ASAN_OPTIONS=detect_leaks=0 meson test -C build-asan --print-errorlogs")
+             "; ")))
+   #:verbose? #t))
+
 (define c-packages
   (make-parameter
    (string-join (map symbol->string

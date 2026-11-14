@@ -1,0 +1,9 @@
+#!/bin/sh
+# whelk -- deterministic PAM-exec authenticator for integration tests.
+#
+# pam_exec.so expose_authtok passes the password on stdin.  This script is
+# installed only by the test harness; it is not used by a release build.
+# pam_exec.so does not append a newline to expose_authtok.
+password=$(cat)
+
+[ "$password" = "whelk-test-password" ]

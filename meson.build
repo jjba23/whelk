@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.20.1',
+  version: '0.21.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -240,6 +240,15 @@ bar_preview = executable('bar_preview',
   install: false,
 )
 
+# The integration harness asks the compositor whether a session lock is held.
+# A probe that can acquire the lock means the locker is gone (or never locked).
+lock_probe = executable('lock_probe',
+  'tests/lock_probe.c',
+  include_directories: inc,
+  dependencies: [gtk_dep, layer_shell_dep],
+  install: false,
+)
+
 # ------------------------------------------------------------------------------
 # Test Suite Configuration
 # ------------------------------------------------------------------------------
@@ -347,6 +356,7 @@ unit_tests = [
     'sources': [
       'src/util/menudict.c',
       'src/util/chord.c',
+      'src/util/menutree.c',
       'src/guile_bridge.c',
       'src/config.c',
       'src/util/format.c',
@@ -419,6 +429,7 @@ unit_tests = [
     'sources': [
       'src/util/menusearch.c',
       'src/util/menuaction.c',
+      'src/util/atspimenus.c',
       'src/util/menutree.c',
       'src/util/menudict.c',
       'src/util/chord.c',
@@ -437,6 +448,7 @@ unit_tests = [
     'sources': [
       'src/util/atspimenus.c',
       'src/util/menutree.c',
+      'src/util/menudict.c',
       'src/util/chord.c',
     ],
   },

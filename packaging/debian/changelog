@@ -1,11 +1,13 @@
-whelk (0.20.1-1) unstable; urgency=medium
+whelk (0.21.0-1) unstable; urgency=medium
 
-  * The launcher uses the search-entry placeholder API, avoiding a GTK
-    critical warning.
-  * The screen locker enforces its retry delay: activating Unlock while the
-    entry is insensitive no longer starts another PAM attempt.
-  * Real pam_unix, logind-style Lock signals and output hotplug were exercised
-    under headless Sway; see NEWS.org for the exact coverage.
+  * The screen locker keeps the compositor lock across SIGTERM, survives a
+    primary-output replacement, and persists its retry backoff across a
+    restart.
+  * Suspend, VT switches and logind IdleHint transitions now request the lock.
+  * The headless integration suite covers PAM backoff/success, hotplug, fake
+    logind transitions and SIGTERM lock survival; see NEWS.org for the exact
+    coverage and its limits.
+  * Release tooling, a PAM policy sample and ASan/UBSan coverage were added.
 
  -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 14 Nov 2026 13:00:00 +0100
 

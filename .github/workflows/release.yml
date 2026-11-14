@@ -1,0 +1,63 @@
+# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+#
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: 🧱 Verify release tree
+    uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
+    with:
+      tasks: maak-test
+      timeout-minutes: 60
+    secrets: inherit
+
+  release:
+    name: 📦 Source artifact and GitHub release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the tagged tree
+        uses: actions/checkout@v6
+
+      - name: Build source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          manifest=$(sed -n "s/^  version: '\([^']*\)',/\1/p" meson.build | head -n 1)
+          [[ "$manifest" == "$version" ]] || {
+            echo "tag v${version} does not match meson.build ${manifest}" >&2
+            exit 1
+          }
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="whelk-${version}/" \
+            -o "dist/whelk-${version}.tar.gz" "$GITHUB_SHA"
+          sha256sum "dist/whelk-${version}.tar.gz" \
+            >"dist/whelk-${version}.tar.gz.sha256"
+
+      - name: Create or update the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "whelk ${GITHUB_REF_NAME#v}" \
+              --generate-notes \
+              dist/*
+          fi

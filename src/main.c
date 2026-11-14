@@ -434,6 +434,14 @@ static int on_command_line(GApplication *application,
                            gpointer user_data) {
   (void)user_data;
 
+  /* A release smoke test must be able to identify an installed build without
+   * starting a compositor or a shell. */
+  if (option_flag(command_line, "version")) {
+    g_application_command_line_print(command_line, "whelk %s\n",
+                                     PACKAGE_VERSION);
+    return 0;
+  }
+
   /* With handled command lines GApplication does not activate for us: the
    * first invocation is the one that has to bring the shell up. */
   if (!g_shell)
@@ -545,9 +553,13 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(
       G_APPLICATION(app), "lock", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
       "Lock the screen and require the session password", NULL);
-  g_application_add_main_option(G_APPLICATION(app), "reload", 'r',
-                                G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
-                                "Re-read the settings file", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "version", 'v', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+      "Print the whelk version and exit", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "reload", 'r', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+      "Re-read the settings file", NULL);
+
   g_application_add_main_option(G_APPLICATION(app), "quit", 'q',
                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
                                 "Stop the running shell", NULL);
@@ -577,9 +589,22 @@ static gboolean quit_on_signal(gpointer user_data) {
 static void inner_main(void *data, int argc, char **argv) {
   (void)data;
 
+  /* Integration tests run a second whelk beside the user's real shell.  These
+   * environment hooks keep the test instance out of the real GApplication
+   * name and give AT-SPI a distinct application name. */
+  const char *test_app_name = g_getenv("WHELK_TEST_APP_NAME");
+
+  if (test_app_name && *test_app_name)
+    g_set_application_name(test_app_name);
+
+  GApplicationFlags flags =
+      G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_DEFAULT_FLAGS;
+
+  if (g_getenv("WHELK_TEST_NON_UNIQUE"))
+    flags |= G_APPLICATION_NON_UNIQUE;
+
   GtkApplication *app = gtk_application_new(
-      "org.jointhefreeworld.whelk",
-      G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_DEFAULT_FLAGS);
+      "org.jointhefreeworld.whelk", flags);
 
   add_options(app);
 
@@ -597,6 +622,16 @@ static void inner_main(void *data, int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+  /* Keep --version independent of GApplication's option handling: a release
+   * smoke test must not require a display, a session bus, or a shell start. */
+  for (int i = 1; i < argc; i++) {
+    if (g_strcmp0(argv[i], "--version") == 0 ||
+        g_strcmp0(argv[i], "-v") == 0) {
+      g_print("whelk %s\n", PACKAGE_VERSION);
+      return 0;
+    }
+  }
+
   /* The clipboard helper is not the shell: it is the short-lived program
    * wl-paste --watch runs, and it must not try to become the GApplication (the
    * running shell would answer instead of the helper reading the selection). */

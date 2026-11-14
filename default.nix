@@ -27,7 +27,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "whelk";
-  version = "0.20.1";
+  version = "0.21.0";
 
   strictDeps = true;
   __structuredAttrs = true;
@@ -39,8 +39,8 @@ stdenv.mkDerivation (finalAttrs: {
     src = ./.;
     filter = path: type:
       let base = baseNameOf (toString path);
-      in !(builtins.elem base [ "build" "build-asan" "build-release" "result"
-                                ".direnv" ])
+      in !(builtins.elem base [ "build" "build-asan" "build-sanitize"
+                                "build-release" "result" ".direnv" ])
          && lib.cleanSourceFilter path type;
   };
 

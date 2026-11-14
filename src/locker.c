@@ -10,8 +10,11 @@
 #include "surface.h"
 #include "util/lockpolicy.h"
 
+#include <errno.h>
 #include <gtk4-session-lock.h>
+#include <glib/gstdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifdef HAVE_PAM
 #include <security/pam_appl.h>
@@ -35,6 +38,7 @@ typedef struct {
   GPtrArray *dates;    /* GtkLabel*, borrowed from the surfaces */
   GtkWidget *entry;    /* the primary output's password field, borrowed */
   GtkWidget *error;    /* its error line, borrowed */
+  GPtrArray *session_views; /* LockView*, borrowed, ext-session-lock only */
   guint clock_id;
   guint retry_id;
   guint focus_id;
@@ -49,6 +53,8 @@ typedef struct {
   GtkSessionLockInstance *session_lock; /* owned while the protocol is in use */
   gboolean session_has_primary;
   guint protocol_unlock_id;
+  guint session_rebuild_id;
+  gboolean rebuilding_session_lock;
 } WhelkLocker;
 
 typedef struct {
@@ -67,6 +73,7 @@ typedef struct {
   GtkWidget *date;
   GtkWidget *entry;
   GtkWidget *error;
+  GtkWidget *window;
   gboolean primary;
 } LockView;
 
@@ -74,6 +81,10 @@ static WhelkLocker *locker = NULL;
 static GtkApplication *lock_app = NULL;
 static GDBusConnection *system_bus = NULL;
 static guint lock_subscription = 0;
+static guint sleep_subscription = 0;
+static guint session_subscription = 0;
+static guint session_props_subscription = 0;
+static char *session_path = NULL;
 static gboolean watching_logind = FALSE;
 static gboolean bus_requested = FALSE;
 
@@ -89,11 +100,78 @@ static void secure_wipe(char *text) {
     *p++ = '\0';
 }
 
+/* The UI process is restarted by whelk's supervisor after a crash.  Keep the
+ * failed-attempt count in the user's runtime directory so that restart cannot
+ * reset the delay.  This file is only a local throttle; a site that wants a
+ * system-wide lockout should add pam_faillock to its whelk-lock stack. */
+static char *lock_failure_path(void) {
+  const char *override = g_getenv("WHELK_LOCK_STATE_FILE");
+
+  if (override && *override)
+    return g_strdup(override);
+
+  const char *runtime = g_get_user_runtime_dir();
+
+  if (!runtime || !*runtime)
+    return NULL;
+
+  return g_build_filename(runtime, "whelk", "lock-failures", NULL);
+}
+
+static gint load_lock_failures(void) {
+  g_autofree char *path = lock_failure_path();
+  g_autofree char *contents = NULL;
+
+  if (!path || !g_file_get_contents(path, &contents, NULL, NULL))
+    return 0;
+
+  const gint64 parsed = g_ascii_strtoll(contents, NULL, 10);
+
+  return parsed <= 0 ? 0 : (parsed > G_MAXINT ? G_MAXINT : (gint)parsed);
+}
+
+static void save_lock_failures(gint failures) {
+  g_autofree char *path = lock_failure_path();
+  g_autofree char *directory = path ? g_path_get_dirname(path) : NULL;
+  g_autofree char *contents = g_strdup_printf("%d\n", failures);
+  g_autoptr(GError) error = NULL;
+
+  if (!path)
+    return;
+
+  if (g_mkdir_with_parents(directory, 0700) != 0) {
+    LOG_C_DEBUG("Locker", "could not create lock-state directory: %s",
+                g_strerror(errno));
+    return;
+  }
+
+  if (!g_file_set_contents(path, contents, -1, &error)) {
+    LOG_C_DEBUG("Locker", "could not persist lock failures: %s",
+                error ? error->message : "unknown error");
+    return;
+  }
+
+  /* The runtime directory is private, but do not leave the file readable by
+   * anything that later gets access to it. */
+  if (g_chmod(path, 0600) != 0)
+    LOG_C_DEBUG("Locker", "could not restrict lock-state file: %s",
+                g_strerror(errno));
+}
+
+static void clear_lock_failures(void) {
+  g_autofree char *path = lock_failure_path();
+
+  if (path)
+    g_unlink(path);
+}
+
 static void locker_ref(WhelkLocker *self) {
   g_atomic_int_inc(&self->refs);
 }
 
 static void locker_unref(WhelkLocker *self);
+static void queue_session_rebuild(WhelkLocker *self);
+static gboolean on_session_rebuild_idle(gpointer data);
 
 static void stop_timer(guint *id) {
   if (*id != 0) {
@@ -132,6 +210,7 @@ static void locker_free(WhelkLocker *self) {
   stop_timer(&self->retry_id);
   stop_timer(&self->focus_id);
   stop_timer(&self->protocol_unlock_id);
+  stop_timer(&self->session_rebuild_id);
 
   locker_clear_session_lock(self);
 
@@ -153,6 +232,7 @@ static void locker_free(WhelkLocker *self) {
   g_clear_pointer(&self->surfaces, g_ptr_array_unref);
   g_clear_pointer(&self->clocks, g_ptr_array_unref);
   g_clear_pointer(&self->dates, g_ptr_array_unref);
+  g_clear_pointer(&self->session_views, g_ptr_array_unref);
   g_free(self);
 }
 
@@ -346,6 +426,7 @@ static gboolean on_retry_ready(gpointer data) {
 
 static void locker_fail(WhelkLocker *self, LockAuthResult result) {
   self->failures++;
+  save_lock_failures(self->failures);
 
   if (self->entry)
     gtk_widget_set_sensitive(self->entry, FALSE);
@@ -361,6 +442,21 @@ static void locker_fail(WhelkLocker *self, LockAuthResult result) {
   self->retry_id = g_timeout_add(delay, on_retry_ready, self);
 }
 
+/* A restart must not give the next guess a free attempt.  This is called once
+ * the primary surface exists and also after a monitor rebuild. */
+static void locker_apply_backoff(WhelkLocker *self) {
+  if (!self || self->failures <= 0 || self->retry_id != 0 || self->closing ||
+      self->unlocked)
+    return;
+
+  if (self->entry)
+    gtk_widget_set_sensitive(self->entry, FALSE);
+
+  locker_show_error(self, "Wait before trying again.");
+  self->retry_id = g_timeout_add(
+      whelk_lock_retry_delay_ms((guint)self->failures), on_retry_ready, self);
+}
+
 /* End the local lock state.  `request_unlock` is FALSE when the compositor
  * already ended the session lock; asking it again would be redundant. */
 static void locker_release(WhelkLocker *self, gboolean request_unlock) {
@@ -368,6 +464,7 @@ static void locker_release(WhelkLocker *self, gboolean request_unlock) {
     return;
 
   self->unlocked = TRUE;
+  clear_lock_failures();
 
   stop_timer(&self->clock_id);
   stop_timer(&self->retry_id);
@@ -438,9 +535,10 @@ static gpointer lock_auth_worker(gpointer data) {
 }
 
 static void submit_password(WhelkLocker *self) {
-  if (!self || self->closing || self->unlocked || self->authenticating ||
-      self->retry_id != 0 || !self->entry ||
-      !gtk_widget_get_sensitive(self->entry))
+  if (!self || self->closing || self->unlocked || !self->entry ||
+      !whelk_lock_submission_allowed(
+          self->authenticating, self->retry_id,
+          gtk_widget_get_sensitive(self->entry)))
     return;
 
   const char *buffer = gtk_editable_get_text(GTK_EDITABLE(self->entry));
@@ -592,6 +690,11 @@ static void lock_view_detach(LockView *view) {
 
   WhelkLocker *self = view->locker;
 
+  if (view->window) {
+    g_ptr_array_remove_fast(self->session_views, view);
+    view->window = NULL;
+  }
+
   if (view->clock) {
     g_ptr_array_remove_fast(self->clocks, view->clock);
     view->clock = NULL;
@@ -611,8 +714,14 @@ static void lock_view_detach(LockView *view) {
   view->entry = NULL;
   view->error = NULL;
 
-  if (view->primary)
+  if (view->primary) {
     self->session_has_primary = FALSE;
+
+    /* The primary output was removed.  The remaining protocol window is a
+     * non-primary view with no password field, so rebuild all windows from the
+     * current monitor model as soon as the destroy handler returns. */
+    queue_session_rebuild(self);
+  }
 }
 
 static void lock_view_free(gpointer data) {
@@ -626,6 +735,18 @@ static void lock_view_free(gpointer data) {
 static void on_lock_window_destroy(GtkWidget *window, gpointer data) {
   (void)window;
   lock_view_detach(data);
+}
+
+/* A lock window can be assigned before it is mapped.  Focus the entry when
+ * the window actually appears as well as in the idle below: this is what makes
+ * a physical keyboard reach the password field on every compositor. */
+static void on_lock_window_map(GtkWidget *window, gpointer data) {
+  (void)window;
+
+  WhelkLocker *self = data;
+
+  if (!self->closing && !self->unlocked && self->entry)
+    gtk_widget_grab_focus(self->entry);
 }
 
 static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
@@ -643,6 +764,7 @@ static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
   gtk_window_set_deletable(window, FALSE);
   g_signal_connect(window, "close-request", G_CALLBACK(on_close_request),
                    self);
+  g_signal_connect(window, "map", G_CALLBACK(on_lock_window_map), self);
 
   LockView *view = g_new0(LockView, 1);
 
@@ -651,8 +773,13 @@ static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
   view->date = date;
   view->entry = entry;
   view->error = error;
+  view->window = GTK_WIDGET(window);
   view->primary = primary;
   locker_ref(self);
+
+  g_ptr_array_add(self->session_views, view);
+  if (primary)
+    self->session_has_primary = TRUE;
 
   g_signal_connect(window, "destroy", G_CALLBACK(on_lock_window_destroy), view);
   g_object_set_data_full(G_OBJECT(window), "whelk-lock-view", view,
@@ -667,6 +794,64 @@ static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
     self->focus_id = g_idle_add(focus_entry, self);
 
   on_clock_tick(self);
+
+  if (primary)
+    locker_apply_backoff(self);
+}
+
+static void rebuild_session_lock(WhelkLocker *self) {
+  if (!self || !self->session_lock || self->closing || self->unlocked)
+    return;
+
+  self->rebuilding_session_lock = TRUE;
+  self->session_has_primary = FALSE;
+  self->entry = NULL;
+  self->error = NULL;
+
+  /* Destroy through refs: the destroy handlers remove the borrowed views from
+   * session_views while this loop is running. */
+  g_autoptr(GPtrArray) windows =
+      g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
+
+  for (guint i = 0; i < self->session_views->len; i++) {
+    LockView *view = g_ptr_array_index(self->session_views, i);
+
+    if (view && view->window)
+      g_ptr_array_add(windows, g_object_ref(view->window));
+  }
+
+  for (guint i = 0; i < windows->len; i++)
+    gtk_window_destroy(GTK_WINDOW(g_ptr_array_index(windows, i)));
+
+  GdkDisplay *display = gdk_display_get_default();
+  GListModel *monitors = display ? gdk_display_get_monitors(display) : NULL;
+  const guint count = monitors ? g_list_model_get_n_items(monitors) : 0;
+
+  for (guint i = 0; i < count; i++) {
+    GdkMonitor *monitor = GDK_MONITOR(g_list_model_get_item(monitors, i));
+
+    create_session_lock_window(self, monitor, i == 0);
+    g_clear_object(&monitor);
+  }
+
+  self->rebuilding_session_lock = FALSE;
+}
+
+static gboolean on_session_rebuild_idle(gpointer data) {
+  WhelkLocker *self = data;
+
+  self->session_rebuild_id = 0;
+  rebuild_session_lock(self);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void queue_session_rebuild(WhelkLocker *self) {
+  if (!self || self->rebuilding_session_lock || self->closing ||
+      self->unlocked || !self->session_lock || self->session_rebuild_id != 0)
+    return;
+
+  self->session_rebuild_id = g_idle_add(on_session_rebuild_idle, self);
 }
 
 static void on_session_lock_monitor(GtkSessionLockInstance *instance,
@@ -676,7 +861,7 @@ static void on_session_lock_monitor(GtkSessionLockInstance *instance,
   WhelkLocker *self = data;
 
   if (!self->session_lock || self->closing || self->unlocked ||
-      self->protocol_unlock_id != 0)
+      self->protocol_unlock_id != 0 || self->rebuilding_session_lock)
     return;
 
   const gboolean primary = !self->session_has_primary;
@@ -773,12 +958,15 @@ static void create_lock_surface(WhelkLocker *self, GdkMonitor *monitor,
   gtk_window_set_deletable(window, FALSE);
   g_signal_connect(window, "close-request", G_CALLBACK(on_close_request),
                    self);
+  g_signal_connect(window, "map", G_CALLBACK(on_lock_window_map), self);
 
   g_ptr_array_add(self->surfaces, surface);
   whelk_surface_present(surface);
 
-  if (primary)
+  if (primary) {
     self->focus_id = g_idle_add(focus_entry, self);
+    locker_apply_backoff(self);
+  }
 }
 
 static void build_surfaces(WhelkLocker *self) {
@@ -851,6 +1039,18 @@ static void on_monitors_changed(GListModel *monitors, guint position,
  * LOGIND
  * ========================================================================= */
 
+static void request_logind_lock(void) {
+  if (!watching_logind)
+    return;
+
+  WhelkShell *shell = whelk_shell_get_default();
+
+  if (shell)
+    whelk_shell_lock(shell);
+  else
+    whelk_locker_lock();
+}
+
 static void on_logind_lock(GDBusConnection *connection, const char *sender,
                            const char *path, const char *interface,
                            const char *signal, GVariant *parameters,
@@ -863,15 +1063,105 @@ static void on_logind_lock(GDBusConnection *connection, const char *sender,
   (void)parameters;
   (void)data;
 
-  if (!watching_logind)
+  request_logind_lock();
+}
+
+/* logind emits PrepareForSleep(true) before suspend; locking here covers lid
+ * close and sleep even when no external idle daemon is installed. */
+static void on_logind_prepare_for_sleep(GDBusConnection *connection,
+                                        const char *sender, const char *path,
+                                        const char *interface,
+                                        const char *signal,
+                                        GVariant *parameters,
+                                        gpointer data) {
+  (void)connection;
+  (void)sender;
+  (void)path;
+  (void)interface;
+  (void)signal;
+  (void)data;
+
+  gboolean sleeping = FALSE;
+
+  if (parameters &&
+      g_variant_is_of_type(parameters, G_VARIANT_TYPE("(b)"))) {
+    g_variant_get(parameters, "(b)", &sleeping);
+
+    if (sleeping)
+      request_logind_lock();
+  }
+}
+
+/* A VT switch makes the session inactive.  Lock before another session can
+ * use the seat, so returning to this session already shows the lock screen. */
+static void on_session_properties(GDBusConnection *connection,
+                                  const char *sender, const char *path,
+                                  const char *interface, const char *signal,
+                                  GVariant *parameters, gpointer data) {
+  (void)connection;
+  (void)sender;
+  (void)path;
+  (void)interface;
+  (void)signal;
+  (void)data;
+
+  const char *changed_interface = NULL;
+  g_autoptr(GVariant) changed = NULL;
+  g_autoptr(GVariant) invalidated = NULL;
+  gboolean active = TRUE;
+  gboolean idle = FALSE;
+
+  if (!parameters ||
+      !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sa{sv}as)")))
     return;
 
-  WhelkShell *shell = whelk_shell_get_default();
+  g_variant_get(parameters, "(&s@a{sv}@as)", &changed_interface, &changed,
+                &invalidated);
 
-  if (shell)
-    whelk_shell_lock(shell);
-  else
-    whelk_locker_lock();
+  if (g_strcmp0(changed_interface, "org.freedesktop.login1.Session") != 0)
+    return;
+
+  /* Active=false is the VT switch.  IdleHint is set by a session manager (or
+   * an idle daemon) that has decided the seat is idle; locking on it covers
+   * idle policies without making whelk poll every input event itself. */
+  if (g_variant_lookup(changed, "Active", "b", &active) && !active)
+    request_logind_lock();
+  else if (g_variant_lookup(changed, "IdleHint", "b", &idle) && idle)
+    request_logind_lock();
+}
+
+static void on_session_path(GObject *source, GAsyncResult *result,
+                            gpointer data) {
+  (void)data;
+
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GVariant) reply = g_dbus_connection_call_finish(
+      G_DBUS_CONNECTION(source), result, &error);
+
+  if (!reply) {
+    LOG_C_DEBUG("Locker", "could not find the logind session: %s",
+                error ? error->message : "unknown error");
+    return;
+  }
+
+  const char *path = NULL;
+
+  g_variant_get(reply, "(&o)", &path);
+
+  if (!watching_logind || !system_bus || !path || !*path)
+    return;
+
+  g_free(session_path);
+  session_path = g_strdup(path);
+
+  session_subscription = g_dbus_connection_signal_subscribe(
+      system_bus, "org.freedesktop.login1", "org.freedesktop.login1.Session",
+      "Lock", session_path, NULL, G_DBUS_SIGNAL_FLAGS_NONE, on_logind_lock,
+      NULL, NULL);
+  session_props_subscription = g_dbus_connection_signal_subscribe(
+      system_bus, "org.freedesktop.login1", "org.freedesktop.login1.Session",
+      "PropertiesChanged", session_path, NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+      on_session_properties, NULL, NULL);
 }
 
 static void on_system_bus(GObject *source, GAsyncResult *result,
@@ -898,6 +1188,18 @@ static void on_system_bus(GObject *source, GAsyncResult *result,
       bus, "org.freedesktop.login1", "org.freedesktop.login1.Manager", "Lock",
       "/org/freedesktop/login1", NULL, G_DBUS_SIGNAL_FLAGS_NONE,
       on_logind_lock, NULL, NULL);
+  sleep_subscription = g_dbus_connection_signal_subscribe(
+      bus, "org.freedesktop.login1", "org.freedesktop.login1.Manager",
+      "PrepareForSleep", "/org/freedesktop/login1", NULL,
+      G_DBUS_SIGNAL_FLAGS_NONE, on_logind_prepare_for_sleep, NULL, NULL);
+
+  /* The manager-level Lock is global; the session object adds the per-session
+   * Lock and the Active transition a VT switch produces. */
+  g_dbus_connection_call(
+      bus, "org.freedesktop.login1", "/org/freedesktop/login1",
+      "org.freedesktop.login1.Manager", "GetSessionByPID",
+      g_variant_new("(u)", (guint)getpid()), G_VARIANT_TYPE("(o)"),
+      G_DBUS_CALL_FLAGS_NONE, -1, NULL, on_session_path, NULL);
   g_object_unref(bus);
 }
 
@@ -940,6 +1242,8 @@ void whelk_locker_lock(void) {
       g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
   self->clocks = g_ptr_array_new();
   self->dates = g_ptr_array_new();
+  self->session_views = g_ptr_array_new();
+  self->failures = load_lock_failures();
   locker = self;
 
   /* Prefer the compositor's own lock.  The layer-shell overlay is only the
@@ -976,11 +1280,22 @@ void whelk_locker_lock(void) {
 void whelk_locker_shutdown(void) {
   watching_logind = FALSE;
 
-  if (lock_subscription != 0) {
-    g_dbus_connection_signal_unsubscribe(system_bus, lock_subscription);
-    lock_subscription = 0;
+  if (system_bus) {
+    if (lock_subscription != 0)
+      g_dbus_connection_signal_unsubscribe(system_bus, lock_subscription);
+    if (sleep_subscription != 0)
+      g_dbus_connection_signal_unsubscribe(system_bus, sleep_subscription);
+    if (session_subscription != 0)
+      g_dbus_connection_signal_unsubscribe(system_bus, session_subscription);
+    if (session_props_subscription != 0)
+      g_dbus_connection_signal_unsubscribe(system_bus, session_props_subscription);
   }
 
+  lock_subscription = 0;
+  sleep_subscription = 0;
+  session_subscription = 0;
+  session_props_subscription = 0;
+  g_clear_pointer(&session_path, g_free);
   g_clear_object(&system_bus);
   bus_requested = FALSE;
 
@@ -999,9 +1314,10 @@ void whelk_locker_shutdown(void) {
     stop_timer(&self->retry_id);
     stop_timer(&self->protocol_unlock_id);
 
-    if (self->session_lock)
-      gtk_session_lock_instance_unlock(self->session_lock);
-
+    /* Do not call gtk_session_lock_instance_unlock() here.  SIGTERM, SIGINT
+     * and SIGHUP all reach this shutdown path; only PAM success (or the
+     * compositor ending the lock) may release the protocol lock.  The
+     * compositor keeps the session locked when this process exits. */
     destroy_surfaces(self);
     locker_clear_session_lock(self);
     locker_unref(self);

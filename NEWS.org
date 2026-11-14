@@ -15,6 +15,58 @@ Nothing yet.
 
 *[Released]*
 
+** v0.21.0 (2026-11-14)
+
+*** Added
+
+- *The locker survives the ways a session ends a process.*  =SIGTERM=,
+  =SIGINT= and =SIGHUP= no longer call =gtk_session_lock_instance_unlock()=:
+  the compositor keeps the protocol lock until PAM succeeds, and a restart
+  cannot silently release it.  The headless integration suite kills the locker
+  after locking and verifies the compositor still refuses another lock client.
+- *A primary output can be unplugged while locked.*  Output removal destroys
+  and rebuilds the =ext-session-lock-v1= windows from the current monitor
+  model, so the replacement output gets the password entry and keyboard focus
+  instead of leaving a lock surface with no way to authenticate.
+- *Failed attempts survive a crash or restart.*  The doubling retry delay is
+  persisted in =$XDG_RUNTIME_DIR/whelk/lock-failures= (mode 0600), loaded
+  before the first lock window appears, and cleared only by successful PAM
+  authentication.  =WHELK_LOCK_STATE_FILE= is a test override.
+- *Suspend, lid close, VT switches and idle hints lock the session.*  The
+  locker subscribes to logind's =PrepareForSleep=, per-session =Lock=,
+  =PropertiesChanged[Active=false]= and =IdleHint= signals, in addition to the
+  existing manager-level =Lock=.  The fake-logind integration test exercises
+  each transition; a real logind session is still the deployment test.
+- *Keyboard focus is taken when the lock window is mapped*, not only from a
+  later idle callback.  The integration driver can use =wtype= for real
+  virtual-keyboard input with =WHELK_TEST_KEYBOARD=1=, falling back to AT-SPI
+  when no virtual keyboard is installed.
+- *Release tooling.*  =scripts/release.sh= checks every manifest and
+  NEWS.org, sets the version in one place, verifies, and publishes a tag,
+  source tarball and checksum.  =scripts/release-smoke.sh= builds, installs
+  and checks =--version= from the source tree or a published tarball.
+  =scripts/sanitize.sh= adds an ASan/UBSan developer run, and the
+  =.github/workflows/release.yml= workflow attaches the source artifact to a
+  tag-triggered GitHub release.
+- *A reviewed PAM policy sample* at =packaging/pam/whelk-lock=, using
+  =pam_faillock= where available and =pam_unix= as the minimal alternative.
+
+*** Verified
+
+- The headless Sway integration suite passes: wrong password and persistent
+  backoff, successful PAM test authentication, primary-output replacement,
+  =Session.Lock=, =PrepareForSleep=, =Active=false=, =IdleHint=, and
+  =SIGTERM= lock survival.  It runs on a private session bus and a private
+  system bus, with a =pam_exec= test service rather than the account password.
+- Host =ninja -C build-host= and the Meson unit suite pass.
+
+*** Not covered
+
+- A physical keyboard and a real =pam_unix=/logind session were not used on
+  the build host.  The integration driver's AT-SPI path is the default here;
+  =WHELK_TEST_KEYBOARD=1= selects =wtype= when it is installed.  The
+  layer-shell fallback was not re-exercised in this round.
+
 ** v0.20.1 (2026-11-14)
 
 *** Fixed

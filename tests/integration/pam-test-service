@@ -1,0 +1,5 @@
+# whelk -- temporary PAM service for the locker integration test.
+# The test harness installs this file and a pam-test-auth helper, then removes
+# them.  It is deliberately not part of the installed package.
+auth required pam_exec.so expose_authtok __AUTH_HELPER__
+account required pam_permit.so

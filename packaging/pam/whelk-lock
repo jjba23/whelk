@@ -1,0 +1,18 @@
+# whelk -- optional per-locker PAM policy
+#
+# Install as /etc/pam.d/whelk-lock only after reviewing it against the
+# distribution's own PAM stack.  whelk falls back to the login stack when this
+# file does not exist; a file that exists and refuses is never bypassed.
+#
+# The first three auth lines use pam_faillock so guesses are throttled even
+# when the whelk UI process is restarted.  Sites without pam_faillock can use:
+#
+#   auth required pam_unix.so
+#   account required pam_unix.so
+#
+auth required pam_faillock.so preauth silent audit deny=5 unlock_time=900
+auth [success=1 default=ignore] pam_unix.so nullok
+auth [default=die] pam_faillock.so authfail audit deny=5 unlock_time=900
+auth sufficient pam_faillock.so authsucc audit deny=5 unlock_time=900
+account required pam_faillock.so
+account required pam_unix.so

@@ -516,14 +516,27 @@ name typed at the lock screen;
 - one attempt at a time, on a worker thread; the password is wiped as soon as
 PAM has seen it, and failures double the wait from one second to a 30-second
 cap;
-- logind's =Lock= signal locks the session, and =clear-on-lock= clears unpinned
-clipboard entries at the same moment;
+- logind's =Lock= signal locks the session, and =clear-on-lock= clears
+  unpinned clipboard entries at the same moment;
+- =PrepareForSleep=, a VT switch (=Active=false=) and a session manager's
+  =IdleHint= also request the lock, so suspend, lid close and idle policies do
+  not need a second lock daemon;
+- a failed-attempt count survives a crash or restart in
+  =$XDG_RUNTIME_DIR/whelk/lock-failures= (mode 0600), so restarting the shell
+  does not reset the retry delay;
+- =SIGTERM=, =SIGINT= and =SIGHUP= do not unlock the protocol session; only
+  PAM success, or the compositor ending the lock, releases it;
 - no command-line or D-Bus unlock path exists.
+
 
 The locker uses the =login= PAM stack.  A machine that wants a narrower policy
 can install a =/etc/pam.d/whelk-lock= stack; whelk uses it when PAM can start
-it, and falls back to =login= otherwise.  Without PAM headers at build time the
-locker still locks, says authentication is unavailable and never opens.
+it, and falls back to =login= otherwise.  =packaging/pam/whelk-lock= is a
+reviewed starting point: it throttles guesses with =pam_faillock= and uses
+=pam_unix= for the account check, and the file explains the minimal
+=pam_unix=-only alternative.  Review it against the distribution's own stack
+before installing it.  Without PAM headers at build time the locker still
+locks, says authentication is unavailable and never opens.
 
 The fallback is deliberately kept so a session without =ext-session-lock-v1=
 still locks rather than silently doing nothing.  It is weaker than the
@@ -1637,6 +1650,53 @@ The Guile tests cover the configuration layer:
 run and a green =maak test= are the same commands in the same environment as
 =guix shell -m manifest.scm=.
 
+=.github/workflows/sanitize.yml= runs the same tree with
+=-Db_sanitize=address,undefined=.  Locally, =scripts/sanitize.sh= configures
+=build-sanitize/=, builds it and runs the suite with
+=ASAN_OPTIONS=detect_leaks=0= (the GTK and Guile test processes are not leak
+checked; the memory and undefined-behaviour checks still apply).
+
+The locker integration suite is deliberately outside the Guix unit suite:
+it needs a compositor, AT-SPI and PAM.  It runs under headless Sway on a
+private session bus and a private system bus:
+
+#+begin_src sh
+  # Needs sway, swaymsg, Python Atspi, wtype (optional), dbus and unshare.
+  PATH=/path/to/sway/bin:$PATH tests/integration/run.sh
+
+  # Type the password through a virtual keyboard instead of AT-SPI:
+  WHELK_TEST_KEYBOARD=1 PATH=/path/to/wtype:$PATH tests/integration/run.sh
+#+end_src
+
+The wrapper uses =unshare -r -m= to give PAM a private =/etc/pam.d= and
+therefore never touches the caller's desktop or PAM configuration.  It installs
+a =pam_exec= test service that accepts only the test password, then exercises
+wrong-password backoff, success, output replacement, logind transitions and
+=SIGTERM= lock survival.  A real =pam_unix= or logind session is a deployment
+check, not a unit test; the fake logind service is in
+=tests/integration/fake-logind.py=.
+
+** Releases
+:PROPERTIES:
+:CUSTOM_ID: releases
+:END:
+
+=scripts/release.sh= keeps the version agreement checkable:
+
+#+begin_src sh
+  scripts/release.sh check             # manifests + NEWS.org agree
+  scripts/release.sh set-version 0.21.0
+  scripts/release.sh verify            # host tests, Guix/Nix, smoke install
+  scripts/release.sh publish           # tag, push, tarball, GitHub release
+#+end_src
+
+=scripts/release-smoke.sh= builds, installs and checks =whelk --version= from
+the source tree or a published tarball; =publish= uses it as the final gate.
+=.github/workflows/release.yml= runs the Guix suite on a =v*= tag, then
+attaches =whelk-<version>.tar.gz= and its SHA-256 checksum to the GitHub
+release.  Publishing a tag is still an explicit authorization step: the
+workflow only publishes the artifact for the tag that was pushed.
+
 ** House rules
 :PROPERTIES:
 :CUSTOM_ID: rules
@@ -1658,8 +1718,11 @@ The repository's own guides are short and worth reading before a patch:
 :END:
 
 Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=)
-and =opensuse/= (spec file, rpmlint filters and the OBS =_service=).  A packaged
-whelk installs three things: =/usr/bin/whelk=, the desktop entry at
+and =opensuse/= (spec file, rpmlint filters and the OBS =_service=).
+=packaging/pam/whelk-lock= is an optional, reviewed PAM stack for the locker;
+install it as =/etc/pam.d/whelk-lock= only after checking it against the
+distribution's PAM policy.  A packaged whelk installs three things:
+ =/usr/bin/whelk=, the desktop entry at
 =/usr/share/applications/org.jointhefreeworld.whelk.desktop=, and the Scheme
 modules under =/usr/share/guile/site/3.0/whelk/= -- the path baked into the
 binary at configure time from the install prefix, so a package built with

@@ -7,6 +7,13 @@
 
 #include <glib.h>
 
+static void test_submission_guard(void) {
+  g_assert_true(whelk_lock_submission_allowed(FALSE, 0, TRUE));
+  g_assert_false(whelk_lock_submission_allowed(TRUE, 0, TRUE));
+  g_assert_false(whelk_lock_submission_allowed(FALSE, 1, TRUE));
+  g_assert_false(whelk_lock_submission_allowed(FALSE, 0, FALSE));
+}
+
 static void test_delays(void) {
   g_assert_cmpuint(whelk_lock_retry_delay_ms(0), ==, 0);
   g_assert_cmpuint(whelk_lock_retry_delay_ms(1), ==, 1000);
@@ -25,6 +32,7 @@ int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
   g_test_add_func("/lockpolicy/delays", test_delays);
+  g_test_add_func("/lockpolicy/submission-guard", test_submission_guard);
 
   return g_test_run();
 }

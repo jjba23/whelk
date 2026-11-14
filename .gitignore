@@ -8,6 +8,8 @@ subprojects/packagecache/
 .cache/
 compile_commands.json
 .nrepl-port
+dist/
+__pycache__/
 
 # Local overrides
 *.local.scm
