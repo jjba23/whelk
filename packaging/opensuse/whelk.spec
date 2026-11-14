@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.21.0
+Version:        0.21.1
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -74,6 +74,12 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.21.1
+- The lock screen selects the login PAM stack when the optional whelk-lock
+  service is absent, so a missing service cannot make PAM's other/pam_deny
+  fallback reject every password.  An installed whelk-lock stack still fails
+  closed.  Window-level keyboard focus is set on map and after a retry.
+
 * Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.20.1
 - The launcher uses the search-entry placeholder API, and the screen locker
   enforces its retry delay so Unlock cannot bypass the backoff.  Real pam_unix,

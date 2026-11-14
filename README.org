@@ -529,9 +529,13 @@ cap;
 - no command-line or D-Bus unlock path exists.
 
 
-The locker uses the =login= PAM stack.  A machine that wants a narrower policy
-can install a =/etc/pam.d/whelk-lock= stack; whelk uses it when PAM can start
-it, and falls back to =login= otherwise.  =packaging/pam/whelk-lock= is a
+The locker uses the =login= PAM stack when =/etc/pam.d/whelk-lock= is not
+installed.  A machine that wants a narrower policy can install a
+=/etc/pam.d/whelk-lock= stack; whelk uses it only when that service file
+exists.  A present =whelk-lock= stack is authoritative: if it refuses, whelk
+stays locked instead of bypassing it through =login=.  This mirrors swaylock's
+login-backed stack and avoids PAM's =other= policy (usually =pam_deny=) making
+every password fail.  =packaging/pam/whelk-lock= is a
 reviewed starting point: it throttles guesses with =pam_faillock= and uses
 =pam_unix= for the account check, and the file explains the minimal
 =pam_unix=-only alternative.  Review it against the distribution's own stack

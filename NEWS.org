@@ -15,6 +15,29 @@ Nothing yet.
 
 *[Released]*
 
+** v0.21.1 (2026-11-14)
+
+*** Fixed
+
+- *The lock screen no longer rejects every password on a machine without a
+  =whelk-lock= PAM service.*  =pam_start("whelk-lock")= succeeds even when the
+  service file is missing; PAM then silently uses its =other= stack, commonly
+  =pam_warn= plus =pam_deny=.  whelk now selects =whelk-lock= only when that
+  service file exists and otherwise uses the session's =login= stack, matching
+  swaylock and ordinary lock screens.  A =whelk-lock= stack that is installed
+  and refuses still fails closed and is never bypassed.
+- *The password entry reliably receives keyboard focus after a retry and when
+  a lock window maps.*  The window-level focus is set in addition to grabbing
+  focus on the entry, so physical typing reaches the field on every
+  compositor; the retry path does the same after it re-enables the entry.
+
+*** Verified
+
+- Host =ninja= and the Meson unit suite pass.  The headless Sway integration
+  suite passes with both an installed =whelk-lock= test service and the
+  =login= fallback, including PAM backoff, successful authentication, output
+  rebuilding and focus handling.
+
 ** v0.21.0 (2026-11-14)
 
 *** Added

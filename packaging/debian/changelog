@@ -1,3 +1,16 @@
+whelk (0.21.1-1) unstable; urgency=medium
+
+  * The lock screen no longer rejects every password when the optional
+    /etc/pam.d/whelk-lock service is absent.  whelk now chooses the login
+    stack in that case, as swaylock does; an installed whelk-lock stack still
+    fails closed.
+  * The password entry receives window-level keyboard focus when a lock
+    surface maps and after a retry re-enables it.
+  * PAM ECHO_ON prompts receive the account name, and the headless
+    integration suite covers both the dedicated and login PAM stacks.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 14 Nov 2026 15:41:05 +0100
+
 whelk (0.21.0-1) unstable; urgency=medium
 
   * The screen locker keeps the compositor lock across SIGTERM, survives a

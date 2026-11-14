@@ -38,9 +38,9 @@ cleanup() {
   [[ -n "$session_bus_pid" ]] && kill "$session_bus_pid" 2>/dev/null || true
 
   if [[ "$installed_pam" == 1 ]]; then
-    rm -f /etc/pam.d/whelk-lock
+    rm -f "$pam_file"
     if [[ -n "$pam_backup" ]]; then
-      mv "$pam_backup" /etc/pam.d/whelk-lock
+      mv "$pam_backup" "$pam_file"
     fi
   fi
   [[ -n "$temp_pam_helper" ]] && rm -f "$temp_pam_helper"
@@ -91,7 +91,8 @@ PY
 
 # A deterministic auth service keeps the test independent of the user's real
 # password.  The installed release still uses pam_unix in production.
-pam_file=/etc/pam.d/whelk-lock
+pam_service=${WHELK_TEST_PAM_SERVICE:-whelk-lock}
+pam_file=/etc/pam.d/$pam_service
 temp_pam_helper="$tmp/pam-test-auth"
 pam_helper=$temp_pam_helper
 install -m 755 "$root/tests/integration/pam-test-auth" "$temp_pam_helper"
@@ -111,7 +112,7 @@ else
   [[ "$(id -u)" -eq 0 ]] || {
     if [[ ! -r "$pam_file" ]] || ! grep -q 'whelk-pam-test-auth' "$pam_file"; then
       printf '%s\n' \
-        'locker-integration: /etc/pam.d/whelk-lock test service is absent.' \
+        "locker-integration: $pam_file test service is absent." \
         'Run this script as root, or install the test service as root first.' >&2
       exit 77
     fi

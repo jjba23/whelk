@@ -273,8 +273,13 @@ static gboolean focus_entry(gpointer data) {
 
   self->focus_id = 0;
 
-  if (!self->closing && !self->unlocked && self->entry)
+  if (!self->closing && !self->unlocked && self->entry) {
+    GtkRoot *root = gtk_widget_get_root(self->entry);
+
+    if (GTK_IS_WINDOW(root))
+      gtk_window_set_focus(GTK_WINDOW(root), self->entry);
     gtk_widget_grab_focus(self->entry);
+  }
 
   return G_SOURCE_REMOVE;
 }
@@ -290,6 +295,7 @@ static gboolean focus_entry(gpointer data) {
 #ifdef HAVE_PAM
 typedef struct {
   const char *password;
+  const char *username;
   gboolean supplied;
 } LockConversation;
 
@@ -315,7 +321,7 @@ static int lock_conversation(int count, const struct pam_message **messages,
       answers[i].resp = g_strdup(conversation->password);
       conversation->supplied = TRUE;
     } else if (message->msg_style == PAM_PROMPT_ECHO_ON) {
-      answers[i].resp = g_strdup("");
+      answers[i].resp = g_strdup(conversation->username);
     } else if (message->msg_style != PAM_ERROR_MSG &&
                message->msg_style != PAM_TEXT_INFO) {
       goto failed;
@@ -340,9 +346,34 @@ failed:
   return PAM_CONV_ERR;
 }
 
+/* PAM searches /etc/pam.d and its compiled-in fallback directories.  A
+ * missing service does not make pam_start() fail: it uses the `other' stack,
+ * which is commonly pam_deny.  That produced a lock screen that rejected every
+ * password.  Pick a service that exists, as swaylock's login stack does, and
+ * only prefer the whelk-lock policy when the administrator installed it. */
+static gboolean pam_service_exists(const char *name) {
+  static const char *const directories[] = {
+      "/etc/pam.d",
+      "/usr/lib/pam.d",
+      "/usr/etc/pam.d",
+      NULL,
+  };
+
+  for (gsize i = 0; directories[i]; i++) {
+    g_autofree char *path = g_build_filename(directories[i], name, NULL);
+
+    if (g_file_test(path, G_FILE_TEST_IS_REGULAR))
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
 static LockAuthResult pam_authenticate_user(const char *password) {
+  const char *username = g_get_user_name();
   LockConversation conversation = {
       .password = password,
+      .username = username,
       .supplied = FALSE,
   };
   struct pam_conv conv = {
@@ -350,25 +381,22 @@ static LockAuthResult pam_authenticate_user(const char *password) {
       .appdata_ptr = &conversation,
   };
   pam_handle_t *handle = NULL;
-  int status = pam_start("whelk-lock", g_get_user_name(), &conv, &handle);
+  const char *service =
+      pam_service_exists("whelk-lock") ? "whelk-lock" : "login";
+  int status = pam_start(service, username, &conv, &handle);
 
-  /* A dedicated stack is the narrow policy a lock screen wants.  Falling back
-   * to `login' is for a machine that has not installed one; a whelk-lock stack
-   * that exists but refuses is never bypassed by asking login instead. */
+  /* A whelk-lock stack that exists but refuses is never bypassed by asking
+   * login instead.  Without it, login is the standard session stack, and it is
+   * the service swaylock and most lock screens use. */
   if (status != PAM_SUCCESS) {
-    if (handle)
-      pam_end(handle, status);
-
-    handle = NULL;
-    status = pam_start("login", g_get_user_name(), &conv, &handle);
-  }
-
-  if (status != PAM_SUCCESS) {
-    LOG_C_WARN("Locker", "PAM is not available (status %d)", status);
+    LOG_C_WARN("Locker", "PAM service %s is not available (status %d)",
+               service, status);
     if (handle)
       pam_end(handle, status);
     return LOCK_AUTH_UNAVAILABLE;
   }
+
+  LOG_C_DEBUG("Locker", "authenticating with PAM service %s", service);
 
   status =
       pam_authenticate(handle, PAM_SILENT | PAM_DISALLOW_NULL_AUTHTOK);
@@ -414,8 +442,13 @@ static gboolean on_retry_ready(gpointer data) {
     return G_SOURCE_REMOVE;
 
   if (self->entry) {
+    GtkRoot *root;
+
     gtk_widget_set_sensitive(self->entry, TRUE);
     gtk_editable_set_text(GTK_EDITABLE(self->entry), "");
+    root = gtk_widget_get_root(self->entry);
+    if (GTK_IS_WINDOW(root))
+      gtk_window_set_focus(GTK_WINDOW(root), self->entry);
     gtk_widget_grab_focus(self->entry);
   }
 
@@ -745,8 +778,13 @@ static void on_lock_window_map(GtkWidget *window, gpointer data) {
 
   WhelkLocker *self = data;
 
-  if (!self->closing && !self->unlocked && self->entry)
+  if (!self->closing && !self->unlocked && self->entry) {
+    GtkRoot *root = gtk_widget_get_root(self->entry);
+
+    if (GTK_IS_WINDOW(root))
+      gtk_window_set_focus(GTK_WINDOW(root), self->entry);
     gtk_widget_grab_focus(self->entry);
+  }
 }
 
 static void create_session_lock_window(WhelkLocker *self, GdkMonitor *monitor,
