@@ -36,8 +36,8 @@
  * `whelk' is not a second shell: GApplication forwards its arguments to the
  * first one, so `whelk --launcher' on a niri binding opens the launcher that is
  * already up, `whelk --notifications' toggles the centre, and `whelk --menu
- * "<command>"' opens a generated menu -- which is what replaces the rofi calls
- * in a keybinding file.
+ * "<command>"' opens a generated menu -- which is what replaces an external
+ * menu program in a keybinding file.
  */
 
 static WhelkShell *g_shell = NULL;
@@ -458,6 +458,9 @@ static int on_command_line(GApplication *application,
   if (option_flag(command_line, "reload"))
     whelk_shell_reload(g_shell);
 
+  if (option_flag(command_line, "settings"))
+    whelk_shell_show_settings(g_shell);
+
   if (option_flag(command_line, "lock"))
     whelk_shell_lock(g_shell);
 
@@ -465,6 +468,8 @@ static int on_command_line(GApplication *application,
 
   if (menu && *menu)
     whelk_shell_show_menu(g_shell, menu);
+  else if (option_flag(command_line, "session-menu"))
+    whelk_shell_show_session_menu(g_shell);
   else if (option_flag(command_line, "launcher"))
     whelk_shell_show_launcher(g_shell, option_text(command_line, "launcher-mode"));
   else if (option_flag(command_line, "clipboard"))
@@ -541,6 +546,12 @@ static void add_options(GtkApplication *app) {
       G_APPLICATION(app), "menu", 'm', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
       "Show a menu from a command printing \"label<TAB>command\" lines",
       "COMMAND");
+  g_application_add_main_option(
+      G_APPLICATION(app), "session-menu", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Show the built-in session menu", NULL);
+  g_application_add_main_option(G_APPLICATION(app), "settings", 0,
+                                G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+                                "Open the whelk settings window", NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "notifications", 'n', G_OPTION_FLAG_NONE,
       G_OPTION_ARG_NONE, "Open or close the notification centre", NULL);

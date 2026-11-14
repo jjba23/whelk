@@ -18,6 +18,7 @@
 #include "notifications.h"
 #include "osd.h"
 #include "preferences.h"
+#include "style.h"
 #include "util/barmonitors.h"
 #include "util/menusearch.h"
 #include "widgets.h"
@@ -132,10 +133,13 @@ static void build_bars(WhelkShell *shell) {
   for (guint i = 0; i < configs->len; i++)
     build_config(shell, g_ptr_array_index(configs, i));
 
-  /* The shell's panels wear the first bar's palette.  It is read once, on the
-   * build that has one, so a palette edit shows in the panels on the next
-   * start (the bars themselves do follow a reload). */
-  if (!shell->style && configs->len > 0)
+  /* The shell's panels wear the first bar's palette.  Replace it on every
+   * build: a theme edit is a reload, and a reload that left the launcher,
+   * notification centre, network panel and HUD on the old palette was the bug
+   * that made a theme switch look half-applied. */
+  g_clear_pointer(&shell->style, whelk_bar_config_free);
+
+  if (configs->len > 0)
     shell->style = whelk_bar_config_copy(g_ptr_array_index(configs, 0));
 
   whelk_config_free_bars(configs);
@@ -146,6 +150,17 @@ static void build_bars(WhelkShell *shell) {
 
   whelk_widgets_build(shell->widgets, widget_configs, shell->style);
   whelk_config_free_widgets(widget_configs);
+
+  /* The panels are long-lived surfaces: a reload must re-skin them instead of
+   * asking the user to restart the shell. */
+  if (shell->launcher)
+    whelk_launcher_set_style(shell->launcher, shell->style);
+  if (shell->center)
+    whelk_notification_center_set_style(shell->center, shell->style);
+  if (shell->network)
+    whelk_network_panel_set_style(shell->network, shell->style);
+  if (shell->osd)
+    whelk_osd_set_style(shell->osd, shell->style);
 
   LOG_C_INFO("Shell", "%u bar(s) up", shell->bars->len);
   shell->building = FALSE;
@@ -390,6 +405,10 @@ void whelk_shell_show_settings(WhelkShell *shell) {
   if (!shell || whelk_locker_is_locked())
     return;
 
+  /* Settings are a task window, not a bar menu: a popover left open would sit
+   * above it and keep the pointer captured after the window takes focus. */
+  whelk_style_close_popovers();
+
   whelk_preferences_show(shell->app, shell->config_path,
                          reload_after_preference_change, shell);
 }
@@ -485,6 +504,11 @@ void whelk_shell_show_launcher(WhelkShell *shell, const char *mode) {
 void whelk_shell_show_menu(WhelkShell *shell, const char *command) {
   if (shell && shell->launcher && !whelk_locker_is_locked())
     whelk_launcher_show_menu(shell->launcher, command);
+}
+
+void whelk_shell_show_session_menu(WhelkShell *shell) {
+  if (shell && shell->launcher && !whelk_locker_is_locked())
+    whelk_launcher_show_session_menu(shell->launcher);
 }
 
 void whelk_shell_toggle_notifications(WhelkShell *shell) {

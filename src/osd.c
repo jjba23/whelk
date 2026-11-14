@@ -177,6 +177,7 @@ static void whelk_osd_dispose(GObject *object) {
 
   if (osd->skin)
     whelk_style_detach(osd->skin, gdk_display_get_default());
+  osd->skin = NULL;
 
   g_clear_object(&osd->surface);
   g_clear_pointer(&osd->style, whelk_bar_config_free);
@@ -199,4 +200,39 @@ WhelkOsd *whelk_osd_new(GtkApplication *app, const WhelkBarConfig *style) {
   build(osd);
 
   return osd;
+}
+
+void whelk_osd_set_style(WhelkOsd *osd, const WhelkBarConfig *style) {
+  if (!osd || !style)
+    return;
+
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (osd->skin)
+    whelk_style_detach(osd->skin, display);
+  osd->skin = NULL;
+
+  g_clear_pointer(&osd->style, whelk_bar_config_free);
+  osd->style = whelk_bar_config_copy(style);
+
+  const int bottom_margin =
+      osd->style->edge == GTK_LAYER_SHELL_EDGE_BOTTOM ? osd->style->height + 22
+                                                      : 64;
+
+  whelk_surface_set_margins(osd->surface, 0, 0, bottom_margin, 0);
+
+  g_autofree char *widget_id = whelk_style_widget_id("osd");
+  g_autofree char *accent_css = NULL;
+
+  if (osd->style->accent && *osd->style->accent) {
+    accent_css = g_strdup_printf(
+        ".whelk-osd progressbar progress { background-color: %s; }\n"
+        ".whelk-osd progressbar trough { background-color: "
+        "alpha(currentColor, 0.16); }\n",
+        osd->style->accent);
+  }
+
+  osd->skin =
+      whelk_style_apply(widget_id, osd->style, "whelk-osd", accent_css);
+  gtk_widget_queue_draw(osd->card);
 }

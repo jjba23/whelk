@@ -15,6 +15,55 @@ Nothing yet.
 
 *[Released]*
 
+** v0.23.0 (2026-11-14)
+
+*** Added
+
+- *The material is generated from the palette, not baked into each theme's
+  CSS.*  A bar now carries =opacity=, =blur=, =shine=, =reflection= and
+  =flare= beside its four colours and radius.  Opacity multiplies the surface
+  colour's own alpha, blur is the shadow's softness, and shine, reflection and
+  flare are independent generated layers.  Every theme supplies defaults, and
+  a bar or the settings window can move one value without losing the others.
+- *The Theme page controls the whole surface.*  It now has surface, ink,
+  accent and hairline colour buttons; opacity, shadow blur, shine, reflection
+  and flare scales; and a corner-radius field.  The values are saved as GUI
+  overrides, so the configuration file is still never rewritten.
+- *A built-in session menu.*  =whelk --session-menu= opens lock, log out,
+  suspend, hibernate, restart and shut down without a script, a menu program
+  or a generated file.  The default battery tile opens it, and the shell menu
+  keeps its own ways out.
+- *=whelk --settings=* opens the settings window from a keybinding or the
+  bar's palette right-click.
+
+*** Changed
+
+- *Theme changes redraw the whole shell.*  The shell regenerates its stylesheet
+  on every build, re-skins the long-lived launcher, notification centre,
+  network panel and HUD, and rebuilds the desktop widgets with the new
+  palette.  Popover styles are scoped to the popover and removed with it, so a
+  theme switch cannot leave yesterday's rules stacked above today's.
+- *Opening the settings window closes the bar's popovers.*  A popover left
+  above a task window would keep the pointer captured after focus moved.
+- *The default configuration no longer calls rofi.*  The language tile cycles
+  niri's layouts, the palette tile's right click opens whelk's material
+  settings, and the battery tile uses the built-in session menu.  The
+  launcher's menu mode still speaks the existing menu-script protocol, so a
+  script a desktop already has keeps working, but whelk itself needs no menu
+  program installed.
+- *The global menu is quieter.*  Hovering a File/Edit/View group no longer
+  fills the whole group; only the label under the pointer gets a surface.  The
+  application and window names sit on a transparent background.
+
+*** Verified
+
+- The host build and the Meson suite pass: 36 tests, including new checks for
+  theme material defaults and per-bar overrides, every GUI material control,
+  the C copy of the material fields, the default bar's session action and the
+  absence of an external menu program from the defaults.
+
+---------
+
 ** v0.22.0 (2026-11-14)
 
 *** Added

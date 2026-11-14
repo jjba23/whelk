@@ -108,7 +108,9 @@ file cannot leave the shell with a half-applied look."
 ;; must not become a setting that the rest of whelk silently ignores.
 (define %preference-keys
   '(bar-height bar-spacing bar-padding bar-edge bar-layer bar-exclusive?
-    bar-font bar-font-size bar-theme
+    bar-font bar-font-size bar-theme bar-foreground bar-background bar-accent
+    bar-border-color bar-radius bar-opacity bar-blur bar-shine bar-reflection
+    bar-flare
     wifi-show-ssid? wifi-interval
     notifications-show-count?
     menu-shortcuts? menu-app-name? menu-accelerator-style
@@ -191,6 +193,13 @@ duplicate happens to win."
           ((string? value) (string->symbol value))
           (else fallback))))
 
+(define (number-preference prefs key fallback)
+  (let ((value (preference prefs key fallback)))
+    (if (number? value) (exact->inexact value) fallback)))
+
+(define (unit-preference prefs key fallback)
+  (min 1.0 (max 0.0 (number-preference prefs key fallback))))
+
 (define (theme-preference prefs bar)
   (symbol-preference prefs 'bar-theme (bar-config-theme bar)))
 
@@ -204,7 +213,16 @@ duplicate happens to win."
                              current)))
          (radius (if theme-set?
                      (or (assq-ref palette 'radius) 0)
-                     (bar-config-radius bar))))
+                     (bar-config-radius bar)))
+         (material (lambda (key current)
+                     (if theme-set?
+                         (or (assq-ref palette key) current)
+                         current)))
+         (color (lambda (key current)
+                  (string-preference prefs key
+                                     (if theme-set?
+                                         (or (assq-ref palette key) current)
+                                         current)))))
     (make-bar-config
      (bar-config-name bar)
      theme
@@ -224,11 +242,30 @@ duplicate happens to win."
      (string-preference prefs 'bar-font (bar-config-font bar))
      (string-preference prefs 'bar-font-size (bar-config-font-size bar))
      (bar-config-icon-font bar)
-     (from-palette 'foreground (bar-config-foreground bar))
-     (from-palette 'background (bar-config-background bar))
-     (from-palette 'accent (bar-config-accent bar))
-     (from-palette 'border-color (bar-config-border-color bar))
-     radius
+     (color 'bar-foreground
+            (if theme-set? (assq-ref palette 'foreground)
+                (bar-config-foreground bar)))
+     (color 'bar-background
+            (if theme-set? (assq-ref palette 'background)
+                (bar-config-background bar)))
+     (color 'bar-accent
+            (if theme-set? (assq-ref palette 'accent)
+                (bar-config-accent bar)))
+     (color 'bar-border-color
+            (if theme-set? (assq-ref palette 'border-color)
+                (bar-config-border-color bar)))
+     (integer-preference prefs 'bar-radius radius)
+     (unit-preference prefs 'bar-opacity
+                      (material 'opacity (bar-config-opacity bar)))
+     (max 0 (min 64 (integer-preference
+                     prefs 'bar-blur
+                     (material 'blur (bar-config-blur bar)))))
+     (unit-preference prefs 'bar-shine
+                      (material 'shine (bar-config-shine bar)))
+     (unit-preference prefs 'bar-reflection
+                      (material 'reflection (bar-config-reflection bar)))
+     (unit-preference prefs 'bar-flare
+                      (material 'flare (bar-config-flare bar)))
      (from-palette 'css (bar-config-css bar))
      (map (lambda (mod) (apply-module mod prefs))
           (bar-config-modules-left bar))

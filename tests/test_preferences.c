@@ -79,6 +79,11 @@ static void test_bridge_round_trip(void) {
   g_assert_true(whelk_bridge_save_preference_int(path, "bar-height", 44));
   g_assert_true(whelk_bridge_save_preference_symbol(path, "bar-theme", "frost"));
   g_assert_true(
+      whelk_bridge_save_preference_double(path, "bar-opacity", 0.6));
+  g_assert_true(whelk_bridge_save_preference_int(path, "bar-blur", 26));
+  g_assert_true(
+      whelk_bridge_save_preference_double(path, "bar-shine", 0.4));
+  g_assert_true(
       whelk_bridge_save_preference_bool(path, "wifi-show-ssid?", TRUE));
   g_assert_true(whelk_bridge_save_preference_int(path, "wifi-interval", 2));
   g_assert_true(whelk_bridge_save_preference_bool(
@@ -102,6 +107,9 @@ static void test_bridge_round_trip(void) {
   g_assert_cmpint(bar->height, ==, 44);
   g_assert_cmpstr(bar->theme, ==, "frost");
   g_assert_cmpint(bar->spacing, ==, 8);
+  g_assert_cmpfloat_with_epsilon(bar->opacity, 0.6, 0.0001);
+  g_assert_cmpint(bar->blur, ==, 26);
+  g_assert_cmpfloat_with_epsilon(bar->shine, 0.4, 0.0001);
   g_assert_true(
       whelk_spec_bool(module_of(bar, "wifi"), "show-ssid?", FALSE));
   g_assert_cmpint(whelk_spec_int(module_of(bar, "wifi"), "interval", 0), ==, 2);
@@ -201,14 +209,29 @@ static void test_widget_controls(void) {
   GtkWidget *height = find_key(content, "bar-height");
   GtkWidget *theme = find_key(content, "bar-theme");
   GtkWidget *count = find_key(content, "notifications-show-count?");
+  GtkWidget *opacity = find_key(content, "bar-opacity");
+  GtkWidget *blur = find_key(content, "bar-blur");
+  GtkWidget *shine = find_key(content, "bar-shine");
+  GtkWidget *reflection = find_key(content, "bar-reflection");
+  GtkWidget *flare = find_key(content, "bar-flare");
   GtkWidget *reset = NULL;
 
   g_assert_true(GTK_IS_SPIN_BUTTON(height));
   g_assert_true(GTK_IS_DROP_DOWN(theme));
   g_assert_true(GTK_IS_SWITCH(count));
+  g_assert_true(GTK_IS_SCALE(opacity));
+  g_assert_true(GTK_IS_SCALE(blur));
+  g_assert_true(GTK_IS_SCALE(shine));
+  g_assert_true(GTK_IS_SCALE(reflection));
+  g_assert_true(GTK_IS_SCALE(flare));
 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(height), 48);
   gtk_switch_set_active(GTK_SWITCH(count), TRUE);
+  gtk_range_set_value(GTK_RANGE(opacity), 0.62);
+  gtk_range_set_value(GTK_RANGE(blur), 24);
+  gtk_range_set_value(GTK_RANGE(shine), 0.33);
+  gtk_range_set_value(GTK_RANGE(reflection), 0.22);
+  gtk_range_set_value(GTK_RANGE(flare), 0.11);
 
   GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(theme));
 
@@ -235,6 +258,11 @@ static void test_widget_controls(void) {
 
   g_assert_cmpint(bar->height, ==, 48);
   g_assert_cmpstr(bar->theme, ==, "frost");
+  g_assert_cmpfloat_with_epsilon(bar->opacity, 0.62, 0.0001);
+  g_assert_cmpint(bar->blur, ==, 24);
+  g_assert_cmpfloat_with_epsilon(bar->shine, 0.33, 0.0001);
+  g_assert_cmpfloat_with_epsilon(bar->reflection, 0.22, 0.0001);
+  g_assert_cmpfloat_with_epsilon(bar->flare, 0.11, 0.0001);
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "notifications"), "format", ""),
                   ==, "{icon} {count}");
   whelk_config_free_bars(bars);

@@ -99,7 +99,7 @@ typedef void (*WhelkCommandBytesCallback)(GBytes *stdout_bytes,
  *   program has finished.
  * @user_data: passed to @callback.
  *
- * whelk_command_run(), for output that is not lines of text.  Rofi's script
+ * whelk_command_run(), for output that is not lines of text.  The menu-script
  * protocol separates a row's fields with NUL bytes, which a C string cannot
  * carry, and a menu generator written for it is otherwise a menu this shell can
  * run unchanged -- so this is the one reader that keeps every byte.

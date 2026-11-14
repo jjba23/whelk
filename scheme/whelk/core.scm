@@ -87,6 +87,11 @@
                bar-config-accent
                bar-config-border-color
                bar-config-radius
+               bar-config-opacity
+               bar-config-blur
+               bar-config-shine
+               bar-config-reflection
+               bar-config-flare
                bar-config-css
                bar-config-modules-left
                bar-config-modules-center

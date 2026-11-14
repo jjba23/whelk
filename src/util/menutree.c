@@ -971,7 +971,7 @@ GPtrArray *whelk_menubar_from_dbusmenu(GVariant *reply, const char *service,
  * The third producer needs no protocol at all: a command prints one line per
  * entry, and the shell reads it.  That is the escape hatch for an application
  * no dictionary knows and no bus can describe -- a login shell, a container, a
- * plugin host -- and it is the same shape the launcher's rofi-script mode uses,
+ * plugin host -- and it is the same shape the launcher's menu-script mode uses,
  * with a menu name where the launcher has a section.
  */
 

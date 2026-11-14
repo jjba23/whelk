@@ -5,11 +5,16 @@
 
 ;;; Commentary:
 ;;
-;; Bar materials, as data.  A theme is a palette: four colours, a corner radius
-;; and the few CSS rules that a palette cannot express -- a gradient, a
-;; highlight, a hairline.  `(bar #:theme 'glass-2001 ...)' applies one, and any
-;; colour the bar sets itself wins over the theme's, so a theme is a starting
-;; point rather than a wall.
+;; Bar materials, as data.  A theme is a palette: four colours, a corner
+;; radius, and the five material numbers the generated skin turns into light:
+;; opacity, shadow blur, shine, reflection and flare.  `(bar #:theme
+;; 'glass-2001 ...)' applies one, and any value the bar sets itself wins over
+;; the theme's, so a theme is a starting point rather than a wall.
+;;
+;; The old themes used to carry a hand-written gradient in `css'.  That made
+;; the material controls impossible: the gradient painted over the opacity and
+;; shine the settings window changed.  Their signature is now expressed by the
+;; numbers, and `css' is only for rules the material numbers cannot say.
 ;;
 ;; The names are the eras, not the products: a year and a material describe the
 ;; same look without borrowing anybody's mark, and a bar in 2026 should not have
@@ -70,7 +75,14 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#2f6fd0")
    (border-color . "#b4bcc7")
    (radius . 6)
-   (css . ".whelk-bar {\n  background-image: linear-gradient(to bottom, #f7f9fb 0%, #e3e7ec 48%, #dfe4ea 52%, #eef1f4 100%);\n  border-bottom: 1px solid #a9b2bd;\n}\n.whelk-bar .whelk-start-button { font-weight: 700; }\n")))
+   (opacity . 1.0)
+   (blur . 3)
+   (shine . 0.55)
+   (reflection . 0.18)
+   (flare . 0.08)
+   ;; The one thing the material numbers cannot say: this era named the shell
+   ;; with the heaviest weight it had.
+   (css . ".whelk-bar .whelk-start-button { font-weight: 700; }\n")))
 
 (register-theme!
  'metal-2003
@@ -79,7 +91,12 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#5b6770")
    (border-color . "#8f969a")
    (radius . 0)
-   (css . ".whelk-bar {\n  background-image: linear-gradient(to bottom, #d8dad9 0%, #c6c9c8 50%, #bdbfbe 51%, #cfd1d0 100%);\n  border-bottom: 1px solid #7f868a;\n}\n")))
+   (opacity . 1.0)
+   (blur . 2)
+   (shine . 0.40)
+   (reflection . 0.12)
+   (flare . 0.05)
+   (css . "")))
 
 (register-theme!
  'gloss-2007
@@ -88,10 +105,15 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#3b9eff")
    (border-color . "rgba(0, 0, 0, 0.92)")
    (radius . 10)
-   ;; The late-2000s menu bar: a graphite glass slab, a highlight along the
-   ;; top edge, and a black hairline below.  The bar itself stays square --
-   ;; popovers keep the palette's radius -- which is the shape the era used.
-   (css . ".whelk-bar {\n  background-image:\n    linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 1px, rgba(255, 255, 255, 0) 2px),\n    linear-gradient(to bottom, rgba(50, 50, 54, 0.82) 0%, rgba(28, 28, 31, 0.84) 46%, rgba(17, 17, 19, 0.88) 54%, rgba(28, 28, 31, 0.84) 100%);\n  border: none;\n  border-bottom: 1px solid rgba(0, 0, 0, 0.92);\n  box-shadow: inset 0 1px rgba(255, 255, 255, 0.12);\n  border-radius: 0;\n}\n")))
+   (opacity . 1.0)
+   (blur . 18)
+   (shine . 0.38)
+   (reflection . 0.10)
+   (flare . 0.12)
+   ;; The late-2000s menu bar was a square slab; its popovers kept the radius.
+   ;; The generated material paints the radius and the configuration's own
+   ;; rule is deliberately last, so this one still wins on the bar alone.
+   (css . ".whelk-bar { border-radius: 0; }\n")))
 
 (register-theme!
  'flat-2014
@@ -100,7 +122,12 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#0a84ff")
    (border-color . "#d0d0d0")
    (radius . 0)
-   (css . ".whelk-bar {\n  border-bottom: 1px solid #d0d0d0;\n}\n")))
+   (opacity . 1.0)
+   (blur . 0)
+   (shine . 0.0)
+   (reflection . 0.0)
+   (flare . 0.0)
+   (css . "")))
 
 (register-theme!
  'dark-2020
@@ -109,7 +136,12 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#4b9bff")
    (border-color . "#2e2e2e")
    (radius . 12)
-   (css . ".whelk-bar {\n  border-bottom: 1px solid #2e2e2e;\n}\n")))
+   (opacity . 1.0)
+   (blur . 12)
+   (shine . 0.08)
+   (reflection . 0.04)
+   (flare . 0.05)
+   (css . "")))
 
 (register-theme!
  'tinted-2024
@@ -118,14 +150,20 @@ the bar simply keeps its own colours, and the name is reported once."
    (accent . "#6b4bff")
    (border-color . "rgba(255, 255, 255, 0.55)")
    (radius . 16)
-   (css . ".whelk-bar {\n  border: 1px solid rgba(255, 255, 255, 0.55);\n  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);\n}\n")))
+   (opacity . 1.0)
+   (blur . 24)
+   (shine . 0.26)
+   (reflection . 0.14)
+   (flare . 0.12)
+   (css . "")))
 
 ;; =============================================================================
 ;; The palettes people rice with
 ;; =============================================================================
 ;;
 ;; Cool, warm, pastel, night, paper, and none at all.  They are the same shape
-;; as the eras above: a background, a foreground, one accent, a hairline.
+;; as the eras above: a background, a foreground, one accent, a hairline, and
+;; the five numbers that make the material.
 
 (register-theme!
  'frost
@@ -133,7 +171,13 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#eceff4")
    (accent . "#88c0d0")
    (border-color . "#3b4252")
-   (radius . 8)))
+   (radius . 8)
+   (opacity . 1.0)
+   (blur . 14)
+   (shine . 0.08)
+   (reflection . 0.05)
+   (flare . 0.06)
+   (css . "")))
 
 (register-theme!
  'ember
@@ -141,7 +185,13 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#ebdbb2")
    (accent . "#fabd2f")
    (border-color . "#3c3836")
-   (radius . 6)))
+   (radius . 6)
+   (opacity . 1.0)
+   (blur . 10)
+   (shine . 0.08)
+   (reflection . 0.05)
+   (flare . 0.05)
+   (css . "")))
 
 (register-theme!
  'mocha
@@ -149,7 +199,13 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#cdd6f4")
    (accent . "#cba6f7")
    (border-color . "#313244")
-   (radius . 10)))
+   (radius . 10)
+   (opacity . 1.0)
+   (blur . 16)
+   (shine . 0.10)
+   (reflection . 0.06)
+   (flare . 0.07)
+   (css . "")))
 
 (register-theme!
  'midnight
@@ -157,7 +213,13 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#c0caf5")
    (accent . "#7aa2f7")
    (border-color . "#292e42")
-   (radius . 8)))
+   (radius . 8)
+   (opacity . 1.0)
+   (blur . 14)
+   (shine . 0.08)
+   (reflection . 0.05)
+   (flare . 0.06)
+   (css . "")))
 
 (register-theme!
  'sandstone
@@ -165,7 +227,13 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#586e75")
    (accent . "#268bd2")
    (border-color . "#eee8d5")
-   (radius . 4)))
+   (radius . 4)
+   (opacity . 1.0)
+   (blur . 4)
+   (shine . 0.18)
+   (reflection . 0.08)
+   (flare . 0.04)
+   (css . "")))
 
 (register-theme!
  'void
@@ -173,4 +241,10 @@ the bar simply keeps its own colours, and the name is reported once."
    (foreground . "#ffffff")
    (accent . "#ffffff")
    (border-color . "#1a1a1a")
-   (radius . 0)))
+   (radius . 0)
+   (opacity . 1.0)
+   (blur . 0)
+   (shine . 0.0)
+   (reflection . 0.0)
+   (flare . 0.0)
+   (css . "")))

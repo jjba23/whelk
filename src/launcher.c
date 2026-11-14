@@ -55,7 +55,7 @@ typedef enum {
   ITEM_MENU,
   ITEM_SSH,
   ITEM_QUIT,
-  ITEM_ROFI,
+  ITEM_SCRIPT,
   ITEM_CLIPBOARD,
   ITEM_MENU_ITEM,
 } ItemKind;
@@ -597,9 +597,9 @@ static void search_files(WhelkLauncher *self, const char *query) {
  *       the plain shape, one row per line;
  *
  *   label\0icon\x1fname\0nonselectable\x1ftrue\0info\x1fsomething
- *       rofi's script protocol, which is what an existing menu script already
- *       prints.  A row in that shape is not a command: rofi calls the script
- *       again with ROFI_RETV=1 and the chosen label, and so does this.
+ *       the menu-script protocol an existing generator already prints.  A row
+ *       in that shape is not a command: the script is called again with
+ *       ROFI_RETV=1 and the chosen label, and so does this.
  *
  * The protocol separates its fields with NUL, which is why this mode reads its
  * generator as bytes and not as text.
@@ -624,7 +624,7 @@ static void add_menu_row(WhelkLauncher *self, const guint8 *row, gsize length) {
   }
 
   g_autofree char *label = g_strndup((const char *)row, (gsize)(nul - row));
-  LauncherItem *item = item_new(ITEM_ROFI, label, "menu");
+  LauncherItem *item = item_new(ITEM_SCRIPT, label, "menu");
   const guint8 *cursor = nul + 1;
   const guint8 *end = row + length;
 
@@ -696,6 +696,11 @@ static const char *effective_mode(WhelkLauncher *self, const char **query) {
   if (g_strcmp0(self->mode, "menu") == 0) {
     *query = text;
     return "menu";
+  }
+
+  if (g_strcmp0(self->mode, "session") == 0) {
+    *query = text;
+    return "session";
   }
 
   /* A prefix is a mode you can type without knowing the modes exist. */
@@ -808,7 +813,7 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
                                       "Run a command", "Calculator",
                                       "Files", "Web search", "Menu",
                                       "SSH hosts", "Close a window",
-                                      "Clipboard", "Menu items"};
+                                      "Clipboard", "Menu items", "Session"};
   const char *label = names[0];
 
   if (g_strcmp0(mode, "window") == 0)
@@ -831,6 +836,8 @@ static void update_mode_label(WhelkLauncher *self, const char *mode,
     label = names[9];
   else if (g_strcmp0(mode, "menuitem") == 0)
     label = names[10];
+  else if (g_strcmp0(mode, "session") == 0)
+    label = names[11];
 
   const char *app = g_strcmp0(mode, "menuitem") == 0
                         ? whelk_menu_search_app_name()
@@ -1184,7 +1191,8 @@ static void refresh_results(WhelkLauncher *self) {
      * files that matched further up their path. */
     for (guint i = 0; i < self->files->len; i++)
       add_result(self, g_ptr_array_index(self->files, i));
-  } else if (g_strcmp0(mode, "menu") == 0) {
+  } else if (g_strcmp0(mode, "menu") == 0 ||
+             g_strcmp0(mode, "session") == 0) {
     rank_into(self, self->menu, query ? query : "");
   } else if (g_strcmp0(mode, "clipboard") == 0) {
     load_clipboard(self);
@@ -1333,8 +1341,8 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
   case ITEM_MENU:
     whelk_command_spawn(item->action);
     break;
-  case ITEM_ROFI: {
-    /* Rofi's script contract: the chosen row comes back to the script that
+  case ITEM_SCRIPT: {
+    /* The menu-script contract: the chosen row comes back to the script that
      * printed it, in ROFI_RETV, so a menu that has state of its own keeps it. */
     g_autofree char *quoted = g_shell_quote(item->name);
     g_autofree char *command = g_strdup_printf(
@@ -1781,6 +1789,31 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   return self;
 }
 
+void whelk_launcher_set_style(WhelkLauncher *self,
+                              const WhelkBarConfig *style) {
+  if (!self || !style)
+    return;
+
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (self->skin)
+    whelk_style_detach(self->skin, display);
+  self->skin = NULL;
+
+  g_clear_pointer(&self->style, whelk_bar_config_free);
+  self->style = whelk_bar_config_copy(style);
+
+  if (self->style->radius < 16)
+    self->style->radius = 16;
+
+  g_autofree char *widget_id = whelk_style_widget_id("launcher");
+
+  self->skin =
+      whelk_style_apply(widget_id, self->style, "whelk-launcher", NULL);
+
+  gtk_widget_queue_draw(self->card);
+}
+
 void whelk_launcher_show(WhelkLauncher *self, const char *mode) {
   if (!self)
     return;
@@ -1820,6 +1853,48 @@ void whelk_launcher_show_menu(WhelkLauncher *self, const char *command) {
   self->mode = g_strdup("menu");
 
   whelk_command_run_bytes(command, on_menu_bytes, self);
+}
+
+void whelk_launcher_show_session_menu(WhelkLauncher *self) {
+  if (!self)
+    return;
+
+  static const struct {
+    const char *label;
+    const char *detail;
+    const char *icon;
+    const char *command;
+  } entries[] = {
+      {"Lock Screen", "Require the session password", "system-lock-screen",
+       "whelk --lock"},
+      {"Log Out", "End this session", "system-log-out",
+       "if [ -n \"${XDG_SESSION_ID:-}\" ]; then "
+       "loginctl terminate-session \"$XDG_SESSION_ID\"; else "
+       "loginctl terminate-user \"$USER\"; fi"},
+      {"Suspend", "Keep the session in memory", "system-suspend",
+       "systemctl suspend"},
+      {"Hibernate", "Write the session to disk", "system-hibernate",
+       "systemctl hibernate"},
+      {"Restart", "Reboot the machine", "system-reboot", "systemctl reboot"},
+      {"Shut Down", "Power the machine off", "system-shutdown",
+       "systemctl poweroff"},
+  };
+
+  g_ptr_array_set_size(self->menu, 0);
+  g_clear_pointer(&self->menu_command, g_free);
+
+  for (gsize i = 0; i < G_N_ELEMENTS(entries); i++) {
+    LauncherItem *item =
+        item_new(ITEM_COMMAND, entries[i].label, entries[i].detail);
+
+    item->icon = g_strdup(entries[i].icon);
+    item->action = g_strdup(entries[i].command);
+    g_ptr_array_add(self->menu, item);
+  }
+
+  g_free(self->mode);
+  self->mode = g_strdup("session");
+  whelk_launcher_show(self, "session");
 }
 
 void whelk_launcher_hide(WhelkLauncher *self) {

@@ -190,6 +190,11 @@ WhelkBarConfig *whelk_bar_config_new(const char *name) {
   bar->spacing = 6;
   bar->padding = 12;
   bar->radius = 0;
+  bar->opacity = 1.0;
+  bar->blur = 0;
+  bar->shine = 0.0;
+  bar->reflection = 0.0;
+  bar->flare = 0.0;
 
   bar->left = g_ptr_array_new_with_free_func(
       (GDestroyNotify)whelk_module_spec_free);
@@ -237,6 +242,11 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   copy->spacing = bar->spacing;
   copy->padding = bar->padding;
   copy->radius = bar->radius;
+  copy->opacity = bar->opacity;
+  copy->blur = bar->blur;
+  copy->shine = bar->shine;
+  copy->reflection = bar->reflection;
+  copy->flare = bar->flare;
   copy->native_network = bar->native_network;
   copy->native_bluetooth = bar->native_bluetooth;
 

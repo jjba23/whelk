@@ -50,55 +50,9 @@ static char *css_id_for(const char *name) {
 }
 
 static char *build_skin(const WhelkBarConfig *config, const char *widget_id) {
-  GString *css = g_string_new(NULL);
-
-  g_string_append_printf(css, "window#%s .whelk-bar {\n", widget_id);
-
-  if (config->foreground && *config->foreground)
-    g_string_append_printf(css, "  color: %s;\n", config->foreground);
-
-  if (config->background && *config->background)
-    g_string_append_printf(css, "  background-color: %s;\n",
-                           config->background);
-
-  if (config->border_color && *config->border_color)
-    g_string_append_printf(css, "  border: 1px solid %s;\n",
-                           config->border_color);
-
-  g_string_append_printf(css, "  border-radius: %dpx;\n", config->radius);
-  g_string_append_printf(css, "  padding: 0 %dpx;\n", config->padding);
-
-  if (config->font && *config->font)
-    g_string_append_printf(css, "  font-family: \"%s\";\n", config->font);
-
-  if (config->font_size && *config->font_size)
-    g_string_append_printf(css, "  font-size: %s;\n", config->font_size);
-
-  g_string_append(css, "}\n");
-
-  if (config->icon_font && *config->icon_font) {
-    g_string_append_printf(css,
-                           "window#%s .whelk-icon {\n  font-family: \"%s\";\n}\n",
-                           widget_id, config->icon_font);
-  }
-
-  /* The accent is what an active workspace is painted in.  It is the one
-   * colour that has to be the palette's rather than the bar's. */
-  if (config->accent && *config->accent) {
-    g_string_append_printf(
-        css,
-        "window#%s .whelk-workspace.active {\n  color: %s;\n}\n"
-        "window#%s .whelk-battery.charging {\n  color: %s;\n}\n",
-        widget_id, config->accent, widget_id, config->accent);
-  }
-
-  if (config->css && *config->css) {
-    g_string_append(css, "/* The configuration's own rules */\n");
-    g_string_append(css, config->css);
-    g_string_append_c(css, '\n');
-  }
-
-  return g_string_free(css, FALSE);
+  /* One generator paints every surface, so a material option cannot mean one
+   * thing on a bar and another on a panel. */
+  return whelk_style_css(widget_id, config, "whelk-bar", config->css);
 }
 
 static void apply_skin(WhelkBar *bar) {

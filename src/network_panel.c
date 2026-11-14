@@ -944,6 +944,30 @@ WhelkNetworkPanel *whelk_network_panel_new(GtkApplication *app,
   return self;
 }
 
+void whelk_network_panel_set_style(WhelkNetworkPanel *self,
+                                   const WhelkBarConfig *style) {
+  if (!self || !style)
+    return;
+
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (self->skin)
+    whelk_style_detach(self->skin, display);
+  self->skin = NULL;
+
+  g_clear_pointer(&self->style, whelk_bar_config_free);
+  self->style = whelk_bar_config_copy(style);
+
+  g_autofree char *widget_id = whelk_style_widget_id("network");
+
+  self->skin = whelk_style_apply(widget_id, self->style, "whelk-panel", NULL);
+
+  GtkWindow *window = whelk_surface_get_window(self->surface);
+
+  if (window)
+    gtk_widget_queue_draw(GTK_WIDGET(window));
+}
+
 void whelk_network_panel_show(WhelkNetworkPanel *self, const char *page) {
   if (!self)
     return;
@@ -1006,6 +1030,7 @@ static void whelk_network_panel_dispose(GObject *object) {
 
   if (self->skin)
     whelk_style_detach(self->skin, gdk_display_get_default());
+  self->skin = NULL;
 
   g_clear_object(&self->surface);
   g_clear_pointer(&self->style, whelk_bar_config_free);

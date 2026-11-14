@@ -44,6 +44,10 @@ whelk_notification_center_new(GtkApplication *app,
                               WhelkNotifications *notifications,
                               const WhelkBarConfig *style);
 
+/* Re-skins the centre and the toast stack without dropping a notification. */
+void whelk_notification_center_set_style(WhelkNotificationCenter *self,
+                                         const WhelkBarConfig *style);
+
 void whelk_notification_center_show(WhelkNotificationCenter *self);
 void whelk_notification_center_hide(WhelkNotificationCenter *self);
 void whelk_notification_center_toggle(WhelkNotificationCenter *self);

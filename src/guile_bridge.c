@@ -161,6 +161,12 @@ static int alist_int(SCM alist, const char *key, int fallback) {
   return scm_is_number(value) ? (int)scm_to_long(value) : fallback;
 }
 
+static double alist_double(SCM alist, const char *key, double fallback) {
+  SCM value = alist_get(alist, key);
+
+  return scm_is_number(value) ? scm_to_double(value) : fallback;
+}
+
 static gboolean alist_bool(SCM alist, const char *key, gboolean fallback) {
   SCM value = alist_get(alist, key);
 
@@ -244,6 +250,12 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   bar->spacing = alist_int(alist, "spacing", 6);
   bar->padding = alist_int(alist, "padding", 12);
   bar->radius = alist_int(alist, "radius", 0);
+  bar->opacity = CLAMP(alist_double(alist, "opacity", 1.0), 0.0, 1.0);
+  bar->blur = CLAMP(alist_int(alist, "blur", 0), 0, 64);
+  bar->shine = CLAMP(alist_double(alist, "shine", 0.0), 0.0, 1.0);
+  bar->reflection =
+      CLAMP(alist_double(alist, "reflection", 0.0), 0.0, 1.0);
+  bar->flare = CLAMP(alist_double(alist, "flare", 0.0), 0.0, 1.0);
 
   g_free(bar->monitor);
   bar->monitor = alist_text(alist, "monitor", "all");
@@ -1577,6 +1589,11 @@ gboolean whelk_bridge_save_preference_bool(const char *path, const char *key,
 gboolean whelk_bridge_save_preference_int(const char *path, const char *key,
                                           int value) {
   return save_preference(path, key, scm_from_int(value));
+}
+
+gboolean whelk_bridge_save_preference_double(const char *path,
+                                             const char *key, double value) {
+  return save_preference(path, key, scm_from_double(value));
 }
 
 gboolean whelk_bridge_save_preference_string(const char *path, const char *key,

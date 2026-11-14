@@ -15,10 +15,6 @@
 
 (define icon-font "Font Awesome 6 Free Solid")
 
-(define (rofi-relaunch command)
-  "Run COMMAND after handing any open rofi's seat to it."
-  (format #f "pkill rofi 2>/dev/null; ~a" command))
-
 (configure-shell!
  #:bars
  (list
@@ -86,7 +82,7 @@ Click: browse the history")
                            #:icon "\uf084"
                            #:tooltip "1Password: passwords, passkeys and one-time codes
 Click: open it"
-                           #:on-click (rofi-relaunch "1password --silent"))
+                           #:on-click "1password --silent")
 
             ;; Do not disturb: on the bar while whelk is holding notifications.
             (dnd-module #:icon "\uf1f6"
@@ -98,8 +94,8 @@ Click: open it"
                              #:interval 2
                              #:format " {text}"
                              #:tooltip "Keyboard layout: {text}
-Click: choose a layout · Right-click: previous layout"
-                             #:on-click (rofi-relaunch "heks-language-menu")
+Click: next layout · Right-click: previous layout"
+                             #:on-click "niri msg action switch-layout next"
                              #:on-click-right "niri msg action switch-layout prev")
 
             ;; Desktop appearance, wallpaper, documentation, capture, keys.
@@ -108,9 +104,9 @@ Click: choose a layout · Right-click: previous layout"
                            #:format "{icon}"
                            #:icon "\uf53f"
                            #:tooltip "Palette: browse the palettes
-Click: browse · Right-click: the quick picker"
+Click: browse · Right-click: the material settings"
                            #:on-click "heks-toon palettes"
-                           #:on-click-right (rofi-relaunch "heks-theme-menu"))
+                           #:on-click-right "whelk --settings")
             (custom-module #:exec "printf '\\uf03e'"
                            #:interval 0
                            #:format "{icon}"
@@ -194,7 +190,7 @@ Click: mixer · Right-click: mute · Middle: mute the microphone · Scroll: volu
                             #:critical 15
                             #:interval 30
                             #:tooltip "Battery: {capacity}% — {state}"
-                            #:on-click (rofi-relaunch "rofi -show power"))
+                            #:on-click "whelk --session-menu")
             (power-profile-module #:icon "\uf0e7"
                                   #:format "{icon}"
                                   #:interval 5

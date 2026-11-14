@@ -72,6 +72,10 @@ void whelk_shell_show_launcher(WhelkShell *shell, const char *mode);
  * lines. */
 void whelk_shell_show_menu(WhelkShell *shell, const char *command);
 
+/* Shows the built-in session menu (lock, log out, suspend, hibernate,
+ * restart, shut down) without a script or a menu program. */
+void whelk_shell_show_session_menu(WhelkShell *shell);
+
 /* Opens or closes the notification centre. */
 void whelk_shell_toggle_notifications(WhelkShell *shell);
 

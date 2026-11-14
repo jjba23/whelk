@@ -251,7 +251,7 @@ have no window; #:format is the label ({index} or {name})."
   "The shell's own menu behind one mark, where a menu bar keeps its first menu:
 about this system, the ways into it, what was opened recently, force quit, the
 ways out of the session, the launcher, and a reload -- a GTK popover the shell
-builds itself, no rofi and no subprocess.  The panel surfaces are bar modules
+builds itself, no external menu program and no subprocess.  The panel surfaces are bar modules
 and CLI commands; they are not repeated in this menu.  What is in it is the shell menu the
 configuration wrote with `(whelk menu)' (see `configure-shell!'), or
 `default-shell-menu' when it wrote none.  It wears the whelk, drawn in the

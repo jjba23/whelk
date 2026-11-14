@@ -65,6 +65,13 @@
 ;; makes the window useful without ever rewriting the primary settings file.
 (save-preference! config-path 'bar-height 44)
 (save-preference! config-path 'bar-theme 'frost)
+(save-preference! config-path 'bar-opacity 0.55)
+(save-preference! config-path 'bar-blur 28)
+(save-preference! config-path 'bar-shine 0.21)
+(save-preference! config-path 'bar-reflection 0.32)
+(save-preference! config-path 'bar-flare 0.43)
+(save-preference! config-path 'bar-radius 20)
+(save-preference! config-path 'bar-background "#102030")
 (save-preference! config-path 'bar-edge 'bottom)
 (save-preference! config-path 'wifi-show-ssid? #t)
 (save-preference! config-path 'wifi-interval 2)
@@ -95,10 +102,17 @@
        (eq? (bar-config-edge applied) 'bottom))
 (check "a GUI theme is recorded" (eq? (bar-config-theme applied) 'frost))
 (check "a GUI theme replaces the theme palette"
-       (and (equal? (bar-config-background applied)
-                    (assq-ref frost 'background))
-            (equal? (bar-config-foreground applied)
-                    (assq-ref frost 'foreground))))
+       (equal? (bar-config-foreground applied)
+               (assq-ref frost 'foreground)))
+(check "a GUI colour overrides the theme palette"
+       (equal? (bar-config-background applied) "#102030"))
+(check "a GUI material overrides every theme value"
+       (and (= (bar-config-opacity applied) 0.55)
+            (= (bar-config-blur applied) 28)
+            (= (bar-config-shine applied) 0.21)
+            (= (bar-config-reflection applied) 0.32)
+            (= (bar-config-flare applied) 0.43)
+            (= (bar-config-radius applied) 20)))
 (check "an untouched value still comes from the settings file"
        (= (bar-config-spacing applied) 8))
 
@@ -145,6 +159,16 @@
 (check "reset restores the settings edge" (eq? (bar-config-edge restored) 'top))
 (check "reset restores the settings theme"
        (eq? (bar-config-theme restored) 'gloss-2007))
+(check "reset restores the theme material"
+       (let ((gloss (theme-palette 'gloss-2007)))
+         (and (= (bar-config-opacity restored) (assq-ref gloss 'opacity))
+              (= (bar-config-blur restored) (assq-ref gloss 'blur))
+              (= (bar-config-shine restored) (assq-ref gloss 'shine))
+              (= (bar-config-reflection restored)
+                 (assq-ref gloss 'reflection))
+              (= (bar-config-flare restored) (assq-ref gloss 'flare))
+              (equal? (bar-config-background restored)
+                      (assq-ref gloss 'background)))))
 (check "reset restores the settings reading"
        (equal? (module-option (module-by-kind restored 'notifications) 'format)
                "{icon}"))

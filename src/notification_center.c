@@ -759,6 +759,18 @@ static void build_panel(WhelkNotificationCenter *self) {
     gtk_widget_set_visible(GTK_WIDGET(window), FALSE);
 }
 
+static void update_toast_margins(WhelkNotificationCenter *self) {
+  if (!self->toast)
+    return;
+
+  whelk_surface_set_margins(
+      self->toast,
+      self->style && self->style->edge == GTK_LAYER_SHELL_EDGE_TOP
+          ? self->style->height + 8
+          : 8,
+      8, 8, 8);
+}
+
 static void build_toasts(WhelkNotificationCenter *self) {
   GtkWidget *stack = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
 
@@ -774,10 +786,7 @@ static void build_toasts(WhelkNotificationCenter *self) {
   whelk_surface_set_exclusive(self->toast, FALSE);
   /* Clear the bar when it is on the top edge; on any other edge the toasts
    * only need the screen's own margin. */
-  whelk_surface_set_margins(
-      self->toast,
-      self->style->edge == GTK_LAYER_SHELL_EDGE_TOP ? self->style->height + 8 : 8,
-      8, 8, 8);
+  update_toast_margins(self);
   whelk_surface_set_anchors(self->toast, TRUE, TRUE, FALSE, FALSE);
   whelk_surface_set_namespace(self->toast, "whelk-toasts");
 
@@ -828,6 +837,48 @@ whelk_notification_center_new(GtkApplication *app,
   rebuild_panel(self);
 
   return self;
+}
+
+void whelk_notification_center_set_style(WhelkNotificationCenter *self,
+                                         const WhelkBarConfig *style) {
+  if (!self || !style)
+    return;
+
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (self->panel_skin)
+    whelk_style_detach(self->panel_skin, display);
+  if (self->toast_skin)
+    whelk_style_detach(self->toast_skin, display);
+
+  self->panel_skin = NULL;
+  self->toast_skin = NULL;
+
+  self->panel_skin = NULL;
+  self->toast_skin = NULL;
+
+  g_clear_pointer(&self->style, whelk_bar_config_free);
+  self->style = whelk_bar_config_copy(style);
+
+  g_autofree char *panel_id = whelk_style_widget_id("notifications");
+
+  self->panel_skin = whelk_style_apply(panel_id, self->style, "whelk-panel",
+                                       self->style->css);
+
+  g_autofree char *toast_id = whelk_style_widget_id("toasts");
+
+  self->toast_skin =
+      whelk_style_apply(toast_id, self->style, "whelk-toast-stack", NULL);
+
+  update_toast_margins(self);
+
+  GtkWindow *panel_window = whelk_surface_get_window(self->panel);
+  GtkWindow *toast_window = whelk_surface_get_window(self->toast);
+
+  if (panel_window)
+    gtk_widget_queue_draw(GTK_WIDGET(panel_window));
+  if (toast_window)
+    gtk_widget_queue_draw(GTK_WIDGET(toast_window));
 }
 
 void whelk_notification_center_show(WhelkNotificationCenter *self) {

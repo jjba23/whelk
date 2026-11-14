@@ -15,7 +15,7 @@ G_BEGIN_DECLS
 /* =========================================================================
  * THE LAUNCHER
  * =========================================================================
- * The shell's rofi: one overlay, one entry, one list, and the answer to "what
+ * The shell's launcher: one overlay, one entry, one list, and the answer to "what
  * did I mean" in every form a desktop needs it.
  *
  *   app     applications, from every applications/ directory on the system
@@ -26,7 +26,7 @@ G_BEGIN_DECLS
  *           skipped, the query ranked by name and by path
  *   web     the default browser, with the query
  *   menu    any program that prints "label<TAB>command" lines
- *   ssh     the hosts ~/.ssh/config names, opened in a terminal (rofi's ssh)
+ *   ssh     the hosts ~/.ssh/config names, opened in a terminal
  *   quit    the open windows, closed rather than focused (a Force Quit menu)
  *   clipboard  what was copied, newest first; Enter puts it back
  *   menuitem   every entry of the focused application's live menubar, with its
@@ -53,6 +53,12 @@ G_DECLARE_FINAL_TYPE(WhelkLauncher, whelk_launcher, WHELK, LAUNCHER, GObject)
 WhelkLauncher *whelk_launcher_new(GtkApplication *app,
                                   const WhelkBarConfig *style);
 
+/* Replaces the palette and material without rebuilding the overlay.  Called
+ * when a theme change reloads the shell: the launcher keeps its history and
+ * widgets, and only its skin changes. */
+void whelk_launcher_set_style(WhelkLauncher *self,
+                              const WhelkBarConfig *style);
+
 /**
  * whelk_launcher_show:
  * @self: the launcher.
@@ -65,6 +71,11 @@ void whelk_launcher_show(WhelkLauncher *self, const char *mode);
 
 /* Shows the launcher in its generic menu mode, listing @command's output. */
 void whelk_launcher_show_menu(WhelkLauncher *self, const char *command);
+
+/* Shows the shell's own session menu: lock, log out, suspend, hibernate,
+ * restart and shut down.  It is built in, so no external menu program is a
+ * dependency of a power button. */
+void whelk_launcher_show_session_menu(WhelkLauncher *self);
 
 void whelk_launcher_toggle(WhelkLauncher *self, const char *mode);
 

@@ -28,6 +28,7 @@
 typedef enum {
   CHANGE_BOOL,
   CHANGE_INT,
+  CHANGE_DOUBLE,
   CHANGE_STRING,
   CHANGE_SYMBOL,
 } ChangeKind;
@@ -36,6 +37,7 @@ typedef struct {
   ChangeKind kind;
   gboolean boolean_value;
   int int_value;
+  double double_value;
   char *text;
 } PendingChange;
 
@@ -151,6 +153,10 @@ static gboolean apply_pending(gpointer user_data) {
       wrote |= whelk_bridge_save_preference_int(state->config_path, key,
                                                 change->int_value);
       break;
+    case CHANGE_DOUBLE:
+      wrote |= whelk_bridge_save_preference_double(
+          state->config_path, key, change->double_value);
+      break;
     case CHANGE_STRING:
       wrote |= whelk_bridge_save_preference_string(state->config_path, key,
                                                    change->text);
@@ -196,6 +202,14 @@ static void queue_int(PrefsState *state, const char *key, int value) {
 
   change->kind = CHANGE_INT;
   change->int_value = value;
+  queue_change(state, key, change);
+}
+
+static void queue_double(PrefsState *state, const char *key, double value) {
+  PendingChange *change = g_new0(PendingChange, 1);
+
+  change->kind = CHANGE_DOUBLE;
+  change->double_value = value;
   queue_change(state, key, change);
 }
 
@@ -321,6 +335,30 @@ static void on_spin_changed(GtkSpinButton *spin, gpointer user_data) {
     queue_int(state, key, gtk_spin_button_get_value_as_int(spin));
 }
 
+static void on_scale_changed(GtkRange *range, gpointer user_data) {
+  PrefsState *state = user_data;
+  const char *key = preference_key(GTK_WIDGET(range));
+
+  if (key)
+    queue_double(state, key, gtk_range_get_value(range));
+}
+
+static void on_color_notify(GObject *object, GParamSpec *pspec,
+                            gpointer user_data) {
+  PrefsState *state = user_data;
+  const char *key = preference_key(GTK_WIDGET(object));
+  const GdkRGBA *rgba =
+      gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(object));
+
+  (void)pspec;
+
+  if (key && rgba) {
+    g_autofree char *text = gdk_rgba_to_string(rgba);
+
+    queue_text(state, key, text, CHANGE_STRING);
+  }
+}
+
 static void on_entry_changed(GtkEditable *editable, gpointer user_data) {
   PrefsState *state = user_data;
   GtkWidget *widget = GTK_WIDGET(editable);
@@ -379,6 +417,52 @@ static GtkWidget *row_spin(PrefsState *state, GtkWidget *card,
   gtk_editable_set_width_chars(GTK_EDITABLE(control), 5);
   set_preference_key(control, key);
   g_signal_connect(control, "value-changed", G_CALLBACK(on_spin_changed),
+                   state);
+  row_add(card, title, subtitle, control);
+
+  return control;
+}
+
+static GtkWidget *row_scale(PrefsState *state, GtkWidget *card,
+                            const char *title, const char *subtitle,
+                            const char *key, double value, double minimum,
+                            double maximum, double step, int digits) {
+  GtkWidget *control =
+      gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, minimum, maximum,
+                               step);
+
+  gtk_range_set_value(GTK_RANGE(control), value);
+  gtk_scale_set_digits(GTK_SCALE(control), digits);
+  gtk_scale_set_value_pos(GTK_SCALE(control), GTK_POS_RIGHT);
+  gtk_widget_set_size_request(control, 220, -1);
+  set_preference_key(control, key);
+  g_signal_connect(control, "value-changed", G_CALLBACK(on_scale_changed),
+                   state);
+  row_add(card, title, subtitle, control);
+
+  return control;
+}
+
+static GtkWidget *row_color(PrefsState *state, GtkWidget *card,
+                            const char *title, const char *subtitle,
+                            const char *key, const char *value) {
+  GtkColorDialog *dialog = gtk_color_dialog_new();
+  GtkWidget *control = gtk_color_dialog_button_new(dialog);
+  GdkRGBA rgba;
+
+  gtk_color_dialog_set_with_alpha(dialog, TRUE);
+
+  if (!value || !gdk_rgba_parse(&rgba, value)) {
+    rgba.red = 0.0f;
+    rgba.green = 0.0f;
+    rgba.blue = 0.0f;
+    rgba.alpha = 1.0f;
+  }
+
+  gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(control), &rgba);
+  gtk_widget_set_tooltip_text(control, "Click to choose a colour");
+  set_preference_key(control, key);
+  g_signal_connect(control, "notify::rgba", G_CALLBACK(on_color_notify),
                    state);
   row_add(card, title, subtitle, control);
 
@@ -547,15 +631,57 @@ static void build_bar_page(PrefsState *state, GtkStack *stack) {
 static void build_theme_page(PrefsState *state, GtkStack *stack) {
   GtkWidget *body = page_body(stack, "theme", "Theme");
   GtkWidget *material = card_new(
-      "Material", "A complete palette for the bar: ink, surface, accent and "
-                  "corner radius.");
+      "Material", "The palette, the light on the surface and how much of the "
+                  "desktop shows through it.");
+  WhelkBarConfig *bar = state->bar;
 
   gtk_box_append(GTK_BOX(body), material);
   theme_dropdown(state, material, "Theme",
                  "The named material the bar is made from.", "bar-theme");
   card_note(material,
-            "The theme supplies the bar's colours and radius; every other "
-            "option in this window layers on top of it.");
+            "The theme supplies the starting colours and material numbers; "
+            "every control below layers on top of it.");
+
+  GtkWidget *colours = card_new(
+      "Colours", "The bar's ink, surface, accent and hairline.  A theme "
+                 "fills these in until one is chosen here.");
+
+  gtk_box_append(GTK_BOX(body), colours);
+  row_color(state, colours, "Surface",
+            "The material's background colour; alpha is kept.", "bar-background",
+            bar ? bar->background : NULL);
+  row_color(state, colours, "Ink", "Text and glyphs.", "bar-foreground",
+            bar ? bar->foreground : NULL);
+  row_color(state, colours, "Accent", "Active workspaces and highlights.",
+            "bar-accent", bar ? bar->accent : NULL);
+  row_color(state, colours, "Hairline", "The one-pixel border.",
+            "bar-border-color", bar ? bar->border_color : NULL);
+
+  GtkWidget *light = card_new(
+      "Light and depth", "The generated surface: transparency, shadow, top "
+                         "shine, lower reflection and the accent flare.");
+
+  gtk_box_append(GTK_BOX(body), light);
+  row_scale(state, light, "Opacity",
+            "Multiplies the surface colour's own alpha.  1 is the theme's "
+            "designed opacity.",
+            "bar-opacity", bar ? bar->opacity : 1.0, 0.2, 1.0, 0.01, 2);
+  row_scale(state, light, "Shadow blur",
+            "Softness of the shadow under the surface, in pixels.", "bar-blur",
+            bar ? bar->blur : 0, 0, 64, 1, 0);
+  row_scale(state, light, "Shine",
+            "Strength of the light falling on the top edge.", "bar-shine",
+            bar ? bar->shine : 0.0, 0.0, 1.0, 0.01, 2);
+  row_scale(state, light, "Reflection",
+            "Strength of the colour reflected up from the lower edge.",
+            "bar-reflection", bar ? bar->reflection : 0.0, 0.0, 1.0, 0.01,
+            2);
+  row_scale(state, light, "Flare",
+            "Strength of the accent glow along the top edge.", "bar-flare",
+            bar ? bar->flare : 0.0, 0.0, 1.0, 0.01, 2);
+  row_spin(state, light, "Corner radius",
+           "The surface's corner radius in pixels.", "bar-radius",
+           bar ? bar->radius : 0, 0, 48);
 
   GtkWidget *about = card_new(
       "How overrides work",

@@ -103,6 +103,11 @@ typedef enum {
  * @accent: (nullable): the colour of an active workspace and other highlights.
  * @border_color: (nullable): the hairline around the bar.
  * @radius: the bar's corner radius in pixels.
+ * @opacity: the multiplier applied to the background's own alpha (0..1).
+ * @blur: the soft shadow's blur radius in pixels (0..64).
+ * @shine: the strength of the top-edge highlight (0..1).
+ * @reflection: the strength of the lower inner reflection (0..1).
+ * @flare: the strength of the accent glow along the top edge (0..1).
  * @css: (nullable): free-form CSS appended to this bar's generated skin.
  * @left: (element-type WhelkModuleSpec): modules at the start of the bar.
  * @center: (element-type WhelkModuleSpec): modules in the middle.
@@ -135,6 +140,11 @@ typedef struct {
   char *accent;
   char *border_color;
   int radius;
+  double opacity;
+  int blur;
+  double shine;
+  double reflection;
+  double flare;
   char *css;
 
   /* Set by src/bar.c from the modules it is about to build: when the bar has

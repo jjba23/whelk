@@ -54,6 +54,20 @@
 (check "gloss-2007 squares only the menu bar"
        (string-contains (assq-ref gloss 'css) "border-radius: 0;"))
 
+;; The theme supplies the surface's material, not a hard-coded CSS gradient:
+;; a bar that names a theme gets that theme's opacity, shadow, shine,
+;; reflection and flare unless it asks for its own.
+(check "the default bar carries the theme's material"
+       (and (= (bar-config-opacity built-in) (assq-ref gloss 'opacity))
+            (= (bar-config-blur built-in) (assq-ref gloss 'blur))
+            (= (bar-config-shine built-in) (assq-ref gloss 'shine))
+            (= (bar-config-reflection built-in) (assq-ref gloss 'reflection))
+            (= (bar-config-flare built-in) (assq-ref gloss 'flare))))
+
+(check "a bar can override one material value"
+       (and (= (bar-config-shine (bar #:shine 0.2)) 0.2)
+            (= (bar-config-flare (bar #:flare 0.3)) 0.3)))
+
 ;; The bar's left half is a menu bar's: the machine's own menu, then that
 ;; application's File and Edit, with a whelk where the apple is.  The window's
 ;; name is an optional module, not part of the default bar.
@@ -111,6 +125,18 @@
                           (or (string-contains command "makoctl")
                               (string-contains command "clipman")))))
                  (default-modules built-in))))
+
+;; The session menu is whelk's own: a power button must not fail because a
+;; desktop has not installed an external menu program.
+(check "no default tile calls an external menu program"
+       (not (any (lambda (m)
+                   (let ((click (module-option m 'on-click)))
+                     (and (string? click) (string-contains click "rofi "))))
+                 (default-modules built-in))))
+
+(check "the battery tile opens whelk's session menu"
+       (equal? (module-option (default-reading 'battery) 'on-click)
+               "whelk --session-menu"))
 
 ;; And what that first menu opens is configuration, not a C table.
 (check "the shell menu has the machine's items"

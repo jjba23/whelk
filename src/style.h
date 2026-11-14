@@ -32,6 +32,20 @@
 char *whelk_style_widget_id(const char *name);
 
 /**
+ * whelk_style_css:
+ * @widget_id: the window's widget name, from whelk_style_widget_id().
+ * @config: the bar whose palette and material the surface wears.
+ * @root_class: the CSS class of the surface's material box.
+ * @extra_css: (nullable): free-form rules appended verbatim.
+ *
+ * Returns: (transfer full): the generated skin.  This is the one generator
+ * shared by bars and panels, so a material option means the same thing on
+ * every surface.  The caller owns the string.
+ */
+char *whelk_style_css(const char *widget_id, const WhelkBarConfig *config,
+                      const char *root_class, const char *extra_css);
+
+/**
  * whelk_style_apply:
  * @widget_id: the window's widget name, from whelk_style_widget_id().
  * @config: the bar whose palette the surface wears.
@@ -59,6 +73,11 @@ void whelk_style_detach(GtkCssProvider *provider, GdkDisplay *display);
  * loses the little arrow: a menubar's menus do not point at anything.
  */
 void whelk_style_popover(GtkPopover *popover, const WhelkBarConfig *config);
+
+/* Closes every popover a bar or panel has styled through
+ * whelk_style_popover().  The settings window calls this before it opens, so
+ * a menu does not stay up over a window that now owns the pointer. */
+void whelk_style_close_popovers(void);
 
 /**
  * whelk_style_pointer_cursors:

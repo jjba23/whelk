@@ -128,7 +128,16 @@ window.whelk-surface {
 /* --- the window title ----------------------------------------------------- */
 
 .whelk-window {
-  font-weight: bold;
+  font-weight: 600;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+
+/* The window's name is a reading, not a button: hovering it says nothing and
+ * must not paint the module's generic hover wash. */
+.whelk-window:hover {
+  background-color: transparent;
 }
 
 .whelk-window:backdrop {
@@ -539,6 +548,30 @@ window.whelk-about-window {
   min-height: 0;
 }
 
+/* The global menu is a row of labels inside one module.  The module's own
+ * hover fill would light the whole File/Edit/View group; only the label under
+ * the pointer gets a surface. */
+.whelk-menu.whelk-module:hover {
+  background-color: transparent;
+}
+
+.whelk-menu-button {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 5px;
+  padding: 2px 7px;
+  min-height: 0;
+}
+
+.whelk-menu-button:hover {
+  background-color: alpha(currentColor, 0.09);
+}
+
+.whelk-menu-button:checked {
+  background-color: alpha(currentColor, 0.14);
+}
+
 /* The chord on the right of a shortcut entry: present, and never the thing
  * the eye lands on first. */
 .whelk-menu-accel {
@@ -550,14 +583,19 @@ window.whelk-about-window {
  * application first.  It is a menu button now: the shell's own actions live
  * behind it. */
 .whelk-menu-app-button {
-  opacity: 0.75;
-  font-weight: 600;
-  padding: 0 6px 0 2px;
+  opacity: 0.80;
+  font-weight: 500;
+  padding: 2px 7px 2px 4px;
   min-height: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 5px;
 }
 
 .whelk-menu-app-button:hover {
   opacity: 1;
+  background-color: alpha(currentColor, 0.07);
 }
 
 .whelk-start-button,
@@ -573,8 +611,9 @@ window.whelk-about-window {
  * answer to "what can be done to it". */
 .whelk-menubar-title,
 .whelk-menubar-title label {
-  font-weight: 700;
+  font-weight: 600;
   opacity: 1;
+  background: transparent;
 }
 
 /* --- volume and brightness HUD -------------------------------------------- */

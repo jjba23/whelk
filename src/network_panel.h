@@ -40,6 +40,10 @@ G_DECLARE_FINAL_TYPE(WhelkNetworkPanel, whelk_network_panel, WHELK,
 WhelkNetworkPanel *whelk_network_panel_new(GtkApplication *app,
                                            const WhelkBarConfig *style);
 
+/* Re-skins the open panel after a reload; its selected page and rows stay. */
+void whelk_network_panel_set_style(WhelkNetworkPanel *self,
+                                   const WhelkBarConfig *style);
+
 /**
  * whelk_network_panel_show:
  * @self: the panel.

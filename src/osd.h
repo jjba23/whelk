@@ -26,6 +26,9 @@ G_DECLARE_FINAL_TYPE(WhelkOsd, whelk_osd, WHELK, OSD, GObject)
 
 WhelkOsd *whelk_osd_new(GtkApplication *app, const WhelkBarConfig *style);
 
+/* Re-skins the HUD and repositions it for the new bar edge. */
+void whelk_osd_set_style(WhelkOsd *osd, const WhelkBarConfig *style);
+
 /**
  * whelk_osd_show:
  * @osd: the display.

@@ -193,6 +193,8 @@ gboolean whelk_bridge_save_preference_bool(const char *path, const char *key,
                                            gboolean value);
 gboolean whelk_bridge_save_preference_int(const char *path, const char *key,
                                           int value);
+gboolean whelk_bridge_save_preference_double(const char *path, const char *key,
+                                             double value);
 gboolean whelk_bridge_save_preference_string(const char *path, const char *key,
                                              const char *value);
 gboolean whelk_bridge_save_preference_symbol(const char *path, const char *key,

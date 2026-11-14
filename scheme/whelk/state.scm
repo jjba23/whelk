@@ -49,6 +49,11 @@
             bar-config-accent
             bar-config-border-color
             bar-config-radius
+            bar-config-opacity
+            bar-config-blur
+            bar-config-shine
+            bar-config-reflection
+            bar-config-flare
             bar-config-css
             bar-config-modules-left
             bar-config-modules-center
@@ -93,7 +98,8 @@
                    margin-top margin-right margin-bottom margin-left
                    exclusive? spacing padding
                    font font-size icon-font
-                   foreground background accent border-color radius css
+                   foreground background accent border-color radius
+                   opacity blur shine reflection flare css
                    modules-left modules-center modules-right)
   bar-config?
   (name bar-config-name)
@@ -119,6 +125,11 @@
   (accent bar-config-accent)
   (border-color bar-config-border-color)
   (radius bar-config-radius)
+  (opacity bar-config-opacity)
+  (blur bar-config-blur)
+  (shine bar-config-shine)
+  (reflection bar-config-reflection)
+  (flare bar-config-flare)
   (css bar-config-css)
   (modules-left bar-config-modules-left)
   (modules-center bar-config-modules-center)
@@ -358,6 +369,11 @@ becomes the same list so the C side has one shape to evaluate."
               (accent #f)
               (border-color #f)
               (radius #f)
+              (opacity #f)
+              (blur #f)
+              (shine #f)
+              (reflection #f)
+              (flare #f)
               (css #f)
               (left '())
               (center '())
@@ -385,12 +401,25 @@ ordinary windows, so 'top is the safer default.
 
 The four colours and the fonts are #f by default, which means \"use the
 structural stylesheet's colour\": a machine that sets nothing still gets a
-readable bar."
+readable bar.
+
+OPACITY multiplies the background colour's own alpha, so a theme that was
+designed as 82% glass stays 82% at 1.0 and becomes lighter at 0.7.  BLUR is the
+soft outer shadow radius in pixels.  SHINE, REFLECTION and FLARE are 0..1
+strengths for the top highlight, the lower inner reflection and the accent
+glow along the top edge.  A theme supplies these starting points; a keyword on
+the bar overrides one without touching the others."
   (let* ((margins (normalize-margins margin))
          (palette (theme-palette theme))
          ;; A theme is a starting point: whatever the bar sets itself wins.
          (from-theme (lambda (key explicit)
-                       (if explicit explicit (assq-ref palette key)))))
+                       (if explicit explicit (assq-ref palette key))))
+         (as-unit (lambda (value fallback)
+                    (if (number? value)
+                        (min 1.0 (max 0.0 (exact->inexact value)))
+                        fallback)))
+         (as-double (lambda (value fallback)
+                      (if (number? value) (exact->inexact value) fallback))))
     ;; `when' is also this function's keyword argument, so the conditional is
     ;; spelled with `if' rather than shadowing the syntax form.
     (if (and (not (list? left)) (not (list? center)) (not (list? right)))
@@ -422,6 +451,11 @@ readable bar."
                      (from-theme 'accent accent)
                      (from-theme 'border-color border-color)
                      (as-int (from-theme 'radius radius) 0)
+                     (as-unit (from-theme 'opacity opacity) 1.0)
+                     (as-int (from-theme 'blur blur) 0)
+                     (as-unit (from-theme 'shine shine) 0.0)
+                     (as-unit (from-theme 'reflection reflection) 0.0)
+                     (as-unit (from-theme 'flare flare) 0.0)
                      (from-theme 'css css)
                      (if (list? left) left '())
                      (if (list? center) center '())
@@ -627,6 +661,11 @@ because a settings file may want to read the menu it configured."
         (cons 'accent (bar-config-accent b))
         (cons 'border-color (bar-config-border-color b))
         (cons 'radius (bar-config-radius b))
+        (cons 'opacity (bar-config-opacity b))
+        (cons 'blur (bar-config-blur b))
+        (cons 'shine (bar-config-shine b))
+        (cons 'reflection (bar-config-reflection b))
+        (cons 'flare (bar-config-flare b))
         (cons 'css (bar-config-css b))
         (cons 'modules-left
               (map module->alist (bar-config-modules-left b)))

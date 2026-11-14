@@ -358,6 +358,8 @@ the first one.  That is how a keybinding opens a surface:
   whelk --launcher                      # applications
   whelk --launcher --launcher-mode=window
   whelk --menu "power-menu --plain"     # label<TAB>command lines
+  whelk --session-menu                  # lock, log out, sleep, restart, off
+  whelk --settings                      # the settings window
   whelk --notifications                 # open/close the centre
   whelk --dnd                           # do not disturb on/off
   whelk --network wifi                  # or: --network bluetooth
@@ -733,10 +735,13 @@ A configuration is one call:
 
 Right-click the bar and choose *Edit settings…*.  The settings window has a
 page for each part of the shell a person changes often: *Bar* (edge, layer,
-height, spacing, padding, font and reserved space), *Theme*, *Notifications*,
-*Wi-Fi*, *Global menu*, and *More* (tray size and clock format).  Every control
-is live: the change is written, the bar reloads, and the window stays open for
-the next one.
+height, spacing, padding, font and reserved space), *Theme* (palette, surface,
+ink, accent and hairline colours, opacity, shadow blur, shine, reflection,
+flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, and *More*
+(tray size and clock format).  Every control is live: the change is written,
+the bar and the shell's panels reload, and the window stays open for the next
+one.  Opening the settings window closes any bar popover first, so nothing is
+left floating above it.
 
 GUI choices are *overrides*, not edits to your configuration.  They are saved
 in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
@@ -1006,12 +1011,13 @@ materials and years, not products: the look is the point, and nobody's mark is.
 | =void=           | black, white ink, no accent                               |
 
 A theme sets the background, the ink, the accent, the hairline colour, the
-corner radius and the few rules a palette cannot express (a gradient, an inset
-highlight).  Any colour the bar sets itself wins over the theme's, =(themes)=
-lists what the build has, and a name the build does not know leaves the bar's
-own colours alone with one warning.  The built-in bar uses =gloss-2007=; its
-CSS keeps the menu bar square while popovers keep the palette's rounded
-corners.
+corner radius, how much the desktop shows through (opacity), the shadow blur,
+the top shine, the lower reflection, the accent flare and the few rules a
+palette cannot express (a gradient, an inset highlight).  Any value the bar or
+the settings window sets itself wins over the theme's, =(themes)= lists what
+the build has, and a name the build does not know leaves the bar's own colours
+alone with one warning.  The built-in bar uses =gloss-2007=; its CSS keeps the
+menu bar square while popovers keep the palette's rounded corners.
 
 ** The shell menu and the global menu
 :PROPERTIES:
@@ -1432,7 +1438,7 @@ machine configured for them needs, in the terms it used:
 | =rofi -show window=                    | =whelk --launcher --launcher-mode=window=                    |
 | =rofi -show run=                       | =whelk --launcher --launcher-mode=run=                       |
 | =rofi -show ssh=                       | =whelk --launcher --launcher-mode=ssh= (prefix =%=)          |
-| =rofi -show power= (a script mode)     | =whelk --menu "the-power-script"=, or the shell menu         |
+| =rofi -show power= (a script mode)     | =whelk --session-menu= (built in)                            |
 | =rofi -show theme= (a script mode)     | =whelk --menu "the-theme-script"=                             |
 | =rofi -modi "Menu:script"=               | =whelk --menu "script"=, script protocol included            |
 | =rofi -replace=                        | the second =whelk= forwards to the first (GApplication)      |
@@ -1441,7 +1447,7 @@ machine configured for them needs, in the terms it used:
 | =makoctl dismiss=                       | the toast's close button, and the centre's =Clear all=        |
 | =max-visible= 5, =default-timeout= 10000 | the same numbers                                            |
 | =max-history=                          | the centre keeps every notification it has not been told to drop |
-| =rofi-power-menu=                      | the shell menu's sleep/restart/shut down/lock/log out rows    |
+| =rofi-power-menu=                      | =whelk --session-menu=, or the shell menu's ways out           |
 
 A rofi script that draws its rows with =\0icon\x1f…= and =nonselectable= works
 unchanged: the launcher reads the protocol, shows the icons, keeps the rules
