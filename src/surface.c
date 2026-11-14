@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "logger.h"
+#include "style.h"
 
 #include <gdk/wayland/gdkwayland.h>
 
@@ -474,6 +475,11 @@ void whelk_surface_present(WhelkSurface *surface) {
 
   GtkWindow *window = surface->window;
   const gboolean horizontal = whelk_surface_is_horizontal(surface);
+
+  /* GTK has no CSS cursor property, so the surface teaches its buttons to use
+   * the cursor theme's pointer here, before either presentation path. */
+  if (surface->child)
+    whelk_style_pointer_cursors(surface->child);
 
   /* gtk_layer_is_supported() asks the GDK display for a Wayland one and
    * asserts when it is not: on X11 the question itself is the wrong one, and the

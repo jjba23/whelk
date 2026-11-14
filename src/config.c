@@ -322,6 +322,8 @@ GPtrArray *whelk_config_default_bars(void) {
            "interval", "60", "format", "{text}", NULL);
   add_spec(bar->right, "cpu", "interval", "2", NULL);
   add_spec(bar->right, "memory", "interval", "5", NULL);
+  add_spec(bar->right, "battery", "interval", "30", "format",
+           "{capacity}%", "tooltip", "Battery: {capacity}% — {state}", NULL);
   add_spec(bar->right, "tray", "spacing", "6", NULL);
   add_spec(bar->right, "clock", "interval", "5", "format", "%a %d %b  %H:%M",
            NULL);

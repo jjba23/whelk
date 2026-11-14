@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "guile_bridge.h"
+#include "style.h"
 
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
@@ -129,6 +130,35 @@ static void test_description_widget(void) {
   g_rmdir(directory);
 }
 
+static void test_pointer_cursors(void) {
+  if (!gtk_init_check()) {
+    g_test_skip("no display for GTK cursor creation");
+    return;
+  }
+
+  GtkWidget *box =
+      g_object_ref_sink(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  GtkWidget *button = gtk_button_new_with_label("ok");
+  GtkWidget *disabled = gtk_button_new_with_label("later");
+  GtkWidget *label = gtk_label_new("text");
+
+  gtk_widget_set_sensitive(disabled, FALSE);
+  gtk_box_append(GTK_BOX(box), button);
+  gtk_box_append(GTK_BOX(box), disabled);
+  gtk_box_append(GTK_BOX(box), label);
+
+  whelk_style_pointer_cursors(box);
+
+  GdkCursor *cursor = gtk_widget_get_cursor(button);
+
+  g_assert_nonnull(cursor);
+  g_assert_cmpstr(gdk_cursor_get_name(cursor), ==, "pointer");
+  g_assert_null(gtk_widget_get_cursor(disabled));
+  g_assert_null(gtk_widget_get_cursor(label));
+
+  g_object_unref(box);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -138,6 +168,7 @@ int main(int argc, char **argv) {
 
   g_test_add_func("/scheme/widgets", test_scheme_widgets);
   g_test_add_func("/scheme/description", test_description_widget);
+  g_test_add_func("/style/pointer-cursors", test_pointer_cursors);
 
   return g_test_run();
 }

@@ -887,7 +887,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =clock-module=         | strftime(3) on the local time                    | =#:format=, and ={calendar}= in the tooltip             |
 | =cpu-module=           | /proc/stat, as a difference between samples      | ={usage}=                                               |
 | =memory-module=        | /proc/meminfo                                    | ={percentage}=, ={used}=, ={total}=, ={avail}=, ={swap-used}=, ={swap-total}= |
-| =battery-module=       | /sys/class/power_supply                          | =#:device=, =#:charging-format=, =#:charging-icon=, =#:warning=, =#:critical=, ={capacity}=, ={state}= |
+| =battery-module=       | /sys/class/power_supply                          | =#:device= (first pack by default), =#:charging-format=, =#:charging-icon=, =#:warning=, =#:critical=, ={capacity}=, ={state}= |
 | =backlight-module=     | /sys/class/backlight                             | =#:device=, =#:format= (default ="{icon}"=), ={percent}= |
 | =audio-module=         | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, =#:format= (default ="{icon}"=), ={volume}= |
 | =power-profile-module= | powerprofilesctl                                 | ={profile}=                                             |

@@ -60,4 +60,16 @@ void whelk_style_detach(GtkCssProvider *provider, GdkDisplay *display);
  */
 void whelk_style_popover(GtkPopover *popover, const WhelkBarConfig *config);
 
+/**
+ * whelk_style_pointer_cursors:
+ * @root: a surface's widget tree.
+ *
+ * Gives every button under @root the cursor theme's "pointer" cursor.  GTK
+ * has no CSS cursor property, so this walks the tree and names the cursor
+ * through the current GdkCursorTheme; a disabled button keeps the default
+ * cursor.  Popovers are rescanned when they are mapped, which covers menus
+ * built after their surface was presented.
+ */
+void whelk_style_pointer_cursors(GtkWidget *root);
+
 #endif // WHELK_STYLE_H

@@ -76,6 +76,12 @@
 (check "the brightness reading is the sun, not a percentage"
        (equal? (module-option (default-reading 'backlight) 'format) "{icon}"))
 
+;; BAT0 is not universal (this project's test machine calls its pack BAT1), so
+;; the default lets /sys/class/power_supply pick the first battery instead of
+;; hiding the reading when the name differs.
+(check "the battery auto-detects its pack"
+       (not (module-option (default-reading 'battery) 'device)))
+
 ;; The clipboard tile is the shell's own history, not a glyph that opens
 ;; clipman.  Its glyph is the reading by default; the depth is opt-in through
 ;; #:format so a full history does not turn the tile into a number.

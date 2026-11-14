@@ -186,8 +186,8 @@ Click: mixer · Right-click: mute · Middle: mute the microphone · Scroll: volu
             (keyboard-module #:format "⇪"
                              #:interval 1
                              #:tooltip "Caps Lock is on")
-            (battery-module #:device "BAT0"
-                            #:icon "\uf240"
+            ;; Auto-detect the pack: BAT0 on many machines, BAT1 on others.
+            (battery-module #:icon "\uf240"
                             #:format "{icon} {capacity}%"
                             #:charging-format "⚡ {capacity}%"
                             #:warning 30

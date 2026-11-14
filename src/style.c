@@ -7,6 +7,49 @@
 
 #include "logger.h"
 
+/* A button is anything GTK paints as one: a plain button, a menu button or a
+ * check button.  A switch is a control, not a button, and keeps its arrow. */
+static gboolean is_button(GtkWidget *widget) {
+  return GTK_IS_BUTTON(widget) || GTK_IS_MENU_BUTTON(widget) ||
+         GTK_IS_CHECK_BUTTON(widget);
+}
+
+static void apply_pointer_cursors(GtkWidget *widget);
+
+/* A popover is its own surface, so its children are not reached by the
+ * controller on the window that opened it.  Rescanning on map also catches
+ * menu rows that a module builds only when the menu is opened. */
+static void on_popover_map(GtkWidget *popover, gpointer user_data) {
+  (void)user_data;
+
+  apply_pointer_cursors(popover);
+}
+
+static void apply_pointer_cursors(GtkWidget *widget) {
+  if (!widget)
+    return;
+
+  if (is_button(widget)) {
+    gtk_widget_set_cursor_from_name(
+        widget, gtk_widget_get_sensitive(widget) ? "pointer" : NULL);
+  }
+
+  if (GTK_IS_POPOVER(widget) &&
+      !g_object_get_data(G_OBJECT(widget), "whelk-pointer-cursors")) {
+    g_object_set_data(G_OBJECT(widget), "whelk-pointer-cursors",
+                      GINT_TO_POINTER(1));
+    g_signal_connect(widget, "map", G_CALLBACK(on_popover_map), NULL);
+  }
+
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child;
+       child = gtk_widget_get_next_sibling(child))
+    apply_pointer_cursors(child);
+}
+
+void whelk_style_pointer_cursors(GtkWidget *root) {
+  apply_pointer_cursors(root);
+}
+
 char *whelk_style_widget_id(const char *name) {
   GString *id = g_string_new("whelk-");
   const char *cursor = (name && *name) ? name : "surface";
@@ -119,6 +162,7 @@ void whelk_style_popover(GtkPopover *popover, const WhelkBarConfig *config) {
 
   gtk_popover_set_has_arrow(popover, FALSE);
   gtk_widget_add_css_class(GTK_WIDGET(popover), "whelk-popover");
+  whelk_style_pointer_cursors(GTK_WIDGET(popover));
 
   if (!config)
     return;

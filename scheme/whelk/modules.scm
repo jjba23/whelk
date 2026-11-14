@@ -217,9 +217,10 @@ module's default."
   (apply module 'memory kv))
 
 (define* (battery-module #:rest kv)
-  "A battery from /sys/class/power_supply.  #:device names the pack (BAT0 by
-default); #:format uses {capacity} and {state}; #:warning and #:critical are the
-percentages that switch the readout's colour."
+  "A battery from /sys/class/power_supply.  #:device names a pack; without it,
+the first battery the kernel reports is used.  #:format uses {capacity} and
+{state}; #:warning and #:critical are the percentages that switch the readout's
+colour."
   (apply module 'battery kv))
 
 (define* (backlight-module #:rest kv)

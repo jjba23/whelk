@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.19.0
+Version:        0.19.1
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -74,6 +74,10 @@ Wayfire.
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.19.1
+- The bar's battery indicator finds BAT0, BAT1 and any other pack instead of
+  only BAT0; buttons use the cursor theme's pointer cursor.
+
 * Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.19.0
 - AT-SPI menus, Scheme modules, per-monitor bars, golden-image tests and a
   fail-closed PAM screen locker.  Desktop widgets are visible again.

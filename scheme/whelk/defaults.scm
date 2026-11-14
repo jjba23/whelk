@@ -239,8 +239,9 @@ Click: mixer · Right-click: mute · Middle: mute the microphone · Scroll: volu
             (keyboard-module #:format "⇪"
                              #:interval 1
                              #:tooltip "Caps Lock is on")
-            (battery-module #:device "BAT0"
-                            #:icon "\uf240"
+            ;; No #:device: the first battery the kernel reports, whether that
+            ;; is BAT0, BAT1 or a pack added later.  A desktop hides it.
+            (battery-module #:icon "\uf240"
                             #:format "{icon} {capacity}%"
                             #:charging-format "⚡ {capacity}%"
                             #:warning 30

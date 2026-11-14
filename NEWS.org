@@ -15,6 +15,25 @@ Nothing yet.
 
 *[Released]*
 
+** v0.19.1 (2026-11-14)
+
+*** Fixed
+
+- *The battery indicator finds the machine's pack.*  The default bar pinned
+  the module to =BAT0=, so a laptop whose battery is =BAT1= (or whose pack
+  appears later) hid the reading entirely.  With no =#:device= the module
+  takes the first battery =/sys/class/power_supply= reports; the fallback bar
+  now carries a battery indicator as well.
+- *Buttons show the cursor theme's pointer.*  GTK4 has no CSS =cursor=
+  property, so surfaces walk their buttons and name the =pointer= cursor
+  through the active cursor theme.  Menus and popovers are rescanned when
+  mapped, covering rows built after the surface appeared.
+
+*** Verified
+
+- Host suite passes, including the default-bar battery check and a GTK cursor
+  test under =gtk4-broadwayd=.
+
 ** v0.19.0 (2026-11-14)
 
 *** Added

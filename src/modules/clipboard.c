@@ -8,6 +8,7 @@
 #include "clipboard.h"
 #include "logger.h"
 #include "shell.h"
+#include "style.h"
 
 /* =========================================================================
  * CLIPBOARD
@@ -221,6 +222,7 @@ static void on_context_click(GtkGestureClick *gesture, int n_press, double x,
   }
 
   fill_context_menu(state);
+  whelk_style_pointer_cursors(state->menu);
   gtk_popover_popup(GTK_POPOVER(state->menu));
 }
 

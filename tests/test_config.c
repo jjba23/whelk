@@ -4,6 +4,7 @@
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #include "config.h"
+#include "util/sysfs.h"
 #include "util/format.h"
 
 #include <glib.h>
@@ -108,7 +109,33 @@ static void test_default_bar(void) {
   g_assert_cmpint(bar->layer, ==, GTK_LAYER_SHELL_LAYER_TOP);
   g_assert_true(bar->right->len > 0);
 
+  gboolean has_battery = FALSE;
+
+  for (guint i = 0; i < bar->right->len; i++) {
+    WhelkModuleSpec *spec = g_ptr_array_index(bar->right, i);
+
+    if (g_strcmp0(spec->kind, "battery") == 0)
+      has_battery = TRUE;
+  }
+
+  g_assert_true(has_battery);
+
   whelk_config_free_bars(bars);
+}
+
+static void test_battery_auto_detect(void) {
+  WhelkBatteryInfo info;
+
+  if (!whelk_battery_read(NULL, &info)) {
+    g_test_skip("no battery on this machine");
+    return;
+  }
+
+  g_assert_nonnull(info.name);
+  g_assert_cmpint(info.capacity, >=, 0);
+  g_assert_cmpint(info.capacity, <=, 100);
+
+  whelk_battery_clear(&info);
 }
 
 int main(int argc, char **argv) {
@@ -118,6 +145,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/whelk/config/format", test_format_helpers);
   g_test_add_func("/whelk/config/bar_copy", test_bar_copy);
   g_test_add_func("/whelk/config/default_bar", test_default_bar);
+  g_test_add_func("/whelk/config/battery-auto-detect",
+                  test_battery_auto_detect);
 
   return g_test_run();
 }

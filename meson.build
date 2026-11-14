@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.19.0',
+  version: '0.19.1',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -282,7 +282,7 @@ unit_tests = [
   },
   {
     'id': 'config',
-    'sources': ['src/config.c', 'src/util/format.c'],
+    'sources': ['src/config.c', 'src/util/format.c', 'src/util/sysfs.c'],
   },
   {
     'id': 'barmonitors',
@@ -315,6 +315,7 @@ unit_tests = [
     'id': 'schemewidget',
     'sources': [
       'src/guile_bridge.c',
+      'src/style.c',
       'src/config.c',
       'src/util/format.c',
       'src/util/menudict.c',

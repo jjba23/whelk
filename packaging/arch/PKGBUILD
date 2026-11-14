@@ -5,7 +5,7 @@
 
 # Maintainer: Josep Bigorra <jjbigorra@gmail.com>
 pkgname=whelk
-pkgver=0.19.0
+pkgver=0.19.1
 pkgrel=1
 pkgdesc="Wayland shell with bars, a launcher and notifications, configured in Guile Scheme"
 arch=('x86_64' 'aarch64')
