@@ -1,4 +1,4 @@
-whelk (0.32.0-1) unstable; urgency=medium
+whelk (0.32.1-1) unstable; urgency=medium
 
   * The shell owns the logind idle hint, its lock countdown, the
     presentation inhibitor and the do-not-disturb flag; the new inhibit

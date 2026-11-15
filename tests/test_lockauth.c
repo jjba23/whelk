@@ -5,6 +5,7 @@
 
 #include "util/lockauth.h"
 
+#include <dlfcn.h>
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <string.h>
@@ -81,6 +82,21 @@ static void test_prefers_the_host_library(void) {
     g_test_skip("this machine keeps libpam outside /usr");
     return;
   }
+
+  /* A hermetic build (Guix, Nix) links its own C library, and the host's
+   * libpam then fails to resolve: the candidate list falls through to the
+   * store's copy, which is the fallback it exists for.  Ask the loader whether
+   * the host copy is loadable here before claiming that it must win, so the
+   * assertion below only speaks about machines where the comparison means
+   * something. */
+  void *probe = dlopen(host, RTLD_NOW | RTLD_LOCAL);
+
+  if (!probe) {
+    g_test_skip("the host's libpam cannot be loaded by a binary built here");
+    return;
+  }
+
+  dlclose(probe);
 
   const WhelkPam *pam = whelk_lock_pam_open();
 

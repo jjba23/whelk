@@ -13,6 +13,37 @@ Nothing yet.
 
 *[Released]
 
+** v0.32.1 (2026-11-15)
+
+*** Fixed
+
+- *The pinned development environment can configure again.*  =manifest.scm=
+  gains =linux-pam=.  Since 0.27.1 made the PAM headers a required build
+  dependency (=dependency('pam')= rather than =required: false=), a
+  =guix shell -m manifest.scm= had no =pam.pc=, so =maak test= stopped at
+  =meson setup= with =Dependency "pam" not found= before compiling a line.
+  =guix.scm= already carried =linux-pam=, which is why =guix build -f
+  guix.scm= stayed green: a release could pass its own gate while CI was red on
+  every commit it was testing.
+- *The lock screen's library test is hermetic.*  =tests/test_lockauth.c=
+  asserted that the host's =/usr/lib64/libpam.so.0= is the copy that opens,
+  which is true of a distribution build and false of a hermetic one: a binary
+  linked against Guix's C library cannot resolve the host's libpam, so the
+  candidate list falls through to the build's own store path -- the fallback it
+  exists for.  The test now asks =dlopen= whether the host copy is loadable in
+  this process and skips with that reason when it is not, instead of failing a
+  correct fallback.  Where the host copy does load, the assertion is unchanged.
+
+*** Verified
+
+- The pinned environment reproduces the CI task and passes:
+  =guix time-machine --channels=channels.scm -- shell -m manifest.scm -- /bin/sh -c
+  'meson setup build-ci; ninja -C build-ci; meson test -C build-ci'= -- 44
+  tests, =lockauth_unit_tests= among them.  That is the command
+  =.github/workflows/ci.yml= runs through Byggsteg.
+- The host suite passes as well, and =lockauth_unit_tests= there still takes
+  the host-library path instead of the new skip.
+
 ** v0.32.0 (2026-11-15)
 
 *** Added
