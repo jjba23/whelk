@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.27.0',
+  version: '0.27.1',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -98,8 +98,16 @@ whelk_deps = [
 # by the loader, and an rpath into /usr would only be a packaging smell.
 pam_libdir = pam_dep.get_variable(pkgconfig: 'libdir', default_value: '')
 
-if pam_libdir != '' and not pam_libdir.startswith('/usr')
-  add_project_link_arguments('-Wl,-rpath,' + pam_libdir, language: 'c')
+# The rpath keeps a store libpam reachable for dlopen; the compiled-in path is
+# the belt to that suspenders, because a package manager may shrink an unused
+# rpath away (nixpkgs does).  A distribution's own libpam needs neither.
+if pam_libdir != ''
+  add_project_arguments('-DWHELK_PAM_LIBDIR="' + pam_libdir + '"',
+    language: 'c')
+
+  if not pam_libdir.startswith('/usr')
+    add_project_link_arguments('-Wl,-rpath,' + pam_libdir, language: 'c')
+  endif
 endif
 
 if x11_dep.found()

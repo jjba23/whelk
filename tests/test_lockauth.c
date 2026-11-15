@@ -25,6 +25,13 @@ static void test_candidates(void) {
   g_assert_cmpstr(paths[0], ==, "/usr/lib64/libpam.so.0");
   g_assert_cmpstr(paths[length - 1], ==, "libpam.so.0");
 
+  /* A store-built whelk names its own libpam in full, because nixpkgs shrinks
+   * an rpath nothing links against. */
+#ifdef WHELK_PAM_LIBDIR
+  g_assert_true(g_strv_contains((const char *const *)paths,
+                                WHELK_PAM_LIBDIR "/libpam.so.0"));
+#endif
+
   for (guint i = 0; i < length - 1; i++) {
     g_assert_true(g_path_is_absolute(paths[i]));
     g_assert_true(g_str_has_suffix(paths[i], "libpam.so.0"));

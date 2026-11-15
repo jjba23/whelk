@@ -64,8 +64,15 @@ char **whelk_lock_pam_library_candidates(void) {
 
   add_multiarch_paths(paths);
 
-  /* The build's rpath decides this one: a store path on NixOS and Guix System,
-   * the loader's own search everywhere else. */
+#ifdef WHELK_PAM_LIBDIR
+  /* The library whelk was built against, named in full: a Nix or Guix build
+   * may have its rpath shrunk to the libraries it links, and this one is only
+   * ever opened by name, so the bare soname below can find nothing. */
+  add_path(paths, WHELK_PAM_LIBDIR "/libpam.so.0");
+#endif
+
+  /* The loader's own search: a distribution's ld cache, or the build's rpath
+   * when it survived. */
   g_ptr_array_add(paths, g_strdup("libpam.so.0"));
 
   g_ptr_array_add(paths, NULL);
