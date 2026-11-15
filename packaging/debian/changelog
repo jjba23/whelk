@@ -1,3 +1,11 @@
+whelk (0.27.1-1) unstable; urgency=medium
+
+  * The lock screen names the libpam it was built against as a run-time
+    candidate, so a package manager that shrinks an unused rpath cannot leave a
+    store-built whelk with no PAM library to load.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 15:00:00 +0100
+
 whelk (0.27.0-1) unstable; urgency=medium
 
   * The lock screen loads the host's libpam at run time instead of the library

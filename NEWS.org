@@ -15,6 +15,17 @@ Nothing yet.
 
 *[Released]*
 
+** v0.27.1 (2026-11-15)
+
+*** Fixed
+
+- *A store-built whelk still finds its own libpam.*  The runtime loader names
+  the library whelk was built against in full, because a package manager
+  shrinks an rpath that nothing links against (nixpkgs does) and a bare soname
+  then resolves to nothing.  On NixOS and Guix System, where =/usr= has no PAM
+  of its own, that was the difference between authentication and a lock screen
+  that says it is unavailable.
+
 ** v0.27.0 (2026-11-15)
 
 *** Fixed
