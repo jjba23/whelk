@@ -22,18 +22,48 @@
  */
 
 /**
+ * WhelkOptionType:
+ * @WHELK_OPTION_STRING: a Scheme string.
+ * @WHELK_OPTION_SYMBOL: a Scheme symbol; the settings window writes it back as
+ *   one, so a module that compares with `eq?' keeps seeing a symbol.
+ * @WHELK_OPTION_BOOLEAN: #t or #f.
+ * @WHELK_OPTION_INTEGER: an exact integer.
+ * @WHELK_OPTION_NUMBER: another number, such as 0.5.
+ * @WHELK_OPTION_LIST: a list; the generic editor leaves it in the file rather
+ *   than flattening it into a text value.
+ * @WHELK_OPTION_OTHER: a value the editor cannot round-trip.
+ *
+ * What the Scheme side originally wrote for an option.  The text in
+ * WhelkModuleSpec:options is still the authority for readers; this only tells
+ * the settings window which Scheme value to write when somebody edits it.
+ */
+typedef enum {
+  WHELK_OPTION_STRING,
+  WHELK_OPTION_SYMBOL,
+  WHELK_OPTION_BOOLEAN,
+  WHELK_OPTION_INTEGER,
+  WHELK_OPTION_NUMBER,
+  WHELK_OPTION_LIST,
+  WHELK_OPTION_OTHER,
+} WhelkOptionType;
+
+/**
  * WhelkModuleSpec:
  * @kind: the module's factory name ("clock", "cpu", "custom", ...).
  * @options: (element-type utf8 utf8): every option the settings file gave, as
  *   text.  Numbers, booleans and symbols arrive in their Scheme spelling and
  *   the typed getters below parse them, so a module reads an option the same
  *   way whether a file wrote 5, "5" or 5.0.
+ * @option_types: (element-type utf8 gpointer): the original Scheme type of
+ *   each option, as a WhelkOptionType stored through GUINT_TO_POINTER().  A
+ *   spec built by hand defaults every option to WHELK_OPTION_STRING.
  *
  * One module, as the configuration declared it.
  */
 typedef struct {
   char *kind;
   GHashTable *options;
+  GHashTable *option_types;
 } WhelkModuleSpec;
 
 /**
@@ -109,6 +139,11 @@ typedef enum {
  * @reflection: the strength of the lower inner reflection (0..1).
  * @flare: the strength of the accent glow along the top edge (0..1).
  * @css: (nullable): free-form CSS appended to this bar's generated skin.
+ * @launcher_width: the launcher card's width in pixels.
+ * @launcher_height: the launcher card's height in pixels.
+ * @launcher_icon_size: the pixel size of a launcher row's icon.
+ * @launcher_font_scale: the launcher's text size as a percentage, where 100 is
+ *   the bar's configured size.
  * @left: (element-type WhelkModuleSpec): modules at the start of the bar.
  * @center: (element-type WhelkModuleSpec): modules in the middle.
  * @right: (element-type WhelkModuleSpec): modules at the end.
@@ -150,6 +185,10 @@ typedef struct {
   double reflection;
   double flare;
   char *css;
+  int launcher_width;
+  int launcher_height;
+  int launcher_icon_size;
+  int launcher_font_scale;
 
   /* Set by src/bar.c from the modules it is about to build: when the bar has
    * its own Wi-Fi or Bluetooth reading, a third-party applet for the same thing
@@ -202,6 +241,9 @@ WhelkModuleSpec *whelk_module_spec_new(const char *kind);
 void whelk_module_spec_free(WhelkModuleSpec *spec);
 void whelk_module_spec_set(WhelkModuleSpec *spec, const char *key,
                            const char *value);
+void whelk_module_spec_set_typed(WhelkModuleSpec *spec, const char *key,
+                                 const char *value, WhelkOptionType type);
+WhelkOptionType whelk_spec_type(const WhelkModuleSpec *spec, const char *key);
 
 /* Typed option readers.  A missing, empty or unparseable option answers with
  * the fallback, so a settings file can never push garbage into a widget. */

@@ -98,7 +98,13 @@ static char *scm_value_text(SCM value) {
     if (scm_is_exact_integer(value))
       return g_strdup_printf("%ld", (long)scm_to_long(value));
 
-    return g_strdup_printf("%g", scm_to_double(value));
+    /* g_ascii_formatd keeps the decimal point a dot: the option readers use
+     * g_ascii_strtod, which is locale-independent.  A locale-aware %g here
+     * wrote "0,85" and turned the value into 0 on the way back in. */
+    char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+
+    g_ascii_formatd(buffer, sizeof buffer, "%.17g", scm_to_double(value));
+    return g_strdup(buffer);
   }
 
   if (scm_is_null(value))
@@ -200,6 +206,28 @@ static GtkLayerShellLayer layer_from_text(const char *text) {
   return GTK_LAYER_SHELL_LAYER_TOP;
 }
 
+static WhelkOptionType scm_option_type(SCM value) {
+  if (scm_is_string(value))
+    return WHELK_OPTION_STRING;
+  if (scm_is_symbol(value))
+    return WHELK_OPTION_SYMBOL;
+  if (scm_is_bool(value))
+    return WHELK_OPTION_BOOLEAN;
+  if (scm_is_number(value)) {
+    if (scm_is_exact_integer(value))
+      return WHELK_OPTION_INTEGER;
+    /* An exact fraction would be rounded by a decimal spin button. */
+    if (scm_is_exact(value))
+      return WHELK_OPTION_OTHER;
+
+    return WHELK_OPTION_NUMBER;
+  }
+  if (scm_is_null(value) || scm_is_pair(value))
+    return WHELK_OPTION_LIST;
+
+  return WHELK_OPTION_OTHER;
+}
+
 /* Only a non-empty option is a configuration; an absent one is the module's
  * own default. */
 static void collect_options(WhelkModuleSpec *spec, SCM alist) {
@@ -213,7 +241,8 @@ static void collect_options(WhelkModuleSpec *spec, SCM alist) {
     g_autofree char *value = scm_value_text(SCM_CDR(pair));
 
     if (key && value && *key != '\0' && *value != '\0')
-      whelk_module_spec_set(spec, key, value);
+      whelk_module_spec_set_typed(spec, key, value,
+                                  scm_option_type(SCM_CDR(pair)));
   }
 }
 
@@ -256,6 +285,10 @@ static WhelkBarConfig *bar_from_alist(SCM alist) {
   bar->reflection =
       CLAMP(alist_double(alist, "reflection", 0.0), 0.0, 1.0);
   bar->flare = CLAMP(alist_double(alist, "flare", 0.0), 0.0, 1.0);
+  bar->launcher_width = alist_int(alist, "launcher-width", 660);
+  bar->launcher_height = alist_int(alist, "launcher-height", 640);
+  bar->launcher_icon_size = alist_int(alist, "launcher-icon-size", 24);
+  bar->launcher_font_scale = alist_int(alist, "launcher-font-scale", 100);
   bar->overflow_expanded = alist_bool(alist, "overflow-expanded?", FALSE);
 
   g_free(bar->monitor);
@@ -1657,7 +1690,10 @@ char *whelk_bridge_preference_text(const char *path, const char *key) {
     if (scm_is_exact_integer(value))
       return g_strdup_printf("%ld", (long)scm_to_long(value));
 
-    return g_strdup_printf("%g", scm_to_double(value));
+    char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+
+    g_ascii_formatd(buffer, sizeof buffer, "%.17g", scm_to_double(value));
+    return g_strdup(buffer);
   }
 
   return scm_text(value);

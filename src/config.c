@@ -18,6 +18,8 @@ WhelkModuleSpec *whelk_module_spec_new(const char *kind) {
   spec->kind = g_strdup(kind ? kind : "");
   spec->options =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+  spec->option_types =
+      g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
   return spec;
 }
@@ -28,15 +30,33 @@ void whelk_module_spec_free(WhelkModuleSpec *spec) {
 
   g_free(spec->kind);
   g_clear_pointer(&spec->options, g_hash_table_unref);
+  g_clear_pointer(&spec->option_types, g_hash_table_unref);
   g_free(spec);
 }
 
-void whelk_module_spec_set(WhelkModuleSpec *spec, const char *key,
-                           const char *value) {
+void whelk_module_spec_set_typed(WhelkModuleSpec *spec, const char *key,
+                                 const char *value, WhelkOptionType type) {
   if (!spec || !key || !value)
     return;
 
   g_hash_table_insert(spec->options, g_strdup(key), g_strdup(value));
+  g_hash_table_insert(spec->option_types, g_strdup(key),
+                      GUINT_TO_POINTER((guint)type + 1));
+}
+
+void whelk_module_spec_set(WhelkModuleSpec *spec, const char *key,
+                           const char *value) {
+  whelk_module_spec_set_typed(spec, key, value, WHELK_OPTION_STRING);
+}
+
+WhelkOptionType whelk_spec_type(const WhelkModuleSpec *spec, const char *key) {
+  if (!spec || !spec->option_types || !key)
+    return WHELK_OPTION_STRING;
+
+  gpointer type = g_hash_table_lookup(spec->option_types, key);
+
+  return type ? (WhelkOptionType)(GPOINTER_TO_UINT(type) - 1)
+              : WHELK_OPTION_STRING;
 }
 
 gboolean whelk_spec_has(const WhelkModuleSpec *spec, const char *key) {
@@ -139,7 +159,9 @@ WhelkWidgetConfig *whelk_widget_config_copy(const WhelkWidgetConfig *config) {
 
   g_hash_table_iter_init(&iter, config->spec->options);
   while (g_hash_table_iter_next(&iter, &key, &value))
-    whelk_module_spec_set(copy->spec, (const char *)key, (const char *)value);
+    whelk_module_spec_set_typed(copy->spec, (const char *)key,
+                                (const char *)value,
+                                whelk_spec_type(config->spec, (const char *)key));
 
   copy->x = config->x;
   copy->y = config->y;
@@ -195,6 +217,10 @@ WhelkBarConfig *whelk_bar_config_new(const char *name) {
   bar->shine = 0.0;
   bar->reflection = 0.0;
   bar->flare = 0.0;
+  bar->launcher_width = 660;
+  bar->launcher_height = 640;
+  bar->launcher_icon_size = 24;
+  bar->launcher_font_scale = 100;
 
   bar->overflow = g_ptr_array_new_with_free_func(
       (GDestroyNotify)whelk_module_spec_free);
@@ -216,7 +242,8 @@ static WhelkModuleSpec *module_spec_copy(const WhelkModuleSpec *spec) {
 
   g_hash_table_iter_init(&iter, spec->options);
   while (g_hash_table_iter_next(&iter, &key, &value))
-    whelk_module_spec_set(copy, (const char *)key, (const char *)value);
+    whelk_module_spec_set_typed(copy, (const char *)key, (const char *)value,
+                                whelk_spec_type(spec, (const char *)key));
 
   return copy;
 }
@@ -249,6 +276,10 @@ WhelkBarConfig *whelk_bar_config_copy(const WhelkBarConfig *bar) {
   copy->shine = bar->shine;
   copy->reflection = bar->reflection;
   copy->flare = bar->flare;
+  copy->launcher_width = bar->launcher_width;
+  copy->launcher_height = bar->launcher_height;
+  copy->launcher_icon_size = bar->launcher_icon_size;
+  copy->launcher_font_scale = bar->launcher_font_scale;
   copy->native_network = bar->native_network;
   copy->native_bluetooth = bar->native_bluetooth;
   copy->overflow_expanded = bar->overflow_expanded;

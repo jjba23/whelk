@@ -166,7 +166,9 @@ the documented one -- see [[#configuration][Configuration]].
 - *A launcher, not a second program.* Applications, windows, commands with
   =$PATH= completion, arithmetic, files, the web, ssh hosts, closing a window
   and menus a command generates -- its script protocol, icons and rows that are
-  shown but never chosen -- in one overlay with one fuzzy matcher.
+  shown but never chosen -- in one overlay with one fuzzy matcher.  The card
+  resizes from its lower-right grip, and its Icons and Text buttons zoom without
+  changing the bar's own typography.
 - *Twelve themes, and no borrowed marks.* =glass-2001= through =tinted-2024=,
   plus =frost=, =ember=, =mocha=, =midnight=, =sandstone= and =void=: materials
   and years, not products.  The built-in bar wears =gloss-2007=: dark graphite
@@ -455,7 +457,14 @@ surface rather than a form dropped on the screen.  A prefix picks the mode.
 | =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
-The prefixes above are the defaults.  The settings window's *Keys* page can
+The card is resizable.  Drag the lower-right grip, or use the footer's *Icons*
+and *Text* buttons; the current icon size and text percentage sit beside the
+buttons.  The starting geometry comes from the bar's =#:launcher-width=,
+=#:launcher-height=, =#:launcher-icon-size= and =#:launcher-font-scale=, and a
+drag or button press writes an override so the next launcher opens the same
+way.  The settings window's *Launcher* page edits those four values directly.
+
+The prefixes above are the defaults.  The settings window's *Launcher* page can
 replace any of them, or empty one to disable it, and can choose the mode a bare
 =whelk --launcher= opens in; those choices are overrides in the state file, and
 *Reset GUI settings* puts the table back exactly as it is here.
@@ -989,24 +998,30 @@ page for each part of the shell a person changes often: *Bar* (edge, layer,
 height, spacing, padding, font and reserved space), *Theme* (palette, surface,
 ink, accent and hairline colours, opacity, shadow blur, shine, reflection,
 flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, *Modules*,
-*Keys*, and *More* (tray size and clock format).  Every control is live: the
+*Launcher* (window and zoom, plus the prefix keys), and *More* (tray size and clock format).  Every control is live: the
 change is written, the bar and the shell's panels reload, and the window stays
 open for the next one.  Opening the settings window closes any bar popover
 first, so nothing is left floating above it.
 
 *Modules* mirrors the first bar: one card per module, in the order it is built
 (left, centre, right, overflow), with a *Show in the bar* switch and a control
-for every option the settings file gave that module.  Booleans become switches,
-integers become spin buttons and everything else an entry, so =#:show-ssid?=, a
-refresh =#:interval=, a custom module's =#:exec= and its click commands are all
-editable without opening the file.  Turning a module off keeps it in
-=settings.scm= -- and keeps its card in the window, so it can be turned back on.
-Options that contain line breaks, such as a multi-line tooltip, stay in the file
-so their shape is not flattened.
+for every option the settings file gave that module.  The control follows the
+option's original Scheme type: booleans become switches, exact integers and
+decimal numbers become spin buttons, strings become entries, and symbols become
+entries that are written back as symbols -- so =#:accelerator-style 'cua= stays
+a symbol for a module that compares it with =eq?=.  Turning a module off keeps
+it in =settings.scm= -- and keeps its card in the window, so it can be turned
+back on.
 
-*Keys* edits the keys whelk itself reads: the mode a bare =whelk --launcher=
-opens in, and the prefix that chooses each mode (=@= windows, =>= commands, and
-so on).  Clearing a prefix disables that key; the built-in map is the default,
+Three shapes still live only in the file: options that contain line breaks,
+such as a multi-line tooltip; list-valued options such as
+=#:choices '(one two)=; and exact fractions such as =1/3=, which a decimal spin
+button would round.  Editing them through one text field would change their
+Scheme shape, so the window leaves them alone and says so on the page.
+
+*Launcher* edits the card's starting width, height, icon size and text scale,
+and the keys whelk itself reads: the mode a bare =whelk --launcher= opens in,
+and the prefix that chooses each mode (=@= windows, =>= commands, and so on).  Clearing a prefix disables that key; the built-in map is the default,
 not a constant.  The binding that opens the launcher in the first place belongs
 to the compositor -- niri, Hyprland, river or X11 -- and the escape hatch below
 is the honest way to reach it.
@@ -1151,6 +1166,9 @@ comes from another program.
 | =#:font=, =#:font-size=, =#:icon-font= | the text face, its size, and the face glyphs are drawn from |
 | =#:foreground=, =#:background=, =#:accent=, =#:border-color=, =#:radius= | the bar's material |
 | =#:css=           | free-form CSS appended to the bar's generated skin                      |
+| =#:launcher-width=, =#:launcher-height= | the launcher card's starting size in pixels              |
+| =#:launcher-icon-size= | the launcher icon's starting pixel size                            |
+| =#:launcher-font-scale= | the launcher text's starting percentage of =#:font-size=          |
 | =#:left=, =#:center=, =#:right= | lists of modules                                             |
 | =#:overflow=      | modules kept behind the right row's chevron, laid out when it opens     |
 | =#:overflow-expanded?= | =#f= (default) keeps that shelf closed; =#t= opens it at start     |

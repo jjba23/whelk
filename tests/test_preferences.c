@@ -33,12 +33,17 @@ static char *write_settings(void) {
       "(configure-shell! #:bars\n"
       " (list (bar #:name 'main #:position 'top #:height 32\n"
       "             #:spacing 8 #:padding 12 #:theme 'gloss-2007\n"
+      "             #:launcher-width 700 #:launcher-height 620\n"
+      "             #:launcher-icon-size 30 #:launcher-font-scale 120\n"
       "             #:right\n"
       "             (list (wifi-module #:show-ssid? #f #:interval 5)\n"
       "                   (notifications-module #:format \"{icon}\")\n"
       "                   (menu-module #:shortcuts? #t #:app-name? #t\n"
       "                                #:accelerator-style 'cua)\n"
       "                   (tray-module #:max-items 6)\n"
+      "                   (custom-module #:exec \"true\"\n"
+      "                                  #:choices '(one two) #:ratio 0.75\n"
+      "                                  #:fraction 1/3)\n"
       "                   (clock-module #:format \"%%H:%%M\")\n"
       "                   (clock-module #:format \"%%S\"))))\n"
       " #:idle (idle-settings #:lock-after 120))\n");
@@ -91,10 +96,30 @@ static void test_bridge_round_trip(void) {
 
   g_assert_cmpint(bar->height, ==, 32);
   g_assert_cmpstr(bar->theme, ==, "gloss-2007");
+  g_assert_cmpint(bar->launcher_width, ==, 700);
+  g_assert_cmpint(bar->launcher_height, ==, 620);
+  g_assert_cmpint(bar->launcher_icon_size, ==, 30);
+  g_assert_cmpint(bar->launcher_font_scale, ==, 120);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "menu"), "accelerator-style"),
+                  ==, WHELK_OPTION_SYMBOL);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "choices"), ==,
+                  WHELK_OPTION_LIST);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "ratio"), ==,
+                  WHELK_OPTION_NUMBER);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "fraction"), ==,
+                  WHELK_OPTION_OTHER);
   whelk_config_free_bars(bars);
 
   g_assert_true(whelk_bridge_save_preference_int(path, "bar-height", 44));
   g_assert_true(whelk_bridge_save_preference_symbol(path, "bar-theme", "frost"));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "launcher-width", 720));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "launcher-height", 700));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "launcher-icon-size", 32));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "launcher-font-scale", 130));
   g_assert_true(
       whelk_bridge_save_preference_double(path, "bar-opacity", 0.6));
   g_assert_true(whelk_bridge_save_preference_int(path, "bar-blur", 26));
@@ -137,6 +162,10 @@ static void test_bridge_round_trip(void) {
 
   g_assert_cmpint(bar->height, ==, 44);
   g_assert_cmpstr(bar->theme, ==, "frost");
+  g_assert_cmpint(bar->launcher_width, ==, 720);
+  g_assert_cmpint(bar->launcher_height, ==, 700);
+  g_assert_cmpint(bar->launcher_icon_size, ==, 32);
+  g_assert_cmpint(bar->launcher_font_scale, ==, 130);
   g_assert_cmpint(bar->spacing, ==, 8);
   g_assert_cmpfloat_with_epsilon(bar->opacity, 0.6, 0.0001);
   g_assert_cmpint(bar->blur, ==, 26);
@@ -268,8 +297,17 @@ static void test_widget_controls(void) {
   GtkWidget *module_format_second =
       find_key(content, "module-clock-1-format");
   GtkWidget *module_visible = find_key(content, "module-wifi-0-visible?");
+  GtkWidget *module_accelerator =
+      find_key(content, "module-menu-0-accelerator-style");
+  GtkWidget *module_choices = find_key(content, "module-custom-0-choices");
+  GtkWidget *module_ratio = find_key(content, "module-custom-0-ratio");
+  GtkWidget *module_fraction = find_key(content, "module-custom-0-fraction");
   GtkWidget *launcher_mode = find_key(content, "launcher-default-mode");
   GtkWidget *launcher_key = find_key(content, "launcher-key-run");
+  GtkWidget *launcher_width = find_key(content, "launcher-width");
+  GtkWidget *launcher_height = find_key(content, "launcher-height");
+  GtkWidget *launcher_icon = find_key(content, "launcher-icon-size");
+  GtkWidget *launcher_font = find_key(content, "launcher-font-scale");
   GtkWidget *reset = NULL;
 
   g_assert_true(GTK_IS_SPIN_BUTTON(height));
@@ -283,13 +321,27 @@ static void test_widget_controls(void) {
   g_assert_nonnull(module_format);
   g_assert_nonnull(module_format_second);
   g_assert_nonnull(module_visible);
+  g_assert_nonnull(module_accelerator);
+  g_assert_null(module_choices);
+  g_assert_nonnull(module_ratio);
+  g_assert_null(module_fraction);
+  g_assert_true(GTK_IS_SPIN_BUTTON(module_ratio));
   g_assert_true(GTK_IS_ENTRY(module_format));
   g_assert_true(GTK_IS_ENTRY(module_format_second));
   g_assert_true(GTK_IS_SWITCH(module_visible));
   g_assert_true(GTK_IS_DROP_DOWN(launcher_mode));
   g_assert_true(GTK_IS_ENTRY(launcher_key));
+  g_assert_true(GTK_IS_ENTRY(module_accelerator));
+  g_assert_true(GTK_IS_SPIN_BUTTON(launcher_width));
+  g_assert_true(GTK_IS_SPIN_BUTTON(launcher_height));
+  g_assert_true(GTK_IS_SPIN_BUTTON(launcher_icon));
+  g_assert_true(GTK_IS_SPIN_BUTTON(launcher_font));
 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(height), 48);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(launcher_width), 760);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(launcher_height), 680);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(launcher_icon), 34);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(launcher_font), 140);
   gtk_switch_set_active(GTK_SWITCH(count), TRUE);
   gtk_range_set_value(GTK_RANGE(opacity), 0.62);
   gtk_range_set_value(GTK_RANGE(blur), 24);
@@ -298,6 +350,8 @@ static void test_widget_controls(void) {
   gtk_range_set_value(GTK_RANGE(flare), 0.11);
   gtk_editable_set_text(GTK_EDITABLE(module_format), "%H:%M:%S");
   gtk_editable_set_text(GTK_EDITABLE(module_format_second), "second");
+  gtk_editable_set_text(GTK_EDITABLE(module_accelerator), "gtk");
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(module_ratio), 0.85);
   gtk_switch_set_active(GTK_SWITCH(module_visible), FALSE);
   gtk_editable_set_text(GTK_EDITABLE(launcher_key), "//");
 
@@ -335,6 +389,14 @@ static void test_widget_controls(void) {
 
   g_assert_cmpint(bar->height, ==, 48);
   g_assert_cmpstr(bar->theme, ==, "frost");
+  g_assert_cmpint(bar->launcher_width, ==, 760);
+  g_assert_cmpint(bar->launcher_height, ==, 680);
+  g_assert_cmpint(bar->launcher_icon_size, ==, 34);
+  g_assert_cmpint(bar->launcher_font_scale, ==, 140);
+  g_assert_cmpstr(whelk_spec_str(module_of(bar, "menu"), "accelerator-style", ""),
+                  ==, "gtk");
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "menu"), "accelerator-style"),
+                  ==, WHELK_OPTION_SYMBOL);
   g_assert_cmpfloat_with_epsilon(bar->opacity, 0.62, 0.0001);
   g_assert_cmpint(bar->blur, ==, 24);
   g_assert_cmpfloat_with_epsilon(bar->shine, 0.33, 0.0001);
@@ -349,6 +411,14 @@ static void test_widget_controls(void) {
       whelk_spec_str(module_of_occurrence(bar, "clock", 1), "format", ""), ==,
       "second");
   g_assert_true(whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "choices"), ==,
+                  WHELK_OPTION_LIST);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "ratio"), ==,
+                  WHELK_OPTION_NUMBER);
+  g_assert_cmpint(whelk_spec_type(module_of(bar, "custom"), "fraction"), ==,
+                  WHELK_OPTION_OTHER);
+  g_assert_cmpfloat_with_epsilon(
+      whelk_spec_double(module_of(bar, "custom"), "ratio", 0.0), 0.85, 0.0001);
   whelk_config_free_bars(bars);
 
   g_autofree char *saved_mode =

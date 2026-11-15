@@ -95,6 +95,10 @@
                bar-config-shine
                bar-config-reflection
                bar-config-flare
+               bar-config-launcher-width
+               bar-config-launcher-height
+               bar-config-launcher-icon-size
+               bar-config-launcher-font-scale
                bar-config-css
                bar-config-modules-left
                bar-config-modules-center

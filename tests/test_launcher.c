@@ -112,6 +112,23 @@ static void test_click_outside_card(void) {
   g_assert_true(whelk_launcher_point_outside(50, 221, 10, 20, 110, 220));
 }
 
+/* The drag grip and the settings spin buttons share these limits, so a drag
+ * cannot produce a card the settings window would refuse to display. */
+static void test_appearance_bounds(void) {
+  g_assert_cmpint(whelk_launcher_clamp_width(100), ==, 360);
+  g_assert_cmpint(whelk_launcher_clamp_width(720), ==, 720);
+  g_assert_cmpint(whelk_launcher_clamp_width(3000), ==, 1600);
+  g_assert_cmpint(whelk_launcher_clamp_height(100), ==, 300);
+  g_assert_cmpint(whelk_launcher_clamp_height(700), ==, 700);
+  g_assert_cmpint(whelk_launcher_clamp_height(2000), ==, 1200);
+  g_assert_cmpint(whelk_launcher_clamp_icon_size(1), ==, 16);
+  g_assert_cmpint(whelk_launcher_clamp_icon_size(32), ==, 32);
+  g_assert_cmpint(whelk_launcher_clamp_icon_size(200), ==, 64);
+  g_assert_cmpint(whelk_launcher_clamp_font_scale(20), ==, 75);
+  g_assert_cmpint(whelk_launcher_clamp_font_scale(125), ==, 125);
+  g_assert_cmpint(whelk_launcher_clamp_font_scale(500), ==, 200);
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -123,6 +140,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/whelk/calc/format", test_calc_format);
   g_test_add_func("/whelk/launcher/scroll", test_scroll_follows_selection);
   g_test_add_func("/whelk/launcher/outside", test_click_outside_card);
+  g_test_add_func("/whelk/launcher/appearance-bounds", test_appearance_bounds);
 
   return g_test_run();
 }

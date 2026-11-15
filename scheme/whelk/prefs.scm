@@ -113,6 +113,7 @@ file cannot leave the shell with a half-applied look."
     bar-font bar-font-size bar-theme bar-foreground bar-background bar-accent
     bar-border-color bar-radius bar-opacity bar-blur bar-shine bar-reflection
     bar-flare
+    launcher-width launcher-height launcher-icon-size launcher-font-scale
     wifi-show-ssid? wifi-interval
     notifications-show-count?
     menu-shortcuts? menu-app-name? menu-accelerator-style
@@ -375,6 +376,14 @@ settings window numbers it."
      (unit-preference prefs 'bar-flare
                       (material 'flare (bar-config-flare bar)))
      (from-palette 'css (bar-config-css bar))
+     (integer-preference prefs 'launcher-width
+                         (bar-config-launcher-width bar))
+     (integer-preference prefs 'launcher-height
+                         (bar-config-launcher-height bar))
+     (integer-preference prefs 'launcher-icon-size
+                         (bar-config-launcher-icon-size bar))
+     (integer-preference prefs 'launcher-font-scale
+                         (bar-config-launcher-font-scale bar))
      (apply-module-group (bar-config-modules-left bar) prefs counter
                          module-overrides?)
      (apply-module-group (bar-config-modules-center bar) prefs counter

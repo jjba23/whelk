@@ -340,6 +340,14 @@ static void on_spin_changed(GtkSpinButton *spin, gpointer user_data) {
     queue_int(state, key, gtk_spin_button_get_value_as_int(spin));
 }
 
+static void on_double_spin_changed(GtkSpinButton *spin, gpointer user_data) {
+  PrefsState *state = user_data;
+  const char *key = preference_key(GTK_WIDGET(spin));
+
+  if (key)
+    queue_double(state, key, gtk_spin_button_get_value(spin));
+}
+
 static void on_scale_changed(GtkRange *range, gpointer user_data) {
   PrefsState *state = user_data;
   const char *key = preference_key(GTK_WIDGET(range));
@@ -371,6 +379,18 @@ static void on_entry_changed(GtkEditable *editable, gpointer user_data) {
 
   if (key)
     queue_text(state, key, gtk_editable_get_text(editable), CHANGE_STRING);
+}
+
+/* A module option that arrived as a symbol must go back as a symbol.  The
+ * generic editor used to write every entry through the string save path, which
+ * turned `#:accelerator-style 'cua' into the string "cua" after one edit. */
+static void on_symbol_entry_changed(GtkEditable *editable, gpointer user_data) {
+  PrefsState *state = user_data;
+  GtkWidget *widget = GTK_WIDGET(editable);
+  const char *key = preference_key(widget);
+
+  if (key)
+    queue_text(state, key, gtk_editable_get_text(editable), CHANGE_SYMBOL);
 }
 
 static void on_dropdown_notify(GObject *object, GParamSpec *pspec,
@@ -428,6 +448,25 @@ static GtkWidget *row_spin(PrefsState *state, GtkWidget *card,
   return control;
 }
 
+static GtkWidget *row_double(PrefsState *state, GtkWidget *card,
+                             const char *title, const char *subtitle,
+                             const char *key, double value, double minimum,
+                             double maximum, double step) {
+  GtkWidget *control =
+      gtk_spin_button_new_with_range(minimum, maximum, step);
+
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(control), value);
+  gtk_spin_button_set_digits(GTK_SPIN_BUTTON(control), 3);
+  gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(control), TRUE);
+  gtk_editable_set_width_chars(GTK_EDITABLE(control), 7);
+  set_preference_key(control, key);
+  g_signal_connect(control, "value-changed",
+                   G_CALLBACK(on_double_spin_changed), state);
+  row_add(card, title, subtitle, control);
+
+  return control;
+}
+
 static GtkWidget *row_scale(PrefsState *state, GtkWidget *card,
                             const char *title, const char *subtitle,
                             const char *key, double value, double minimum,
@@ -474,19 +513,30 @@ static GtkWidget *row_color(PrefsState *state, GtkWidget *card,
   return control;
 }
 
-static GtkWidget *row_entry(PrefsState *state, GtkWidget *card,
-                            const char *title, const char *subtitle,
-                            const char *key, const char *value) {
+static GtkWidget *row_entry_kind(PrefsState *state, GtkWidget *card,
+                                 const char *title, const char *subtitle,
+                                 const char *key, const char *value,
+                                 ChangeKind kind) {
   GtkWidget *control = gtk_entry_new();
 
   gtk_editable_set_text(GTK_EDITABLE(control), value ? value : "");
   gtk_editable_set_width_chars(GTK_EDITABLE(control), 18);
   gtk_widget_set_size_request(control, 200, -1);
   set_preference_key(control, key);
-  g_signal_connect(control, "changed", G_CALLBACK(on_entry_changed), state);
+  g_signal_connect(control, "changed",
+                   kind == CHANGE_SYMBOL ? G_CALLBACK(on_symbol_entry_changed)
+                                         : G_CALLBACK(on_entry_changed),
+                   state);
   row_add(card, title, subtitle, control);
 
   return control;
+}
+
+static GtkWidget *row_entry(PrefsState *state, GtkWidget *card,
+                            const char *title, const char *subtitle,
+                            const char *key, const char *value) {
+  return row_entry_kind(state, card, title, subtitle, key, value,
+                        CHANGE_STRING);
 }
 
 static GtkWidget *row_dropdown(PrefsState *state, GtkWidget *card,
@@ -780,30 +830,11 @@ static gint compare_option_names(gconstpointer a, gconstpointer b) {
   return g_strcmp0(*(const char *const *)a, *(const char *const *)b);
 }
 
-/* The option table carries Scheme spellings, because that is what the bridge
- * hands C.  These two decide which control a value gets without losing that
- * spelling when it is written back. */
-static gboolean text_is_boolean(const char *text) {
-  return g_strcmp0(text, "#t") == 0 || g_strcmp0(text, "#f") == 0;
-}
-
-static gboolean text_is_integer(const char *text) {
-  gchar *end = NULL;
-
-  if (!text || *text == '\0')
-    return FALSE;
-
-  g_ascii_strtoll(text, &end, 10);
-
-  if (end == text)
-    return FALSE;
-
-  while (*end != '\0' && g_ascii_isspace(*end))
-    end++;
-
-  return *end == '\0';
-}
-
+/* Every module on the first bar, in the order the Scheme override layer
+ * numbers them: left, centre, right, overflow.  One card per instance, not
+ * per kind, so two custom modules are two cards.  A card's keys carry the
+ * kind and the occurrence among modules of that kind, not the position in the
+ * bar: inserting or moving another kind cannot move the card's override. */
 static GPtrArray *sorted_options(const WhelkModuleSpec *spec) {
   GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
   GHashTableIter iter;
@@ -817,11 +848,6 @@ static GPtrArray *sorted_options(const WhelkModuleSpec *spec) {
   return names;
 }
 
-/* Every module on the first bar, in the order the Scheme override layer
- * numbers them: left, centre, right, overflow.  One card per instance, not
- * per kind, so two custom modules are two cards.  A card's keys carry the
- * kind and the occurrence among modules of that kind, not the position in the
- * bar: inserting or moving another kind cannot move the card's override. */
 static void build_modules_page(PrefsState *state, GtkStack *stack) {
   GtkWidget *body = page_body(stack, "modules", "Modules");
   WhelkBarConfig *bar = state->bar;
@@ -842,12 +868,14 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
   GHashTable *occurrences =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   gboolean skipped_line_breaks = FALSE;
+  gboolean skipped_lists = FALSE;
 
   GtkWidget *intro = text_label(
       "Every option this bar's modules were given is editable here.  A "
       "module's key is its kind and occurrence, such as module-clock-0-format "
       "for the first clock, so reordering the bar does not move its settings.  "
-      "A change is an override, and Reset deletes all of them.",
+      "Symbols stay symbols and numbers stay numbers when the window writes "
+      "them back.  A change is an override, and Reset deletes all of them.",
       "settings-note");
   gtk_box_append(GTK_BOX(body), intro);
 
@@ -897,12 +925,28 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
           continue;
         }
 
-        if (text_is_boolean(value))
+        const WhelkOptionType type = whelk_spec_type(spec, name);
+
+        /* A list has no single text spelling that is also a list: the bridge's
+         * comma-joined preview is for reading, not for writing back.  Those
+         * options stay in settings.scm, where their structure is visible. */
+        if (type == WHELK_OPTION_LIST || type == WHELK_OPTION_OTHER) {
+          skipped_lists = TRUE;
+          continue;
+        }
+
+        if (type == WHELK_OPTION_BOOLEAN)
           row_switch(state, card, name, NULL, key,
                      g_strcmp0(value, "#t") == 0, NULL, NULL);
-        else if (text_is_integer(value))
+        else if (type == WHELK_OPTION_INTEGER)
           row_spin(state, card, name, NULL, key,
                    whelk_spec_int(spec, name, 0), 0, 1000000);
+        else if (type == WHELK_OPTION_NUMBER)
+          row_double(state, card, name, NULL, key,
+                     whelk_spec_double(spec, name, 0.0), -1000000.0, 1000000.0,
+                     0.1);
+        else if (type == WHELK_OPTION_SYMBOL)
+          row_entry_kind(state, card, name, NULL, key, value, CHANGE_SYMBOL);
         else
           row_entry(state, card, name, NULL, key, value);
       }
@@ -916,6 +960,16 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
     GtkWidget *note = text_label(
         "Options containing line breaks, such as a tooltip, stay in "
         "settings.scm so their shape is not flattened.",
+        "settings-note");
+
+    gtk_widget_set_margin_top(note, 10);
+    gtk_box_append(GTK_BOX(body), note);
+  }
+
+  if (skipped_lists) {
+    GtkWidget *note = text_label(
+        "List-valued options and exact fractions stay in settings.scm: a "
+        "single text field cannot write back their Scheme shape.",
         "settings-note");
 
     gtk_widget_set_margin_top(note, 10);
@@ -952,7 +1006,32 @@ static const char *launcher_mode_label(const char *mode) {
  * niri, Hyprland, river and X11 each keep their own, and the escape hatch is
  * the honest way to reach them. */
 static void build_launcher_page(PrefsState *state, GtkStack *stack) {
-  GtkWidget *body = page_body(stack, "keys", "Keys");
+  GtkWidget *body = page_body(stack, "keys", "Launcher");
+  GtkWidget *appearance = card_new(
+      "Window and zoom",
+      "The card's starting size and how large its icons and text are.  The "
+      "same controls are on the launcher itself: drag its lower-right corner, "
+      "or use the Icons and Text buttons.");
+  const int width = state->bar ? state->bar->launcher_width : 660;
+  const int height = state->bar ? state->bar->launcher_height : 640;
+  const int icon_size = state->bar ? state->bar->launcher_icon_size : 24;
+  const int font_scale = state->bar ? state->bar->launcher_font_scale : 100;
+
+  gtk_box_append(GTK_BOX(body), appearance);
+  row_spin(state, appearance, "Width", "Pixels.", "launcher-width", width, 360,
+           1600);
+  row_spin(state, appearance, "Height", "Pixels.", "launcher-height", height,
+           300, 1200);
+  row_spin(state, appearance, "Icon size", "Pixels per launcher icon.",
+           "launcher-icon-size", icon_size, 16, 64);
+  row_spin(state, appearance, "Text size",
+           "Percent of the bar's configured font size.", "launcher-font-scale",
+           font_scale, 75, 200);
+  card_note(appearance,
+            "These are GUI overrides.  A bar's launcher-width, "
+            "launcher-height, launcher-icon-size and launcher-font-scale "
+            "keywords are the defaults, and Reset restores them.");
+
   GtkWidget *start = card_new(
       "When the launcher opens", "The mode a bare `whelk --launcher' starts in.");
   g_autofree char *stored =

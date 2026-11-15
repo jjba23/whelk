@@ -34,8 +34,6 @@
  * function that opens the chosen thing.  Everything below is one of those.
  */
 
-#define WHELK_LAUNCHER_WIDTH 660
-#define WHELK_LAUNCHER_LIST_HEIGHT 420
 #define WHELK_LAUNCHER_RESULT_LIMIT 40
 #define WHELK_LAUNCHER_DEBOUNCE_MS 120
 #define WHELK_LAUNCHER_FILE_DEBOUNCE_MS 260
@@ -96,6 +94,20 @@ struct _WhelkLauncher {
   GtkWidget *mode_label;
   GtkWidget *hint;
   GtkWidget *empty;
+  GtkWidget *icon_value;
+  GtkWidget *font_value;
+  GtkWidget *grip;
+
+  /* The card's live geometry.  The bar config supplies the starting point and
+   * the preference file supplies an override; dragging and the zoom buttons
+   * update both. */
+  int width;
+  int height;
+  int icon_size;
+  int font_scale;
+  int drag_width;
+  int drag_height;
+  GtkCssProvider *zoom_skin;
 
   GPtrArray *apps;
   GPtrArray *commands;
@@ -133,6 +145,8 @@ G_DEFINE_TYPE(WhelkLauncher, whelk_launcher, G_TYPE_OBJECT)
 
 static void refresh_results(WhelkLauncher *self);
 static void scroll_selected_into_view(WhelkLauncher *self);
+static void load_appearance(WhelkLauncher *self);
+static void apply_icon_size(WhelkLauncher *self);
 
 /* =========================================================================
  * ITEMS
@@ -761,7 +775,8 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
   else
     icon = gtk_image_new_from_icon_name("application-x-executable-symbolic");
 
-  gtk_image_set_pixel_size(GTK_IMAGE(icon), item->preview ? 36 : 24);
+  gtk_image_set_pixel_size(
+      GTK_IMAGE(icon), item->preview ? self->icon_size + 12 : self->icon_size);
   gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
 
   GtkWidget *icon_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -781,6 +796,9 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
   gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
   g_object_set_data(G_OBJECT(row), "whelk-item", item);
   g_object_set_data(G_OBJECT(row), "whelk-owned", GINT_TO_POINTER(0));
+  g_object_set_data(G_OBJECT(row), "whelk-icon", icon);
+  g_object_set_data(G_OBJECT(row), "whelk-icon-preview",
+                    GINT_TO_POINTER(item->preview ? 1 : 0));
 
   gtk_list_box_append(GTK_LIST_BOX(self->list), row);
 }
@@ -1599,6 +1617,219 @@ static gboolean on_outside_pressed(GtkGestureClick *gesture, int n_press,
   return TRUE;
 }
 
+
+/* =========================================================================
+ * LAUNCHER APPEARANCE
+ * =========================================================================
+ * The bar's launcher-* options are the defaults, and the preference file holds
+ * the user's overrides.  Dragging the grip or pressing a zoom button writes
+ * the same preference keys the settings window edits, so the two surfaces
+ * cannot drift apart.
+ */
+
+static int appearance_pref_int(const char *path, const char *key,
+                               int fallback) {
+  if (!path || !*path)
+    return fallback;
+
+  g_autofree char *text = whelk_bridge_preference_text(path, key);
+
+  if (!text)
+    return fallback;
+
+  char *end = NULL;
+  gint64 value = g_ascii_strtoll(text, &end, 10);
+
+  return end == text ? fallback : (int)value;
+}
+
+static char *scaled_font_size(const char *base, int percent) {
+  const char *source = base && *base ? base : "11pt";
+  char *end = NULL;
+  double value = g_ascii_strtod(source, &end);
+
+  if (end == source || value <= 0.0)
+    return g_strdup(source);
+
+  while (g_ascii_isspace(*end))
+    end++;
+
+  const char *unit = *end ? end : "pt";
+
+  return g_strdup_printf("%.2f%s", value * percent / 100.0, unit);
+}
+
+static void apply_geometry(WhelkLauncher *self) {
+  if (!self->card)
+    return;
+
+  gtk_widget_set_size_request(self->card, self->width, self->height);
+  gtk_widget_set_vexpand(self->scroller, TRUE);
+}
+
+static void update_zoom_labels(WhelkLauncher *self) {
+  if (self->icon_value) {
+    g_autofree char *text = g_strdup_printf("%d px", self->icon_size);
+    gtk_label_set_text(GTK_LABEL(self->icon_value), text);
+  }
+
+  if (self->font_value) {
+    g_autofree char *text = g_strdup_printf("%d%%", self->font_scale);
+    gtk_label_set_text(GTK_LABEL(self->font_value), text);
+  }
+}
+
+static void apply_icon_size(WhelkLauncher *self) {
+  if (!self->list)
+    return;
+
+  for (GtkWidget *row = gtk_widget_get_first_child(self->list); row;
+       row = gtk_widget_get_next_sibling(row)) {
+    GtkWidget *icon = g_object_get_data(G_OBJECT(row), "whelk-icon");
+
+    if (!GTK_IS_IMAGE(icon))
+      continue;
+
+    const gboolean preview =
+        GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "whelk-icon-preview"));
+
+    gtk_image_set_pixel_size(GTK_IMAGE(icon),
+                             preview ? self->icon_size + 12 : self->icon_size);
+  }
+
+  update_zoom_labels(self);
+}
+
+/* A provider above the bar's skin scales the card's font size; every child
+ * that sets a relative size (the entry, the title, a detail line) follows it. */
+static void apply_font_scale(WhelkLauncher *self) {
+  GdkDisplay *display = gdk_display_get_default();
+
+  if (self->zoom_skin) {
+    whelk_style_detach(self->zoom_skin, display);
+    self->zoom_skin = NULL;
+  }
+
+  if (!display || !self->card)
+    return;
+
+  g_autofree char *widget_id = whelk_style_widget_id("launcher");
+  g_autofree char *size =
+      scaled_font_size(self->style ? self->style->font_size : NULL,
+                       self->font_scale);
+  g_autofree char *css = g_strdup_printf(
+      "window#%s .whelk-launcher { font-size: %s; }\n", widget_id, size);
+
+  self->zoom_skin = gtk_css_provider_new();
+  gtk_css_provider_load_from_string(self->zoom_skin, css);
+  gtk_style_context_add_provider_for_display(
+      display, GTK_STYLE_PROVIDER(self->zoom_skin),
+      GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+}
+
+static void save_appearance_int(WhelkLauncher *self, const char *key,
+                                int value) {
+  if (!self->config_path || !*self->config_path)
+    return;
+
+  if (!whelk_bridge_save_preference_int(self->config_path, key, value))
+    LOG_C_WARN("Launcher", "could not save %s", key);
+}
+
+static void load_appearance(WhelkLauncher *self) {
+  if (!self || !self->card)
+    return;
+
+  const int width = self->style ? self->style->launcher_width : 660;
+  const int height = self->style ? self->style->launcher_height : 640;
+  const int icon = self->style ? self->style->launcher_icon_size : 24;
+  const int font = self->style ? self->style->launcher_font_scale : 100;
+
+  self->width = whelk_launcher_clamp_width(
+      appearance_pref_int(self->config_path, "launcher-width", width));
+  self->height = whelk_launcher_clamp_height(
+      appearance_pref_int(self->config_path, "launcher-height", height));
+  self->icon_size = whelk_launcher_clamp_icon_size(
+      appearance_pref_int(self->config_path, "launcher-icon-size", icon));
+  self->font_scale = whelk_launcher_clamp_font_scale(
+      appearance_pref_int(self->config_path, "launcher-font-scale", font));
+  self->drag_width = self->width;
+  self->drag_height = self->height;
+
+  apply_geometry(self);
+  apply_icon_size(self);
+  apply_font_scale(self);
+  update_zoom_labels(self);
+}
+
+static void zoom_icons(WhelkLauncher *self, int delta) {
+  self->icon_size = whelk_launcher_clamp_icon_size(self->icon_size + delta);
+  apply_icon_size(self);
+  save_appearance_int(self, "launcher-icon-size", self->icon_size);
+}
+
+static void zoom_font(WhelkLauncher *self, int delta) {
+  self->font_scale = whelk_launcher_clamp_font_scale(self->font_scale + delta);
+  apply_font_scale(self);
+  update_zoom_labels(self);
+  save_appearance_int(self, "launcher-font-scale", self->font_scale);
+}
+
+static void on_icon_zoom_clicked(GtkButton *button, gpointer user_data) {
+  WhelkLauncher *self = user_data;
+  const int delta =
+      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "whelk-zoom"));
+
+  zoom_icons(self, delta);
+}
+
+static void on_font_zoom_clicked(GtkButton *button, gpointer user_data) {
+  WhelkLauncher *self = user_data;
+  const int delta =
+      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "whelk-zoom"));
+
+  zoom_font(self, delta);
+}
+
+static void on_resize_begin(GtkGestureDrag *gesture, double x, double y,
+                            gpointer user_data) {
+  WhelkLauncher *self = user_data;
+
+  (void)gesture;
+  (void)x;
+  (void)y;
+
+  self->drag_width = self->width;
+  self->drag_height = self->height;
+}
+
+static void on_resize_update(GtkGestureDrag *gesture, double offset_x,
+                             double offset_y, gpointer user_data) {
+  WhelkLauncher *self = user_data;
+
+  (void)gesture;
+
+  /* The card is horizontally centred, so both edges move.  Doubling the
+   * horizontal delta keeps the grip under the pointer as the card grows. */
+  self->width =
+      whelk_launcher_clamp_width(self->drag_width + 2 * (int)offset_x);
+  self->height =
+      whelk_launcher_clamp_height(self->drag_height + (int)offset_y);
+  apply_geometry(self);
+}
+
+static void on_resize_end(GtkGestureDrag *gesture, double offset_x,
+                          double offset_y, gpointer user_data) {
+  WhelkLauncher *self = user_data;
+
+  (void)gesture;
+  (void)offset_x;
+  (void)offset_y;
+
+  save_appearance_int(self, "launcher-width", self->width);
+  save_appearance_int(self, "launcher-height", self->height);
+}
+
 void whelk_launcher_set_config_path(WhelkLauncher *self, const char *path) {
   if (!self)
     return;
@@ -1608,8 +1839,10 @@ void whelk_launcher_set_config_path(WhelkLauncher *self, const char *path) {
   g_clear_pointer(&self->keys, whelk_launcher_keys_free);
   self->keys = whelk_launcher_keys_new();
 
-  if (!path || !*path)
+  if (!path || !*path) {
+    load_appearance(self);
     return;
+  }
 
   g_autofree char *mode =
       whelk_bridge_preference_text(path, "launcher-default-mode");
@@ -1627,6 +1860,8 @@ void whelk_launcher_set_config_path(WhelkLauncher *self, const char *path) {
     if (prefix)
       whelk_launcher_keys_set_prefix(self->keys, name, prefix);
   }
+
+  load_appearance(self);
 }
 
 WhelkLauncher *whelk_launcher_new(GtkApplication *app,
@@ -1641,6 +1876,11 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
    * deliberately square. */
   if (self->style->radius < 16)
     self->style->radius = 16;
+
+  self->width = self->style->launcher_width;
+  self->height = self->style->launcher_height;
+  self->icon_size = self->style->launcher_icon_size;
+  self->font_scale = self->style->launcher_font_scale;
 
   self->apps = g_ptr_array_new_with_free_func(item_free);
   self->commands = g_ptr_array_new_with_free_func(item_free);
@@ -1669,7 +1909,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_search_entry_set_placeholder_text(
       GTK_SEARCH_ENTRY(self->entry),
       "Search applications, windows, commands…");
-  gtk_widget_set_size_request(self->card, WHELK_LAUNCHER_WIDTH, -1);
+  gtk_widget_set_size_request(self->card, self->width, self->height);
 
   GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
   GtkWidget *brand = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -1714,6 +1954,70 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_widget_set_halign(self->mode_label, GTK_ALIGN_START);
   gtk_label_set_wrap(GTK_LABEL(self->hint), TRUE);
 
+  GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget *icon_label = gtk_label_new("Icons");
+  GtkWidget *icon_minus = gtk_button_new_with_label("−");
+  GtkWidget *icon_plus = gtk_button_new_with_label("+");
+  GtkWidget *font_label = gtk_label_new("Text");
+  GtkWidget *font_minus = gtk_button_new_with_label("A−");
+  GtkWidget *font_plus = gtk_button_new_with_label("A+");
+  GtkWidget *footer_spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *grip = gtk_label_new("◢");
+
+  gtk_widget_add_css_class(footer, "whelk-launcher-footer");
+  gtk_widget_add_css_class(icon_label, "whelk-launcher-zoom-label");
+  gtk_widget_add_css_class(font_label, "whelk-launcher-zoom-label");
+  gtk_widget_add_css_class(grip, "whelk-launcher-grip");
+  gtk_widget_set_hexpand(footer_spacer, TRUE);
+  gtk_widget_set_tooltip_text(grip, "Drag to resize the launcher");
+
+  GtkWidget *zoom_buttons[] = {icon_minus, icon_plus, font_minus, font_plus};
+  const char *zoom_tips[] = {"Smaller icons", "Larger icons", "Smaller text",
+                             "Larger text"};
+
+  for (guint i = 0; i < G_N_ELEMENTS(zoom_buttons); i++) {
+    gtk_widget_add_css_class(zoom_buttons[i], "whelk-launcher-zoom");
+    gtk_widget_add_css_class(zoom_buttons[i], "flat");
+    gtk_widget_set_tooltip_text(zoom_buttons[i], zoom_tips[i]);
+  }
+
+  g_object_set_data(G_OBJECT(icon_minus), "whelk-zoom", GINT_TO_POINTER(-4));
+  g_object_set_data(G_OBJECT(icon_plus), "whelk-zoom", GINT_TO_POINTER(4));
+  g_object_set_data(G_OBJECT(font_minus), "whelk-zoom", GINT_TO_POINTER(-10));
+  g_object_set_data(G_OBJECT(font_plus), "whelk-zoom", GINT_TO_POINTER(10));
+  g_signal_connect(icon_minus, "clicked", G_CALLBACK(on_icon_zoom_clicked),
+                   self);
+  g_signal_connect(icon_plus, "clicked", G_CALLBACK(on_icon_zoom_clicked),
+                   self);
+  g_signal_connect(font_minus, "clicked", G_CALLBACK(on_font_zoom_clicked),
+                   self);
+  g_signal_connect(font_plus, "clicked", G_CALLBACK(on_font_zoom_clicked), self);
+
+  self->icon_value = gtk_label_new("24 px");
+  self->font_value = gtk_label_new("100%");
+  gtk_widget_add_css_class(self->icon_value, "whelk-launcher-zoom-value");
+  gtk_widget_add_css_class(self->font_value, "whelk-launcher-zoom-value");
+
+  gtk_box_append(GTK_BOX(footer), icon_label);
+  gtk_box_append(GTK_BOX(footer), icon_minus);
+  gtk_box_append(GTK_BOX(footer), icon_plus);
+  gtk_box_append(GTK_BOX(footer), self->icon_value);
+  gtk_box_append(GTK_BOX(footer), footer_spacer);
+  gtk_box_append(GTK_BOX(footer), font_label);
+  gtk_box_append(GTK_BOX(footer), font_minus);
+  gtk_box_append(GTK_BOX(footer), font_plus);
+  gtk_box_append(GTK_BOX(footer), self->font_value);
+  gtk_box_append(GTK_BOX(footer), grip);
+
+  self->grip = grip;
+  gtk_widget_set_cursor_from_name(grip, "nwse-resize");
+  GtkGesture *resize = gtk_gesture_drag_new();
+
+  g_signal_connect(resize, "drag-begin", G_CALLBACK(on_resize_begin), self);
+  g_signal_connect(resize, "drag-update", G_CALLBACK(on_resize_update), self);
+  g_signal_connect(resize, "drag-end", G_CALLBACK(on_resize_end), self);
+  gtk_widget_add_controller(grip, GTK_EVENT_CONTROLLER(resize));
+
   self->list = gtk_list_box_new();
 
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(self->list),
@@ -1728,8 +2032,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
                                 self->list);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(self->scroller),
                                  GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  gtk_widget_set_size_request(self->scroller, -1,
-                              WHELK_LAUNCHER_LIST_HEIGHT);
+  gtk_widget_set_vexpand(self->scroller, TRUE);
 
   self->empty = gtk_label_new("Nothing matched — try a different search.");
   gtk_widget_add_css_class(self->empty, "whelk-launcher-empty");
@@ -1743,6 +2046,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
   gtk_box_append(GTK_BOX(self->card), self->scroller);
   gtk_box_append(GTK_BOX(self->card), self->empty);
   gtk_box_append(GTK_BOX(self->card), self->hint);
+  gtk_box_append(GTK_BOX(self->card), footer);
 
   GtkWidget *holder = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
@@ -1795,6 +2099,7 @@ WhelkLauncher *whelk_launcher_new(GtkApplication *app,
       GTK_EVENT_CONTROLLER(outside_click));
 
   whelk_surface_present(self->surface);
+  load_appearance(self);
 
   GtkWindow *window = whelk_surface_get_window(self->surface);
 
@@ -1826,6 +2131,7 @@ void whelk_launcher_set_style(WhelkLauncher *self,
   self->skin =
       whelk_style_apply(widget_id, self->style, "whelk-launcher", NULL);
 
+  load_appearance(self);
   gtk_widget_queue_draw(self->card);
 }
 
@@ -1980,6 +2286,11 @@ static void whelk_launcher_dispose(GObject *object) {
   g_clear_pointer(&self->hosts, g_ptr_array_unref);
   g_clear_pointer(&self->clipboard, g_ptr_array_unref);
   g_clear_pointer(&self->menu_items, g_ptr_array_unref);
+
+  if (self->zoom_skin) {
+    whelk_style_detach(self->zoom_skin, gdk_display_get_default());
+    self->zoom_skin = NULL;
+  }
 
   if (self->skin)
     whelk_style_detach(self->skin, gdk_display_get_default());

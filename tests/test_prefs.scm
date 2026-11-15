@@ -96,6 +96,10 @@
 (save-preference! config-path 'module-clock-1-format "%S seconds")
 (save-preference! config-path 'launcher-default-mode 'window)
 (save-preference! config-path 'launcher-key-run "")
+(save-preference! config-path 'launcher-width 740)
+(save-preference! config-path 'launcher-height 680)
+(save-preference! config-path 'launcher-icon-size 34)
+(save-preference! config-path 'launcher-font-scale 130)
 (save-preference! config-path 'not-a-real-setting #t)
 
 (check "the override file exists"
@@ -173,6 +177,11 @@
        (eq? (preference-ref config-path 'launcher-default-mode) 'window))
 (check "a cleared launcher key is stored as empty"
        (equal? (preference-ref config-path 'launcher-key-run) ""))
+(check "the launcher's size and zoom are overrides"
+       (and (= (bar-config-launcher-width applied) 740)
+            (= (bar-config-launcher-height applied) 680)
+            (= (bar-config-launcher-icon-size applied) 34)
+            (= (bar-config-launcher-font-scale applied) 130)))
 
 ;; Inserting another kind before the modules must not move their keys: the old
 ;; positional format would have hidden or renamed the wrong module here.
@@ -235,6 +244,11 @@
        (not (module-option (module-by-kind restored 'wifi) 'hidden?)))
 (check "reset drops the launcher key"
        (not (preference-ref config-path 'launcher-key-run)))
+(check "reset restores the launcher defaults"
+       (and (= (bar-config-launcher-width restored) 660)
+            (= (bar-config-launcher-height restored) 640)
+            (= (bar-config-launcher-icon-size restored) 24)
+            (= (bar-config-launcher-font-scale restored) 100)))
 (check "reset restores the untouched spacing" (= (bar-config-spacing restored) 8))
 
 (delete-file config-path)

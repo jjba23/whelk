@@ -54,6 +54,10 @@
             bar-config-shine
             bar-config-reflection
             bar-config-flare
+            bar-config-launcher-width
+            bar-config-launcher-height
+            bar-config-launcher-icon-size
+            bar-config-launcher-font-scale
             bar-config-css
             bar-config-modules-left
             bar-config-modules-center
@@ -104,6 +108,8 @@
                    font font-size icon-font
                    foreground background accent border-color radius
                    opacity blur shine reflection flare css
+                   launcher-width launcher-height launcher-icon-size
+                   launcher-font-scale
                    modules-left modules-center modules-right
                    overflow-expanded? modules-overflow)
   bar-config?
@@ -135,6 +141,10 @@
   (shine bar-config-shine)
   (reflection bar-config-reflection)
   (flare bar-config-flare)
+  (launcher-width bar-config-launcher-width)
+  (launcher-height bar-config-launcher-height)
+  (launcher-icon-size bar-config-launcher-icon-size)
+  (launcher-font-scale bar-config-launcher-font-scale)
   (css bar-config-css)
   (modules-left bar-config-modules-left)
   (modules-center bar-config-modules-center)
@@ -383,6 +393,10 @@ becomes the same list so the C side has one shape to evaluate."
               (reflection #f)
               (flare #f)
               (css #f)
+              (launcher-width 660)
+              (launcher-height 640)
+              (launcher-icon-size 24)
+              (launcher-font-scale 100)
               (left '())
               (center '())
               (right '())
@@ -419,6 +433,12 @@ soft outer shadow radius in pixels.  SHINE, REFLECTION and FLARE are 0..1
 strengths for the top highlight, the lower inner reflection and the accent
 glow along the top edge.  A theme supplies these starting points; a keyword on
 the bar overrides one without touching the others.
+
+LAUNCHER-WIDTH, LAUNCHER-HEIGHT, LAUNCHER-ICON-SIZE and LAUNCHER-FONT-SCALE
+are the launcher's starting geometry: pixels for the card and its icons, and a
+percentage of the bar's font size for its text.  They are defaults; dragging
+the launcher's grip or using its Icons and Text buttons writes overrides, and
+the Launcher page edits the same four keys.
 
 OVERFLOW is a list of modules kept behind a chevron at the end of the right
 row.  The area is laid out horizontally only while it is open, and
@@ -474,6 +494,10 @@ their clicks keep working while the area is closed."
                      (as-unit (from-theme 'reflection reflection) 0.0)
                      (as-unit (from-theme 'flare flare) 0.0)
                      (from-theme 'css css)
+                     (as-int launcher-width 660)
+                     (as-int launcher-height 640)
+                     (as-int launcher-icon-size 24)
+                     (as-int launcher-font-scale 100)
                      (if (list? left) left '())
                      (if (list? center) center '())
                      (if (list? right) right '())
@@ -713,6 +737,10 @@ because a settings file may want to read the menu it configured."
         (cons 'reflection (bar-config-reflection b))
         (cons 'flare (bar-config-flare b))
         (cons 'css (bar-config-css b))
+        (cons 'launcher-width (bar-config-launcher-width b))
+        (cons 'launcher-height (bar-config-launcher-height b))
+        (cons 'launcher-icon-size (bar-config-launcher-icon-size b))
+        (cons 'launcher-font-scale (bar-config-launcher-font-scale b))
         (cons 'modules-left
               (map module->alist (bar-config-modules-left b)))
         (cons 'modules-center

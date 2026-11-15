@@ -447,6 +447,42 @@ window.whelk-surface {
   padding: 2px 2px 0 2px;
 }
 
+.whelk-launcher-footer {
+  padding: 2px 2px 0 2px;
+}
+
+.whelk-launcher-zoom-label {
+  opacity: 0.48;
+  font-size: 0.78em;
+}
+
+.whelk-launcher-zoom-value {
+  opacity: 0.62;
+  font-size: 0.78em;
+  min-width: 42px;
+}
+
+.whelk-launcher-zoom {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  opacity: 0.72;
+  transition: opacity 100ms ease-in-out,
+              background-color 100ms ease-in-out;
+}
+
+.whelk-launcher-zoom:hover {
+  opacity: 1;
+  background-color: alpha(currentColor, 0.10);
+}
+
+.whelk-launcher-grip {
+  opacity: 0.36;
+  padding: 0 2px 0 6px;
+  font-size: 0.95em;
+}
+
 .whelk-launcher-scroller {
   background-color: alpha(black, 0.13);
   border: 1px solid alpha(currentColor, 0.08);
