@@ -28,7 +28,26 @@ if [ "${WHELK_CLI_INNER:-0}" != 1 ]; then
     exit 77
   }
 
+  # dbus-run-session defaults to /etc/dbus-1/session.conf, which a Nix or
+  # Guix build sandbox does not have.  Prefer the config shipped beside the
+  # daemon we are about to run, then the system locations.
+  dbus_daemon=$(command -v dbus-daemon)
+  dbus_config=
+  for candidate in \
+    "$(dirname "$(dirname "$dbus_daemon")")/share/dbus-1/session.conf" \
+    /etc/dbus-1/session.conf \
+    /usr/share/dbus-1/session.conf; do
+    if [ -f "$candidate" ]; then
+      dbus_config=$candidate
+      break
+    fi
+  done
+
   export WHELK_CLI_INNER=1
+  if [ -n "$dbus_config" ]; then
+    exec xvfb-run -a dbus-run-session --config-file="$dbus_config" -- \
+      "$0" "$binary"
+  fi
   exec xvfb-run -a dbus-run-session -- "$0" "$binary"
 fi
 
