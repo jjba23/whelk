@@ -15,6 +15,25 @@ Nothing yet.
 
 *[Released]*
 
+** v0.27.3 (2026-11-15)
+
+*** Fixed
+
+- *A menu being listed is told that it is being listed.*  The documentation has
+  said since 0.26.0 that a generator is called with =WHELK_RETV=0= to list its
+  rows and =WHELK_RETV=1= to report a chosen one, but only the second call set
+  the variable: a listing inherited whatever the environment carried, so a menu
+  opened from a generator's chosen row -- which exports =WHELK_RETV=1= -- could
+  list itself in the accepting mode.  Both calls now go through one helper that
+  writes the value into the generator's own environment.
+
+*** Verified
+
+- The host build and the Meson suite pass: 40 tests.
+  =/command/menu-listing-retv= runs a listing while its own process exports
+  =WHELK_RETV=1= and reads =0= back from the generator;
+  =/command/menu-choice-retv= reads =1= back.
+
 ** v0.27.2 (2026-11-15)
 
 *** Changed
