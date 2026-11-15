@@ -16,6 +16,7 @@
 #include "config.h"
 #include "guile_bridge.h"
 #include "preferences.h"
+#include "util/launcherkeys.h"
 
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
@@ -94,6 +95,15 @@ static void test_bridge_round_trip(void) {
   g_assert_true(whelk_bridge_save_preference_int(path, "tray-max-items", 9));
   g_assert_true(whelk_bridge_save_preference_string(path, "clock-format",
                                                     "%H:%M:%S"));
+  g_assert_true(whelk_bridge_save_preference_bool(path, "module-0-visible?",
+                                                  FALSE));
+  g_assert_true(whelk_bridge_save_preference_string(path, "module-4-format",
+                                                    "%H:%M:%S"));
+  g_assert_true(whelk_bridge_save_preference_int(path, "module-4-interval", 2));
+  g_assert_true(whelk_bridge_save_preference_symbol(path, "launcher-default-mode",
+                                                    "window"));
+  g_assert_true(whelk_bridge_save_preference_string(path, "launcher-key-run",
+                                                    "//"));
 
   g_autofree char *prefs = g_build_filename(
       state_root, "whelk", "preferences-settings.scm", NULL);
@@ -122,6 +132,15 @@ static void test_bridge_round_trip(void) {
                   9);
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "clock"), "format", ""), ==,
                   "%H:%M:%S");
+  g_assert_cmpint(whelk_spec_int(module_of(bar, "clock"), "interval", 0), ==, 2);
+  g_assert_true(
+      whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
+  g_autofree char *launcher_mode =
+      whelk_bridge_preference_text(path, "launcher-default-mode");
+  g_autofree char *launcher_key =
+      whelk_bridge_preference_text(path, "launcher-key-run");
+  g_assert_cmpstr(launcher_mode, ==, "window");
+  g_assert_cmpstr(launcher_key, ==, "//");
   whelk_config_free_bars(bars);
 
   g_assert_true(whelk_bridge_reset_preferences(path));
@@ -136,6 +155,10 @@ static void test_bridge_round_trip(void) {
   g_assert_cmpint(bar->spacing, ==, 8);
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "notifications"), "format", ""),
                   ==, "{icon}");
+  g_assert_cmpstr(whelk_spec_str(module_of(bar, "clock"), "format", ""), ==,
+                  "%H:%M");
+  g_assert_false(whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
+  g_assert_null(whelk_bridge_preference_text(path, "launcher-key-run"));
   whelk_config_free_bars(bars);
 
   g_unlink(path);
@@ -214,6 +237,10 @@ static void test_widget_controls(void) {
   GtkWidget *shine = find_key(content, "bar-shine");
   GtkWidget *reflection = find_key(content, "bar-reflection");
   GtkWidget *flare = find_key(content, "bar-flare");
+  GtkWidget *module_format = find_key(content, "module-4-format");
+  GtkWidget *module_visible = find_key(content, "module-0-visible?");
+  GtkWidget *launcher_mode = find_key(content, "launcher-default-mode");
+  GtkWidget *launcher_key = find_key(content, "launcher-key-run");
   GtkWidget *reset = NULL;
 
   g_assert_true(GTK_IS_SPIN_BUTTON(height));
@@ -224,6 +251,10 @@ static void test_widget_controls(void) {
   g_assert_true(GTK_IS_SCALE(shine));
   g_assert_true(GTK_IS_SCALE(reflection));
   g_assert_true(GTK_IS_SCALE(flare));
+  g_assert_true(GTK_IS_ENTRY(module_format));
+  g_assert_true(GTK_IS_SWITCH(module_visible));
+  g_assert_true(GTK_IS_DROP_DOWN(launcher_mode));
+  g_assert_true(GTK_IS_ENTRY(launcher_key));
 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(height), 48);
   gtk_switch_set_active(GTK_SWITCH(count), TRUE);
@@ -232,6 +263,18 @@ static void test_widget_controls(void) {
   gtk_range_set_value(GTK_RANGE(shine), 0.33);
   gtk_range_set_value(GTK_RANGE(reflection), 0.22);
   gtk_range_set_value(GTK_RANGE(flare), 0.11);
+  gtk_editable_set_text(GTK_EDITABLE(module_format), "%H:%M:%S");
+  gtk_switch_set_active(GTK_SWITCH(module_visible), FALSE);
+  gtk_editable_set_text(GTK_EDITABLE(launcher_key), "//");
+
+  /* The drop-down shows labels, but the rows are in mode order, so the mode
+   * name is what picks the index. */
+  for (guint i = 0; i < whelk_launcher_keys_mode_count(); i++) {
+    if (g_strcmp0(whelk_launcher_keys_mode_at(i), "window") == 0) {
+      gtk_drop_down_set_selected(GTK_DROP_DOWN(launcher_mode), i);
+      break;
+    }
+  }
 
   GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(theme));
 
@@ -265,7 +308,17 @@ static void test_widget_controls(void) {
   g_assert_cmpfloat_with_epsilon(bar->flare, 0.11, 0.0001);
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "notifications"), "format", ""),
                   ==, "{icon} {count}");
+  g_assert_cmpstr(whelk_spec_str(module_of(bar, "clock"), "format", ""), ==,
+                  "%H:%M:%S");
+  g_assert_true(whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
   whelk_config_free_bars(bars);
+
+  g_autofree char *saved_mode =
+      whelk_bridge_preference_text(path, "launcher-default-mode");
+  g_autofree char *saved_key =
+      whelk_bridge_preference_text(path, "launcher-key-run");
+  g_assert_cmpstr(saved_mode, ==, "window");
+  g_assert_cmpstr(saved_key, ==, "//");
 
   /* Reset is the same path the user takes; it clears the file and rebuilds the
    * controls from the settings file. */

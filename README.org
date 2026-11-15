@@ -447,6 +447,11 @@ surface rather than a form dropped on the screen.  A prefix picks the mode.
 | =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
+The prefixes above are the defaults.  The settings window's *Keys* page can
+replace any of them, or empty one to disable it, and can choose the mode a bare
+=whelk --launcher= opens in; those choices are overrides in the state file, and
+*Reset GUI settings* puts the table back exactly as it is here.
+
 The menu mode speaks two shapes a generator can print: =label<TAB>command=
 lines, and the script protocol (=label\0icon\x1f…\0disabled\x1ftrue=), where
 listing the menu runs the generator with =WHELK_RETV=0= and choosing a row runs
@@ -882,11 +887,28 @@ Right-click the bar and choose *Edit settings…*.  The settings window has a
 page for each part of the shell a person changes often: *Bar* (edge, layer,
 height, spacing, padding, font and reserved space), *Theme* (palette, surface,
 ink, accent and hairline colours, opacity, shadow blur, shine, reflection,
-flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, and *More*
-(tray size and clock format).  Every control is live: the change is written,
-the bar and the shell's panels reload, and the window stays open for the next
-one.  Opening the settings window closes any bar popover first, so nothing is
-left floating above it.
+flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, *Modules*,
+*Keys*, and *More* (tray size and clock format).  Every control is live: the
+change is written, the bar and the shell's panels reload, and the window stays
+open for the next one.  Opening the settings window closes any bar popover
+first, so nothing is left floating above it.
+
+*Modules* mirrors the first bar: one card per module, in the order it is built
+(left, centre, right, overflow), with a *Show in the bar* switch and a control
+for every option the settings file gave that module.  Booleans become switches,
+integers become spin buttons and everything else an entry, so =#:show-ssid?=, a
+refresh =#:interval=, a custom module's =#:exec= and its click commands are all
+editable without opening the file.  Turning a module off keeps it in
+=settings.scm= -- and keeps its card in the window, so it can be turned back on.
+Options that contain line breaks, such as a multi-line tooltip, stay in the file
+so their shape is not flattened.
+
+*Keys* edits the keys whelk itself reads: the mode a bare =whelk --launcher=
+opens in, and the prefix that chooses each mode (=@= windows, =>= commands, and
+so on).  Clearing a prefix disables that key; the built-in map is the default,
+not a constant.  The binding that opens the launcher in the first place belongs
+to the compositor -- niri, Hyprland, river or X11 -- and the escape hatch below
+is the honest way to reach it.
 
 GUI choices are *overrides*, not edits to your configuration.  They are saved
 in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
@@ -1104,7 +1126,10 @@ accept the shared options:
 | =#:css-class=                      | an extra CSS class on the module's own widget                  |
 
 Unknown options are ignored rather than rejected: a settings file can be ahead
-of the binary, which is what makes upgrading whelk safe.
+of the binary, which is what makes upgrading whelk safe.  Nor do options have to
+be edited in the file: the settings window's *Modules* page writes each module's
+options as GUI overrides, and its *Show in the bar* switch hides a module while
+leaving the configuration untouched.
 
 | Module               | Reading                                          | Options of its own                                    |
 |----------------------+--------------------------------------------------+-------------------------------------------------------|
@@ -1761,8 +1786,13 @@ with real widgets:
   receives the line it was sent, an absent answer is an end of file rather than a
   hang, and a plain run still returns its output.
 - =tests/test_preferences.c= -- the GUI preference contract through the C
-  bridge, plus the keyed widgets: a real spin button, dropdown and switch write
-  the value their page promises.  The widget half skips on a headless runner.
+  bridge, plus the keyed widgets: real spin buttons, dropdowns, switches and
+  entries write the value their page promises, including a module's option, its
+  Show switch and the launcher's default mode and prefix.  The widget half
+  skips on a headless runner.
+- =tests/test_launcherkeys.c= -- the launcher's key map as data: the built-in
+  prefixes, a replacement, a cleared prefix that stops choosing its mode, the
+  longer-prefix rule, and an unknown default mode that is refused.
 - =tests/test_widgetconfig.c= -- a =<widget-config>= crossing the Guile bridge:
   kind, position, size, monitor and options arrive as a C struct deep enough to
   outlive the Scheme call.
@@ -1805,8 +1835,9 @@ The Guile tests cover the configuration layer:
   the same bar and ship the same widget set, so the example and the fallback
   cannot drift apart.
 - =tests/test_prefs.scm= -- GUI overrides: the state-file path, save/read
-  round trips, precedence over the settings file, and the reset that restores
-  it exactly.
+  round trips, precedence over the settings file, per-module option and
+  visibility overrides that survive a reload, launcher-key values including the
+  empty string, and the reset that restores it exactly.
 - =tests/test_widgets.scm= -- the desktop-widget contract: standard sizes,
   placement overrides, malformed options, the eight-widget Golden Gate set and
   the shell record the bridge reads.

@@ -168,7 +168,10 @@ protocol.
 configurable shelf, a `+N` fold that counts what it hides -- and taught the
 battery the difference between filling and merely plugged in.  The current line
 adds an About window that reports the machine and presets as Scheme modules,
-with a first XP-shaped taskbar.
+with a first XP-shaped taskbar.  0.29 completes the preferences window: every
+module's options and visibility, and the launcher's own mode keys and default
+mode, are edited there as reversible overrides, with the file escape hatch kept
+for what a window cannot express.
 
 ## Features that are in scope and not built yet
 
@@ -178,11 +181,6 @@ These are the ones the code already anticipates.
   `settings.scm` today. A drag would need to write back to a preference
   override, remember a per-monitor position and fall back sanely when the
   monitor geometry changes.
-- **A complete preferences window.** `prefs.scm` and the GTK settings window
-  cover the bar, theme, notifications, Wi-Fi, global menu, tray and clock. The
-  remaining modules, keybindings and launcher modes should be reachable there,
-  with the same reversible-overrides model, and with an "open the file at this
-  line" escape hatch for everything the window cannot express.
 - **Hyprland and river.** The session layer is a small interface with three
   implementations; `hyprctl` and river's IPC are two more. The workspaces and
   window modules would light up on two more desktops.

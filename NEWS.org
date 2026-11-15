@@ -15,6 +15,44 @@ Nothing yet.
 
 *[Released]*
 
+** v0.29.0 (2026-11-15)
+
+*** Added
+
+- *Every module is editable in the settings window.*  A new *Modules* page
+  mirrors the first bar: one card per module in build order (left, centre,
+  right, overflow), a *Show in the bar* switch, and a typed control for every
+  option the settings file gave that module -- booleans as switches, numbers as
+  spin buttons, everything else as an entry.  A module turned off stays in
+  =settings.scm= and keeps its card, so it can be turned back on; a module
+  configured hidden is listed the same way.  Options containing line breaks,
+  such as multi-line tooltips, stay in the file so their shape is not
+  flattened.
+
+- *The launcher's own keys are editable.*  A new *Keys* page chooses the mode a
+  bare =whelk --launcher= opens in and the prefix that selects each mode.
+  Clearing a prefix disables it; a longer prefix wins over a shorter one; an
+  unknown default mode is refused.  The launcher reads the overrides when it
+  opens and after a reload, so a key change needs no restart.  The binding that
+  opens the launcher is still the compositor's, and the page says so.
+
+- *The override layer grew two vocabularies.*  Module overrides are keyed by a
+  module's position in the first bar (=module-4-format=, =module-0-visible?=),
+  so two modules of the same kind are two cards and a second bar is not edited
+  by accident.  Launcher keys are ordinary string overrides, including the
+  empty string that means a cleared key.  Reset still deletes one file and
+  returns both to the configuration.
+
+- The *More* page's escape hatch now describes what is actually left to the
+  file -- desktop widgets, clipboard retention, compositor keybindings -- rather
+  than claiming modules and launcher modes are out of reach.
+
+*** Verified
+
+- The host build and the Meson suite pass: 42 tests, including the new
+  launcher-key map, the expanded GUI preference round trips and the real
+  module and key widgets in the settings window.
+
 ** v0.28.0 (2026-11-15)
 
 *** Added

@@ -9,6 +9,7 @@
 #include "guile_bridge.h"
 #include "logger.h"
 #include "util/command.h"
+#include "util/launcherkeys.h"
 
 #include <string.h>
 
@@ -218,7 +219,10 @@ static void queue_text(PrefsState *state, const char *key, const char *text,
                        ChangeKind kind) {
   PendingChange *change;
 
-  if (!text || *text == '\0')
+  /* An empty string is a real edit here: clearing a launcher key is how a
+   * mode stops having one.  Scheme treats an empty bar font as "use the
+   * default", so the text fields that need a value still fall back. */
+  if (!text)
     return;
 
   change = g_new0(PendingChange, 1);
@@ -767,6 +771,230 @@ static void build_menu_page(PrefsState *state, GtkStack *stack) {
             "application without one gets whelk's shared Edit and View menus.");
 }
 
+
+/* =========================================================================
+ * MODULE AND KEY PAGES
+ * ========================================================================= */
+
+static gint compare_option_names(gconstpointer a, gconstpointer b) {
+  return g_strcmp0(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* The option table carries Scheme spellings, because that is what the bridge
+ * hands C.  These two decide which control a value gets without losing that
+ * spelling when it is written back. */
+static gboolean text_is_boolean(const char *text) {
+  return g_strcmp0(text, "#t") == 0 || g_strcmp0(text, "#f") == 0;
+}
+
+static gboolean text_is_integer(const char *text) {
+  gchar *end = NULL;
+
+  if (!text || *text == '\0')
+    return FALSE;
+
+  g_ascii_strtoll(text, &end, 10);
+
+  if (end == text)
+    return FALSE;
+
+  while (*end != '\0' && g_ascii_isspace(*end))
+    end++;
+
+  return *end == '\0';
+}
+
+static GPtrArray *sorted_options(const WhelkModuleSpec *spec) {
+  GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+  GHashTableIter iter;
+  gpointer key;
+
+  g_hash_table_iter_init(&iter, spec->options);
+  while (g_hash_table_iter_next(&iter, &key, NULL))
+    g_ptr_array_add(names, g_strdup(key));
+
+  g_ptr_array_sort(names, compare_option_names);
+  return names;
+}
+
+/* Every module on the first bar, in the order the Scheme override layer
+ * numbers them: left, centre, right, overflow.  One card per instance, not
+ * per kind, so two custom modules are two cards. */
+static void build_modules_page(PrefsState *state, GtkStack *stack) {
+  GtkWidget *body = page_body(stack, "modules", "Modules");
+  WhelkBarConfig *bar = state->bar;
+
+  if (!bar) {
+    gtk_box_append(GTK_BOX(body),
+                   card_new("No bar", "Nothing is configured to edit."));
+    return;
+  }
+
+  struct {
+    const char *label;
+    GPtrArray *specs;
+  } groups[] = {{"Left", bar->left},
+                {"Centre", bar->center},
+                {"Right", bar->right},
+                {"Overflow", bar->overflow}};
+  int index = 0;
+  gboolean skipped_line_breaks = FALSE;
+
+  GtkWidget *intro = text_label(
+      "Every option this bar's modules were given is editable here.  The names "
+      "are the ones settings.scm uses; a change is an override, and Reset "
+      "deletes all of them.",
+      "settings-note");
+  gtk_box_append(GTK_BOX(body), intro);
+
+  for (gsize g = 0; g < G_N_ELEMENTS(groups); g++) {
+    if (!groups[g].specs)
+      continue;
+
+    for (guint i = 0; i < groups[g].specs->len; i++) {
+      const WhelkModuleSpec *spec = g_ptr_array_index(groups[g].specs, i);
+      g_autofree char *subtitle =
+          g_strdup_printf("%s, item %u", groups[g].label, i + 1);
+      GtkWidget *card = card_new(spec->kind, subtitle);
+      g_autofree char *visible_key =
+          g_strdup_printf("module-%d-visible?", index);
+      g_autoptr(GPtrArray) names = sorted_options(spec);
+
+      gtk_box_append(GTK_BOX(body), card);
+      row_switch(state, card, "Show in the bar",
+                 "Turn this module off without removing it from settings.scm.",
+                 visible_key, !whelk_spec_bool(spec, "hidden?", FALSE), NULL,
+                 NULL);
+
+      for (guint n = 0; n < names->len; n++) {
+        const char *name = g_ptr_array_index(names, n);
+        const char *value = g_hash_table_lookup(spec->options, name);
+        g_autofree char *key =
+            g_strdup_printf("module-%d-%s", index, name);
+
+        /* `hidden?' belongs to the switch above, and a scheme module's update
+         * token is a handle, not a value to type over. */
+        if (g_strcmp0(name, "hidden?") == 0 ||
+            (g_strcmp0(spec->kind, "scheme") == 0 &&
+             g_strcmp0(name, "update") == 0))
+          continue;
+
+        /* A GtkEntry cannot keep a tooltip's line breaks; offering an editor
+         * that silently joined them would be worse than leaving those two
+         * options in the file. */
+        if (value && strchr(value, '\n')) {
+          skipped_line_breaks = TRUE;
+          continue;
+        }
+
+        if (text_is_boolean(value))
+          row_switch(state, card, name, NULL, key,
+                     g_strcmp0(value, "#t") == 0, NULL, NULL);
+        else if (text_is_integer(value))
+          row_spin(state, card, name, NULL, key,
+                   whelk_spec_int(spec, name, 0), 0, 1000000);
+        else
+          row_entry(state, card, name, NULL, key, value);
+      }
+
+      index++;
+    }
+  }
+
+  if (skipped_line_breaks) {
+    GtkWidget *note = text_label(
+        "Options containing line breaks, such as a tooltip, stay in "
+        "settings.scm so their shape is not flattened.",
+        "settings-note");
+
+    gtk_widget_set_margin_top(note, 10);
+    gtk_box_append(GTK_BOX(body), note);
+  }
+}
+
+static const char *launcher_mode_label(const char *mode) {
+  if (g_strcmp0(mode, "app") == 0)
+    return "Applications";
+  if (g_strcmp0(mode, "window") == 0)
+    return "Windows";
+  if (g_strcmp0(mode, "run") == 0)
+    return "Commands";
+  if (g_strcmp0(mode, "calc") == 0)
+    return "Calculator";
+  if (g_strcmp0(mode, "file") == 0)
+    return "Files";
+  if (g_strcmp0(mode, "web") == 0)
+    return "The web";
+  if (g_strcmp0(mode, "ssh") == 0)
+    return "SSH hosts";
+  if (g_strcmp0(mode, "quit") == 0)
+    return "Close windows";
+  if (g_strcmp0(mode, "clipboard") == 0)
+    return "Clipboard";
+  if (g_strcmp0(mode, "menuitem") == 0)
+    return "Menu items";
+
+  return mode;
+}
+
+/* The keys whelk itself reads.  A compositor binding is not in this window:
+ * niri, Hyprland, river and X11 each keep their own, and the escape hatch is
+ * the honest way to reach them. */
+static void build_launcher_page(PrefsState *state, GtkStack *stack) {
+  GtkWidget *body = page_body(stack, "keys", "Keys");
+  GtkWidget *start = card_new(
+      "When the launcher opens", "The mode a bare `whelk --launcher' starts in.");
+  g_autofree char *stored =
+      whelk_bridge_preference_text(state->config_path, "launcher-default-mode");
+  const char *selected =
+      whelk_launcher_keys_is_mode(stored) ? stored : "app";
+  const guint count = whelk_launcher_keys_mode_count();
+  const char **labels = g_new0(const char *, count + 1);
+  const char **values = g_new0(const char *, count + 1);
+
+  for (guint i = 0; i < count; i++) {
+    const char *mode = whelk_launcher_keys_mode_at(i);
+
+    values[i] = mode;
+    labels[i] = launcher_mode_label(mode);
+  }
+
+  gtk_box_append(GTK_BOX(body), start);
+  row_dropdown(state, start, "Default mode", NULL, "launcher-default-mode",
+               labels, values, selected);
+  g_free(labels);
+  g_free(values);
+
+  GtkWidget *keys = card_new(
+      "Mode keys", "Type one of these at the start of the query to choose a "
+                   "mode; leave a field empty to disable that key.");
+  gtk_box_append(GTK_BOX(body), keys);
+
+  for (guint i = 0; i < count; i++) {
+    const char *mode = whelk_launcher_keys_mode_at(i);
+    g_autofree char *key = g_strdup_printf("launcher-key-%s", mode);
+    g_autofree char *saved =
+        whelk_bridge_preference_text(state->config_path, key);
+    const char *prefix =
+        saved ? saved : whelk_launcher_keys_prefix(NULL, mode);
+    g_autofree char *subtitle =
+        g_strdup_printf("Search %s.", launcher_mode_label(mode));
+
+    /* `app' is the mode with no key of its own: it is what is left when no
+     * prefix is typed. */
+    if (g_strcmp0(mode, "app") == 0)
+      continue;
+
+    GtkWidget *entry = row_entry(state, keys, mode, subtitle, key, prefix);
+
+    gtk_editable_set_max_width_chars(GTK_EDITABLE(entry), 4);
+  }
+
+  card_note(keys,
+            "The binding that opens the launcher belongs to your compositor.  "
+            "Everything above is whelk's own and is saved as an override.");
+}
+
 /* The escape hatch: everything this window cannot express is still one line in
  * a file the user owns.  $VISUAL and $EDITOR are asked first, and +LINE is the
  * spelling vi, nano and emacs all understand; xdg-open is the fallback, where
@@ -818,8 +1046,9 @@ static void build_more_page(PrefsState *state, GtkStack *stack) {
             "alternate format stay in settings.scm.");
 
   GtkWidget *escape = card_new(
-      "Everything else in the file",
-      "Modules, keybindings and launcher modes this window does not edit.");
+      "The rest of the file",
+      "Desktop widgets, clipboard retention, compositor keybindings and "
+      "anything else with no card in this window.");
 
   gtk_box_append(GTK_BOX(body), escape);
 
@@ -945,6 +1174,8 @@ static void build_ui(PrefsState *state) {
   build_notifications_page(state, GTK_STACK(stack));
   build_wifi_page(state, GTK_STACK(stack));
   build_menu_page(state, GTK_STACK(stack));
+  build_modules_page(state, GTK_STACK(stack));
+  build_launcher_page(state, GTK_STACK(stack));
   build_more_page(state, GTK_STACK(stack));
 
   gtk_box_append(GTK_BOX(state->host), header_new());

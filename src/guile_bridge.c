@@ -873,14 +873,14 @@ GtkWidget *whelk_bridge_call_module_widget(const char *token) {
  * THE PUBLIC BRIDGE
  * ========================================================================= */
 
-void whelk_bridge_start_guile(void) {
-  static gboolean started = FALSE;
+static gboolean guile_started = FALSE;
 
-  if (started)
+void whelk_bridge_start_guile(void) {
+  if (guile_started)
     return;
 
   scm_init_guile();
-  started = TRUE;
+  guile_started = TRUE;
 }
 
 void whelk_bridge_setup_load_path(void) {
@@ -1617,4 +1617,37 @@ gboolean whelk_bridge_reset_preferences(const char *path) {
     return FALSE;
 
   return scm_is_true(scm_call_1(proc, scm_from_utf8_string(path)));
+}
+
+char *whelk_bridge_preference_text(const char *path, const char *key) {
+  SCM proc;
+  SCM value;
+
+  /* The launcher and its tests can exist before Guile: a missing Scheme half
+   * means the built-in map, not a crash. */
+  if (!guile_started || !path || !*path || !key)
+    return NULL;
+
+  proc = public_proc("whelk prefs", "preference-ref");
+
+  if (!scm_is_true(proc))
+    return NULL;
+
+  value = scm_call_2(proc, scm_from_utf8_string(path),
+                     scm_from_utf8_symbol(key));
+
+  if (!scm_is_true(value))
+    return NULL;
+
+  if (scm_is_bool(value))
+    return g_strdup(scm_is_true(value) ? "#t" : "#f");
+
+  if (scm_is_number(value)) {
+    if (scm_is_exact_integer(value))
+      return g_strdup_printf("%ld", (long)scm_to_long(value));
+
+    return g_strdup_printf("%g", scm_to_double(value));
+  }
+
+  return scm_text(value);
 }

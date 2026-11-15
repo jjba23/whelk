@@ -80,6 +80,13 @@
 (save-preference! config-path 'menu-accelerator-style 'emacs)
 (save-preference! config-path 'tray-max-items 9)
 (save-preference! config-path 'clock-format "%H:%M:%S")
+;; A module card writes the position, not the kind: two custom modules are two
+;; cards, and this bar's Wi-Fi is index 0 while the clock is index 4.
+(save-preference! config-path 'module-0-visible? #f)
+(save-preference! config-path 'module-4-format "%H:%M:%S")
+(save-preference! config-path 'module-4-interval 2)
+(save-preference! config-path 'launcher-default-mode 'window)
+(save-preference! config-path 'launcher-key-run "")
 (save-preference! config-path 'not-a-real-setting #t)
 
 (check "the override file exists"
@@ -141,6 +148,25 @@
 (check "the clock format is overridden"
        (equal? (module-option (module-by-kind applied 'clock) 'format)
                "%H:%M:%S"))
+(check "the clock interval is overridden"
+       (= (module-option (module-by-kind applied 'clock) 'interval) 2))
+(check "a hidden module stays in the bar description"
+       (and (module-by-kind applied 'wifi)
+            (eq? (module-option (module-by-kind applied 'wifi) 'hidden?) #t)))
+(check "a malformed module key is refused"
+       (not (save-preference! config-path 'module-nope-format "x")))
+(check "the launcher's default mode is recorded"
+       (eq? (preference-ref config-path 'launcher-default-mode) 'window))
+(check "a cleared launcher key is stored as empty"
+       (equal? (preference-ref config-path 'launcher-key-run) ""))
+
+;; A module that was hidden can be shown again without editing the file.
+(save-preference! config-path 'module-0-visible? #t)
+(apply-shell-preferences! config-path)
+(check "showing a module again clears its hidden flag"
+       (not (module-option (module-by-kind (car (get-shell-bars config-path))
+                                           'wifi)
+                           'hidden?)))
 
 ;; Reloading the primary file must re-apply the overrides, not lose them.
 (load-shell-config! config-path)
@@ -172,6 +198,13 @@
 (check "reset restores the settings reading"
        (equal? (module-option (module-by-kind restored 'notifications) 'format)
                "{icon}"))
+(check "reset restores the clock format"
+       (equal? (module-option (module-by-kind restored 'clock) 'format)
+               "%H:%M"))
+(check "reset drops the module's hidden flag"
+       (not (module-option (module-by-kind restored 'wifi) 'hidden?)))
+(check "reset drops the launcher key"
+       (not (preference-ref config-path 'launcher-key-run)))
 (check "reset restores the untouched spacing" (= (bar-config-spacing restored) 8))
 
 (delete-file config-path)

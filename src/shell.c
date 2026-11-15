@@ -153,8 +153,11 @@ static void build_bars(WhelkShell *shell) {
 
   /* The panels are long-lived surfaces: a reload must re-skin them instead of
    * asking the user to restart the shell. */
-  if (shell->launcher)
+  if (shell->launcher) {
     whelk_launcher_set_style(shell->launcher, shell->style);
+    /* The launcher's own keys and default mode are GUI overrides too. */
+    whelk_launcher_set_config_path(shell->launcher, shell->config_path);
+  }
   if (shell->center)
     whelk_notification_center_set_style(shell->center, shell->style);
   if (shell->network)
@@ -357,6 +360,7 @@ void whelk_shell_start(WhelkShell *shell) {
   shell->center = whelk_notification_center_new(shell->app, shell->notifications,
                                                 shell->style);
   shell->launcher = whelk_launcher_new(shell->app, shell->style);
+  whelk_launcher_set_config_path(shell->launcher, shell->config_path);
   shell->network = whelk_network_panel_new(shell->app, shell->style);
   shell->osd = whelk_osd_new(shell->app, shell->style);
 

@@ -203,4 +203,9 @@ gboolean whelk_bridge_save_preference_symbol(const char *path, const char *key,
 /* Delete every GUI preference for @path; the settings file takes over again. */
 gboolean whelk_bridge_reset_preferences(const char *path);
 
+/* One saved preference as text, or NULL when nothing overrides it.  The
+ * launcher reads its own mode map this way; a caller before Scheme is up gets
+ * NULL and keeps its built-in map. */
+char *whelk_bridge_preference_text(const char *path, const char *key);
+
 #endif // WHELK_GUILE_BRIDGE_H

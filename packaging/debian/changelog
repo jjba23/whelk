@@ -1,3 +1,14 @@
+whelk (0.29.0-1) unstable; urgency=medium
+
+  * The settings window gains a Modules page: every module on the first bar,
+    with a Show switch and a typed editor for each of its options.
+  * A Keys page edits the launcher's default mode and the prefix that selects
+    each mode; an empty prefix disables one.
+  * Module and launcher-key choices use the same reversible override file as
+    the rest of the window, and Reset removes them all.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 22:00:00 +0100
+
 whelk (0.28.0-1) unstable; urgency=medium
 
   * Hyprland is a session: the focused window comes from `hyprctl

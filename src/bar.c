@@ -50,6 +50,9 @@ static void note_native_modules(WhelkBarConfig *config, GPtrArray *specs) {
   for (guint i = 0; specs && i < specs->len; i++) {
     const WhelkModuleSpec *spec = g_ptr_array_index(specs, i);
 
+    if (whelk_spec_bool(spec, "hidden?", FALSE))
+      continue;
+
     if (g_strcmp0(spec->kind, "wifi") == 0)
       config->native_network = TRUE;
     else if (g_strcmp0(spec->kind, "bluetooth") == 0)
@@ -60,6 +63,13 @@ static void note_native_modules(WhelkBarConfig *config, GPtrArray *specs) {
 static void add_modules(WhelkBar *bar, GPtrArray *specs, GtkWidget *box) {
   for (guint i = 0; i < specs->len; i++) {
     const WhelkModuleSpec *spec = g_ptr_array_index(specs, i);
+
+    /* A module the settings window's Show switch turned off is still in the
+     * bar description: that is how the window can list it and turn it back
+     * on.  It stops here, before a widget or a timer exists. */
+    if (whelk_spec_bool(spec, "hidden?", FALSE))
+      continue;
+
     WhelkModule *module = whelk_module_new(spec, bar->config);
 
     if (!module)

@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "clipboard.h"
+#include "guile_bridge.h"
 #include "logger.h"
 #include "shell.h"
 #include "style.h"
@@ -22,6 +23,7 @@
 #include "util/fuzzy.h"
 #include "util/json.h"
 #include "util/launchergeometry.h"
+#include "util/launcherkeys.h"
 #include "util/menusearch.h"
 
 /* =========================================================================
@@ -108,6 +110,11 @@ struct _WhelkLauncher {
   char *mode;
   char *menu_command;
   char *last_file_query;
+
+  /* The mode map and default mode the settings window saved.  The launcher
+   * owns its own keys; compositor bindings stay in the compositor's file. */
+  char *config_path;
+  WhelkLauncherKeys *keys;
 
   WhelkClipboard *clipboard_store;
   gulong clipboard_changed_id;
@@ -705,38 +712,14 @@ static const char *effective_mode(WhelkLauncher *self, const char **query) {
     return "session";
   }
 
-  /* A prefix is a mode you can type without knowing the modes exist. */
-  switch (text[0]) {
-  case '>':
-    *query = text + 1;
-    return "run";
-  case '=':
-    *query = text + 1;
-    return "calc";
-  case '/':
-    *query = text + 1;
-    return "file";
-  case '?':
-    *query = text + 1;
-    return "web";
-  case '@':
-    *query = text + 1;
-    return "window";
-  case '%':
-    *query = text + 1;
-    return "ssh";
-  case '!':
-    *query = text + 1;
-    return "quit";
-  case ';':
-    *query = text + 1;
-    return "clipboard";
-  case ':':
-    *query = text + 1;
-    return "menuitem";
-  default:
-    break;
-  }
+  /* A prefix is a mode you can type without knowing the modes exist.  The map
+   * is the user's: the settings window edits it, and an empty prefix simply
+   * stops choosing that mode. */
+  const char *prefixed =
+      whelk_launcher_keys_mode_for_text(self->keys, text, query);
+
+  if (prefixed)
+    return prefixed;
 
   *query = text;
   return self->mode && *self->mode ? self->mode : "app";
@@ -1616,6 +1599,36 @@ static gboolean on_outside_pressed(GtkGestureClick *gesture, int n_press,
   return TRUE;
 }
 
+void whelk_launcher_set_config_path(WhelkLauncher *self, const char *path) {
+  if (!self)
+    return;
+
+  g_free(self->config_path);
+  self->config_path = g_strdup(path);
+  g_clear_pointer(&self->keys, whelk_launcher_keys_free);
+  self->keys = whelk_launcher_keys_new();
+
+  if (!path || !*path)
+    return;
+
+  g_autofree char *mode =
+      whelk_bridge_preference_text(path, "launcher-default-mode");
+
+  if (mode)
+    whelk_launcher_keys_set_default_mode(self->keys, mode);
+
+  for (guint i = 0; i < whelk_launcher_keys_mode_count(); i++) {
+    const char *name = whelk_launcher_keys_mode_at(i);
+    g_autofree char *key = g_strdup_printf("launcher-key-%s", name);
+    g_autofree char *prefix = whelk_bridge_preference_text(path, key);
+
+    /* No saved key means the built-in prefix stays.  An empty saved string is
+     * a prefix the user cleared, and it stays cleared. */
+    if (prefix)
+      whelk_launcher_keys_set_prefix(self->keys, name, prefix);
+  }
+}
+
 WhelkLauncher *whelk_launcher_new(GtkApplication *app,
                                   const WhelkBarConfig *style) {
   WhelkLauncher *self = g_object_new(WHELK_TYPE_LAUNCHER, NULL);
@@ -1820,8 +1833,13 @@ void whelk_launcher_show(WhelkLauncher *self, const char *mode) {
   if (!self)
     return;
 
+  /* No mode on the command line means the mode the settings window chose;
+   * `whelk --launcher --launcher-mode=window' still overrides it. */
+  const char *chosen =
+      (mode && *mode) ? mode : whelk_launcher_keys_default_mode(self->keys);
+
   g_free(self->mode);
-  self->mode = g_strdup(mode && *mode ? mode : "app");
+  self->mode = g_strdup(chosen && *chosen ? chosen : "app");
 
   LOG_C_DEBUG("Launcher", "showing mode '%s'", self->mode);
 
@@ -1972,6 +1990,8 @@ static void whelk_launcher_dispose(GObject *object) {
   g_free(self->menu_command);
   g_free(self->last_file_query);
   g_free(self->files_walk);
+  g_free(self->config_path);
+  g_clear_pointer(&self->keys, whelk_launcher_keys_free);
 
   G_OBJECT_CLASS(whelk_launcher_parent_class)->dispose(object);
 }

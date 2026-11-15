@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.28.0',
+  version: '0.29.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -230,6 +230,7 @@ whelk_sources = files(
   'src/util/json.c',
   'src/util/level.c',
   'src/util/launchergeometry.c',
+  'src/util/launcherkeys.c',
   'src/util/lockauth.c',
   'src/util/lockpolicy.c',
   'src/util/menuaction.c',
@@ -349,6 +350,7 @@ unit_tests = [
       'src/config.c',
       'src/util/command.c',
       'src/util/format.c',
+      'src/util/launcherkeys.c',
       'src/util/menudict.c',
       'src/util/chord.c',
       'src/util/menutree.c',
@@ -384,6 +386,10 @@ unit_tests = [
       'src/util/calc.c',
       'src/util/launchergeometry.c',
     ],
+  },
+  {
+    'id': 'launcherkeys',
+    'sources': ['src/util/launcherkeys.c'],
   },
   {
     'id': 'filesearch',

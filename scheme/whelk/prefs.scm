@@ -27,6 +27,7 @@
   #:use-module (whelk themes)
   #:export (preferences-path
             preferences-read
+            preference-ref
             save-preference!
             reset-preferences!
             apply-shell-preferences!))
@@ -114,7 +115,39 @@ file cannot leave the shell with a half-applied look."
     wifi-show-ssid? wifi-interval
     notifications-show-count?
     menu-shortcuts? menu-app-name? menu-accelerator-style
-    tray-max-items clock-format))
+    tray-max-items clock-format
+    launcher-default-mode
+    launcher-key-window launcher-key-run launcher-key-calc launcher-key-file
+    launcher-key-web launcher-key-ssh launcher-key-quit
+    launcher-key-clipboard launcher-key-menuitem))
+
+;; A module page edits one module on the first bar.  Its keys carry the
+;; module's position in the bar (`module-3-format') rather than its kind: two
+;; custom modules have two cards, and a kind with no card of its own still has
+;; options.  The position is the order left, centre, right, overflow, which is
+;; the order the settings window walks.
+(define (module-preference key)
+  "Return (INDEX . OPTION) for a module override symbol, or #f."
+  (and (symbol? key)
+       (let* ((name (symbol->string key))
+              (length (string-length name)))
+         (and (string-prefix? "module-" name)
+              (let find-dash ((at 7))
+                (and (< at length)
+                     (if (char=? (string-ref name at) #\-)
+                         (let ((index (string->number
+                                       (substring name 7 at))))
+                           (and (exact-integer? index)
+                                (>= index 0)
+                                (< (+ at 1) length)
+                                (cons index
+                                      (string->symbol
+                                       (substring name (+ at 1))))))
+                         (find-dash (+ at 1)))))))))
+
+(define (valid-preference-key? key)
+  (or (memq key %preference-keys)
+      (and (module-preference key) #t)))
 
 (define (save-preference! config-path key value)
   "Save one GUI preference for CONFIG-PATH and return #t on success.
@@ -127,7 +160,7 @@ duplicate happens to win."
       ((not path)
        (log-warn "Prefs" "Cannot save a preference without a settings path")
        #f)
-      ((not (memq key %preference-keys))
+      ((not (valid-preference-key? key))
        (log-warn "Prefs" "Ignoring unknown preference key: ~a" key)
        #f)
       (else
@@ -171,6 +204,11 @@ duplicate happens to win."
   (let ((pair (assq key prefs)))
     (if pair (cdr pair) fallback)))
 
+(define (preference-ref config-path key)
+  "Return the saved value for KEY, or #f when nothing overrides it."
+  (let ((pair (assq key (preferences-read config-path))))
+    (if pair (cdr pair) #f)))
+
 (define (integer-preference prefs key fallback)
   (let ((value (preference prefs key fallback)))
     (if (and (number? value) (>= value 0))
@@ -203,7 +241,47 @@ duplicate happens to win."
 (define (theme-preference prefs bar)
   (symbol-preference prefs 'bar-theme (bar-config-theme bar)))
 
-(define (apply-bar bar prefs)
+(define (apply-module-preferences mod prefs index)
+  "Apply `module-INDEX-OPTION' overrides to MOD.
+
+`visible?' is the settings window's switch: it is stored inverted as the
+module's own `hidden?' option, which the bar builder drops before it makes a
+widget.  Keeping the module in the bar description is what lets the window list
+a hidden module and turn it back on."
+  (let ((prefix (string-append "module-" (number->string index) "-")))
+    (let loop ((pairs prefs) (mod mod))
+      (if (null? pairs)
+          mod
+          (let* ((key (caar pairs))
+                 (name (symbol->string key)))
+            (if (not (string-prefix? prefix name))
+                (loop (cdr pairs) mod)
+                (let ((option (string->symbol
+                               (substring name (string-length prefix)))))
+                  (loop (cdr pairs)
+                        (if (eq? option 'visible?)
+                            (module-set-option
+                             mod 'hidden? (not (cdr (car pairs))))
+                            (module-set-option mod option
+                                               (cdr (car pairs))))))))))))
+
+(define (apply-module-group mods prefs counter overrides?)
+  "Apply the global reading preferences and the per-module overrides.
+
+COUNTER is one mutable pair shared by all four groups, so a module's index is
+its position across the whole bar, exactly as the settings window numbers it."
+  (let loop ((mods mods) (out '()))
+    (if (null? mods)
+        (reverse out)
+        (let* ((index (cdr counter))
+               (mod (apply-module (car mods) prefs))
+               (mod (if overrides?
+                        (apply-module-preferences mod prefs index)
+                        mod)))
+          (set-cdr! counter (+ index 1))
+          (loop (cdr mods) (cons mod out))))))
+
+(define (apply-bar bar prefs module-overrides?)
   (let* ((theme (theme-preference prefs bar))
          (palette (theme-palette theme))
          (theme-set? (and (assq 'bar-theme prefs) #t))
@@ -222,7 +300,8 @@ duplicate happens to win."
                   (string-preference prefs key
                                      (if theme-set?
                                          (or (assq-ref palette key) current)
-                                         current)))))
+                                         current))))
+         (counter (cons 'module-index 0)))
     (make-bar-config
      (bar-config-name bar)
      theme
@@ -267,15 +346,15 @@ duplicate happens to win."
      (unit-preference prefs 'bar-flare
                       (material 'flare (bar-config-flare bar)))
      (from-palette 'css (bar-config-css bar))
-     (map (lambda (mod) (apply-module mod prefs))
-          (bar-config-modules-left bar))
-     (map (lambda (mod) (apply-module mod prefs))
-          (bar-config-modules-center bar))
-     (map (lambda (mod) (apply-module mod prefs))
-          (bar-config-modules-right bar))
+     (apply-module-group (bar-config-modules-left bar) prefs counter
+                         module-overrides?)
+     (apply-module-group (bar-config-modules-center bar) prefs counter
+                         module-overrides?)
+     (apply-module-group (bar-config-modules-right bar) prefs counter
+                         module-overrides?)
      (bar-config-overflow-expanded? bar)
-     (map (lambda (mod) (apply-module mod prefs))
-          (bar-config-modules-overflow bar)))))
+     (apply-module-group (bar-config-modules-overflow bar) prefs counter
+                         module-overrides?))))
 
 (define (set-option-if-present mod prefs preference-key option-key)
   (let ((pair (assq preference-key prefs)))
@@ -317,7 +396,16 @@ the settings window's reload callback, so the two paths cannot drift apart."
          (bars (get-shell-bars config-path)))
     (if (or (null? prefs) (null? bars))
         bars
-        (let ((updated (map (lambda (bar) (apply-bar bar prefs)) bars)))
+        ;; The window edits the first bar's modules; a second bar keeps its own
+        ;; configuration rather than having index 3 of the first bar's row hide
+        ;; index 3 of a different bar.
+        (let* ((position 0)
+               (updated
+                (map (lambda (bar)
+                       (let ((updated (apply-bar bar prefs (= position 0))))
+                         (set! position (+ position 1))
+                         updated))
+                     bars)))
           (configure-shell!
            #:config-path config-path
            #:bars updated

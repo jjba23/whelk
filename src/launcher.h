@@ -53,6 +53,11 @@ G_DECLARE_FINAL_TYPE(WhelkLauncher, whelk_launcher, WHELK, LAUNCHER, GObject)
 WhelkLauncher *whelk_launcher_new(GtkApplication *app,
                                   const WhelkBarConfig *style);
 
+/* Reads the mode map and the mode `--launcher' opens with from CONFIG_PATH's
+ * GUI overrides.  Called once at startup and again on every reload, so a key
+ * edited in the settings window is live without restarting the launcher. */
+void whelk_launcher_set_config_path(WhelkLauncher *self, const char *path);
+
 /* Replaces the palette and material without rebuilding the overlay.  Called
  * when a theme change reloads the shell: the launcher keeps its history and
  * widgets, and only its skin changes. */
