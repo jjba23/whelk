@@ -107,11 +107,11 @@ flowchart TD
   window/app-menu paths, and tries them before the conventional paths under
   the application id -- application-wide and window-scoped -- and GTK's
   anonymous application.  The menu is *followed*: =org.gtk.Menus= has a
-  =Changed= signal, so whelk subscribes before it calls =Start=, closes an open
-  popover when the application changes a menu, and asks =Start= again for the
-  current tree instead of keeping the one it drew.  That makes Firefox,
-  LibreOffice and other X11 GTK applications work even when their =WM_CLASS=
-  is not a valid bus name, and a menu that grows while it is open stays true.
+  =Changed= signal, so whelk subscribes before it calls =Start= and asks
+  =Start= again for the current tree instead of keeping the one it drew.  That
+  makes Firefox, LibreOffice and other X11 GTK applications work even when
+  their =WM_CLASS= is not a valid bus name, and a menu that grows while it is
+  open stays true -- without closing, as *A menu that stays open* explains below.
 - *The application's own menu, as DBusMenu.*  Qt, KDE and everything that
   registers with =com.canonical.AppMenu.Registrar= publishes =com.canonical.dbusmenu=
   instead: a tree of (id, properties, children).  whelk reads =GetLayout= and
@@ -120,9 +120,8 @@ flowchart TD
   application itself.  Its =shortcut= property is shown beside the label in
   the style the bar asked for, and the menu is *followed* rather than
   remembered: =LayoutUpdated= and =ItemsPropertiesUpdated= make the shell read
-  the layout again, ids included, and an open popover is closed before the new
-  tree is adopted -- an id from a layout that no longer exists is a click on
-  whatever took its place.
+  the layout again, ids included, and the tree that comes back replaces the
+  one on screen before a click can use a stale id.
 - *On X11, the registrar fills in the exact DBusMenu path.*  Exact
   =org.gtk.Menus= paths are still tried first; after them,
   =com.canonical.AppMenu.Registrar= maps the focused window's id to the exact
@@ -266,17 +265,62 @@ added rather than lost.  A reload starts from the built-in table again, so
 saving the file replaces your edits instead of stacking another copy of them in
 front.
 
+** A menu that stays open
+:PROPERTIES:
+:CUSTOM_ID: menu-stays-open
+:END:
+
+An application re-publishes its menus constantly, and not because anything a
+reader can see changed: =AboutToShow= asks for a fresh layout the moment a menu
+opens, a hover sends =ItemsPropertiesUpdated= (a checkmark, an entry that
+became enabled), a bookmarks or recent-documents menu is built when it is asked
+for.  A menu bar that rebuilt on every one of those takes the menu away from
+the person reading it, which is why the global menu used to close itself a
+moment after it opened.
+
+So a tree is compared before it is adopted: if the menus, the rows, the labels,
+the chords, the enabled state and the ids a click would send are the same,
+nothing happens at all.  If they really changed, the tree is rebuilt and the
+menu that was open is put back on the new rows, in the same place: the
+top-level menu by its label, every open submenu by its label, and the keyboard
+focus on the row it was on.  A label that no longer exists stops the descent at
+the deepest level that does exist, and the menu stays open there rather than
+disappearing.
+
+#+name: menu-republish
+#+caption: What a re-published tree does to the menu on screen.
+#+begin_src mermaid
+flowchart TD
+    A["the application re-publishes its menu<br/>Changed, LayoutUpdated, a hover"] --> B{"same menus, rows, chords,<br/>enabled state and ids?"}
+    B -->|yes| C["nothing is rebuilt<br/>the menu stays exactly as it is"]
+    B -->|no| D["the open menu is remembered by label<br/>top-level, submenus, focused row"]
+    D --> E["the new tree is rendered"]
+    E --> F{"does the same top-level<br/>label still exist?"}
+    F -->|no| G["the menu closes:<br/>what was being read is gone"]
+    F -->|yes| H["the same menu opens again,<br/>each submenu down the path,<br/>focus on the row it was on"]
+    H --> I{"a submenu label vanished?"}
+    I -->|yes| J["stay open at the deepest<br/>level that still exists"]
+    I -->|no| K["the menu is where it was"]
+#+end_src
+
+The ids are what makes the rebuild safe: the DBusMenu read that answers
+=LayoutUpdated= carries the new ids before the new rows are shown, so a click
+never sends =Event()= with an id from a layout that is gone.
+
+What this does not change: choosing a row closes the menu, a click outside
+closes it, and a focus change to another application closes it and builds that
+application's menus.
+
 ** What the menus do not do yet
 :PROPERTIES:
 :CUSTOM_ID: menu-limits
 :END:
 
-A DBusMenu is followed while it is open, but an =org.gtk.Menus= tree is not:
-that protocol has no change signal, so a GTK application's menu is a snapshot
-of when the focus moved, and so is a menu from =#:menu-command=.  On Wayland,
-both D-Bus protocols still fall back to the conventional object paths: a
-compositor that does not expose window properties cannot give whelk an X11
-window id or =_GTK_*= metadata to discover.  On X11 the exact paths and the
+A menu from =#:menu-command= is a snapshot of when the focus moved: the command
+is run on a focus change, and nothing tells the shell that its output changed.
+On Wayland, both D-Bus protocols still fall back to the conventional object
+paths: a compositor that does not expose window properties cannot give whelk an
+X11 window id or =_GTK_*= metadata to discover.  On X11 the exact paths and the
 registrar are used first.  A window action (=win.*=) is sent to the
 application's first window object, and an Orbit action that needs an integer
 =target= stays greyed because whelk's action model carries only a string

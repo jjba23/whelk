@@ -62,6 +62,13 @@ typedef struct {
   GtkWidget *row;
   GPtrArray *buttons;     /* top-level buttons, borrowed from the row */
   GtkWidget *open_button; /* whose popover is up, borrowed */
+  /* What was open when a rebuild began: the top-level menu by label, the
+   * submenus below it by label, and the row that had the keyboard.  Labels
+   * rather than widgets, because the widgets are what a rebuild replaces. */
+  guint restore_id;       /* the pending reopen, 0 when there is none */
+  char *restore_top;
+  GPtrArray *restore_path; /* char *, outermost submenu first */
+  char *restore_focus;
   WhelkDBusMenuWatch *dbus_menu; /* follows a live DBusMenu, NULL otherwise */
   WhelkGtkMenuWatch *gtk_menu;   /* follows org.gtk.Menus Changed */
   WhelkAtspiMenuWatch *atspi;    /* follows the accessibility tree */
@@ -156,6 +163,202 @@ static GtkWidget *focused_widget(GtkWidget *popover) {
   GtkRoot *root = gtk_widget_get_root(popover);
 
   return root ? gtk_root_get_focus(root) : NULL;
+}
+
+/* =========================================================================
+ * KEEPING THE MENU OPEN ACROSS A REBUILD
+ * =========================================================================
+ * A menu row is a label; what a rebuild replaces is every widget.  So what is
+ * open is remembered by label -- the top-level menu, the submenus below it and
+ * the row the keyboard was on -- and put back on the new widgets.  A menu that
+ * vanished with its tree is what made the global menu close itself whenever
+ * the application re-published it.
+ */
+
+/* The first label inside a row, whichever shape the row is: a plain label, or
+ * a box of label and chord.  A rule has none. */
+static char *first_label_text(GtkWidget *widget) {
+  if (!widget)
+    return NULL;
+
+  if (GTK_IS_LABEL(widget))
+    return g_strdup(gtk_label_get_text(GTK_LABEL(widget)));
+
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    char *text = first_label_text(child);
+
+    if (text)
+      return text;
+  }
+
+  return NULL;
+}
+
+/* The text a row shows: a submenu's menu button keeps it as its label, every
+ * other row has it as a child. */
+static char *row_label(GtkWidget *widget) {
+  if (!widget)
+    return NULL;
+
+  if (GTK_IS_MENU_BUTTON(widget)) {
+    const char *label = gtk_menu_button_get_label(GTK_MENU_BUTTON(widget));
+
+    if (label && *label != '\0')
+      return g_strdup(label);
+  }
+
+  if (GTK_IS_BUTTON(widget))
+    return first_label_text(gtk_button_get_child(GTK_BUTTON(widget)));
+
+  return first_label_text(widget);
+}
+
+static GtkWidget *row_with_label(GtkWidget *box, const char *label) {
+  if (!box || !label)
+    return NULL;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(box); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    char *text = row_label(child);
+    const gboolean match = g_strcmp0(text, label) == 0;
+
+    g_free(text);
+
+    if (match)
+      return child;
+  }
+
+  return NULL;
+}
+
+static void open_state_clear(MenuData *data) {
+  g_clear_pointer(&data->restore_top, g_free);
+  g_clear_pointer(&data->restore_focus, g_free);
+  g_clear_pointer(&data->restore_path, g_ptr_array_unref);
+}
+
+/* What is open right now, written down as labels, ready for `render'. */
+static void open_state_capture(WhelkModule *module) {
+  MenuData *data = module->data;
+
+  open_state_clear(data);
+
+  if (!data->open_button || !GTK_IS_MENU_BUTTON(data->open_button))
+    return;
+
+  data->restore_top = row_label(data->open_button);
+
+  if (!data->restore_top)
+    return;
+
+  data->restore_path = g_ptr_array_new_with_free_func(g_free);
+
+  GtkPopover *popover =
+      gtk_menu_button_get_popover(GTK_MENU_BUTTON(data->open_button));
+
+  if (!popover)
+    return;
+
+  GtkWidget *focus = focused_widget(GTK_WIDGET(popover));
+
+  /* A focused row that opens a submenu is the next level, and so on down. */
+  while (focus && GTK_IS_MENU_BUTTON(focus)) {
+    GtkPopover *submenu =
+        gtk_menu_button_get_popover(GTK_MENU_BUTTON(focus));
+
+    if (!submenu || !gtk_widget_get_visible(GTK_WIDGET(submenu)))
+      break;
+
+    char *label = row_label(focus);
+
+    if (!label)
+      break;
+
+    g_ptr_array_add(data->restore_path, label);
+    popover = submenu;
+    focus = focused_widget(GTK_WIDGET(submenu));
+  }
+
+  if (focus)
+    data->restore_focus = row_label(focus);
+}
+
+static gboolean on_restore_open(gpointer user_data) {
+  WhelkModule *module = user_data;
+  MenuData *data = module->data;
+  GtkWidget *button = NULL;
+
+  data->restore_id = 0;
+
+  for (guint i = 0; data->buttons && i < data->buttons->len; i++) {
+    GtkWidget *candidate = g_ptr_array_index(data->buttons, i);
+    char *label = row_label(candidate);
+
+    if (g_strcmp0(label, data->restore_top) == 0)
+      button = candidate;
+
+    g_free(label);
+
+    if (button)
+      break;
+  }
+
+  GtkPopover *popover =
+      button ? gtk_menu_button_get_popover(GTK_MENU_BUTTON(button)) : NULL;
+
+  if (!popover) {
+    open_state_clear(data);
+    return G_SOURCE_REMOVE;
+  }
+
+  gtk_popover_popup(popover);
+
+  GtkWidget *box = gtk_popover_get_child(popover);
+
+  /* Down the levels that still exist: a menu whose submenu lost a label stays
+   * open at the deepest level it still has, rather than disappearing. */
+  for (guint i = 0; data->restore_path && i < data->restore_path->len; i++) {
+    GtkWidget *row =
+        row_with_label(box, g_ptr_array_index(data->restore_path, i));
+    GtkPopover *submenu =
+        (row && GTK_IS_MENU_BUTTON(row))
+            ? gtk_menu_button_get_popover(GTK_MENU_BUTTON(row))
+            : NULL;
+
+    if (!submenu)
+      break;
+
+    gtk_popover_popup(submenu);
+    box = gtk_popover_get_child(submenu);
+  }
+
+  GtkWidget *focus =
+      data->restore_focus ? row_with_label(box, data->restore_focus) : NULL;
+
+  if (!focus)
+    focus = first_item(box);
+
+  if (focus && GTK_IS_BUTTON(focus) && gtk_widget_get_sensitive(focus))
+    gtk_widget_grab_focus(focus);
+
+  open_state_clear(data);
+
+  return G_SOURCE_REMOVE;
+}
+
+/* The new widgets are not presented yet: a popover is opened by the layer
+ * surface that owns it, so the reopen waits for the next main-loop turn. */
+static void open_state_schedule(WhelkModule *module) {
+  MenuData *data = module->data;
+
+  if (!data->restore_top)
+    return;
+
+  if (data->restore_id != 0)
+    g_source_remove(data->restore_id);
+
+  data->restore_id = g_idle_add(on_restore_open, module);
 }
 
 static void switch_top_level(WhelkModule *module, gint direction) {
@@ -522,6 +725,13 @@ static void render(WhelkModule *module) {
 
   for (guint i = 0; i < data->menus->len; i++) {
     WhelkMenu *menu = g_ptr_array_index(data->menus, i);
+
+    /* A producer can name a menu it has no rows for.  A button that opens
+     * nothing is worse than no button: the bar would say File where the
+     * application has nothing to put in it. */
+    if (menu->entries->len == 0)
+      continue;
+
     GtkWidget *button = gtk_menu_button_new();
     GtkWidget *popover = gtk_popover_new();
 
@@ -581,6 +791,21 @@ static void close_open_menus(WhelkModule *module) {
 static void replace_menus(WhelkModule *module, GPtrArray *menus) {
   MenuData *data = module->data;
 
+  /* An application re-publishes its tree for reasons that are not the user's:
+   * AboutToShow asks for a layout the moment a menu opens, a hover sends
+   * ItemsPropertiesUpdated, a Changed arrives for a menu nobody is looking at.
+   * Two trees that say the same thing are the same menu: rebuilding would take
+   * the menu out of somebody's hands to put the same rows back. */
+  if (whelk_menubar_equal(data->menus, menus)) {
+    g_ptr_array_unref(menus);
+    return;
+  }
+
+  /* A tree that really changed -- a checked item, a chord, a submenu, an id
+   * that moved -- is rebuilt, and the menu that was open is put back on the
+   * new rows.  The ids belong to the new layout before it is shown, so a click
+   * is a click on the row the reader sees. */
+  open_state_capture(module);
   close_open_menus(module);
 
   g_clear_pointer(&data->menus, g_ptr_array_unref);
@@ -595,6 +820,7 @@ static void replace_menus(WhelkModule *module, GPtrArray *menus) {
   whelk_menu_action_context_clear(&context);
 
   render(module);
+  open_state_schedule(module);
 }
 
 static void stop_dbus_menu_watch(MenuData *data) {
@@ -613,10 +839,14 @@ static void stop_gtk_menu_watch(MenuData *data) {
   data->gtk_menu = NULL;
 }
 
-/* LayoutUpdated means the old ids may already belong to other rows: close
- * first, read second.  The read itself replaces the tree and repaints. */
+/* LayoutUpdated means the old ids may already belong to other rows, and the
+ * read this watch is about to make replaces the tree with the new ones.  It is
+ * deliberately not a reason to close the menu: an application sends it while
+ * it builds the very menu somebody just opened (AboutToShow does), so closing
+ * here is what used to make the global menu disappear on its own.  The tree is
+ * rebuilt and the open menu put back by `replace_menus'. */
 static void on_dbus_menu_invalidated(gpointer user_data) {
-  close_open_menus(user_data);
+  (void)user_data;
 }
 
 /* Firefox or Thunderbird changed a menu while the bar was showing it: the
@@ -628,9 +858,9 @@ static void on_dbus_menu_changed(GPtrArray *menus, gpointer user_data) {
   replace_menus(module, menus);
 }
 
-/* org.gtk.Menus Changed carries add/remove tuples, but the tree we render is
- * not diffable in place: close the popover, then let Start return the current
- * tree.  This is the same contract as the DBusMenu watch. */
+/* org.gtk.Menus Changed carries add/remove tuples, and the watch answers it
+ * with the current tree: replacing that tree keeps the open menu open (see
+ * `replace_menus'). */
 static void on_gtk_menu_changed(GPtrArray *menus, gpointer user_data) {
   WhelkModule *module = user_data;
 
@@ -1283,6 +1513,15 @@ static void menu_destroy(WhelkModule *module) {
 
   if (!data)
     return;
+
+  /* A reopen scheduled for the next main-loop turn would outlive the widgets
+   * it opens: drop it with them. */
+  if (data->restore_id != 0) {
+    g_source_remove(data->restore_id);
+    data->restore_id = 0;
+  }
+
+  open_state_clear(data);
 
   stop_dbus_menu_watch(data);
   stop_gtk_menu_watch(data);

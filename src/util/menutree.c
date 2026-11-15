@@ -89,6 +89,91 @@ GPtrArray *whelk_menubar_new(void) {
 }
 
 /* =========================================================================
+ * TWO TREES THAT SAY THE SAME THING
+ * =========================================================================
+ * An application re-publishes its menu for reasons that have nothing to do
+ * with a user: `AboutToShow' asks for a fresh layout the moment a menu opens,
+ * a hover sends `ItemsPropertiesUpdated', a checked item announces itself
+ * twice.  A menu bar that rebuilds on every one of those takes the menu away
+ * from the person reading it, so the shell compares first and only rebuilds
+ * when something a reader could see -- or an id a click would use -- changed.
+ *
+ * The comparison is textual on purpose: it is the menu, not the Scheme record
+ * or the D-Bus reply, that has to be the same, and every field below is
+ * either drawn or sent back on a click.
+ */
+
+static gboolean same_text(const char *a, const char *b) {
+  return g_strcmp0(a, b) == 0;
+}
+
+static gboolean menu_equal(const WhelkMenu *a, const WhelkMenu *b);
+
+static gboolean entry_equal(const WhelkMenuEntry *a, const WhelkMenuEntry *b) {
+  if (a->kind != b->kind)
+    return FALSE;
+
+  if (!same_text(a->label, b->label))
+    return FALSE;
+
+  if (a->kind == WHELK_MENU_SEPARATOR)
+    return TRUE;
+
+  if (!same_text(a->accel, b->accel) || a->enabled != b->enabled)
+    return FALSE;
+
+  /* What activating it does: the four ways an entry can be carried out. */
+  if (!same_text(a->action, b->action) || !same_text(a->target, b->target) ||
+      !same_text(a->command, b->command))
+    return FALSE;
+
+  /* A DBusMenu id points into a layout: two trees that look alike but whose
+   * ids moved are not the same tree, because a click would land elsewhere. */
+  if (!same_text(a->dbus_service, b->dbus_service) ||
+      !same_text(a->dbus_path, b->dbus_path) || a->dbus_item != b->dbus_item)
+    return FALSE;
+
+  if (!same_text(a->atspi_service, b->atspi_service) ||
+      !same_text(a->atspi_path, b->atspi_path) ||
+      a->atspi_action != b->atspi_action)
+    return FALSE;
+
+  return menu_equal(a->submenu, b->submenu);
+}
+
+static gboolean menu_equal(const WhelkMenu *a, const WhelkMenu *b) {
+  if (a == b)
+    return TRUE;
+
+  if (!a || !b)
+    return FALSE;
+
+  if (!same_text(a->label, b->label) || a->entries->len != b->entries->len)
+    return FALSE;
+
+  for (guint i = 0; i < a->entries->len; i++)
+    if (!entry_equal(g_ptr_array_index(a->entries, i),
+                     g_ptr_array_index(b->entries, i)))
+      return FALSE;
+
+  return TRUE;
+}
+
+gboolean whelk_menubar_equal(GPtrArray *a, GPtrArray *b) {
+  if (a == b)
+    return TRUE;
+
+  if (!a || !b || a->len != b->len)
+    return FALSE;
+
+  for (guint i = 0; i < a->len; i++)
+    if (!menu_equal(g_ptr_array_index(a, i), g_ptr_array_index(b, i)))
+      return FALSE;
+
+  return TRUE;
+}
+
+/* =========================================================================
  * A MENUBAR AN APPLICATION EXPORTS
  * =========================================================================
  * `org.gtk.Menus.Start' answers with `a(uuaa{sv})': every menu of the requested

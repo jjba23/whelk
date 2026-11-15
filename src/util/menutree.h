@@ -77,6 +77,23 @@ WhelkMenu *whelk_menu_add_submenu(WhelkMenu *menu, const char *label);
 GPtrArray *whelk_menubar_new(void);
 
 /**
+ * whelk_menubar_equal:
+ * @a: (nullable): a menubar.
+ * @b: (nullable): another menubar.
+ *
+ * Whether the two trees say the same thing: the same menus, the same rows in
+ * the same order, the same labels and chords, the same enabled state, the
+ * same action, command, DBusMenu id and AT-SPI address, and the same submenus.
+ * Two trees that compare equal are interchangeable both for a reader and for a
+ * click, so a menu bar that already shows one does not have to rebuild for the
+ * other -- which is what keeps an open menu open when an application
+ * re-publishes it (AboutToShow, ItemsPropertiesUpdated, a repeated Changed).
+ *
+ * Returns: TRUE when nothing a reader could see, or a click could use, differs.
+ */
+gboolean whelk_menubar_equal(GPtrArray *a, GPtrArray *b);
+
+/**
  * whelk_menubar_from_gtk:
  * @reply: the `a(uuaa{sv})` answer to `org.gtk.Menus.Start`, or NULL.
  * @group: the group of the menubar's root menu.

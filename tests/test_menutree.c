@@ -728,9 +728,96 @@ static void test_clipboard_settings_from_scheme(void) {
   g_unlink(path);
 }
 
+/* One menubar, built the way a producer builds one: two menus, a chord, a
+ * live DBusMenu id, a submenu, a separator and a disabled row. */
+static GPtrArray *sample_menubar(const char *chord, int id) {
+  GPtrArray *bar = whelk_menubar_new();
+  WhelkMenu *file = whelk_menu_new("File");
+
+  WhelkMenuEntry *open = whelk_menu_add_entry(file, "Open");
+
+  open->accel = g_strdup(chord);
+  open->dbus_service = g_strdup("org.example.App");
+  open->dbus_path = g_strdup("/MenuBar/1");
+  open->dbus_item = id;
+
+  WhelkMenu *recent = whelk_menu_add_submenu(file, "Recent");
+  WhelkMenuEntry *note = whelk_menu_add_entry(recent, "notes.txt");
+
+  note->command = g_strdup("xdg-open notes.txt");
+
+  whelk_menu_add_separator(file);
+
+  WhelkMenu *view = whelk_menu_new("View");
+  WhelkMenuEntry *zoom = whelk_menu_add_entry(view, "Zoom");
+
+  zoom->enabled = FALSE;
+
+  g_ptr_array_add(bar, file);
+  g_ptr_array_add(bar, view);
+
+  return bar;
+}
+
+static void test_menubar_equal_identical(void) {
+  g_autoptr(GPtrArray) a = sample_menubar("Ctrl+O", 7);
+  g_autoptr(GPtrArray) b = sample_menubar("Ctrl+O", 7);
+
+  /* Two separate trees built from the same facts are the same menu: no
+   * rebuild, and so no closing of a menu somebody is reading. */
+  g_assert_true(whelk_menubar_equal(a, b));
+  g_assert_true(whelk_menubar_equal(a, a));
+  g_assert_true(whelk_menubar_equal(NULL, NULL));
+  g_assert_false(whelk_menubar_equal(a, NULL));
+  g_assert_false(whelk_menubar_equal(NULL, a));
+}
+
+static void test_menubar_equal_follows_what_a_reader_sees(void) {
+  g_autoptr(GPtrArray) a = sample_menubar("Ctrl+O", 7);
+
+  g_autoptr(GPtrArray) chord = sample_menubar("Ctrl+P", 7);
+
+  g_assert_false(whelk_menubar_equal(a, chord));
+
+  g_autoptr(GPtrArray) enabled = sample_menubar("Ctrl+O", 7);
+
+  ((WhelkMenuEntry *)g_ptr_array_index(
+       ((WhelkMenu *)g_ptr_array_index(enabled, 1))->entries, 0))
+      ->enabled = TRUE;
+
+  g_assert_false(whelk_menubar_equal(a, enabled));
+}
+
+static void test_menubar_equal_ids_are_part_of_the_tree(void) {
+  g_autoptr(GPtrArray) a = sample_menubar("Ctrl+O", 7);
+
+  /* Same rows, one id moved: the menu must be rebuilt, because a click would
+   * otherwise be sent to whatever took the old row's place. */
+  g_autoptr(GPtrArray) moved = sample_menubar("Ctrl+O", 8);
+
+  g_assert_false(whelk_menubar_equal(a, moved));
+}
+
+static void test_menubar_equal_submenus_and_rules(void) {
+  g_autoptr(GPtrArray) a = sample_menubar("Ctrl+O", 7);
+  g_autoptr(GPtrArray) deeper = sample_menubar("Ctrl+O", 7);
+
+  WhelkMenu *file = g_ptr_array_index(deeper, 0);
+  WhelkMenuEntry *recent = g_ptr_array_index(file->entries, 1);
+  WhelkMenuEntry *later = whelk_menu_add_entry(recent->submenu, "later.txt");
+
+  later->command = g_strdup("true");
+  g_assert_false(whelk_menubar_equal(a, deeper));
+
+  /* A rule that appeared is a different menu too. */
+  g_autoptr(GPtrArray) ruled = sample_menubar("Ctrl+O", 7);
+
+  whelk_menu_add_separator(g_ptr_array_index(ruled, 1));
+  g_assert_false(whelk_menubar_equal(a, ruled));
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
-
   /* The dictionary is Scheme's; load it the way the shell does, so these tests
    * see the menus an installed whelk would show. */
   whelk_bridge_start_guile();
@@ -770,6 +857,12 @@ int main(int argc, char **argv) {
                   test_shell_menu_from_settings);
   g_test_add_func("/menutree/clipboard/settings",
                   test_clipboard_settings_from_scheme);
+  g_test_add_func("/menutree/equal/identical", test_menubar_equal_identical);
+  g_test_add_func("/menutree/equal/what-a-reader-sees",
+                  test_menubar_equal_follows_what_a_reader_sees);
+  g_test_add_func("/menutree/equal/ids", test_menubar_equal_ids_are_part_of_the_tree);
+  g_test_add_func("/menutree/equal/submenus-and-rules",
+                  test_menubar_equal_submenus_and_rules);
 
   return g_test_run();
 }
