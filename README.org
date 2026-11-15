@@ -209,6 +209,9 @@ the documented one -- see [[#configuration][Configuration]].
 - GTK 4 (>= 4.10 for =gdk_monitor_get_connector=; developed against 4.24)
 - =gtk4-layer-shell= (>= 1.2, for =ext-session-lock-v1= and the fallback)
 - GNU Guile 3.0, with its development headers
+- Linux-PAM development headers.  The library itself is not linked: the lock
+  screen loads the host's at run time (see [[#linkage][What the binary links]]), but
+  the build refuses to produce a shell that could only lock and never unlock.
 - Meson, Ninja, a C17 compiler, =pkg-config=
 - Optional, found at build time: =libx11= (the X11 dock fallback)
 - Optional, found at run time: =niri= or =swaymsg= (compositor IPC),
@@ -217,6 +220,41 @@ the documented one -- see [[#configuration][Configuration]].
 
 Nothing on that second list is required to start: whelk asks for what is there
 and hides what is not.
+
+** What the binary links
+:PROPERTIES:
+:CUSTOM_ID: linkage
+:END:
+
+=ldd $(command -v whelk)= is the honest answer to "what does this binary
+need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO, libm, Guile, and
+=libX11= where the build found it.  PAM is not on that list, and that is
+deliberate.
+
+The locker opens a PAM library with =dlopen= at the moment a password is
+submitted; [[#lock-screen][The lock screen]] explains why.  A binary that linked
+libpam would answer with whichever copy the build found -- a store path in a
+Nix or Guix build -- and that copy's =pam_unix= cannot run the host's setuid
+=unix_chkpwd=, so every password would come back as =PAM_AUTHINFO_UNAVAIL=.
+The candidates, in order, are:
+
+1. the host's own copy: =/usr/lib64/libpam.so.0=, =/lib64/libpam.so.0=,
+   =/usr/lib/libpam.so.0=, =/lib/libpam.so.0=, then every
+   =/usr/lib/*-linux-gnu/libpam.so.0= (the Debian multiarch directories);
+2. the libdir the build configured (=WHELK_PAM_LIBDIR=), named in full;
+3. =libpam.so.0= through the loader: the build's rpath when it survived, the
+   host's ld cache everywhere else.
+
+=readelf -d $(command -v whelk)= shows no =NEEDED= entry for libpam.  It shows
+the configured libdir in =RUNPATH= when the build was not a system one, and a
+packager may shrink that =RUNPATH= (nixpkgs does) -- which is why the libdir is
+also compiled in as a candidate rather than trusted to the rpath.
+
+On a NixOS or Guix System, where =/usr= has no PAM, the second candidate is the
+one that answers and the system's =/etc/pam.d= entries name their modules by
+absolute store path, so the pair works.  On a distribution that keeps PAM in
+=/usr=, the first candidate is the distribution's copy and its modules are the
+distribution's modules.  That split is the whole point.
 
 ** Guix
 :PROPERTIES:
@@ -559,6 +597,47 @@ directory leaves the session locked with the same message.
 still applies without it.  Review it against the distribution's own PAM policy
 before installing it.  PAM headers are a build requirement: a build without them
 could only ship a lock screen that never authenticates, so the build refuses.
+
+*** If it says authentication is unavailable
+:PROPERTIES:
+:CUSTOM_ID: lock-auth-troubleshooting
+:END:
+
+"Authentication is unavailable. The screen stays locked." is one result --
+=LOCK_AUTH_UNAVAILABLE= -- and three different causes.  The locker logs which
+one, on stdout, so a session started from a terminal, a user unit or the
+journal keeps it:
+
+#+begin_src sh
+  journalctl --user -b | grep '\[C:Locker\]'
+#+end_src
+
+- *=no PAM library found; the lock screen cannot authenticate= -- none of the
+  candidates in [[#linkage][What the binary links]] could be opened.  Install the
+  distribution's PAM library, or point =ldd= at what is missing.  Nothing about
+  the build changes this: the library is a run-time dependency by design.
+- *=authentication library: <path>= followed by =PAM refused authentication
+  (status 9)= -- PAM answered =PAM_AUTHINFO_UNAVAIL=: the library that answered
+  cannot reach the credential store.  That is the signature of a store-built
+  libpam on a host whose PAM lives in =/usr=, and of a =pam_unix= whose
+  =unix_chkpwd= is not setuid.  The log line names the library, so the fix is
+  to make the host's copy reachable (usually: install the distribution's PAM
+  package, or make sure =/usr/lib64/libpam.so.0= exists).
+- *=no PAM service file and no per-user PAM directory= -- the host has neither
+  =/etc/pam.d/whelk-lock= nor =/etc/pam.d/login=, and
+  =$XDG_RUNTIME_DIR= is unset, so the per-user stack cannot be written.  A
+  session without =XDG_RUNTIME_DIR= has no secure place for a service; whelk
+  will not use =/tmp=.
+
+Two more lines say which stack answered: =authenticating with PAM service
+whelk-lock=, =... service login=, or =authenticating with the per-user PAM stack
+<dir>=.  A =whelk-lock= file that exists is never bypassed, so a broken local
+policy shows up as a refusal rather than a fallback to =login=.
+
+The status mapping is the one whelk's locker documents: =PAM_AUTH_ERR= (7),
+=PAM_USER_UNKNOWN= (10), =PAM_MAXTRIES= (11) and =PAM_NEW_AUTHTOK_REQD= (12)
+are a wrong password, and ask for another one after the retry delay; everything
+else is =LOCK_AUTH_UNAVAILABLE= and leaves the screen locked.
 
 The fallback is deliberately kept so a session without =ext-session-lock-v1=
 still locks rather than silently doing nothing.  It is weaker than the
