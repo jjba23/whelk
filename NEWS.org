@@ -15,6 +15,42 @@ Nothing yet.
 
 *[Released]*
 
+** v0.27.0 (2026-11-15)
+
+*** Fixed
+
+- *The lock screen authenticates on a machine whose PAM is not the build's.*
+  whelk now loads the host's libpam at run time instead of linking the one it
+  was built against.  A Nix- or Guix-built whelk linked a libpam whose module
+  directory was the store, so its =pam_unix= could not run the host's setuid
+  =unix_chkpwd=; every password came back as =PAM_AUTHINFO_UNAVAIL= and the
+  lock screen said "Authentication is unavailable. The screen stays locked."
+  No password could open it.
+
+- *A machine with no session stack still has one.*  The service is
+  =/etc/pam.d/whelk-lock= when the administrator installed it (authoritative),
+  then =login=, then a per-user =pam_unix= service written mode 0600 into a
+  0700 directory under =$XDG_RUNTIME_DIR=, refusing symlinks and never falling
+  back to =/tmp=.  A host with only the =common-*= fragments -- no =login=,
+  no =other= -- authenticates local accounts instead of letting PAM's deny
+  fallback refuse every password.
+
+*** Changed
+
+- *PAM headers are required to build.*  A binary without them can only ship a
+  lock screen that never authenticates, so the build now says so instead of
+  producing one.
+
+*** Verified
+
+- The host build and the Meson suite pass: 40 tests, including
+  =/lockauth/host-library=, which loads the host's libpam and asserts that a
+  name =pam_unix= cannot find answers =PAM_USER_UNKNOWN= (a deny stack answers
+  =PAM_AUTH_ERR= instead).
+- On openSUSE Slowroll, where the Nix-built locker answered status 9 for a wrong
+  password, the host library answers status 7, and the per-user stack answers
+  =PAM_USER_UNKNOWN= for a name that does not exist.
+
 ** v0.26.0 (2026-11-15)
 
 *** Changed

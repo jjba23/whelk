@@ -1,3 +1,15 @@
+whelk (0.27.0-1) unstable; urgency=medium
+
+  * The lock screen loads the host's libpam at run time instead of the library
+    it was built against, so pam_unix runs the system's setuid unix_chkpwd and
+    passwords are verified on a machine whose PAM is not the build's.
+  * Service selection falls back from whelk-lock to login to a per-user
+    pam_unix service under $XDG_RUNTIME_DIR, for hosts that ship no session
+    stack; the fallback refuses symlinks and never uses /tmp.
+  * PAM headers are now a build requirement.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 14:00:00 +0100
+
 whelk (0.26.0-1) unstable; urgency=medium
 
   * The launcher's menu script protocol is whelk's own: WHELK_RETV carries the
