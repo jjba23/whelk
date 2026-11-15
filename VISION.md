@@ -129,6 +129,62 @@ foundation is already in place.  The order is an argument, not a promise.
     glancing, and a number without a trend is half the story; the module
     protocol already supplies the timer and the widget tree.  Effort: medium.
 
+## The preferences window after 0.31
+
+0.31 made the launcher's geometry and zoom editable and taught the module
+editor to keep a symbol a symbol and a number a number. What remains is not
+another page; it is making the override layer trustworthy. Ranked by value.
+
+1. **Overrides you can see and undo.** Mark every row whose value comes from
+   the GUI, show the value `settings.scm` would supply, and put a per-row
+   **Revert** beside it. A page-level **Reset** clears only that page's
+   overrides, **Undo** puts back the last change, and **Reset all** asks before
+   discarding everything. *Why:* the window says "GUI overrides" but does not
+   say which values those are, so a user cannot tell a tuned value from the
+   configuration and one click can discard all of them. Every control already
+   carries its preference key; the missing piece is remembering the inherited
+   value and the change history, not inventing another writer. Tests should
+   cover modified marks, row revert, page reset, undo and the confirmation
+   path, and the README should show one override being reverted. Effort:
+   low-medium.
+
+2. **One metadata schema for module options.** Describe each option once --
+   label, help text, type, default, unit, range, step and choices -- and let
+   the window, the docs and the tests read that description. The module editor
+   then chooses a color picker, font chooser, path chooser, enum dropdown or
+   precise numeric control instead of a raw Scheme name and a generic
+   `0..1000000` spin. *Why:* the editor is type-safe now, but not value-safe:
+   editing a `0.3333` option through a three-digit spin can round it to
+   `0.333`, and bounds and defaults are already repeated between the window and
+   the launcher. One schema removes that drift, makes validation possible and
+   gives module authors a place to explain their options. Tests should prove
+   that each type selects the right control, that ranges and choices are
+   enforced, and that a value round-trips without changing shape; the module
+   reference should be generated from the same table. Effort: high.
+
+3. **Atomic saves with visible failures.** Write preferences through a
+   temporary file and a rename, validate a value before it is queued, show the
+   error on the row and keep the previous accepted value. A failed reload
+   should not leave the window claiming success. *Why:* a preference write
+   that fails currently only reaches the log, while the control still shows
+   the new value; a read-only state directory or a malformed font size then
+   looks saved and is not. Silent loss undermines every page and every type
+   fix above. Tests should inject a failed write and an invalid value, assert
+   that the old value survives and the error is visible, and cover the atomic
+   replacement itself. The README should say where overrides are stored and
+   what the window does when it cannot write there. Effort: medium.
+
+4. **A bar selector, not an assumption.** Let the window choose which bar it
+   edits when the configuration returns several, keep overrides distinct per
+   bar and output, and offer copying settings from one bar to another.
+   *Why:* the window currently loads the first bar only, so a multi-monitor
+   configuration silently exposes one bar and gives no way to reproduce a
+   tuned layout on another output. A selector makes per-output differences
+   visible and turns a repeated setup into one action. Tests should cover
+   enumerating bars and outputs, editing a bar that is not first, keeping
+   overrides isolated per output, and copying without aliasing the source;
+   the README should show a two-monitor example. Effort: medium-high.
+
 ## The vision
 
 A desktop where the shell is a single programmable process that knows its own
