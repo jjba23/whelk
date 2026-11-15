@@ -533,18 +533,32 @@ cap;
 - no command-line or D-Bus unlock path exists.
 
 
-The locker uses the =login= PAM stack when =/etc/pam.d/whelk-lock= is not
-installed.  A machine that wants a narrower policy can install a
-=/etc/pam.d/whelk-lock= stack; whelk uses it only when that service file
-exists.  A present =whelk-lock= stack is authoritative: if it refuses, whelk
-stays locked instead of bypassing it through =login=.  This mirrors swaylock's
-login-backed stack and avoids PAM's =other= policy (usually =pam_deny=) making
-every password fail.  =packaging/pam/whelk-lock= is a
-reviewed starting point: it throttles guesses with =pam_faillock= and uses
-=pam_unix= for the account check, and the file explains the minimal
-=pam_unix=-only alternative.  Review it against the distribution's own stack
-before installing it.  Without PAM headers at build time the locker still
-locks, says authentication is unavailable and never opens.
+whelk loads PAM at run time instead of linking it.  The library that answers
+has to be the one the running system installed: it owns the module directory
+(=/usr/lib64/security=, =/usr/lib/x86_64-linux-gnu/security= and their
+relatives) and it knows the helper those modules exec.  A libpam from a package
+manager's private store does not, and on a distribution that keeps PAM in
+=/usr= its =pam_unix= cannot run the host's setuid =unix_chkpwd=: every password
+comes back as =PAM_AUTHINFO_UNAVAIL=, which the lock screen reports as
+"Authentication is unavailable".  So the host's library is tried first and the
+build's own store path is the last resort, which is what a NixOS or Guix System
+image needs.
+
+The service is chosen the same way.  =/etc/pam.d/whelk-lock= comes first and is
+authoritative: if it refuses, whelk stays locked instead of asking =login=.
+Then =/etc/pam.d/login=, the stack lock screens conventionally use.  Then a
+per-user =pam_unix= service in =$XDG_RUNTIME_DIR/whelk/pam.d=, because a machine
+can ship only the =common-*= fragments and neither =login= nor =other= -- that
+is the host this path was debugged on -- and =pam_unix= is the portable
+local-account stack.  The runtime directory is required: whelk will not put a
+PAM service in =/tmp=, where another user could write it.  A missing runtime
+directory leaves the session locked with the same message.
+
+=packaging/pam/whelk-lock= is a reviewed stack for a machine that wants
+=pam_faillock= throttling and an explicit account check; whelk's own retry delay
+still applies without it.  Review it against the distribution's own PAM policy
+before installing it.  PAM headers are a build requirement: a build without them
+could only ship a lock screen that never authenticates, so the build refuses.
 
 The fallback is deliberately kept so a session without =ext-session-lock-v1=
 still locks rather than silently doing nothing.  It is weaker than the

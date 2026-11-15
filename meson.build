@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.26.0',
+  version: '0.27.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -66,8 +66,14 @@ wayland_client_dep = dependency('wayland-client', include_type: 'system')
 # the machine's .desktop entries with it.
 gio_unix_dep = dependency('gio-unix-2.0', include_type: 'system')
 # PAM: the screen locker asks the session's authentication service, never a
-# password file of its own.  Optional: without it the locker fails closed.
-pam_dep = dependency('pam', required: false)
+# password file of its own.  The headers are required - a build without them
+# can only ship a lock screen that cannot authenticate - but the library is
+# not linked: the locker loads the host's libpam at run time, because the
+# library that owns the module directory and the setuid helper must be the
+# one the running system installed.  See src/util/lockauth.h.
+pam_dep = dependency('pam')
+pam_headers = pam_dep.partial_dependency(compile_args: true, includes: true,
+  link_args: false, links: false)
 
 # libm: the workspace bar and the metric readouts use round()/fabs().
 libm_dep = cc.find_library('m', required: false)
@@ -84,16 +90,29 @@ whelk_deps = [
   wayland_client_dep,
   gio_unix_dep,
   libm_dep,
+  pam_headers,
 ]
+
+# A libpam inside a package manager's store (Nix, Guix) is reached through the
+# rpath when the host has no libpam of its own; a distribution's PAM is found
+# by the loader, and an rpath into /usr would only be a packaging smell.
+pam_libdir = pam_dep.get_variable(pkgconfig: 'libdir', default_value: '')
+
+if pam_libdir != '' and not pam_libdir.startswith('/usr')
+  add_project_link_arguments('-Wl,-rpath,' + pam_libdir, language: 'c')
+endif
 
 if x11_dep.found()
   whelk_deps += x11_dep
   add_project_arguments('-DHAVE_X11', language: 'c')
 endif
 
-if pam_dep.found()
-  whelk_deps += pam_dep
-  add_project_arguments('-DHAVE_PAM', language: 'c')
+add_project_arguments('-DHAVE_PAM', language: 'c')
+
+dl_dep = cc.find_library('dl', required: false)
+
+if dl_dep.found()
+  whelk_deps += dl_dep
 endif
 
 # ------------------------------------------------------------------------------
@@ -201,6 +220,7 @@ whelk_sources = files(
   'src/util/json.c',
   'src/util/level.c',
   'src/util/launchergeometry.c',
+  'src/util/lockauth.c',
   'src/util/lockpolicy.c',
   'src/util/menuaction.c',
   'src/util/menudict.c',
@@ -458,6 +478,10 @@ unit_tests = [
   {
     'id': 'lockpolicy',
     'sources': ['src/util/lockpolicy.c'],
+  },
+  {
+    'id': 'lockauth',
+    'sources': ['src/util/lockauth.c'],
   },
   {
     'id': 'atspimenus',

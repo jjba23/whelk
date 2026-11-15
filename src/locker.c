@@ -8,6 +8,7 @@
 #include "logger.h"
 #include "shell.h"
 #include "surface.h"
+#include "util/lockauth.h"
 #include "util/lockpolicy.h"
 
 #include <errno.h>
@@ -346,11 +347,11 @@ failed:
   return PAM_CONV_ERR;
 }
 
-/* PAM searches /etc/pam.d and its compiled-in fallback directories.  A
- * missing service does not make pam_start() fail: it uses the `other' stack,
- * which is commonly pam_deny.  That produced a lock screen that rejected every
- * password.  Pick a service that exists, as swaylock's login stack does, and
- * only prefer the whelk-lock policy when the administrator installed it. */
+/* PAM searches /etc/pam.d and its compiled-in fallback directories.  A missing
+ * service does not make pam_start() fail: it uses the `other' stack, which is
+ * commonly pam_deny.  That produced a lock screen that rejected every
+ * password.  Pick a service that exists, and only prefer the whelk-lock policy
+ * when the administrator installed it. */
 static gboolean pam_service_exists(const char *name) {
   static const char *const directories[] = {
       "/etc/pam.d",
@@ -369,7 +370,42 @@ static gboolean pam_service_exists(const char *name) {
   return FALSE;
 }
 
+static LockAuthResult pam_finish(const WhelkPam *pam,
+                                 pam_handle_t *handle) {
+  int status = pam->authenticate(handle, PAM_SILENT | PAM_DISALLOW_NULL_AUTHTOK);
+
+  if (status == PAM_SUCCESS)
+    status = pam->acct_mgmt(handle, PAM_SILENT);
+
+  if (status == PAM_SUCCESS) {
+    pam->end(handle, PAM_SUCCESS);
+    return LOCK_AUTH_OK;
+  }
+
+  LOG_C_DEBUG("Locker", "PAM refused authentication (status %d): %s", status,
+              pam->strerror(handle, status));
+
+  const LockAuthResult result =
+      (status == PAM_AUTH_ERR || status == PAM_USER_UNKNOWN ||
+       status == PAM_MAXTRIES || status == PAM_NEW_AUTHTOK_REQD)
+          ? LOCK_AUTH_DENIED
+          : LOCK_AUTH_UNAVAILABLE;
+
+  pam->end(handle, status);
+  return result;
+}
+
 static LockAuthResult pam_authenticate_user(const char *password) {
+  const WhelkPam *pam = whelk_lock_pam_open();
+
+  if (!pam) {
+    LOG_C_WARN("Locker",
+               "no PAM library found; the lock screen cannot authenticate");
+    return LOCK_AUTH_UNAVAILABLE;
+  }
+
+  LOG_C_DEBUG("Locker", "authentication library: %s", whelk_lock_pam_path());
+
   const char *username = g_get_user_name();
   LockConversation conversation = {
       .password = password,
@@ -381,45 +417,43 @@ static LockAuthResult pam_authenticate_user(const char *password) {
       .appdata_ptr = &conversation,
   };
   pam_handle_t *handle = NULL;
-  const char *service =
-      pam_service_exists("whelk-lock") ? "whelk-lock" : "login";
-  int status = pam_start(service, username, &conv, &handle);
+  int status;
 
-  /* A whelk-lock stack that exists but refuses is never bypassed by asking
-   * login instead.  Without it, login is the standard session stack, and it is
-   * the service swaylock and most lock screens use. */
+  if (pam_service_exists("whelk-lock")) {
+    LOG_C_DEBUG("Locker", "authenticating with PAM service whelk-lock");
+    status = pam->start("whelk-lock", username, &conv, &handle);
+  } else if (pam_service_exists("login")) {
+    LOG_C_DEBUG("Locker", "authenticating with PAM service login");
+    status = pam->start("login", username, &conv, &handle);
+  } else {
+    /* No session stack to borrow: a host with only `common-*' fragments has
+     * neither login nor other, and PAM's own fallback denies every password.
+     * The per-user pam_unix service is the portable answer, and the host's
+     * libpam is what makes its unix_chkpwd work. */
+    g_autofree char *confdir =
+        whelk_lock_pam_confdir(g_getenv("XDG_RUNTIME_DIR"));
+
+    if (!confdir || !pam->start_confdir) {
+      LOG_C_WARN("Locker",
+                 "no PAM service file and no per-user PAM directory; the lock "
+                 "screen cannot authenticate");
+      return LOCK_AUTH_UNAVAILABLE;
+    }
+
+    LOG_C_DEBUG("Locker", "authenticating with the per-user PAM stack %s",
+                confdir);
+    status =
+        pam->start_confdir("whelk-lock", username, &conv, confdir, &handle);
+  }
+
   if (status != PAM_SUCCESS) {
-    LOG_C_WARN("Locker", "PAM service %s is not available (status %d)",
-               service, status);
+    LOG_C_WARN("Locker", "PAM could not start (status %d)", status);
     if (handle)
-      pam_end(handle, status);
+      pam->end(handle, status);
     return LOCK_AUTH_UNAVAILABLE;
   }
 
-  LOG_C_DEBUG("Locker", "authenticating with PAM service %s", service);
-
-  status =
-      pam_authenticate(handle, PAM_SILENT | PAM_DISALLOW_NULL_AUTHTOK);
-
-  if (status == PAM_SUCCESS)
-    status = pam_acct_mgmt(handle, PAM_SILENT);
-
-  if (status == PAM_SUCCESS) {
-    pam_end(handle, PAM_SUCCESS);
-    return LOCK_AUTH_OK;
-  }
-
-  LOG_C_DEBUG("Locker", "PAM refused authentication (status %d): %s", status,
-              pam_strerror(handle, status));
-
-  const LockAuthResult result =
-      (status == PAM_AUTH_ERR || status == PAM_USER_UNKNOWN ||
-       status == PAM_MAXTRIES || status == PAM_NEW_AUTHTOK_REQD)
-          ? LOCK_AUTH_DENIED
-          : LOCK_AUTH_UNAVAILABLE;
-
-  pam_end(handle, status);
-  return result;
+  return pam_finish(pam, handle);
 }
 #else
 static LockAuthResult pam_authenticate_user(const char *password) {
