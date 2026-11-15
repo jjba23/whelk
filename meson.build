@@ -596,7 +596,13 @@ foreach t : unit_tests
     include_directories: inc,
     dependencies: whelk_deps,
   )
-  test(t['id'] + '_unit_tests', exe, env: test_env)
+  test(t['id'] + '_unit_tests', exe, env: test_env,
+       # A shared CI runner is far slower than a workstation -- every test here
+       # starts GTK, Guile or a private bus -- and Meson's default 30 s is a
+       # wall clock for a fast machine.  The limit is loose because it is there
+       # to catch a hang, not to measure the host: the release run of 0.32.2
+       # failed on a preferences test that needs four seconds here.
+       timeout: 300)
 endforeach
 
 # Drawing is the half the pure tests cannot see.  The renderer runs under
