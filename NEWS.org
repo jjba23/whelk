@@ -15,6 +15,29 @@ Nothing yet.
 
 *[Released]*
 
+** v0.26.0 (2026-11-15)
+
+*** Changed
+
+- *The launcher's menu protocol is whelk's own.*  A generator that prints
+  =label\0icon\x1f…\0disabled\x1ftrue= rows is listed with =WHELK_RETV=0= and
+  called back with =WHELK_RETV=1= and the chosen label.  A row that cannot be
+  chosen is marked =disabled=.  A menu script written for the old protocol
+  needs those two names changed; the tab-separated shape, icons and the rule
+  that a box-drawn row separates groups are unchanged.
+
+- *The documentation is about the shell.*  The compatibility prose, the
+  reference tables and the changelog entries that explained whelk by what it
+  replaced are gone, so a reader no longer needs to know another program's
+  configuration to use this one.  heks-linux's session menu and palette picker
+  moved to =WHELK_RETV=, and its picker is installed as =heks-theme-menu=.
+
+*** Verified
+
+- The host build and the Meson suite pass: 39 tests.
+- heks-linux's palette-picker, whelk, palette and image specs pass through
+  =guix shell -m manifest.scm=.
+
 ** v0.25.0 (2026-11-14)
 
 *** Added
@@ -100,7 +123,8 @@ Nothing yet.
   theme switch cannot leave yesterday's rules stacked above today's.
 - *Opening the settings window closes the bar's popovers.*  A popover left
   above a task window would keep the pointer captured after focus moved.
-- *The default configuration no longer calls rofi.*  The language tile cycles
+- *The default configuration no longer calls an external menu program.*  The
+  language tile cycles
   niri's layouts, the palette tile's right click opens whelk's material
   settings, and the battery tile uses the built-in session menu.  The
   launcher's menu mode still speaks the existing menu-script protocol, so a
@@ -838,9 +862,9 @@ Nothing yet.
   and toggles whelk's own notification state -- the tile is on the bar while
   DND is on, and hides itself while it is off unless =#:show-off? #t= -- and
   =clipboard-module= shows the shell's history depth and opens the picker on a
-  click.  The default bar's =makoctl= and =clipman= custom modules are gone;
-  neither program is needed, and the DND tile appears because the state is the
-  shell's own.
+  click.  The default bar's notification-daemon and clipboard-manager custom
+  modules are gone; neither program is needed, and the DND tile appears because
+  the state is the shell's own.
 - *The changelog is NEWS.org.* This file replaces =CHANGELOG.md=; the history
   below is the same history.
 - *The volume and brightness readings are the glyph alone by default.* A bar
@@ -909,22 +933,20 @@ Nothing yet.
   program that prints ~Menu<TAB>Item<TAB>Chord<TAB>Command~ lines, and those
   become the focused application's menus -- the escape hatch for an application
   no bus describes, with no rebuild.
-- *rofi's script protocol in the launcher.* A menu generator that prints
-  ~label\0icon\x1f…\0nonselectable\x1ftrue~ rows is read as bytes rather than as
+- *The launcher's script protocol.* A menu generator that prints
+  ~label\0icon\x1f…\0disabled\x1ftrue~ rows is read as bytes rather than as
   text, so its icons appear, its rules are not selectable, and choosing a row
-  runs the generator again with ~ROFI_RETV=1~ and the label, the way rofi's own
-  script mode does.
+  runs the generator again with that row's label.
 - *~ssh~ and ~quit~ launcher modes.* ~--launcher-mode=ssh~ (prefix ~%~) lists
-  the hosts ~~/.ssh/config~ names and opens one in a terminal, which is rofi's
-  ~ssh~ mode; ~--launcher-mode=quit~ (prefix ~!~) lists the open windows and
+  the hosts ~~/.ssh/config~ names and opens one in a terminal; ~--launcher-mode=quit~
+  (prefix ~!~) lists the open windows and
   closes the chosen one, which is what the shell menu's Force Quit opens.
 
 *** Changed
 
-- *mako's numbers.* A toast stays ten seconds when the application does not
-  say (mako's ~default-timeout~ in the reference configuration), five toasts are
-  visible at once (~max-visible~), and a critical one still never expires on
-  its own.
+- *The toast numbers.* A toast stays ten seconds when the application does not
+  say (the reference configuration's timeout), five toasts are visible at once,
+  and a critical one still never expires on its own.
 - ~whelk --launcher-mode~ documents the full mode list: app, window, run, calc,
   file, web, menu, ssh, quit, clipboard.
 - *The notification centre and its toasts.* The centre's header now carries
@@ -1117,8 +1139,8 @@ Nothing yet.
   and no icon font, and it stays sharp at any ~#:icon-size~ (18 by default) and
   any bar height.  ~#:label~ still swaps it for a glyph.
 - *The start menu is a native GTK menu.* The default bar wears
-  ~(start-module)~ rather than a ~custom-module~ that called
-  ~rofi -show heks-system-menu~: one mark, and a popover with the launcher, the
+  ~(start-module)~ rather than a ~custom-module~ that spawned a menu program:
+  one mark, and a popover with the launcher, the
   network panel, the notification centre, a reload and Quit, with no program
   spawned to draw it.
 - The global menu asks D-Bus first, then the dictionary, then the shared

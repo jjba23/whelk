@@ -1,3 +1,12 @@
+whelk (0.26.0-1) unstable; urgency=medium
+
+  * The launcher's menu script protocol is whelk's own: WHELK_RETV carries the
+    caller's answer and a row that cannot be chosen is marked `disabled`.
+  * The documentation drops the compatibility prose and reference tables, so
+    the shell is described on its own terms.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 12:00:00 +0100
+
 whelk (0.25.0-1) unstable; urgency=medium
 
   * The lock screen no longer rejects every password when the optional
