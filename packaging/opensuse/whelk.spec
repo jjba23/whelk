@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.31.0
+Version:        0.32.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -64,7 +64,7 @@ Wayfire.
 
 %files
 %license LICENSE
-%doc README.org
+%doc README.org NEWS.org docs
 %{_bindir}/whelk
 %{_datadir}/applications/org.jointhefreeworld.whelk.desktop
 %{_datadir}/icons/hicolor/*/apps/org.jointhefreeworld.whelk.*

@@ -13,6 +13,68 @@ Nothing yet.
 
 *[Released]
 
+** v0.32.0 (2026-11-15)
+
+*** Added
+
+- *A manual in =docs/=, one document per subject.*  The README had grown to
+  2,191 lines because every feature was documented where it was implemented:
+  the bar, the launcher, the clipboard, the lock screen, the idle manager, the
+  menus, the sessions, the architecture and the release process all shared one
+  file.  Each now has its own page under =docs/=, written as Org like the
+  README, and =docs/index.org= is the map: a table of the twenty-four
+  documents and three reading paths -- using it, hacking on it, and something
+  is wrong.
+- *The lifecycles, written down.*  =docs/lifecycle.org= follows one path per
+  section, with the names the source uses: the supervisor and its UI, the
+  startup order (idle manager, notification service, configuration, clipboard,
+  locker, bars, panels), the 250 ms reload countdown, a module's refresh with
+  its generation guard, who owns the notification bus name, the four ways into
+  the lock path, and the shutdown sequence that flushes the clipboard before it
+  destroys a surface.
+- *Twenty-four mermaid diagrams.*  Between them they answer the questions prose
+  was carrying: which =libpam= answers and in what order, which menu producer
+  speaks for an application, what a copy goes through before it is stored, what
+  a notification's store and its two views are, when the idle timer fires and
+  when the inhibitor suspends it, what =publish= checks before it tags,
+  where a packaged whelk installs, how the test layers stack, and how the source
+  tree becomes a bar on screen.
+
+*** Changed
+
+- *The README is a landing page.*  What whelk is, the screenshot, the feature
+  list, five commands to a first bar, the install routes, a table that points at
+  every document, the license and the project.  The detail it used to hold is in
+  =docs/=, and its internal links follow it there.
+- *=docs/releasing.org= treats the release as a process.*  The six files that
+  carry the version, what =set-version= refuses, and every gate =publish= runs
+  before it creates a tag are in one place.
+- *=VISION.md=, =manifest.scm= and =settings/settings.scm= point at the new
+  pages,* and the openSUSE spec ships =docs/= and =NEWS.org= wherever it shipped
+  the README.
+
+*** Fixed
+
+- *The README no longer links to an =AGENTS.md= that was never committed.*  The
+  conventions it described are documented where they belong:
+  =docs/architecture.org= for the boundaries and =docs/development.org= for the
+  house rules.
+- *The roadmap no longer lists tray menus as work still to come.*  An applet's
+  own =com.canonical.dbusmenu= has been read and clicked since 0.26, and
+  =docs/tray.org= documents that path.
+- *Two sentences that had drifted out of date are corrected:* the =current=
+  preset describes the bar of the document it lives in, and the launcher-key
+  paragraph names =whelk --launcher= instead of pointing at a section that had
+  moved.  A typo in the README's first paragraph (=noi=tification=) is gone too.
+
+*** Verified
+
+- The host build and the Meson suite pass: 44 tests, unchanged, because this
+  release moves documentation and nothing else.
+- Every mermaid block was rendered with mermaid-cli (mermaid 11) before the
+  documentation was committed, and every relative =[[file:...]]= link in
+  =README.org= and =docs/= resolves.
+
 ** v0.31.0 (2026-11-15)
 
 *** Added
