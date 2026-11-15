@@ -33,6 +33,7 @@ G_DECLARE_FINAL_TYPE(WhelkNotifications, whelk_notifications, WHELK,
                      NOTIFICATIONS, GObject)
 
 typedef struct _WhelkNotification WhelkNotification;
+typedef struct _WhelkIdle WhelkIdle;
 
 /** The server's D-Bus name, also this service's only name. */
 #define WHELK_NOTIFICATIONS_BUS_NAME "org.freedesktop.Notifications"
@@ -75,6 +76,11 @@ GPtrArray *whelk_notifications_snapshot(WhelkNotifications *self);
 guint whelk_notifications_count(WhelkNotifications *self);
 
 /* --- do not disturb -------------------------------------------------------- */
+
+/* The idle manager owns the flag and its signal.  The service reads it through
+ * these accessors and re-emits `dnd-changed' for its own listeners, so a
+ * module still subscribes to one object. */
+void whelk_notifications_set_idle(WhelkNotifications *self, WhelkIdle *idle);
 
 gboolean whelk_notifications_has_dnd(WhelkNotifications *self);
 

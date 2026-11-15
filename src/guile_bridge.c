@@ -1054,6 +1054,17 @@ WhelkClipboardConfig *whelk_bridge_clipboard(const char *path) {
   return config;
 }
 
+int whelk_bridge_idle_lock_after(const char *path) {
+  SCM alist = call_with_path("whelk state", "get-shell-idle", path);
+
+  if (!scm_is_pair(alist))
+    return 0;
+
+  const int seconds = alist_int(alist, "lock-after", 0);
+
+  return CLAMP(seconds, -1, 86400);
+}
+
 /* =========================================================================
  * THE MENU DICTIONARY
  * =========================================================================

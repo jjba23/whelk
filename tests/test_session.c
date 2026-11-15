@@ -34,8 +34,8 @@ static void test_session_commands(void) {
   g_assert_nonnull(strstr(sway, "swaymsg -t get_tree"));
   g_assert_nonnull(strstr(hypr, "hyprctl activewindow -j"));
 
-  /* riverctl has no query for the focused view: the river-status protocol
-   * carries it, and whelk does not bind that yet, so the module stays quiet. */
+  /* riverctl has no query for the focused view; the river-status protocol
+   * pushes it to the module instead. */
   g_assert_null(whelk_session_focused_window_command(WHELK_SESSION_RIVER));
   g_assert_nonnull(strstr(x11, "xprop"));
   g_assert_nonnull(strstr(x11, "_NET_ACTIVE_WINDOW"));
@@ -132,10 +132,29 @@ static void test_parse_hyprland(void) {
   g_assert_false(whelk_session_parse_focused(
       WHELK_SESSION_HYPRLAND, "{}", &title, &app_id));
 
-  /* river's session answers nothing about focus, and says so rather than
-   * inventing a window. */
+  /* An empty river-status title is river's "no focused view", and the parser
+   * says so rather than inventing a window. */
   g_assert_false(whelk_session_parse_focused(
-      WHELK_SESSION_RIVER, "{\"title\": \"Home\"}", &title, &app_id));
+      WHELK_SESSION_RIVER, "", &title, &app_id));
+}
+
+static void test_parse_river(void) {
+  char *title = NULL;
+  char *app_id = NULL;
+
+  /* The river-status focused_view event carries a title, not an app id. */
+  g_assert_true(whelk_session_parse_focused(
+      WHELK_SESSION_RIVER, "Report.odt\n", &title, &app_id));
+  g_assert_cmpstr(title, ==, "Report.odt");
+  g_assert_cmpstr(app_id, ==, "");
+  g_free(title);
+  g_free(app_id);
+
+  /* An empty title is River's "no focused view", not a window named """. */
+  g_assert_false(
+      whelk_session_parse_focused(WHELK_SESSION_RIVER, "", &title, &app_id));
+  g_assert_false(
+      whelk_session_parse_focused(WHELK_SESSION_RIVER, "\n", &title, &app_id));
 }
 
 static void test_parse_pid(void) {
@@ -366,6 +385,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/session/commands", test_session_commands);
   g_test_add_func("/session/parse/niri", test_parse_niri);
   g_test_add_func("/session/parse/hyprland", test_parse_hyprland);
+  g_test_add_func("/session/parse/river", test_parse_river);
   g_test_add_func("/session/parse/pid", test_parse_pid);
   g_test_add_func("/session/parse/sway", test_parse_sway);
   g_test_add_func("/session/parse/sway-x11", test_parse_sway_x11_window);

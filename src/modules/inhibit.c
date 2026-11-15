@@ -11,10 +11,10 @@
 /* =========================================================================
  * INHIBITORS
  * =========================================================================
- * The shell owns the idle policy: it listens to logind's IdleHint and locks
- * when the seat goes idle.  This module is the other half of that answer --
- * which process is holding an inhibitor, and why -- so "the screen did not
- * blank" has a name attached to it.
+ * The idle manager (src/idle.c) owns whelk's policy, its logind idle lock and
+ * DND.  This module is the readout half of that answer -- which process is
+ * holding an inhibitor, and why -- so "the screen did not blank" has a name
+ * attached to it.  It never takes a lock itself.
  *
  * It hides when nothing is held, unless #:show-off? keeps the tile visible.
  */

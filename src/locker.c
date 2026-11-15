@@ -1165,7 +1165,9 @@ static void on_logind_prepare_for_sleep(GDBusConnection *connection,
 }
 
 /* A VT switch makes the session inactive.  Lock before another session can
- * use the seat, so returning to this session already shows the lock screen. */
+ * use the seat, so returning to this session already shows the lock screen.
+ * IdleHint is deliberately not read here: src/idle.c owns the idle timer and
+ * is the one place that decides how long an idle session may stay unlocked. */
 static void on_session_properties(GDBusConnection *connection,
                                   const char *sender, const char *path,
                                   const char *interface, const char *signal,
@@ -1181,7 +1183,6 @@ static void on_session_properties(GDBusConnection *connection,
   g_autoptr(GVariant) changed = NULL;
   g_autoptr(GVariant) invalidated = NULL;
   gboolean active = TRUE;
-  gboolean idle = FALSE;
 
   if (!parameters ||
       !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sa{sv}as)")))
@@ -1193,12 +1194,9 @@ static void on_session_properties(GDBusConnection *connection,
   if (g_strcmp0(changed_interface, "org.freedesktop.login1.Session") != 0)
     return;
 
-  /* Active=false is the VT switch.  IdleHint is set by a session manager (or
-   * an idle daemon) that has decided the seat is idle; locking on it covers
-   * idle policies without making whelk poll every input event itself. */
+  /* Active=false is the VT switch.  The idle hint is the idle manager's
+   * business; this handler only reacts to the seat changing hands. */
   if (g_variant_lookup(changed, "Active", "b", &active) && !active)
-    request_logind_lock();
-  else if (g_variant_lookup(changed, "IdleHint", "b", &idle) && idle)
     request_logind_lock();
 }
 

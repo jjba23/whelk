@@ -127,6 +127,7 @@
                presets
                use-preset!
                clipboard-settings
+               idle-settings
                themes
                theme-palette
                theme-exists?
@@ -136,6 +137,7 @@
                get-shell-menu
                get-shell-widgets
                get-shell-clipboard
+               get-shell-idle
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path

@@ -79,8 +79,16 @@ void whelk_shell_show_session_menu(WhelkShell *shell);
 /* Opens or closes the notification centre. */
 void whelk_shell_toggle_notifications(WhelkShell *shell);
 
-/* Turns do-not-disturb on or off. */
+/* Turns do-not-disturb on or off.  The idle manager owns the flag. */
 void whelk_shell_toggle_dnd(WhelkShell *shell);
+
+/* Takes or releases whelk's presentation inhibitor: a real logind idle lock
+ * held by this process.  REASON is shown by `systemd-inhibit --list'. */
+void whelk_shell_toggle_inhibit(WhelkShell *shell, const char *reason);
+
+/* The idle manager's report: hint, timer, whelk's inhibitor and DND.  The
+ * caller frees the string. */
+char *whelk_shell_idle_status(WhelkShell *shell);
 
 /* Shows the network panel on @page ("wifi" or "bluetooth"). */
 void whelk_shell_show_network_panel(WhelkShell *shell, const char *page);

@@ -8,6 +8,7 @@
 #include <gio/gio.h>
 #include <string.h>
 
+#include "idle.h"
 #include "logger.h"
 
 /* =========================================================================
@@ -90,6 +91,10 @@ struct _WhelkNotifications {
 
   GPtrArray *notifications; /* WhelkNotification*, oldest first */
   guint next_id;
+  /* The idle manager owns DND; this fallback is for a service constructed
+   * without one (the tests do that). */
+  WhelkIdle *idle;
+  gulong idle_dnd_id;
   gboolean dnd;
   gboolean owner;
   guint registration_id;
@@ -377,7 +382,7 @@ static void on_method_call(GDBusConnection *connection, const char *sender,
 
   g_signal_emit(self, signals[SIGNAL_CHANGED], 0);
 
-  if (!self->dnd)
+  if (!whelk_notifications_has_dnd(self))
     g_signal_emit(self, signals[SIGNAL_POSTED], 0, stored);
 
   g_dbus_method_invocation_return_value(invocation, g_variant_new("(u)", id));
@@ -489,12 +494,18 @@ guint whelk_notifications_count(WhelkNotifications *self) {
 gboolean whelk_notifications_has_dnd(WhelkNotifications *self) {
   g_return_val_if_fail(WHELK_IS_NOTIFICATIONS(self), FALSE);
 
-  return self->dnd;
+  return self->idle ? whelk_idle_has_dnd(self->idle) : self->dnd;
 }
 
 void whelk_notifications_set_dnd(WhelkNotifications *self, gboolean dnd) {
   g_return_if_fail(WHELK_IS_NOTIFICATIONS(self));
 
+  if (self->idle) {
+    /* One owner: the manager emits, and this service re-emits below so the
+     * modules that listen to notifications do not have to know about it. */
+    whelk_idle_set_dnd(self->idle, dnd);
+    return;
+  }
 
   if (self->dnd == dnd)
     return;
@@ -505,6 +516,29 @@ void whelk_notifications_set_dnd(WhelkNotifications *self, gboolean dnd) {
 
   g_signal_emit(self, signals[SIGNAL_DND_CHANGED], 0);
   g_signal_emit(self, signals[SIGNAL_CHANGED], 0);
+}
+
+static void on_idle_dnd_changed(WhelkIdle *idle, gpointer data) {
+  WhelkNotifications *self = data;
+
+  (void)idle;
+
+  g_signal_emit(self, signals[SIGNAL_DND_CHANGED], 0);
+  g_signal_emit(self, signals[SIGNAL_CHANGED], 0);
+}
+
+void whelk_notifications_set_idle(WhelkNotifications *self, WhelkIdle *idle) {
+  g_return_if_fail(WHELK_IS_NOTIFICATIONS(self));
+
+  if (self->idle && self->idle_dnd_id != 0)
+    g_signal_handler_disconnect(self->idle, self->idle_dnd_id);
+
+  self->idle = idle;
+  self->idle_dnd_id = 0;
+
+  if (idle)
+    self->idle_dnd_id = g_signal_connect(
+        idle, "dnd-changed", G_CALLBACK(on_idle_dnd_changed), self);
 }
 
 void whelk_notifications_close(WhelkNotifications *self, guint id) {
@@ -670,6 +704,13 @@ const char *whelk_notification_action_id(WhelkNotification *notification,
 
 static void whelk_notifications_dispose(GObject *object) {
   WhelkNotifications *self = WHELK_NOTIFICATIONS(object);
+
+  if (self->idle && self->idle_dnd_id != 0) {
+    g_signal_handler_disconnect(self->idle, self->idle_dnd_id);
+    self->idle_dnd_id = 0;
+  }
+
+  self->idle = NULL;
 
   if (self->owner_id != 0) {
     g_bus_unown_name(self->owner_id);

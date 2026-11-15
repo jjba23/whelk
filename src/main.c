@@ -358,6 +358,16 @@ static void on_dnd_action(GSimpleAction *action, GVariant *parameter,
     whelk_shell_toggle_dnd(g_shell);
 }
 
+static void on_inhibit_action(GSimpleAction *action, GVariant *parameter,
+                              gpointer user_data) {
+  (void)action;
+  (void)parameter;
+  (void)user_data;
+
+  if (g_shell)
+    whelk_shell_toggle_inhibit(g_shell, NULL);
+}
+
 static void on_network_action(GSimpleAction *action, GVariant *parameter,
                               gpointer user_data) {
   (void)action;
@@ -378,6 +388,7 @@ static void add_actions(GtkApplication *app) {
       {"menu", on_menu_action, "s", NULL, NULL, {0, 0, 0}},
       {"notifications", on_notifications_action, NULL, NULL, NULL, {0, 0, 0}},
       {"dnd", on_dnd_action, NULL, NULL, NULL, {0, 0, 0}},
+      {"inhibit", on_inhibit_action, NULL, NULL, NULL, {0, 0, 0}},
       {"network", on_network_action, "s", NULL, NULL, {0, 0, 0}},
   };
 
@@ -505,6 +516,16 @@ static int on_command_line(GApplication *application,
   if (option_flag(command_line, "dnd"))
     whelk_shell_toggle_dnd(g_shell);
 
+  if (option_flag(command_line, "inhibit"))
+    whelk_shell_toggle_inhibit(g_shell,
+                               option_text(command_line, "inhibit-reason"));
+
+  if (option_flag(command_line, "idle-status")) {
+    g_autofree char *status = whelk_shell_idle_status(g_shell);
+
+    g_application_command_line_print(command_line, "%s", status);
+  }
+
   const char *panel = option_text(command_line, "network");
 
   if (panel && *panel)
@@ -558,6 +579,16 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(G_APPLICATION(app), "dnd", 0,
                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
                                 "Turn do-not-disturb on or off", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "inhibit", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+      "Take or release whelk's logind idle inhibitor", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "inhibit-reason", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_STRING, "Why the inhibitor is held", "REASON");
+  g_application_add_main_option(
+      G_APPLICATION(app), "idle-status", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE,
+      "Explain the idle timer, whelk's inhibitor and DND", NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "network", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
       "Show the network panel: wifi or bluetooth", "PAGE");

@@ -23,10 +23,12 @@
  * is gone), so that session is named honestly and the modules that need a
  * compositor go quiet instead of printing errors.
  *
- * River's `riverctl' has no query for the focused view -- that information is
- * published on the `river-status' Wayland protocol, which whelk does not bind
- * yet -- so on River the actions work and the focused-window readings stay
- * empty.  The session says which half it can answer instead of guessing.
+ * River's `riverctl' has no query for the focused view.  Its title arrives as
+ * a push on the `river-status' Wayland protocol instead (see
+ * src/util/riverstatus.c), so the window module subscribes there while the
+ * actions keep going through `riverctl'.  The protocol publishes a title, not
+ * an application id, and the parser leaves that half empty rather than
+ * inventing one.
  *
  * The environment is the first guess, never the verdict: NIRI_SOCKET and
  * SWAYSOCK are set for the processes a compositor spawns, and absent for one
@@ -129,8 +131,8 @@ void whelk_session_window_actions_clear(WhelkSessionWindowActions *actions);
  * @title: (out) (transfer full) (nullable): the window's title.
  * @app_id: (out) (transfer full) (nullable): its application id or class.
  *
- * Understands niri's focused-window JSON, sway's window tree and the
- * `WM_NAME'/`WM_CLASS' lines of xprop.
+ * Understands niri's focused-window JSON, sway's window tree, the
+ * `WM_NAME'/`WM_CLASS' lines of xprop and river-status's focused-view title.
  *
  * Returns: TRUE when a window was found.
  */

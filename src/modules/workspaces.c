@@ -8,23 +8,24 @@
 #include "logger.h"
 #include "util/command.h"
 #include "util/format.h"
-#include "util/json.h"
+#include "util/session.h"
+#include "util/workspaces.h"
 
 /* =========================================================================
  * WORKSPACES
  * =========================================================================
- * niri's workspaces, as buttons.  This is the one module that is a row of
- * widgets rather than one reading, so it owns its children: every refresh
- * clears the box and repaints it, which is both the simplest correct answer and
- * cheap at the size of a workspace set.
+ * niri's and Hyprland's workspaces, as buttons.  This is the one module that is
+ * a row of widgets rather than one reading, so it owns its children: every
+ * refresh clears the box and repaints it, which is both the simplest correct
+ * answer and cheap at the size of a workspace set.
  *
- * `niri msg action focus-workspace <idx>' is the click: niri addresses its
- * workspaces by index, and the index is what the configuration's format prints.
+ * The session layer supplies the command, the parser and the focus command;
+ * `niri msg action focus-workspace <idx>' and `hyprctl dispatch workspace <id>'
+ * are the two clicks, and the index is what the configuration's format prints.
  */
 
 typedef struct {
   char *command;
-  int index;
 } WorkspaceAction;
 
 static void workspace_action_free(gpointer data, GClosure *closure) {
@@ -58,28 +59,27 @@ static void clear_children(GtkWidget *box) {
     gtk_widget_unparent(child);
 }
 
-static void add_workspace_button(WhelkModule *module, const WhelkModuleSpec *spec,
-                                 int index, const char *name,
-                                 gboolean active, gboolean empty) {
-  const char *format = whelk_spec_str(spec, "format", "{index}");
-  g_autofree char *index_text = g_strdup_printf("%d", index);
+static void add_workspace_button(WhelkModule *module,
+                                 const WhelkWorkspace *workspace,
+                                 const char *command) {
+  const char *format = whelk_spec_str(module->spec, "format", "{index}");
+  g_autofree char *index_text = g_strdup_printf("%d", workspace->index);
   g_autofree char *label_text = whelk_str_subst(format, "index", index_text);
-  g_autofree char *with_name = whelk_str_subst(label_text, "name", name);
+  g_autofree char *with_name =
+      whelk_str_subst(label_text, "name", workspace->name);
   g_autofree char *escaped = whelk_markup_escape(with_name);
 
   GtkWidget *label = gtk_label_new(NULL);
 
   gtk_label_set_markup(GTK_LABEL(label), escaped);
   gtk_widget_add_css_class(label, "whelk-workspace");
-  gtk_widget_add_css_class(label, active ? "active" : "inactive");
+  gtk_widget_add_css_class(label, workspace->active ? "active" : "inactive");
 
-  if (empty)
+  if (workspace->empty)
     gtk_widget_add_css_class(label, "empty");
 
-  /* niri's CLI takes the index, not the workspace id. */
   WorkspaceAction *action = g_new0(WorkspaceAction, 1);
-  action->command = g_strdup_printf("niri msg action focus-workspace %d", index);
-  action->index = index;
+  action->command = g_strdup(command ? command : "");
 
   GtkGesture *gesture = gtk_gesture_click_new();
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(gesture), GDK_BUTTON_PRIMARY);
@@ -91,14 +91,16 @@ static void add_workspace_button(WhelkModule *module, const WhelkModuleSpec *spe
   gtk_box_append(GTK_BOX(module->root), label);
 }
 
-static void on_workspaces(WhelkModule *module, const char *text, gpointer data) {
+static void on_workspaces(WhelkModule *module, const char *text,
+                          gpointer data) {
   (void)data;
 
-  g_autoptr(GError) error = NULL;
-  WhelkJson *root = whelk_json_parse(text, &error);
+  const WhelkSession session = whelk_session_detect();
+  GPtrArray *workspaces = whelk_workspaces_parse(session, text);
 
-  if (!root) {
-    LOG_C_WARN("Workspaces", "niri's answer was not JSON: %s", error->message);
+  if (!workspaces) {
+    LOG_C_WARN("Workspaces", "%s's answer was not the expected JSON",
+               whelk_session_name(session));
     return;
   }
 
@@ -107,32 +109,31 @@ static void on_workspaces(WhelkModule *module, const char *text, gpointer data) 
 
   clear_children(module->root);
 
-  for (guint i = 0; i < whelk_json_array_length(root); i++) {
-    WhelkJson *workspace = whelk_json_array_get(root, i);
-    const double index = whelk_json_object_number(workspace, "idx", -1.0);
-    const char *name = whelk_json_object_string(workspace, "name");
-    const gboolean active =
-        whelk_json_object_bool(workspace, "is_active", FALSE) ||
-        whelk_json_object_bool(workspace, "is_focused", FALSE);
+  for (guint i = 0; i < workspaces->len; i++) {
+    const WhelkWorkspace *workspace = g_ptr_array_index(workspaces, i);
 
-    WhelkJson *window = whelk_json_object_get(workspace, "active_window_id");
-    const gboolean empty =
-        window == NULL || whelk_json_type(window) == WHELK_JSON_NULL;
-
-    if (index < 0)
-      continue;
-    if (hide_empty && empty)
+    if (hide_empty && workspace->empty)
       continue;
 
-    add_workspace_button(module, module->spec, (int)index,
-                         name ? name : "", active, empty);
+    g_autofree char *command =
+        whelk_workspaces_focus_command(session, workspace->index);
+
+    add_workspace_button(module, workspace, command);
   }
 
-  whelk_json_free(root);
+  g_ptr_array_unref(workspaces);
 }
 
 static void workspaces_update(WhelkModule *module) {
-  whelk_module_command(module, "niri msg -j workspaces", on_workspaces, NULL);
+  const WhelkSession session = whelk_session_detect();
+  g_autofree char *command = whelk_workspaces_command(session);
+
+  if (!command) {
+    clear_children(module->root);
+    return;
+  }
+
+  whelk_module_command(module, command, on_workspaces, NULL);
 }
 
 WhelkModule *whelk_workspaces_module_new(const WhelkModuleSpec *spec,

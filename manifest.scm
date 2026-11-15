@@ -24,6 +24,7 @@
                           pkg-config
                           meson
                           ninja
+                          wayland ; wayland-scanner, for the river-status protocol
                           gtk
                           gtk4-layer-shell
                           ;; whelk types menu shortcuts with wtype on Wayland;

@@ -128,6 +128,16 @@ GPtrArray *whelk_bridge_widgets(const char *path);
 WhelkClipboardConfig *whelk_bridge_clipboard(const char *path);
 
 /**
+ * whelk_bridge_idle_lock_after:
+ * @path: the settings file whose idle policy is wanted (may be NULL).
+ *
+ * Reads `(idle-settings #:lock-after ...)' from CONFIG_PATH.  Zero means lock
+ * on the first logind idle hint; a negative value disables timed locking.  A
+ * missing file or an older configuration answers the compatible zero.
+ */
+int whelk_bridge_idle_lock_after(const char *path);
+
+/**
  * whelk_bridge_menudict:
  *
  * The global menu's dictionary, from `(whelk menudict)': the menus written for

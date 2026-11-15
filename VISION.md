@@ -34,9 +34,9 @@ Three things in the code are load-bearing for everything that comes next:
 - **A surface is a `WhelkSurface`, not a window.** Edge, anchors, margins,
   exclusive zone, monitor and layer are properties of the surface, so the next
   thing whelk grows does not re-learn layer-shell.
-- **The session is asked, not assumed.** niri, sway and X11 are detected and
-  probed for capabilities separately; what a session cannot do goes quiet with
-  one line in the log.
+- **The session is asked, not assumed.** niri, sway, Hyprland, river and X11
+  are detected and probed for capabilities separately; what a session cannot do
+  goes quiet with one line in the log.
 
 The architecture's reserved surface is now **floating desktop widgets**: a
 `WhelkSurface` with `#:exclusive? #f`, margins and a fixed card.  The Golden
@@ -171,7 +171,9 @@ adds an About window that reports the machine and presets as Scheme modules,
 with a first XP-shaped taskbar.  0.29 completes the preferences window: every
 module's options and visibility, and the launcher's own mode keys and default
 mode, are edited there as reversible overrides, with the file escape hatch kept
-for what a window cannot express.
+for what a window cannot express.  The idle and inhibit manager now owns the one
+idle timer, whelk's logind idle lock and the do-not-disturb flag, and
+`whelk --idle-status` answers why a session will or will not lock.
 
 ## Features that are in scope and not built yet
 
@@ -181,12 +183,6 @@ These are the ones the code already anticipates.
   `settings.scm` today. A drag would need to write back to a preference
   override, remember a per-monitor position and fall back sanely when the
   monitor geometry changes.
-- **Hyprland and river.** The session layer is a small interface with three
-  implementations; `hyprctl` and river's IPC are two more. The workspaces and
-  window modules would light up on two more desktops.
-- **An idle and inhibit daemon.** One process that owns idle timers, inhibitor
-  locks and the do-not-disturb flag, because "why did my screen not blank" is
-  exactly the kind of question a single-process shell should be able to answer.
 
 ## New features that would be worth having
 

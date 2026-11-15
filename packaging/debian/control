@@ -11,6 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                guile-3.0-dev,
                libpam0g-dev,
                libwayland-dev,
+               libwayland-bin,
                libglib2.0-dev-bin
 Standards-Version: 4.6.2
 Homepage: https://github.com/jjba23/whelk

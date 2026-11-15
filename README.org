@@ -174,10 +174,12 @@ the documented one -- see [[#configuration][Configuration]].
 - *Sessions are asked, not assumed.* niri, sway, Hyprland, river and X11 each
   get their own integration; what a session cannot do goes quiet, with one line
   in the log saying why, instead of an error per frame.  Hyprland answers over
-  =hyprctl=, JSON like niri's.  river answers over =riverctl= for the window
-  actions it can carry out, but its focused view is published only on the
-  =river-status= protocol, which whelk does not bind yet -- so the window
-  reading stays empty there rather than guessing.
+  =hyprctl=, JSON like niri's, including its workspaces and the active workspace
+  on each monitor.  river answers over =riverctl= for the window actions it can
+  carry out, and its focused view arrives as a push on the =river-status=
+  Wayland protocol; whelk binds that protocol over its own connection.  River
+  publishes the title there, not an application id, so ={app-id}= stays empty
+  rather than being guessed.
 - *Boring where it counts.* =-Werror=, unit tests for the pure halves, a Guile
   suite that pins the built-in bar, a hermetic Guix build, and CI that runs the
   same task you do.
@@ -217,6 +219,8 @@ the documented one -- see [[#configuration][Configuration]].
   screen loads the host's at run time (see [[#linkage][What the binary links]]), but
   the build refuses to produce a shell that could only lock and never unlock.
 - Meson, Ninja, a C17 compiler, =pkg-config=
+- =wayland-scanner=, which generates the river-status client binding at build
+  time
 - Optional, found at build time: =libx11= (the X11 dock fallback)
 - Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
   (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
@@ -406,6 +410,9 @@ the first one.  That is how a keybinding opens a surface:
   whelk --settings                      # the settings window
   whelk --notifications                 # open/close the centre
   whelk --dnd                           # do not disturb on/off
+  whelk --inhibit                       # presentation inhibitor on/off
+  whelk --inhibit-reason "Film"         # why it is held (with --inhibit)
+  whelk --idle-status                   # why the screen will or will not lock
   whelk --network wifi                  # or: --network bluetooth
   whelk --reload
   whelk --quit
@@ -417,6 +424,7 @@ prefer them:
 #+begin_src sh
   gapplication action org.jointhefreeworld.whelk launcher window
   gapplication action org.jointhefreeworld.whelk notifications
+  gapplication action org.jointhefreeworld.whelk inhibit
 #+end_src
 
 ** The launcher
@@ -572,9 +580,9 @@ PAM has seen it, and failures double the wait from one second to a 30-second
 cap;
 - logind's =Lock= signal locks the session, and =clear-on-lock= clears
   unpinned clipboard entries at the same moment;
-- =PrepareForSleep=, a VT switch (=Active=false=) and a session manager's
-  =IdleHint= also request the lock, so suspend, lid close and idle policies do
-  not need a second lock daemon;
+- =PrepareForSleep= and a VT switch (=Active=false=) also request the lock, so
+  suspend and lid close do not need a second lock daemon; the idle manager
+  below is the one owner of =IdleHint= and of the delay before it locks;
 - a failed-attempt count survives a crash or restart in
   =$XDG_RUNTIME_DIR/whelk/lock-failures= (mode 0600), so restarting the shell
   does not reset the retry delay;
@@ -666,6 +674,99 @@ made it, GTK, DBusMenu, a script or the dictionary -- is listed with its path
 (=View > Appearance > Dark=) and its chord, matched by label and by path, and
 activated the way the bar's click activates it.  A rule or a disabled entry is
 not a result; the list is the same tree the bar is showing at that moment.
+
+** Idle, inhibitors and do not disturb
+:PROPERTIES:
+:CUSTOM_ID: idle
+:END:
+
+The shell is the idle manager.  There is no separate idle daemon: whelk reads
+the logind session's =IdleHint=, runs the one countdown that decides when to
+lock, and holds its own inhibitor as a real logind =idle= lock.  It follows the
+hint rather than binding a compositor idle protocol, so every session that
+reports one gets the same policy; a session that never sets =IdleHint= never
+starts whelk's timer.
+
+The policy is one setting:
+
+#+begin_src scheme
+  (configure-shell!
+   #:idle (idle-settings #:lock-after 300))   ; five idle minutes
+#+end_src
+
+=#:lock-after= is in seconds.  The default =0= keeps the historical behaviour:
+lock as soon as logind reports the session idle.  A positive value waits that
+long.  =-1= disables locking on idle and leaves the other lock paths -- the lock
+key, =loginctl lock-session=, suspend, a VT switch -- untouched.  The countdown
+starts when the hint flips, so logind's own =IdleDelaySec= comes first and
+=#:lock-after= is added to it.
+
+=whelk --inhibit= takes or releases the presentation inhibitor.  It is not a
+flag in a status file: whelk asks logind for an =idle= lock named =whelk=, and
+the open file descriptor is the lock, so =systemd-inhibit --list= shows it and
+logind-based idle handling honours it.  While it is held, whelk's own countdown
+is suspended; on release it resumes with the delay it had left, so switching a
+film off does not immediately lock the screen.  =--inhibit-reason "..."= sets
+the why that logind and =systemd-inhibit= display.
+
+This is a logind idle lock, not a command to the compositor's DPMS.  It stops
+logind's idle action and whelk's timer; a compositor that blanks on its own idle
+protocol keeps that schedule unless it chooses to read logind's inhibitors.
+
+Do not disturb belongs to the same manager.  The bell's right click,
+=whelk --dnd=, the =dnd-module= and the centre all read and write that one flag.
+DND silences toasts and leaves notifications stored and counted; it deliberately
+does not pause the lock timer.  A quiet notification is not a reason to leave an
+unattended session unlocked.
+
+The =inhibit-module= is only a readout: it runs =systemd-inhibit= and renders
+what other programs -- and, when held, whelk's own idle lock -- are blocking.
+It takes no lock itself.
+
+*** Why did the screen blank, or not?
+:PROPERTIES:
+:CUSTOM_ID: why-not-blank
+:END:
+
+Ask the manager first; it reports its decision, not just its configuration:
+
+#+begin_src sh
+  whelk --idle-status
+  systemd-inhibit --list --no-pager
+  loginctl show-session "$XDG_SESSION_ID" -p IdleHint -p IdleSinceHint
+#+end_src
+
+Read =whelk --idle-status= line by line:
+
+- =logind IdleHint: active= -- the session has not reported idle, so whelk has
+  no timer.  If the screen did not blank, the compositor's own idle or DPMS
+  setting is the place to look; whelk cannot start a lock the hint never asks
+  for.
+- =logind IdleHint: idle (N s)= with =lock timer: X s remaining= -- the timer is
+  armed and whelk will request the lock when it reaches zero.
+- =lock timer: fired; the lock has been requested= -- whelk did its part.  A
+  screen that is still on is a compositor, DPMS or lock-surface question.
+- =lock timer: suspended while the presentation inhibitor is held= -- whelk is
+  deliberately holding its own timer back.  =whelk --inhibit= releases it; the
+  status line above says whether it is on and why.
+- =lock timer: disabled by the policy= -- =#:lock-after= is negative, so idle
+  never locks.  =loginctl lock-session= and the lock key still work.
+- =presentation inhibitor: off= -- whelk is not holding anything.  If
+  =systemd-inhibit= still lists an =idle= lock, another program owns it; it can
+  suppress a logind idle action, and whether it also delays the compositor's
+  blanking depends on the compositor.  Whelk does not override it.
+
+One ordering is worth knowing: the compositor blanks on its own schedule and
+does not consult whelk's timer.  If =#:lock-after= is longer than the
+compositor's blank timeout, the screen goes dark first and the lock follows.  To
+lock before the screen blanks, set =#:lock-after= at or below that timeout (or
+disable the compositor's own idle blanking and let whelk's timer lead).
+
+Screen blanking itself is the compositor's and logind's business -- DPMS,
+=ext-idle-notify-v1= and its own settings.  Whelk draws the lock screen and asks
+for it; it does not turn the panel off.  So a blank screen with no lock and a
+locked session with the panel on are two different answers, and the report above
+says which half whelk handled.
 
 ** Notifications
 :PROPERTIES:
@@ -818,8 +919,8 @@ two.
   Start at the left, the focused window's title in the centre, the notification
   area, battery and a 24-hour clock at the right, and a Start menu with
   Programs, My Computer and Control Panel.  The centre is =window-module=, so
-  it tracks the focused window on Wayland (niri and sway over IPC) and on X11
-  (xprop) with the same preset.
+  it tracks the focused window on Wayland (niri, sway and Hyprland over IPC,
+  river over =river-status=) and on X11 (xprop) with the same preset.
 
 A settings file chooses one by name:
 
@@ -917,6 +1018,14 @@ in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
 file you version and share.  *Reset GUI settings* deletes that override file and
 returns every value to the configuration.  The same right-click menu carries
 *Reload settings* for a reload without a keybinding.
+
+Module overrides name the module's kind and its occurrence among modules of
+that kind: =module-clock-0-format= is the first clock and
+=module-clock-1-format= the second.  Occurrences are counted left, centre,
+right, overflow and start at zero, so inserting or moving a module of another
+kind cannot move a setting to a different module.  Keys from before this
+change, which named a bar position (=module-4-format=), are no longer applied;
+the *Modules* page writes the kind-and-occurrence keys for the current bar.
 
 ** Desktop widgets
 :PROPERTIES:
@@ -1140,8 +1249,8 @@ leaving the configuration untouched.
 | =backlight-module=     | /sys/class/backlight                             | =#:device=, =#:format= (default ="{icon}"=), ={percent}= |
 | =audio-module=         | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, =#:format= (default ="{icon}"=), ={volume}= |
 | =power-profile-module= | powerprofilesctl                                 | ={profile}=                                             |
-| =workspaces-module=    | niri IPC, one button per workspace (niri only)   | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
-| =window-module=        | the focused window, niri/sway/X11                | =#:max-length=, ={title}=, ={app-id}=                    |
+| =workspaces-module=    | niri or Hyprland IPC, one button per workspace   | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
+| =window-module=        | the focused window: niri, sway, Hyprland, river, X11 | =#:max-length=, ={title}=, ={app-id}= (empty on river) |
 | =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
 | =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
 | =custom-module=        | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
@@ -1151,7 +1260,7 @@ leaving the configuration untouched.
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
 | =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
-| =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
+| =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= (a readout only; the idle manager owns whelk's lock) | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
 | =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
 | =menu-module=          | the focused application's menus                  | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?=, =#:menu-command= |
@@ -1514,6 +1623,8 @@ errors.
 |------------------------------------------+---------------------------------------+--------------------------+-----------------------------+------------|
 | niri                                     | layer-shell, exclusive zone           | layer-shell              | niri IPC                    | niri IPC   |
 | sway                                     | layer-shell, exclusive zone           | layer-shell              | sway's window tree          | --         |
+| Hyprland                                 | layer-shell, exclusive zone           | layer-shell              | =hyprctl activewindow -j=   | =hyprctl workspaces= + =monitors= |
+| river                                    | layer-shell, exclusive zone           | layer-shell              | =river-status= (title only) | --         |
 | X11 (XFCE, MATE, Cinnamon, i3, openbox, GNOME on X11, ...) | dock window with EWMH struts | dock/floating window | EWMH via =xprop= | -- |
 | GNOME Wayland, KDE Wayland, other Wayland | ordinary windows: no layer-shell      | ordinary windows         | -- (no shell-facing IPC)    | --         |
 
@@ -1536,11 +1647,13 @@ errors.
   refreshed whenever the window is resized.  The launcher, the notifications and
   the toasts are docks without struts: they float and must not push the desktop
   aside.
-- *Knowing what is in front* comes from niri's own IPC, sway's window tree, or
-  EWMH on X11.  Those three produce the same two strings, so =window-module= and
-  the global menu's File/Edit/View work on all three.  GNOME's Wayland session
-  deliberately offers no such channel (=Shell.Eval= is gone), so there the
-  module stays empty.
+- *Knowing what is in front* comes from niri's own IPC, sway's window tree,
+  Hyprland's =activewindow=, river's =river-status= push, or EWMH on X11.  They
+  produce the same two strings where the protocol has them, so =window-module=
+  works everywhere; river publishes only a title, so its ={app-id}= is empty and
+  the global menu (which needs an application identity) stays quiet there.
+  GNOME's Wayland session deliberately offers no such channel (=Shell.Eval= is
+  gone), so there the module stays empty.
 - *Closing a window and typing a shortcut* follow the same split:
   =niri msg action close-window=, =swaymsg kill= or =wmctrl= on X11; =wtype= on
   Wayland, =xdotool= on X11.  A session with no tool for it gets no menu entry
@@ -1817,6 +1930,16 @@ with real widgets:
   makes the watch deliver the application's new =File= menu.
 - =tests/test_lockpolicy.c= -- the unlock backoff: one second, doubling, capped
   at thirty seconds, including the overflow boundary.
+- =tests/test_idle.c= -- the idle decision as arithmetic: active sessions,
+  inhibited sessions, a zero delay, a positive delay part-way through, an
+  overdue timer and a negative policy, plus the manager's DND flag and the
+  status report without a system bus.  =tests/test_preferences.c= also carries
+  =#:idle= across the Guile bridge.
+- =tests/test_workspaces.c= -- both workspace shapes: niri's =idx= and
+  =active_window_id=, Hyprland's =id>/=windows= and the active workspace from
+  =monitors=, the special-workspace filter, the marker-less fallback, and the
+  focus command each compositor expects.  =tests/test_session.c= also covers
+  river-status's title parser, which has no application id to return.
 
 Drawing has its own layer.  =tests/bar_preview.c= builds a deterministic bar,
 presents it under =gtk4-broadwayd= (a display server for a machine with no
@@ -1836,8 +1959,9 @@ The Guile tests cover the configuration layer:
   cannot drift apart.
 - =tests/test_prefs.scm= -- GUI overrides: the state-file path, save/read
   round trips, precedence over the settings file, per-module option and
-  visibility overrides that survive a reload, launcher-key values including the
-  empty string, and the reset that restores it exactly.
+  visibility overrides keyed by kind and occurrence, their stability when
+  another kind is inserted before them, launcher-key values including the empty
+  string, and the reset that restores it exactly.
 - =tests/test_widgets.scm= -- the desktop-widget contract: standard sizes,
   placement overrides, malformed options, the eight-widget Golden Gate set and
   the shell record the bridge reads.
@@ -1944,10 +2068,10 @@ Honest ceilings, so you know what you are adopting:
   application is focused, is the one that follows =LayoutUpdated=.
 - Caps Lock is read from the input LED: the only compositor-independent state a
   Wayland client can see.
-- Workspaces and the keyboard layout are niri's own modules: niri IPC is the only
-  compositor interface for them whelk speaks, and on other sessions those modules
-  render nothing.  Workspaces are addressed by index, which is what niri's
-  =focus-workspace= takes.
+- Workspaces are niri's and Hyprland's; niri addresses them by =idx= and
+  Hyprland by =id=, which is what each session's focus command takes.  Other
+  sessions render nothing in that module.  The keyboard layout remains niri's
+  own module.
 - On X11 the dock hints are what a window manager reads; started on a bare X
   server with no window manager (Xvfb on its own), the properties are set but
   nothing places the bar or honours the struts, so the bars sit at the origin.

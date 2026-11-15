@@ -245,6 +245,11 @@ Click: brighter · Right-click: full · Scroll: adjust"
                                  #:on-scroll-up "brightnessctl set 5%+"
                                  #:on-scroll-down "brightnessctl set 5%-"))))
 
+ ;; Idle locking.  0 (the default) locks as soon as logind reports the
+ ;; session idle, 300 waits five minutes, -1 never locks on idle.  The lock
+ ;; key, loginctl and suspend still work either way.
+ ;; #:idle (idle-settings #:lock-after 300)
+
  ;; The standard macOS Golden Gate desktop-widget collection: Clock,
  ;; Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
  ;; Each is a (desktop-widget ...) record, so remove, move or resize them here.

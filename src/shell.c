@@ -10,6 +10,7 @@
 #include "bar.h"
 #include "config.h"
 #include "guile_bridge.h"
+#include "idle.h"
 #include "launcher.h"
 #include "locker.h"
 #include "logger.h"
@@ -46,6 +47,7 @@ struct _WhelkShell {
 
   WhelkBarConfig *style; /* the first bar's palette, for the shell's panels */
   WhelkNotifications *notifications;
+  WhelkIdle *idle;
   WhelkClipboard *clipboard;
   WhelkNotificationCenter *center;
   WhelkLauncher *launcher;
@@ -153,6 +155,10 @@ static void build_bars(WhelkShell *shell) {
 
   /* The panels are long-lived surfaces: a reload must re-skin them instead of
    * asking the user to restart the shell. */
+  if (shell->idle)
+    whelk_idle_set_lock_after(shell->idle,
+                              whelk_bridge_idle_lock_after(shell->config_path));
+
   if (shell->launcher) {
     whelk_launcher_set_style(shell->launcher, shell->style);
     /* The launcher's own keys and default mode are GUI overrides too. */
@@ -233,6 +239,12 @@ static void on_monitors_changed(GListModel *monitors, guint position,
     shell->monitor_idle = g_idle_add(on_monitors_changed_idle, shell);
 }
 
+/* The manager's timer is an idle lock, so its action is the same path the
+ * lock key and logind's Lock signal take. */
+static void on_idle_lock(gpointer data) {
+  whelk_shell_lock(data);
+}
+
 /* =========================================================================
  * LIFECYCLE
  * ========================================================================= */
@@ -269,9 +281,14 @@ void whelk_shell_start(WhelkShell *shell) {
   LOG_C_INFO("Shell", "whelk %s, configuration: %s", PACKAGE_VERSION,
              shell->config_path);
 
+  /* The idle manager exists before the notification service: the service
+   * consults it for DND instead of keeping a second copy. */
+  shell->idle = whelk_idle_new();
+
   /* The notification service comes up before the bars: a module that shows a
    * count subscribes to it while it is being built, and has to find it. */
   shell->notifications = whelk_notifications_new();
+  whelk_notifications_set_idle(shell->notifications, shell->idle);
 
   g_autoptr(GError) notification_error = NULL;
 
@@ -345,6 +362,14 @@ void whelk_shell_start(WhelkShell *shell) {
 
   /* PAM and logind are prepared before the first `--lock` can arrive. */
   whelk_locker_init(shell->app);
+
+  /* One manager owns the idle timer, its logind inhibitor and DND.  The
+   * timer's action is this shell's lock path, so the manager itself never has
+   * to know what a lock screen is. */
+  whelk_idle_set_lock_action(shell->idle, on_idle_lock, shell);
+  whelk_idle_set_lock_after(shell->idle,
+                            whelk_bridge_idle_lock_after(shell->config_path));
+  whelk_idle_start(shell->idle);
 
   shell->widgets = whelk_widgets_new(shell->app, shell->config_path);
 
@@ -422,6 +447,11 @@ void whelk_shell_free(WhelkShell *shell) {
     return;
 
   whelk_preferences_shutdown();
+
+  /* Stop the timer and release the inhibitor before the lock path goes away. */
+  if (shell->idle)
+    whelk_idle_shutdown(shell->idle);
+
   whelk_locker_shutdown();
 
   if (shell->reload_timeout != 0)
@@ -446,6 +476,7 @@ void whelk_shell_free(WhelkShell *shell) {
   g_clear_object(&shell->osd);
   g_clear_pointer(&shell->widgets, whelk_widgets_free);
   g_clear_object(&shell->notifications);
+  g_clear_object(&shell->idle);
   g_clear_object(&shell->clipboard);
   g_clear_pointer(&shell->style, whelk_bar_config_free);
 
@@ -521,11 +552,25 @@ void whelk_shell_toggle_notifications(WhelkShell *shell) {
 }
 
 void whelk_shell_toggle_dnd(WhelkShell *shell) {
-  if (!shell || !shell->notifications)
+  if (!shell || !shell->idle)
     return;
 
-  whelk_notifications_set_dnd(
-      shell->notifications, !whelk_notifications_has_dnd(shell->notifications));
+  whelk_idle_set_dnd(shell->idle, !whelk_idle_has_dnd(shell->idle));
+}
+
+void whelk_shell_toggle_inhibit(WhelkShell *shell, const char *reason) {
+  if (!shell || !shell->idle)
+    return;
+
+  if (!whelk_idle_set_inhibited(shell->idle,
+                                !whelk_idle_is_inhibited(shell->idle),
+                                reason))
+    LOG_C_WARN("Shell",
+               "could not change the presentation inhibitor; see the log");
+}
+
+char *whelk_shell_idle_status(WhelkShell *shell) {
+  return whelk_idle_describe(shell ? shell->idle : NULL);
 }
 
 void whelk_shell_show_network_panel(WhelkShell *shell, const char *page) {

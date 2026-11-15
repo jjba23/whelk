@@ -819,7 +819,9 @@ static GPtrArray *sorted_options(const WhelkModuleSpec *spec) {
 
 /* Every module on the first bar, in the order the Scheme override layer
  * numbers them: left, centre, right, overflow.  One card per instance, not
- * per kind, so two custom modules are two cards. */
+ * per kind, so two custom modules are two cards.  A card's keys carry the
+ * kind and the occurrence among modules of that kind, not the position in the
+ * bar: inserting or moving another kind cannot move the card's override. */
 static void build_modules_page(PrefsState *state, GtkStack *stack) {
   GtkWidget *body = page_body(stack, "modules", "Modules");
   WhelkBarConfig *bar = state->bar;
@@ -837,13 +839,15 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
                 {"Centre", bar->center},
                 {"Right", bar->right},
                 {"Overflow", bar->overflow}};
-  int index = 0;
+  GHashTable *occurrences =
+      g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   gboolean skipped_line_breaks = FALSE;
 
   GtkWidget *intro = text_label(
-      "Every option this bar's modules were given is editable here.  The names "
-      "are the ones settings.scm uses; a change is an override, and Reset "
-      "deletes all of them.",
+      "Every option this bar's modules were given is editable here.  A "
+      "module's key is its kind and occurrence, such as module-clock-0-format "
+      "for the first clock, so reordering the bar does not move its settings.  "
+      "A change is an override, and Reset deletes all of them.",
       "settings-note");
   gtk_box_append(GTK_BOX(body), intro);
 
@@ -853,12 +857,18 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
 
     for (guint i = 0; i < groups[g].specs->len; i++) {
       const WhelkModuleSpec *spec = g_ptr_array_index(groups[g].specs, i);
+      const char *kind = spec->kind;
+      const guint occurrence =
+          GPOINTER_TO_UINT(g_hash_table_lookup(occurrences, kind));
       g_autofree char *subtitle =
-          g_strdup_printf("%s, item %u", groups[g].label, i + 1);
-      GtkWidget *card = card_new(spec->kind, subtitle);
+          g_strdup_printf("%s, %s %u", groups[g].label, kind, occurrence + 1);
+      GtkWidget *card = card_new(kind, subtitle);
       g_autofree char *visible_key =
-          g_strdup_printf("module-%d-visible?", index);
+          g_strdup_printf("module-%s-%u-visible?", kind, occurrence);
       g_autoptr(GPtrArray) names = sorted_options(spec);
+
+      g_hash_table_insert(occurrences, g_strdup(kind),
+                          GUINT_TO_POINTER(occurrence + 1));
 
       gtk_box_append(GTK_BOX(body), card);
       row_switch(state, card, "Show in the bar",
@@ -870,7 +880,7 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
         const char *name = g_ptr_array_index(names, n);
         const char *value = g_hash_table_lookup(spec->options, name);
         g_autofree char *key =
-            g_strdup_printf("module-%d-%s", index, name);
+            g_strdup_printf("module-%s-%u-%s", kind, occurrence, name);
 
         /* `hidden?' belongs to the switch above, and a scheme module's update
          * token is a handle, not a value to type over. */
@@ -897,9 +907,10 @@ static void build_modules_page(PrefsState *state, GtkStack *stack) {
           row_entry(state, card, name, NULL, key, value);
       }
 
-      index++;
     }
   }
+
+  g_hash_table_destroy(occurrences);
 
   if (skipped_line_breaks) {
     GtkWidget *note = text_label(

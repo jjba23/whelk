@@ -20,6 +20,7 @@
 (define-module (whelk prefs)
   #:declarative? #f
   #:use-module (ice-9 pretty-print)
+  #:use-module (ice-9 string-fun)
   #:use-module (srfi srfi-1)
   #:use-module (whelk logger)
   #:use-module (whelk modules)
@@ -122,28 +123,42 @@ file cannot leave the shell with a half-applied look."
     launcher-key-clipboard launcher-key-menuitem))
 
 ;; A module page edits one module on the first bar.  Its keys carry the
-;; module's position in the bar (`module-3-format') rather than its kind: two
-;; custom modules have two cards, and a kind with no card of its own still has
-;; options.  The position is the order left, centre, right, overflow, which is
-;; the order the settings window walks.
+;; module's kind and its occurrence among modules of that kind:
+;; `module-clock-0-format' is the first clock and `module-clock-1-format' the
+;; second.  Occurrences are counted left, centre, right, overflow, which is the
+;; order the settings window walks.  Adding or reordering a module of another
+;; kind cannot move a key; only another module of the same kind can.
+(define (decimal-string? text)
+  (and (not (string-null? text))
+       (every (lambda (character) (char-numeric? character))
+              (string->list text))))
+
 (define (module-preference key)
-  "Return (INDEX . OPTION) for a module override symbol, or #f."
+  "Return (KIND OCCURRENCE . OPTION) for a module override symbol, or #f."
   (and (symbol? key)
        (let* ((name (symbol->string key))
-              (length (string-length name)))
-         (and (string-prefix? "module-" name)
-              (let find-dash ((at 7))
-                (and (< at length)
-                     (if (char=? (string-ref name at) #\-)
-                         (let ((index (string->number
-                                       (substring name 7 at))))
-                           (and (exact-integer? index)
-                                (>= index 0)
-                                (< (+ at 1) length)
-                                (cons index
-                                      (string->symbol
-                                       (substring name (+ at 1))))))
-                         (find-dash (+ at 1)))))))))
+              (parts (and (string-prefix? "module-" name)
+                          (string-split (substring name 7) #\-))))
+         (and parts
+              (let loop ((kind-parts '()) (rest parts))
+                (and (pair? rest)
+                     (if (decimal-string? (car rest))
+                         (let ((kind (reverse kind-parts))
+                               (option (cdr rest)))
+                           (and (pair? kind)
+                                (pair? option)
+                                (let ((occurrence
+                                       (string->number (car rest))))
+                                  (and (exact-integer? occurrence)
+                                       (>= occurrence 0)
+                                       (cons (string->symbol
+                                              (string-join kind "-"))
+                                             (cons occurrence
+                                                   (string->symbol
+                                                    (string-join option
+                                                                 "-"))))))))
+                         (loop (cons (car rest) kind-parts)
+                               (cdr rest)))))))))
 
 (define (valid-preference-key? key)
   (or (memq key %preference-keys)
@@ -241,14 +256,15 @@ duplicate happens to win."
 (define (theme-preference prefs bar)
   (symbol-preference prefs 'bar-theme (bar-config-theme bar)))
 
-(define (apply-module-preferences mod prefs index)
-  "Apply `module-INDEX-OPTION' overrides to MOD.
+(define (apply-module-preferences mod prefs kind occurrence)
+  "Apply `module-KIND-OCCURRENCE-OPTION' overrides to MOD.
 
 `visible?' is the settings window's switch: it is stored inverted as the
 module's own `hidden?' option, which the bar builder drops before it makes a
 widget.  Keeping the module in the bar description is what lets the window list
 a hidden module and turn it back on."
-  (let ((prefix (string-append "module-" (number->string index) "-")))
+  (let ((prefix (string-append "module-" (symbol->string kind) "-"
+                               (number->string occurrence) "-")))
     (let loop ((pairs prefs) (mod mod))
       (if (null? pairs)
           mod
@@ -265,20 +281,33 @@ a hidden module and turn it back on."
                             (module-set-option mod option
                                                (cdr (car pairs))))))))))))
 
+(define (next-module-occurrence! counter kind)
+  "Return KIND's next 0-based occurrence in the bar and advance COUNTER."
+  (let* ((counts (cdr counter))
+         (pair (assq kind counts)))
+    (if pair
+        (let ((occurrence (cdr pair)))
+          (set-cdr! pair (+ occurrence 1))
+          occurrence)
+        (begin
+          (set-cdr! counter (cons (cons kind 1) counts))
+          0))))
+
 (define (apply-module-group mods prefs counter overrides?)
   "Apply the global reading preferences and the per-module overrides.
 
-COUNTER is one mutable pair shared by all four groups, so a module's index is
-its position across the whole bar, exactly as the settings window numbers it."
+COUNTER is one mutable pair shared by all four groups, so every module of a
+kind is numbered by its occurrence across the whole first bar, exactly as the
+settings window numbers it."
   (let loop ((mods mods) (out '()))
     (if (null? mods)
         (reverse out)
-        (let* ((index (cdr counter))
+        (let* ((kind (shell-module-kind (car mods)))
+               (occurrence (next-module-occurrence! counter kind))
                (mod (apply-module (car mods) prefs))
                (mod (if overrides?
-                        (apply-module-preferences mod prefs index)
+                        (apply-module-preferences mod prefs kind occurrence)
                         mod)))
-          (set-cdr! counter (+ index 1))
           (loop (cdr mods) (cons mod out))))))
 
 (define (apply-bar bar prefs module-overrides?)
@@ -301,7 +330,7 @@ its position across the whole bar, exactly as the settings window numbers it."
                                      (if theme-set?
                                          (or (assq-ref palette key) current)
                                          current))))
-         (counter (cons 'module-index 0)))
+         (counter (cons 'module-kind-counts '())))
     (make-bar-config
      (bar-config-name bar)
      theme
@@ -397,8 +426,8 @@ the settings window's reload callback, so the two paths cannot drift apart."
     (if (or (null? prefs) (null? bars))
         bars
         ;; The window edits the first bar's modules; a second bar keeps its own
-        ;; configuration rather than having index 3 of the first bar's row hide
-        ;; index 3 of a different bar.
+        ;; configuration rather than having the first bar's clock hide a clock
+        ;; in a different bar.
         (let* ((position 0)
                (updated
                 (map (lambda (bar)

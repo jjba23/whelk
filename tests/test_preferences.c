@@ -39,7 +39,9 @@ static char *write_settings(void) {
       "                   (menu-module #:shortcuts? #t #:app-name? #t\n"
       "                                #:accelerator-style 'cua)\n"
       "                   (tray-module #:max-items 6)\n"
-      "                   (clock-module #:format \"%%H:%%M\")))))\n");
+      "                   (clock-module #:format \"%%H:%%M\")\n"
+      "                   (clock-module #:format \"%%S\"))))\n"
+      " #:idle (idle-settings #:lock-after 120))\n");
 
   g_assert_true(g_file_set_contents(path, settings, -1, NULL));
   return path;
@@ -49,26 +51,40 @@ static WhelkBarConfig *first_bar(GPtrArray *bars) {
   return bars && bars->len > 0 ? g_ptr_array_index(bars, 0) : NULL;
 }
 
-static const WhelkModuleSpec *module_of(const WhelkBarConfig *bar,
-                                        const char *kind) {
-  const GPtrArray *groups[] = {bar->left, bar->center, bar->right};
+static const WhelkModuleSpec *module_of_occurrence(const WhelkBarConfig *bar,
+                                                   const char *kind,
+                                                   guint occurrence) {
+  const GPtrArray *groups[] = {bar->left, bar->center, bar->right,
+                               bar->overflow};
+  guint seen = 0;
 
   for (gsize g = 0; g < G_N_ELEMENTS(groups); g++) {
     for (guint i = 0; i < groups[g]->len; i++) {
       WhelkModuleSpec *spec = g_ptr_array_index(groups[g], i);
 
-      if (g_strcmp0(spec->kind, kind) == 0)
-        return spec;
+      if (g_strcmp0(spec->kind, kind) == 0) {
+        if (seen == occurrence)
+          return spec;
+        seen++;
+      }
     }
   }
 
   return NULL;
 }
 
+static const WhelkModuleSpec *module_of(const WhelkBarConfig *bar,
+                                        const char *kind) {
+  return module_of_occurrence(bar, kind, 0);
+}
+
 static void test_bridge_round_trip(void) {
   g_autofree char *path = write_settings();
 
   g_assert_true(whelk_bridge_load(path));
+
+  /* The idle policy crosses the same bridge as the bars. */
+  g_assert_cmpint(whelk_bridge_idle_lock_after(path), ==, 120);
 
   GPtrArray *bars = whelk_bridge_bars(path);
   WhelkBarConfig *bar = first_bar(bars);
@@ -93,13 +109,18 @@ static void test_bridge_round_trip(void) {
       whelk_bridge_save_preference_symbol(path, "menu-accelerator-style",
                                           "emacs"));
   g_assert_true(whelk_bridge_save_preference_int(path, "tray-max-items", 9));
-  g_assert_true(whelk_bridge_save_preference_string(path, "clock-format",
-                                                    "%H:%M:%S"));
-  g_assert_true(whelk_bridge_save_preference_bool(path, "module-0-visible?",
-                                                  FALSE));
-  g_assert_true(whelk_bridge_save_preference_string(path, "module-4-format",
-                                                    "%H:%M:%S"));
-  g_assert_true(whelk_bridge_save_preference_int(path, "module-4-interval", 2));
+  g_assert_true(
+      whelk_bridge_save_preference_string(path, "clock-format", "%H:%M"));
+  g_assert_false(whelk_bridge_save_preference_bool(path, "module-0-visible?",
+                                                   FALSE));
+  g_assert_true(whelk_bridge_save_preference_bool(
+      path, "module-wifi-0-visible?", FALSE));
+  g_assert_true(whelk_bridge_save_preference_string(
+      path, "module-clock-0-format", "%H:%M:%S"));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "module-clock-0-interval", 2));
+  g_assert_true(whelk_bridge_save_preference_string(
+      path, "module-clock-1-format", "second"));
   g_assert_true(whelk_bridge_save_preference_symbol(path, "launcher-default-mode",
                                                     "window"));
   g_assert_true(whelk_bridge_save_preference_string(path, "launcher-key-run",
@@ -130,9 +151,15 @@ static void test_bridge_round_trip(void) {
       "emacs");
   g_assert_cmpint(whelk_spec_int(module_of(bar, "tray"), "max-items", 0), ==,
                   9);
-  g_assert_cmpstr(whelk_spec_str(module_of(bar, "clock"), "format", ""), ==,
-                  "%H:%M:%S");
-  g_assert_cmpint(whelk_spec_int(module_of(bar, "clock"), "interval", 0), ==, 2);
+  g_assert_cmpstr(
+      whelk_spec_str(module_of_occurrence(bar, "clock", 0), "format", ""), ==,
+      "%H:%M:%S");
+  g_assert_cmpint(
+      whelk_spec_int(module_of_occurrence(bar, "clock", 0), "interval", 0), ==,
+      2);
+  g_assert_cmpstr(
+      whelk_spec_str(module_of_occurrence(bar, "clock", 1), "format", ""), ==,
+      "second");
   g_assert_true(
       whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
   g_autofree char *launcher_mode =
@@ -237,8 +264,10 @@ static void test_widget_controls(void) {
   GtkWidget *shine = find_key(content, "bar-shine");
   GtkWidget *reflection = find_key(content, "bar-reflection");
   GtkWidget *flare = find_key(content, "bar-flare");
-  GtkWidget *module_format = find_key(content, "module-4-format");
-  GtkWidget *module_visible = find_key(content, "module-0-visible?");
+  GtkWidget *module_format = find_key(content, "module-clock-0-format");
+  GtkWidget *module_format_second =
+      find_key(content, "module-clock-1-format");
+  GtkWidget *module_visible = find_key(content, "module-wifi-0-visible?");
   GtkWidget *launcher_mode = find_key(content, "launcher-default-mode");
   GtkWidget *launcher_key = find_key(content, "launcher-key-run");
   GtkWidget *reset = NULL;
@@ -251,7 +280,11 @@ static void test_widget_controls(void) {
   g_assert_true(GTK_IS_SCALE(shine));
   g_assert_true(GTK_IS_SCALE(reflection));
   g_assert_true(GTK_IS_SCALE(flare));
+  g_assert_nonnull(module_format);
+  g_assert_nonnull(module_format_second);
+  g_assert_nonnull(module_visible);
   g_assert_true(GTK_IS_ENTRY(module_format));
+  g_assert_true(GTK_IS_ENTRY(module_format_second));
   g_assert_true(GTK_IS_SWITCH(module_visible));
   g_assert_true(GTK_IS_DROP_DOWN(launcher_mode));
   g_assert_true(GTK_IS_ENTRY(launcher_key));
@@ -264,6 +297,7 @@ static void test_widget_controls(void) {
   gtk_range_set_value(GTK_RANGE(reflection), 0.22);
   gtk_range_set_value(GTK_RANGE(flare), 0.11);
   gtk_editable_set_text(GTK_EDITABLE(module_format), "%H:%M:%S");
+  gtk_editable_set_text(GTK_EDITABLE(module_format_second), "second");
   gtk_switch_set_active(GTK_SWITCH(module_visible), FALSE);
   gtk_editable_set_text(GTK_EDITABLE(launcher_key), "//");
 
@@ -308,8 +342,12 @@ static void test_widget_controls(void) {
   g_assert_cmpfloat_with_epsilon(bar->flare, 0.11, 0.0001);
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "notifications"), "format", ""),
                   ==, "{icon} {count}");
-  g_assert_cmpstr(whelk_spec_str(module_of(bar, "clock"), "format", ""), ==,
-                  "%H:%M:%S");
+  g_assert_cmpstr(
+      whelk_spec_str(module_of_occurrence(bar, "clock", 0), "format", ""), ==,
+      "%H:%M:%S");
+  g_assert_cmpstr(
+      whelk_spec_str(module_of_occurrence(bar, "clock", 1), "format", ""), ==,
+      "second");
   g_assert_true(whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
   whelk_config_free_bars(bars);
 

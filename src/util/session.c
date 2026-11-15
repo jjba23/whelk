@@ -245,8 +245,8 @@ char *whelk_session_focused_window_command(WhelkSession session) {
   case WHELK_SESSION_HYPRLAND:
     return g_strdup("hyprctl activewindow -j");
   case WHELK_SESSION_RIVER:
-    /* riverctl has no query for the focused view; that is published on the
-     * river-status protocol, which whelk does not bind yet. */
+    /* riverctl has no query for the focused view; it arrives as a push on
+     * the river-status protocol (src/util/riverstatus.c), not as a command. */
     break;
   case WHELK_SESSION_X11:
     /* EWMH: the active window's id, then its name and class.  A GTK window
@@ -483,6 +483,24 @@ static gboolean parse_sway(const char *text, char **title, char **app_id) {
   return found;
 }
 
+/* --- river --------------------------------------------------------------- */
+
+/* The river-status focused_view event carries the title and nothing else.  A
+ * title is still the answer the window module needs; an empty title means no
+ * view is focused, which is the same "nothing to show" as a missing window. */
+static gboolean parse_river(const char *text, char **title, char **app_id) {
+  g_autofree char *clean = g_strdup(text);
+
+  g_strchomp(clean);
+
+  if (*clean == '\0')
+    return FALSE;
+
+  *title = g_strdup(clean);
+  *app_id = g_strdup("");
+  return TRUE;
+}
+
 /* --- xprop --------------------------------------------------------------- */
 
 /* "WM_CLASS(STRING) = \"navigator\", \"Firefox\"" -> Firefox. */
@@ -676,7 +694,7 @@ gboolean whelk_session_parse_focused(WhelkSession session, const char *text,
   case WHELK_SESSION_HYPRLAND:
     return parse_hyprland(text, title, app_id);
   case WHELK_SESSION_RIVER:
-    break;
+    return parse_river(text, title, app_id);
   case WHELK_SESSION_X11:
     return parse_x11(text, title, app_id);
   case WHELK_SESSION_WAYLAND:

@@ -74,7 +74,9 @@
             shell-widgets->alists
             bar
             clipboard-settings
+            idle-settings
             get-shell-clipboard
+            get-shell-idle
             configure-shell!
             normalize-edge
             normalize-layer
@@ -243,18 +245,19 @@ rather than written back into this file."
 ;; The shell menu is the popover behind the mark at the far left of the bar:
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars widgets shell-menu clipboard enable-repl?
+  (make-shell-config bars widgets shell-menu clipboard idle enable-repl?
                      repl-socket-path)
   shell-config?
   (bars shell-config-bars)
   (widgets shell-config-widgets)
   (shell-menu shell-config-shell-menu)
   (clipboard shell-config-clipboard)
+  (idle shell-config-idle)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() '() #f '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() '() #f '() '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -509,12 +512,29 @@ oldest first.  TTL-SECONDS, when positive, expires unpinned entries."
         (cons 'max-total-bytes max-total-bytes)
         (cons 'ttl-seconds ttl-seconds)))
 
+(define* (idle-settings #:key (lock-after 0))
+  "Describe whelk's idle and inhibit policy.
+
+LOCK-AFTER is the number of seconds logind must report the session idle before
+whelk locks it.  Zero is the compatible default: lock on the first idle hint,
+which is what the shell did before it had an idle manager.  A negative value
+turns timed locking off, leaving the explicit lock paths (logind's Lock signal,
+a VT switch, suspend and `whelk --lock') in charge.
+
+`whelk --inhibit' takes a real logind idle inhibitor for as long as it is on;
+do-not-disturb is a separate flag and never pauses this timer."
+  (list (cons 'configured? #t)
+        (cons 'lock-after (if (number? lock-after)
+                              (inexact->exact (round lock-after))
+                              0))))
+
 (define* (configure-shell! #:key
                            (config-path 'default)
                            (bars '())
                            (widgets '())
                            (shell-menu #f)
                            (clipboard '())
+                           (idle '())
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
@@ -534,6 +554,10 @@ CLIPBOARD is `(clipboard-settings)' or an alist with the same keys: it sets the
 history's persistence, caps and retention.  The empty default keeps the
 environment-variable behaviour.
 
+IDLE is `(idle-settings)' or an alist with the same keys: how long the session
+may be idle before whelk locks it.  The empty default is the compatible
+zero-second policy, which locks on the first idle hint.
+
 ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
@@ -542,6 +566,7 @@ how a configuration is changed without restarting the compositor:
           (filter widget-config? (if (list? widgets) widgets '())))
          (cfg (make-shell-config valid valid-widgets shell-menu
                                  (if (list? clipboard) clipboard '())
+                                 (if (list? idle) idle '())
                                  enable-repl?
                                  repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
@@ -626,6 +651,10 @@ than layering on top of the previous run."
 (define (get-shell-clipboard . args)
   "Return the clipboard-settings alist, or '() when it was not configured."
   (shell-config-clipboard (apply get-shell-config args)))
+
+(define (get-shell-idle . args)
+  "Return the idle-settings alist, or '() when it was not configured."
+  (shell-config-idle (apply get-shell-config args)))
 
 (define (shell-menu->units . args)
   "Return the shell menu as the C runtime reads it: a list of menu units.

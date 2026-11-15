@@ -30,7 +30,8 @@
     (build-system meson-build-system)
     (native-inputs (list (list glib "bin")
                          dbus ; the fake-bus tests spawn dbus-daemon
-                         pkg-config))
+                         pkg-config
+                         wayland)) ; wayland-scanner, for river-status
     (inputs (list gtk
                   gtk4-layer-shell
                   linux-pam

@@ -30,21 +30,27 @@
 (setenv "XDG_STATE_HOME" state-dir)
 (setenv "HOME" state-dir)
 
-(call-with-output-file config-path
-  (lambda (port)
-    (display "(configure-shell!\n" port)
-    (display " #:widgets (list (desktop-widget 'clock #:x 20 #:y 30))\n" port)
-    (display " #:bars\n" port)
-    (display " (list (bar #:name 'main #:position 'top #:height 32\n" port)
-    (display "             #:spacing 8 #:padding 12 #:theme 'gloss-2007\n" port)
-    (display "             #:right\n" port)
-    (display "             (list (wifi-module #:show-ssid? #f #:interval 5)\n" port)
-    (display "                   (notifications-module #:format \"{icon}\")\n" port)
-    (display "                   (menu-module #:shortcuts? #t #:app-name? #t\n" port)
-    (display "                                #:accelerator-style 'cua)\n" port)
-    (display "                   (tray-module #:max-items 6)\n" port)
-    (display "                   (clock-module #:format \"%H:%M\")))))\n" port)))
+(define (write-config! with-cpu?)
+  (call-with-output-file config-path
+    (lambda (port)
+      (display "(configure-shell!\n" port)
+      (display " #:widgets (list (desktop-widget 'clock #:x 20 #:y 30))\n" port)
+      (display " #:bars\n" port)
+      (display " (list (bar #:name 'main #:position 'top #:height 32\n" port)
+      (display "             #:spacing 8 #:padding 12 #:theme 'gloss-2007\n" port)
+      (display "             #:right\n" port)
+      (display "             (list\n" port)
+      (when with-cpu?
+        (display "                   (cpu-module)\n" port))
+      (display "                   (wifi-module #:show-ssid? #f #:interval 5)\n" port)
+      (display "                   (notifications-module #:format \"{icon}\")\n" port)
+      (display "                   (menu-module #:shortcuts? #t #:app-name? #t\n" port)
+      (display "                                #:accelerator-style 'cua)\n" port)
+      (display "                   (tray-module #:max-items 6)\n" port)
+      (display "                   (clock-module #:format \"%H:%M\")\n" port)
+      (display "                   (clock-module #:format \"%S\")))))\n" port))))
 
+(write-config! #f)
 (load-shell-config! config-path)
 
 (check "the file's spacing starts at eight"
@@ -80,11 +86,14 @@
 (save-preference! config-path 'menu-accelerator-style 'emacs)
 (save-preference! config-path 'tray-max-items 9)
 (save-preference! config-path 'clock-format "%H:%M:%S")
-;; A module card writes the position, not the kind: two custom modules are two
-;; cards, and this bar's Wi-Fi is index 0 while the clock is index 4.
-(save-preference! config-path 'module-0-visible? #f)
-(save-preference! config-path 'module-4-format "%H:%M:%S")
-(save-preference! config-path 'module-4-interval 2)
+;; A module card writes the kind and occurrence, not the position: two clocks
+;; are two cards, and reordering another kind cannot move either key.
+(check "a positional module key is refused"
+       (not (save-preference! config-path 'module-0-visible? #t)))
+(save-preference! config-path 'module-wifi-0-visible? #f)
+(save-preference! config-path 'module-clock-0-format "%H:%M:%S")
+(save-preference! config-path 'module-clock-0-interval 2)
+(save-preference! config-path 'module-clock-1-format "%S seconds")
 (save-preference! config-path 'launcher-default-mode 'window)
 (save-preference! config-path 'launcher-key-run "")
 (save-preference! config-path 'not-a-real-setting #t)
@@ -123,13 +132,16 @@
 (check "an untouched value still comes from the settings file"
        (= (bar-config-spacing applied) 8))
 
+(define (modules-by-kind bar kind)
+  (filter (lambda (mod) (eq? (shell-module-kind mod) kind))
+          (append (bar-config-modules-left bar)
+                  (bar-config-modules-center bar)
+                  (bar-config-modules-right bar)
+                  (bar-config-modules-overflow bar))))
+
 (define (module-by-kind bar kind)
-  (let find ((mods (append (bar-config-modules-left bar)
-                            (bar-config-modules-center bar)
-                            (bar-config-modules-right bar))))
-    (cond ((null? mods) #f)
-          ((eq? (shell-module-kind (car mods)) kind) (car mods))
-          (else (find (cdr mods))))))
+  (let ((mods (modules-by-kind bar kind)))
+    (and (pair? mods) (car mods))))
 
 (check "Wi-Fi show-ssid is overridden"
        (eq? (module-option (module-by-kind applied 'wifi) 'show-ssid?) #t))
@@ -145,11 +157,13 @@
             'emacs))
 (check "the tray limit is overridden"
        (= (module-option (module-by-kind applied 'tray) 'max-items) 9))
-(check "the clock format is overridden"
-       (equal? (module-option (module-by-kind applied 'clock) 'format)
-               "%H:%M:%S"))
-(check "the clock interval is overridden"
-       (= (module-option (module-by-kind applied 'clock) 'interval) 2))
+(let ((clocks (modules-by-kind applied 'clock)))
+  (check "the first clock's format is overridden"
+         (equal? (module-option (car clocks) 'format) "%H:%M:%S"))
+  (check "the first clock's interval is overridden"
+         (= (module-option (car clocks) 'interval) 2))
+  (check "the second clock keeps its own format"
+         (equal? (module-option (second clocks) 'format) "%S seconds")))
 (check "a hidden module stays in the bar description"
        (and (module-by-kind applied 'wifi)
             (eq? (module-option (module-by-kind applied 'wifi) 'hidden?) #t)))
@@ -160,8 +174,24 @@
 (check "a cleared launcher key is stored as empty"
        (equal? (preference-ref config-path 'launcher-key-run) ""))
 
+;; Inserting another kind before the modules must not move their keys: the old
+;; positional format would have hidden or renamed the wrong module here.
+(write-config! #t)
+(load-shell-config! config-path)
+
+(define reordered (car (get-shell-bars config-path)))
+
+(check "the added module does not take the Wi-Fi override"
+       (and (module-by-kind reordered 'cpu)
+            (eq? (module-option (module-by-kind reordered 'wifi) 'hidden?) #t)))
+(let ((clocks (modules-by-kind reordered 'clock)))
+  (check "the first clock keeps its format after the settings change"
+         (equal? (module-option (car clocks) 'format) "%H:%M:%S"))
+  (check "the second clock keeps its format after the settings change"
+         (equal? (module-option (second clocks) 'format) "%S seconds")))
+
 ;; A module that was hidden can be shown again without editing the file.
-(save-preference! config-path 'module-0-visible? #t)
+(save-preference! config-path 'module-wifi-0-visible? #t)
 (apply-shell-preferences! config-path)
 (check "showing a module again clears its hidden flag"
        (not (module-option (module-by-kind (car (get-shell-bars config-path))
