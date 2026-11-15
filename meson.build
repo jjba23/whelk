@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.32.1',
+  version: '0.32.2',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -41,6 +41,14 @@ desired_warning_flags = [
   '-Werror=incompatible-pointer-types',
   '-Werror=int-conversion',
   '-Wno-overlength-strings',
+  # A `goto' that jumps over an initialiser is how a g_autoptr ends up holding
+  # a stack slot nobody set: the cleanup then unrefs garbage at the label.  That
+  # was the startup crash in the idle manager's logind error path.
+  '-Wjump-misses-init',
+  # A `goto' that jumps over an initialiser is how a g_autoptr ends up holding
+  # a stack slot nobody set: the cleanup then unrefs garbage at the label.  That
+  # was the startup crash in the idle manager's logind error path.
+
 ]
 
 add_project_arguments(

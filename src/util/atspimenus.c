@@ -698,6 +698,17 @@ static gpointer atspi_watch_thread(gpointer data) {
   GDBusConnection *bus = NULL;
   AtspiRef *application = NULL;
   gboolean subscribed = FALSE;
+  GPtrArray *menus = NULL;
+
+  /* Declared before the first `goto done': -Wjump-misses-init keeps a jump
+   * from skipping an initialiser, and a static table jumped over would be
+   * diagnosed even though nothing here needs it at `done'. */
+  static const char *members[] = {
+      "ChildrenChanged",
+      "PropertyChange",
+      "StateChanged",
+      "VisibleDataChanged",
+  };
 
   g_main_context_push_thread_default(watch->context);
 
@@ -719,13 +730,6 @@ static gpointer atspi_watch_thread(gpointer data) {
 
   atspi_register_events(watch->bus, watch->application, watch->cancel, TRUE);
 
-  static const char *members[] = {
-      "ChildrenChanged",
-      "PropertyChange",
-      "StateChanged",
-      "VisibleDataChanged",
-  };
-
   for (guint i = 0; i < G_N_ELEMENTS(members); i++)
     watch->subscriptions[i] = g_dbus_connection_signal_subscribe(
         watch->bus, watch->application->service, WHELK_ATSPI_EVENT_OBJECT,
@@ -736,8 +740,8 @@ static gpointer atspi_watch_thread(gpointer data) {
 
   /* Register and subscribe before the first delivery so a change racing the
    * first read is followed rather than lost. */
-  GPtrArray *menus = atspi_menubar_for_application(
-      watch->bus, watch->application, watch->style, watch->cancel);
+  menus = atspi_menubar_for_application(watch->bus, watch->application,
+                                        watch->style, watch->cancel);
 
   atspi_deliver_menus(watch, menus);
 

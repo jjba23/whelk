@@ -13,6 +13,40 @@ Nothing yet.
 
 *[Released]
 
+** v0.32.2 (2026-11-15)
+
+*** Fixed
+
+- *whelk no longer aborts at startup where logind has no session for its own
+  process.*  The idle manager's =GetSessionByPID= handler declared two
+  =g_autoptr=s after its =goto done= labels.  The error path -- which is what a
+  shell started from a terminal that belongs to no session takes -- jumped over
+  their initialisers, and the cleanup at the label unref'd whatever the stack
+  slots held: glibc aborted with =free(): invalid pointer= a moment after
+  =could not find the logind session for the idle hint=, and the supervisor
+  restarted the shell into the same crash.  Every automatic cleanup in that
+  callback is now declared before the first jump.  The same shape in the
+  =org.gtk.Menus= =Start= callback (=src/util/gtkmenu.c=), taken whenever an
+  application without a menubar is focused, is fixed with it.
+- *The build now diagnoses that class of bug.*  =-Wjump-misses-init= joins the
+  warning set, and with =-Werror= a jump over an initialiser is a build
+  failure; three functions needed a declaration hoisted to compile under it.
+- *The idle manager is tested against a logind that is not there.*
+  =tests/test_idle.c= points the system bus at a private bus with no logind,
+  starts the manager and asserts it still describes itself and shuts down.  The
+  case aborts with =free(): invalid pointer= against the previous code.  The
+  development manifest gains =dbus=, so the suites that need =dbus-daemon= --
+  the DBusMenu, =org.gtk.Menus=, AT-SPI and idle buses -- run in CI instead of
+  skipping.
+
+*** Verified
+
+- The host suite and the pinned Guix environment both pass: 44 tests, including
+  the new =/idle/logind-absent= case and the bus-backed menu suites.
+- The crash was reproduced on a headless Broadway display (no EGL, no logind
+  session) and then confirmed fixed there, plainly and under valgrind, which
+  now reports no uninitialised use in =on_session_path=.
+
 ** v0.32.1 (2026-11-15)
 
 *** Fixed

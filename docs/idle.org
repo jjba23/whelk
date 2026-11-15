@@ -11,6 +11,12 @@ hint rather than binding a compositor idle protocol, so every session that
 reports one gets the same policy; a session that never sets =IdleHint= never
 starts whelk's timer.
 
+A machine where whelk's process belongs to no logind session at all -- a shell
+started from a terminal in a scope logind cannot see -- gets the same treatment:
+no hint, no timer, one debug line, and a status report that says the session is
+unavailable.  The manager stays up as the owner of the DND flag and the
+presentation toggle; a missing session is a quieter shell, not a broken one.
+
 The policy is one setting:
 
 #+begin_src scheme

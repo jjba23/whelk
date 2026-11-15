@@ -239,8 +239,18 @@ static void on_session_path(GObject *source, GAsyncResult *result,
 
   (void)source;
 
+  /* Every automatic cleanup this function owns is declared here, before the
+   * first `goto done'.  A g_autoptr declared after the jump keeps whatever the
+   * stack slot held, and the cleanup at `done' then unrefs garbage; that was
+   * the startup crash on a machine where logind has no session for this
+   * process, because that path returns through `done'. */
   g_autoptr(GError) error = NULL;
-  g_autoptr(GVariant) reply =
+  g_autoptr(GVariant) reply = NULL;
+  g_autoptr(GError) hint_error = NULL;
+  g_autoptr(GVariant) current = NULL;
+  const char *path = NULL;
+
+  reply =
       g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
 
   if (!self->started)
@@ -252,8 +262,6 @@ static void on_session_path(GObject *source, GAsyncResult *result,
                 error ? error->message : "unknown error");
     goto done;
   }
-
-  const char *path = NULL;
 
   g_variant_get(reply, "(&o)", &path);
 
@@ -270,8 +278,7 @@ static void on_session_path(GObject *source, GAsyncResult *result,
 
   /* A shell restarted while the session is already idle has to learn the
    * current hint, not wait for the next transition. */
-  g_autoptr(GError) hint_error = NULL;
-  g_autoptr(GVariant) current = g_dbus_connection_call_sync(
+  current = g_dbus_connection_call_sync(
       self->bus, LOGIND_NAME, self->session_path,
       "org.freedesktop.DBus.Properties", "Get",
       g_variant_new("(ss)", LOGIND_SESSION, "IdleHint"),

@@ -27,6 +27,11 @@
                           wayland ; wayland-scanner, for the river-status protocol
                           gtk
                           gtk4-layer-shell
+                          ;; `g_test_dbus_up' spawns a dbus-daemon for every
+                          ;; test that talks to a private bus: the menus, the
+                          ;; tray and the idle manager.  Without it those tests
+                          ;; still pass, by skipping.
+                          dbus
                           ;; The locker's headers are a build requirement: a
                           ;; build without them could only ship a lock screen
                           ;; that never authenticates.  The library itself is

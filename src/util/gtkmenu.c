@@ -62,9 +62,16 @@ static void start_group(WhelkGtkMenuWatch *watch);
 
 static void on_start(GObject *source, GAsyncResult *result, gpointer user_data) {
   WhelkGtkMenuWatch *watch = user_data;
+
+  /* Declared before the first `goto out': the labels below check these, and a
+   * g_autoptr declared after a jump holds garbage when the jump skipped its
+   * initialiser, so its cleanup would unref a pointer nobody set. */
   g_autoptr(GError) error = NULL;
-  g_autoptr(GVariant) reply =
-      g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+  g_autoptr(GVariant) reply = NULL;
+  g_autoptr(GVariant) menus = NULL;
+  GPtrArray *tree = NULL;
+
+  reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
 
   watch->starting = FALSE;
 
@@ -76,8 +83,8 @@ static void on_start(GObject *source, GAsyncResult *result, gpointer user_data) 
     goto out;
   }
 
-  g_autoptr(GVariant) menus = g_variant_get_child_value(reply, 0);
-  GPtrArray *tree = whelk_menubar_from_gtk(menus, 0, 0, watch->style);
+  menus = g_variant_get_child_value(reply, 0);
+  tree = whelk_menubar_from_gtk(menus, 0, 0, watch->style);
 
   if (watch->changed)
     watch->changed(tree, watch->user_data);
