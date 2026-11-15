@@ -10,6 +10,7 @@
 #include "logger.h"
 #include "util/command.h"
 #include "util/launcherkeys.h"
+#include "util/nightlight.h"
 
 #include <string.h>
 
@@ -381,6 +382,26 @@ static void on_entry_changed(GtkEditable *editable, gpointer user_data) {
     queue_text(state, key, gtk_editable_get_text(editable), CHANGE_STRING);
 }
 
+/* A clock is minutes to the runtime and HH:MM to a person.  An entry that is
+ * still being typed ("2", "20:") is not a value yet: the field says so and the
+ * last valid time stays in force rather than being replaced by a wrong one. */
+static void on_clock_changed(GtkEditable *editable, gpointer user_data) {
+  PrefsState *state = user_data;
+  GtkWidget *widget = GTK_WIDGET(editable);
+  const char *key = preference_key(widget);
+  int minutes = 0;
+
+  if (!key)
+    return;
+
+  if (whelk_night_light_parse_clock(gtk_editable_get_text(editable), &minutes)) {
+    gtk_widget_remove_css_class(widget, "error");
+    queue_int(state, key, minutes);
+  } else {
+    gtk_widget_add_css_class(widget, "error");
+  }
+}
+
 /* A module option that arrived as a symbol must go back as a symbol.  The
  * generic editor used to write every entry through the string save path, which
  * turned `#:accelerator-style 'cua' into the string "cua" after one edit. */
@@ -537,6 +558,24 @@ static GtkWidget *row_entry(PrefsState *state, GtkWidget *card,
                             const char *key, const char *value) {
   return row_entry_kind(state, card, title, subtitle, key, value,
                         CHANGE_STRING);
+}
+
+static GtkWidget *row_clock(PrefsState *state, GtkWidget *card,
+                            const char *title, const char *subtitle,
+                            const char *key, int value) {
+  GtkWidget *control = gtk_entry_new();
+  g_autofree char *text =
+      g_strdup_printf("%02d:%02d", value / 60, value % 60);
+
+  gtk_editable_set_text(GTK_EDITABLE(control), text);
+  gtk_editable_set_width_chars(GTK_EDITABLE(control), 5);
+  gtk_editable_set_max_width_chars(GTK_EDITABLE(control), 5);
+  gtk_widget_set_tooltip_text(control, "HH:MM, 24-hour clock");
+  set_preference_key(control, key);
+  g_signal_connect(control, "changed", G_CALLBACK(on_clock_changed), state);
+  row_add(card, title, subtitle, control);
+
+  return control;
 }
 
 static GtkWidget *row_dropdown(PrefsState *state, GtkWidget *card,
@@ -746,6 +785,72 @@ static void build_theme_page(PrefsState *state, GtkStack *stack) {
             "Changes are written under your XDG state directory in a "
             "preferences file. Your settings.scm is never edited. Reset removes "
             "the overrides and returns to the configuration exactly as it is.");
+}
+
+static void build_night_light_page(PrefsState *state, GtkStack *stack) {
+  GtkWidget *body = page_body(stack, "night-light", "Night light");
+  g_autoptr(WhelkNightLightConfig) light =
+      whelk_bridge_night_light(state->config_path);
+  g_autofree char *current_mode =
+      g_strdup(light->mode == WHELK_NIGHT_LIGHT_ALWAYS ? "always" : "schedule");
+  static const char *const mode_labels[] = {"Scheduled", "Always on", NULL};
+  static const char *const mode_values[] = {"schedule", "always", NULL};
+
+  GtkWidget *filter = card_new(
+      "A warmer white point",
+      "The display server changes the gamma table itself, so every window, "
+      "video and the bar are warmed together.  Lower kelvin is warmer.");
+
+  gtk_box_append(GTK_BOX(body), filter);
+  row_switch(state, filter, "Night light",
+             "Filter the screen for easier reading after dark.",
+             "night-light-enabled?", light->enabled, NULL, NULL);
+  GtkWidget *temperature =
+      row_spin(state, filter, "Temperature",
+               "The white point in kelvin; 6500 K is neutral.",
+               "night-light-temperature", light->temperature,
+               WHELK_NIGHT_LIGHT_MIN_TEMPERATURE,
+               WHELK_NIGHT_LIGHT_MAX_TEMPERATURE);
+
+  /* A slider-sized step is what a person actually adjusts; typing still
+   * reaches any single kelvin. */
+  gtk_spin_button_set_increments(GTK_SPIN_BUTTON(temperature), 100.0, 500.0);
+  row_dropdown(state, filter, "Mode",
+               "Follow the clock below, or stay warm all day.",
+               "night-light-mode", mode_labels, mode_values, current_mode);
+
+  GtkWidget *when = card_new(
+      "When", "The window the filter follows and the fade at each end.");
+
+  gtk_box_append(GTK_BOX(body), when);
+  row_clock(state, when, "Starts at",
+            "The fade in begins at this time.  The window may cross midnight.",
+            "night-light-start", light->start_minute);
+  row_clock(state, when, "Ends at",
+            "The fade out finishes at this time.", "night-light-end",
+            light->end_minute);
+  row_spin(state, when, "Transition",
+           "Minutes spent fading at each end of the window.",
+           "night-light-transition", light->transition_minutes, 0, 240);
+  card_note(when,
+            "A window whose start and end are the same minute means all day.  "
+            "The settings file can write the same policy as "
+            "(night-light #:enabled? #t #:temperature 3400 #:start \"19:00\" "
+            "#:end \"07:00\" #:transition 30).");
+
+  GtkWidget *how = card_new(
+      "How it reaches the screen",
+      "On Wayland whelk uses wlr-gamma-control-unstable-v1, the protocol niri, "
+      "sway, Hyprland and river expose; on X11 it writes the RandR CRTC gamma "
+      "table.  Both are the display server's own calibration path, not an "
+      "overlay.  A compositor that keeps gamma to itself is reported in the "
+      "log.");
+
+  gtk_box_append(GTK_BOX(body), how);
+  card_note(how,
+            "The filter is applied to every output, including outputs that "
+            "are plugged in later.  Turning it off restores the table the "
+            "display had before.");
 }
 
 static void build_notifications_page(PrefsState *state, GtkStack *stack) {
@@ -1261,6 +1366,7 @@ static void build_ui(PrefsState *state) {
 
   build_bar_page(state, GTK_STACK(stack));
   build_theme_page(state, GTK_STACK(stack));
+  build_night_light_page(state, GTK_STACK(stack));
   build_notifications_page(state, GTK_STACK(stack));
   build_wifi_page(state, GTK_STACK(stack));
   build_menu_page(state, GTK_STACK(stack));

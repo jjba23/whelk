@@ -253,7 +253,8 @@ Right-click the bar and choose *Edit settings…*.  The settings window has a
 page for each part of the shell a person changes often: *Bar* (edge, layer,
 height, spacing, padding, font and reserved space), *Theme* (palette, surface,
 ink, accent and hairline colours, opacity, shadow blur, shine, reflection,
-flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, *Modules*,
+flare and corner radius), *Night light* (on/off, temperature, schedule and
+fade), *Notifications*, *Wi-Fi*, *Global menu*, *Modules*,
 *Launcher* (window and zoom, plus the prefix keys), and *More* (tray size and clock format).  Every control is live: the
 change is written, the bar and the shell's panels reload, and the window stays
 open for the next one.  Opening the settings window closes any bar popover
@@ -297,6 +298,68 @@ right, overflow and start at zero, so inserting or moving a module of another
 kind cannot move a setting to a different module.  Keys from before this
 change, which named a bar position (=module-4-format=), are no longer applied;
 the *Modules* page writes the kind-and-occurrence keys for the current bar.
+
+* Night light
+:PROPERTIES:
+:CUSTOM_ID: night-light
+:END:
+
+The night light moves the display's white point towards the red end of the
+blackbody curve after dark.  It is a display-server setting, not a tinted
+window: the gamma table is changed on every output, so the bar, video, games
+and colour-managed applications are warmed together.
+
+#+begin_src scheme
+  (configure-shell!
+   #:night-light (night-light #:enabled? #t
+                             #:temperature 3400
+                             #:start "19:00"
+                             #:end "07:00"
+                             #:transition 30))
+#+end_src
+
+- =#:enabled?= turns it on.  The default is =#f=, so a configuration that never
+  mentions the night light leaves the screen alone.
+- =#:temperature= is the white point in kelvin.  =6500= is neutral; lower is
+  warmer, and values outside =1000= to =6500= are clamped.
+- =#:mode= is ='schedule= (the default) or ='always=.  Scheduled follows the
+  window below; always keeps the filter on whenever it is enabled.
+- =#:start= and =#:end= are ="HH:MM"= clocks in local time.  A window whose end
+  is earlier than its start crosses midnight; a window whose two ends are the
+  same minute means all day.
+- =#:transition= is the fade in minutes at each end.  It is clamped to half
+  the window when it would not fit, so a short window fades in and out without
+  the two transitions overlapping.
+
+The same policy is on the settings window's *Night light* page: the switch,
+the temperature, the mode, both clock ends and the fade.  A GUI change is an
+override saved beside the other preferences, and the screen changes as soon as
+the value is written -- no restart.
+
+For a compositor keybinding or a script, =whelk --night-light= flips that same
+switch without opening the window.  It writes =night-light-enabled?= as a GUI
+override and reloads the shell, then prints =night light: on= or =off=.  For
+example, in sway:
+
+#+begin_src sh
+  bindsym $mod+Shift+n exec whelk --night-light
+#+end_src
+
+The enable switch and the schedule are separate.  With the default
+='schedule= mode, toggling the switch on outside the clock window leaves the
+screen neutral until the window opens; use =#:mode 'always= when a keypress
+should warm the screen immediately.  Because the command saves the same
+override as the page, *Reset GUI settings* returns the switch to whatever
+=settings.scm= says.
+
+*How it reaches the screen.*  On Wayland whelk speaks
+=wlr-gamma-control-unstable-v1=, the protocol implemented by niri, sway,
+Hyprland, river, labwc, wayfire and other wlroots-family compositors.  On X11 it
+writes the RandR CRTC gamma table, the same calibration path a colour profile
+tool uses.  Outputs that appear later are picked up from the display server's
+own events, and a mode change re-applies the table.  GNOME Shell and KDE Plasma
+keep gamma inside the compositor and do not implement that protocol, so whelk
+logs the fact there instead of drawing an overlay and calling it a night light.
 
 * Hot reload and the REPL
 :PROPERTIES:

@@ -14,6 +14,7 @@
              (gnu packages guile)
              (gnu packages linux)
              (gnu packages freedesktop)
+             (gnu packages xorg)
              (gnu packages pkg-config))
 
 (define %source-dir
@@ -35,7 +36,11 @@
     (inputs (list gtk
                   gtk4-layer-shell
                   linux-pam
-                  guile-3.0))
+                  guile-3.0
+                  ;; X11: the dock fallback and the RandR gamma table the night
+                  ;; light uses when whelk runs on an X server.
+                  libx11
+                  libxrandr))
     ;; whelk invokes wtype by name to type a menu shortcut.  It has to be in
     ;; the package's profile, not only the build environment, or a shell and a
     ;; desktop launch would not put it on PATH.

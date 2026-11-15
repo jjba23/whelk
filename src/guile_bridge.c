@@ -1098,6 +1098,49 @@ int whelk_bridge_idle_lock_after(const char *path) {
   return CLAMP(seconds, -1, 86400);
 }
 
+WhelkNightLightConfig *whelk_bridge_night_light(const char *path) {
+  WhelkNightLightConfig *config = whelk_night_light_config_new();
+  SCM alist = call_with_path("whelk state", "get-shell-night-light", path);
+
+  if (!scm_is_pair(alist))
+    return config;
+
+  config->configured = alist_bool(alist, "configured?", TRUE);
+  config->enabled = alist_bool(alist, "enabled?", FALSE);
+
+  g_autofree char *mode = alist_text(alist, "mode", "schedule");
+
+  config->mode = g_strcmp0(mode, "always") == 0 ? WHELK_NIGHT_LIGHT_ALWAYS
+                                                 : WHELK_NIGHT_LIGHT_SCHEDULED;
+  config->temperature = alist_int(alist, "temperature", 3400);
+  config->start_minute = alist_int(alist, "start", 19 * 60);
+  config->end_minute = alist_int(alist, "end", 7 * 60);
+  config->transition_minutes = alist_int(alist, "transition", 30);
+
+  whelk_night_light_config_normalize(config);
+
+  return config;
+}
+
+int whelk_bridge_toggle_night_light(const char *path) {
+  if (!path || *path == '\0')
+    return -1;
+
+  SCM proc = public_proc("whelk prefs", "toggle-night-light!");
+
+  if (!scm_is_true(proc))
+    return -1;
+
+  SCM result = scm_call_1(proc, scm_from_utf8_string(path));
+
+  if (!scm_is_integer(result))
+    return -1;
+
+  const int state = scm_to_int(result);
+
+  return state == 1 || state == 0 ? state : -1;
+}
+
 /* =========================================================================
  * THE MENU DICTIONARY
  * =========================================================================

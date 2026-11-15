@@ -81,6 +81,13 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
 - *A bar that is a data structure.* A bar is a name, an edge, a thickness and
   three lists of modules.  Every colour, font and radius is optional, so a bare
   =(bar)= is still readable; see [[file:docs/configuration.org][the bar keys]].
+- *A night light that belongs to the display.*  =(night-light ...)= moves the
+  white point of every output through the display server's own gamma table --
+  =wlr-gamma-control-unstable-v1= on Wayland, RandR on X11 -- with a
+  configurable temperature, a clock window, a fade at each end and the same
+  controls on the settings window's *Night light* page.  =whelk --night-light=
+  flips the switch from a compositor keybinding.  No overlay, and no per-window
+  tint.
 - *Desktop widgets, also data.*  The standard macOS Golden Gate cards -- Clock,
   Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks -- are
   floating GTK4 surfaces described by =(desktop-widget ...)= records.  Weather

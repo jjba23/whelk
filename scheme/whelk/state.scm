@@ -79,8 +79,10 @@
             bar
             clipboard-settings
             idle-settings
+            night-light
             get-shell-clipboard
             get-shell-idle
+            get-shell-night-light
             configure-shell!
             normalize-edge
             normalize-layer
@@ -255,19 +257,20 @@ rather than written back into this file."
 ;; The shell menu is the popover behind the mark at the far left of the bar:
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars widgets shell-menu clipboard idle enable-repl?
-                     repl-socket-path)
+  (make-shell-config bars widgets shell-menu clipboard idle night-light
+                     enable-repl? repl-socket-path)
   shell-config?
   (bars shell-config-bars)
   (widgets shell-config-widgets)
   (shell-menu shell-config-shell-menu)
   (clipboard shell-config-clipboard)
   (idle shell-config-idle)
+  (night-light shell-config-night-light)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() '() #f '() '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() '() #f '() '() '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -536,6 +539,73 @@ oldest first.  TTL-SECONDS, when positive, expires unpinned entries."
         (cons 'max-total-bytes max-total-bytes)
         (cons 'ttl-seconds ttl-seconds)))
 
+(define (clock->minutes text fallback)
+  "Return \"HH:MM\" as minutes from midnight, or FALLBACK when it is not one."
+  (if (and (string? text)
+           (= (string-length text) 5)
+           (char=? (string-ref text 2) #\:)
+           (every char-numeric? (list (string-ref text 0)
+                                      (string-ref text 1)
+                                      (string-ref text 3)
+                                      (string-ref text 4))))
+      (let ((hour (string->number (substring text 0 2)))
+            (minute (string->number (substring text 3 5))))
+        (if (and (< hour 24) (< minute 60))
+            (+ (* hour 60) minute)
+            (begin
+              (log-warn "State" "Unknown clock ~s: using ~a" text fallback)
+              fallback)))
+      (begin
+        (log-warn "State" "Unknown clock ~s: using ~a" text fallback)
+        fallback)))
+
+(define (night-light-mode value)
+  "Return VALUE as 'schedule or 'always, warning about anything else."
+  (let ((mode (cond ((symbol? value) value)
+                    ((string? value) (string->symbol value))
+                    (else #f))))
+    (if (memq mode '(schedule always))
+        mode
+        (begin
+          (log-warn "State" "Unknown night-light mode ~s: using 'schedule" value)
+          'schedule))))
+
+(define* (night-light #:key
+                      (enabled? #f)
+                      (mode 'schedule)
+                      (temperature 3400)
+                      (start "19:00")
+                      (end "07:00")
+                      (transition 30))
+  "Describe whelk's night light.
+
+ENABLED? turns the filter on.  TEMPERATURE is the white point in kelvin; 6500 is
+neutral, and the useful range is 1000 to 6500, where lower is warmer.  MODE is
+'schedule (the default) or 'always.  START and END are \"HH:MM\" clocks: the
+window may cross midnight, and a window whose two ends are the same minute is
+read as all day.  TRANSITION is how many minutes each fade takes; a fade that
+would not fit in the window is clamped to half of it, so the two ends meet in
+the middle rather than overlapping.
+
+The filter is applied by the display server, not drawn over the desktop:
+wlr-gamma-control-unstable-v1 on a Wayland compositor that offers it (niri,
+sway, Hyprland, river), or the RandR gamma table on X11.  A compositor that
+keeps its gamma to itself is reported in the log; whelk does not pretend an
+overlay is the same thing."
+  (list (cons 'configured? #t)
+        (cons 'enabled? (if enabled? #t #f))
+        (cons 'mode (night-light-mode mode))
+        (cons 'temperature
+              (if (number? temperature)
+                  (inexact->exact (max 1000 (min 6500 (round temperature))))
+                  3400))
+        (cons 'start (clock->minutes start (* 19 60)))
+        (cons 'end (clock->minutes end (* 7 60)))
+        (cons 'transition
+              (if (number? transition)
+                  (inexact->exact (max 0 (min 1440 (round transition))))
+                  30))))
+
 (define* (idle-settings #:key (lock-after 0))
   "Describe whelk's idle and inhibit policy.
 
@@ -559,6 +629,7 @@ do-not-disturb is a separate flag and never pauses this timer."
                            (shell-menu #f)
                            (clipboard '())
                            (idle '())
+                           (night-light '())
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
@@ -582,6 +653,11 @@ IDLE is `(idle-settings)' or an alist with the same keys: how long the session
 may be idle before whelk locks it.  The empty default is the compatible
 zero-second policy, which locks on the first idle hint.
 
+NIGHT-LIGHT is `(night-light)' or an alist with the same keys: the white point,
+the clock window that applies it and the fade at each end.  The empty default
+is an off filter with 3400 K from 19:00 to 07:00, so a configuration that never
+mentions it leaves the screen alone.
+
 ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
@@ -591,6 +667,7 @@ how a configuration is changed without restarting the compositor:
          (cfg (make-shell-config valid valid-widgets shell-menu
                                  (if (list? clipboard) clipboard '())
                                  (if (list? idle) idle '())
+                                 (if (list? night-light) night-light '())
                                  enable-repl?
                                  repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
@@ -679,6 +756,10 @@ than layering on top of the previous run."
 (define (get-shell-idle . args)
   "Return the idle-settings alist, or '() when it was not configured."
   (shell-config-idle (apply get-shell-config args)))
+
+(define (get-shell-night-light . args)
+  "Return the night-light alist, or '() when it was not configured."
+  (shell-config-night-light (apply get-shell-config args)))
 
 (define (shell-menu->units . args)
   "Return the shell menu as the C runtime reads it: a list of menu units.

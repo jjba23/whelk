@@ -102,6 +102,26 @@ flowchart TD
   makes the watch deliver the application's new =File= menu.
 - =tests/test_lockpolicy.c= -- the unlock backoff: one second, doubling, capped
   at thirty seconds, including the overflow boundary.
+- =tests/test_nightlight.c= -- the night light as arithmetic: the blackbody
+  white point normalised to 6500 K, the schedule across midnight and through a
+  window shorter than its fade, the gamma ramp, and how long the controller may
+  sleep before the colour can next move.  The backends need a display server;
+  what decides what they send does not.
+- =tests/test_nightlight_x11.c= -- the RandR backend against a real X server.
+  It installs a distinctive calibration table on every CRTC with a gamma
+  table, writes 3400 K through the backend, compares every ramp entry, then
+  checks that going neutral and destroying the backend each put the original
+  table back.  Meson runs it through =tests/nightlight-x11-test.sh=, which
+  starts a private Xvfb with =xvfb-run=; Xvfb is a software server with RandR
+  1.6 and real 256-entry CRTC gamma tables.  Without =xvfb-run= the wrapper
+  reports a skip rather than overwrite the calibration of whatever display the
+  developer is using.
+- =tests/nightlight-cli.sh= -- the command line's =--night-light= against a
+  real shell.  It starts a private Xvfb and session bus, runs =whelk=, sends
+  two toggles from a second process, and checks both the printed state and the
+  saved override after each one; the running shell's log must show the X11
+  backend applying 3200 K.  Without =xvfb-run=, =dbus-run-session= or
+  =dbus-send= it reports a skip rather than starting a second desktop.
 - =tests/test_idle.c= -- the idle decision as arithmetic: active sessions,
   inhibited sessions, a zero delay, a positive delay part-way through, an
   overdue timer and a negative policy, plus the manager's DND flag and the

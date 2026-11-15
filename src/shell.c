@@ -15,6 +15,7 @@
 #include "locker.h"
 #include "logger.h"
 #include "network_panel.h"
+#include "nightlight.h"
 #include "notification_center.h"
 #include "notifications.h"
 #include "osd.h"
@@ -48,6 +49,7 @@ struct _WhelkShell {
   WhelkBarConfig *style; /* the first bar's palette, for the shell's panels */
   WhelkNotifications *notifications;
   WhelkIdle *idle;
+  WhelkNightLight *night_light;
   WhelkClipboard *clipboard;
   WhelkNotificationCenter *center;
   WhelkLauncher *launcher;
@@ -158,6 +160,15 @@ static void build_bars(WhelkShell *shell) {
   if (shell->idle)
     whelk_idle_set_lock_after(shell->idle,
                               whelk_bridge_idle_lock_after(shell->config_path));
+
+  /* The night light is part of the display, not of a bar: every reload hands
+   * it the current configuration so a settings save takes effect at once. */
+  if (shell->night_light) {
+    g_autoptr(WhelkNightLightConfig) night =
+        whelk_bridge_night_light(shell->config_path);
+
+    whelk_night_light_set_config(shell->night_light, night);
+  }
 
   if (shell->launcher) {
     whelk_launcher_set_style(shell->launcher, shell->style);
@@ -298,6 +309,10 @@ void whelk_shell_start(WhelkShell *shell) {
    * lives in the same configuration as the bars, and asking for it first would
    * see the empty default. */
   whelk_bridge_init();
+
+  /* The display filter is chosen once, from the session whelk is running in,
+   * and survives every reload; only its policy changes. */
+  shell->night_light = whelk_night_light_new();
 
   /* The history starts listening now, not when the picker opens: by the time
    * somebody asks what they copied, the copy has to already be in it. */
@@ -448,6 +463,10 @@ void whelk_shell_free(WhelkShell *shell) {
 
   whelk_preferences_shutdown();
 
+  /* Restore each output's own gamma table before the display connection goes
+   * away. */
+  g_clear_pointer(&shell->night_light, whelk_night_light_free);
+
   /* Stop the timer and release the inhibitor before the lock path goes away. */
   if (shell->idle)
     whelk_idle_shutdown(shell->idle);
@@ -556,6 +575,22 @@ void whelk_shell_toggle_dnd(WhelkShell *shell) {
     return;
 
   whelk_idle_set_dnd(shell->idle, !whelk_idle_has_dnd(shell->idle));
+}
+
+int whelk_shell_toggle_night_light(WhelkShell *shell) {
+  if (!shell)
+    return -1;
+
+  const int state = whelk_bridge_toggle_night_light(shell->config_path);
+
+  if (state < 0) {
+    LOG_C_WARN("Shell",
+               "could not save the night-light switch; see the log");
+    return -1;
+  }
+
+  whelk_shell_reload(shell);
+  return state;
 }
 
 void whelk_shell_toggle_inhibit(WhelkShell *shell, const char *reason) {

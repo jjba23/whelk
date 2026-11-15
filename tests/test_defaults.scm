@@ -69,6 +69,24 @@
        (and (= (bar-config-shine (bar #:shine 0.2)) 0.2)
             (= (bar-config-flare (bar #:flare 0.3)) 0.3)))
 
+;; The night light is off unless a configuration asks for it, and its defaults
+;; are the documented ones rather than an accidental zero.
+(let ((night (night-light)))
+  (check "a night light is off by default"
+         (eq? (assq-ref night 'enabled?) #f))
+  (check "its default white point is 3400 K"
+         (= (assq-ref night 'temperature) 3400))
+  (check "its default window is 19:00 to 07:00"
+         (and (= (assq-ref night 'start) (* 19 60))
+              (= (assq-ref night 'end) (* 7 60))))
+  (check "its default fade is thirty minutes"
+         (= (assq-ref night 'transition) 30)))
+
+(check "a clock outside the day is clamped to the range"
+       (= (assq-ref (night-light #:temperature 9000) 'temperature) 6500))
+(check "an unknown mode falls back to the schedule"
+       (eq? (assq-ref (night-light #:mode 'sometimes) 'mode) 'schedule))
+
 ;; The bar's left half is a menu bar's: the machine's own menu, then that
 ;; application's File and Edit, with a whelk where the apple is.  The window's
 ;; name is an optional module, not part of the default bar.

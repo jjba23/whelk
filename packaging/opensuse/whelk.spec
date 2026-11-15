@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.33.0
+Version:        0.34.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -33,6 +33,8 @@ BuildRequires:  pkgconfig(gtk4-layer-shell-0)
 BuildRequires:  pkgconfig(guile-3.0)
 BuildRequires:  pkgconfig(pam)
 BuildRequires:  pkgconfig(wayland-client)
+BuildRequires:  pkgconfig(x11)
+BuildRequires:  pkgconfig(xrandr)
 Requires:       gtk4
 Requires:       guile
 Requires:       pam

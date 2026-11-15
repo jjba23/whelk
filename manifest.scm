@@ -16,6 +16,7 @@
              (gnu packages glib)
              (gnu packages gnome)
              (gnu packages freedesktop)
+             (gnu packages xorg)
              (gnu packages base)
              (gnu packages commencement))
 
@@ -27,6 +28,10 @@
                           wayland ; wayland-scanner, for the river-status protocol
                           gtk
                           gtk4-layer-shell
+                          ;; X11: the EWMH dock fallback and the RandR gamma
+                          ;; table the night light uses on an X server.
+                          libx11
+                          libxrandr
                           ;; `g_test_dbus_up' spawns a dbus-daemon for every
                           ;; test that talks to a private bus: the menus, the
                           ;; tray and the idle manager.  Without it those tests

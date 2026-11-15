@@ -19,6 +19,14 @@ Honest ceilings, so you know what you are adopting.
 - On X11 the dock hints are what a window manager reads; started on a bare X
   server with no window manager (Xvfb on its own), the properties are set but
   nothing places the bar or honours the struts, so the bars sit at the origin.
+- The night light needs a display server that lets a client set gamma:
+  =wlr-gamma-control-unstable-v1= on Wayland (niri, sway, Hyprland, river and
+  the rest of the wlroots family) or RandR on X11.  GNOME Shell and KDE Plasma
+  keep gamma inside the compositor and do not implement that protocol, so whelk
+  cannot warm the screen there; it says so in the log rather than covering the
+  desktop with an overlay.  A compositor can also refuse one output (no gamma
+  table, or another night-light client already holding it); the other outputs
+  keep the filter.
 - With no =wlr-layer-shell= (GNOME, KDE) the bars are ordinary windows.  They are
   not docked, do not reserve space and can be covered; the launcher and the
   panels still work.  There is no protocol a Wayland client can use to place

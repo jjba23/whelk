@@ -19,6 +19,7 @@
   pam,
   wtype,
   libX11,
+  libXrandr,
   hicolor-icon-theme,
   adwaita-icon-theme,
   xvfb-run,
@@ -28,7 +29,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "whelk";
-  version = "0.33.0";
+  version = "0.34.0";
 
   strictDeps = true;
   __structuredAttrs = true;
@@ -68,7 +69,9 @@ stdenv.mkDerivation (finalAttrs: {
     wtype
     # On an X11 desktop a bar is a dock window with EWMH struts, which needs
     # Xlib at build time; without it the Wayland-only build is what you get.
+    # Xrandr supplies the CRTC gamma table the night light writes on X11.
     libX11
+    libXrandr
   ];
 
   doCheck = true;

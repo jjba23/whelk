@@ -48,7 +48,11 @@
       (display "                                #:accelerator-style 'cua)\n" port)
       (display "                   (tray-module #:max-items 6)\n" port)
       (display "                   (clock-module #:format \"%H:%M\")\n" port)
-      (display "                   (clock-module #:format \"%S\")))))\n" port))))
+      (display "                   (clock-module #:format \"%S\"))))\n" port)
+      (display " #:idle (idle-settings #:lock-after 120)\n" port)
+      (display " #:night-light (night-light #:enabled? #f #:temperature 3200\n" port)
+      (display "                           #:start \"20:30\" #:end \"06:15\"\n" port)
+      (display "                           #:transition 45))\n" port))))
 
 (write-config! #f)
 (load-shell-config! config-path)
@@ -61,11 +65,41 @@
 ;; as soon as anything was changed in the settings window.
 (check "a settings file's widgets are registered"
        (= (length (get-shell-widgets config-path)) 1))
+
+(define initial-night (get-shell-night-light config-path))
+
+(check "the night light is registered from the settings file"
+       (and (eq? (assq-ref initial-night 'configured?) #t)
+            (= (assq-ref initial-night 'temperature) 3200)
+            (= (assq-ref initial-night 'start) (+ (* 20 60) 30))
+            (= (assq-ref initial-night 'end) (+ (* 6 60) 15))
+            (= (assq-ref initial-night 'transition) 45)))
 (check "a fresh configuration has no GUI overrides"
        (null? (preferences-read config-path)))
 (check "the override file is named after the settings file"
        (string-suffix? "/preferences-settings.scm"
                        (preferences-path config-path)))
+
+;; A keybinding uses the same switch as the Night light page: toggle the
+;; resolved value, save it as an override, then reload.  The clock and white
+;; point must survive the switch, or turning the filter off and on again would
+;; silently reset the policy.
+(check "toggling the night light on returns 1"
+       (= (toggle-night-light! config-path) 1))
+(check "the toggle saves the enabled override"
+       (eq? (assq-ref (preferences-read config-path) 'night-light-enabled?) #t))
+(apply-shell-preferences! config-path)
+(check "the resolved night light is on with its configured clock"
+       (let ((light (get-shell-night-light config-path)))
+         (and (eq? (assq-ref light 'enabled?) #t)
+              (= (assq-ref light 'temperature) 3200)
+              (= (assq-ref light 'start) (+ (* 20 60) 30))
+              (= (assq-ref light 'end) (+ (* 6 60) 15)))))
+(check "toggling the night light off returns 0"
+       (= (toggle-night-light! config-path) 0))
+(apply-shell-preferences! config-path)
+(check "the resolved night light is off"
+       (not (eq? (assq-ref (get-shell-night-light config-path) 'enabled?) #t)))
 
 ;; A GUI edit is written first and survives a reload: this is the property that
 ;; makes the window useful without ever rewriting the primary settings file.
@@ -96,6 +130,12 @@
 (save-preference! config-path 'module-clock-1-format "%S seconds")
 (save-preference! config-path 'launcher-default-mode 'window)
 (save-preference! config-path 'launcher-key-run "")
+(save-preference! config-path 'night-light-enabled? #t)
+(save-preference! config-path 'night-light-temperature 2700)
+(save-preference! config-path 'night-light-mode 'always)
+(save-preference! config-path 'night-light-start (+ (* 21 60) 15))
+(save-preference! config-path 'night-light-end (+ (* 6 60) 45))
+(save-preference! config-path 'night-light-transition 15)
 (save-preference! config-path 'launcher-width 740)
 (save-preference! config-path 'launcher-height 680)
 (save-preference! config-path 'launcher-icon-size 34)
@@ -183,6 +223,24 @@
             (= (bar-config-launcher-icon-size applied) 34)
             (= (bar-config-launcher-font-scale applied) 130)))
 
+(let ((night (get-shell-night-light config-path)))
+  (check "the Night light page's switch is an override"
+         (eq? (assq-ref night 'enabled?) #t))
+  (check "the Night light page's temperature is an override"
+         (= (assq-ref night 'temperature) 2700))
+  (check "the Night light page's mode is an override"
+         (eq? (assq-ref night 'mode) 'always))
+  (check "the Night light page's clock ends are overrides"
+         (and (= (assq-ref night 'start) (+ (* 21 60) 15))
+              (= (assq-ref night 'end) (+ (* 6 60) 45))))
+  (check "the Night light page's fade is an override"
+         (= (assq-ref night 'transition) 15)))
+
+;; Re-registering the shell for a preference must not drop the idle policy the
+;; settings file owns either: that was the same class of bug as the widgets.
+(check "a preference save keeps the idle policy"
+       (= (assq-ref (get-shell-idle config-path) 'lock-after) 120))
+
 ;; Inserting another kind before the modules must not move their keys: the old
 ;; positional format would have hidden or renamed the wrong module here.
 (write-config! #t)
@@ -250,6 +308,14 @@
             (= (bar-config-launcher-icon-size restored) 24)
             (= (bar-config-launcher-font-scale restored) 100)))
 (check "reset restores the untouched spacing" (= (bar-config-spacing restored) 8))
+
+(let ((night (get-shell-night-light config-path)))
+  (check "reset restores the night light temperature"
+         (= (assq-ref night 'temperature) 3200))
+  (check "reset restores the night light switch"
+         (eq? (assq-ref night 'enabled?) #f)))
+(check "reset restores the idle policy"
+       (= (assq-ref (get-shell-idle config-path) 'lock-after) 120))
 
 (delete-file config-path)
 (rmdir (string-append state-dir "/whelk"))

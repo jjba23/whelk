@@ -250,6 +250,16 @@ Click: brighter · Right-click: full · Scroll: adjust"
  ;; key, loginctl and suspend still work either way.
  ;; #:idle (idle-settings #:lock-after 300)
 
+ ;; Night light: warm the screen when the day is over.  The display server's
+ ;; gamma tables are moved towards 3400 K from 19:00, faded back by 07:00, and
+ ;; the same policy is on the settings window's Night light page.  Set
+ ;; #:enabled? to #t to turn it on; 6500 K is neutral and lower is warmer.
+ #:night-light (night-light #:enabled? #f
+                           #:temperature 3400
+                           #:start "19:00"
+                           #:end "07:00"
+                           #:transition 30)
+
  ;; The standard macOS Golden Gate desktop-widget collection: Clock,
  ;; Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
  ;; Each is a (desktop-widget ...) record, so remove, move or resize them here.

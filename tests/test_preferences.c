@@ -46,7 +46,10 @@ static char *write_settings(void) {
       "                                  #:fraction 1/3)\n"
       "                   (clock-module #:format \"%%H:%%M\")\n"
       "                   (clock-module #:format \"%%S\"))))\n"
-      " #:idle (idle-settings #:lock-after 120))\n");
+      " #:idle (idle-settings #:lock-after 120)\n"
+      " #:night-light (night-light #:enabled? #f #:temperature 3200\n"
+      "                           #:start \"20:30\" #:end \"06:15\"\n"
+      "                           #:transition 45))\n");
 
   g_assert_true(g_file_set_contents(path, settings, -1, NULL));
   return path;
@@ -90,6 +93,44 @@ static void test_bridge_round_trip(void) {
 
   /* The idle policy crosses the same bridge as the bars. */
   g_assert_cmpint(whelk_bridge_idle_lock_after(path), ==, 120);
+
+  /* The night light does too: a stray string/number confusion here would make
+   * the schedule fire at the wrong time without failing anywhere else. */
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_true(night->configured);
+    g_assert_false(night->enabled);
+    g_assert_cmpint(night->mode, ==, WHELK_NIGHT_LIGHT_SCHEDULED);
+    g_assert_cmpint(night->temperature, ==, 3200);
+    g_assert_cmpint(night->start_minute, ==, 20 * 60 + 30);
+    g_assert_cmpint(night->end_minute, ==, 6 * 60 + 15);
+    g_assert_cmpint(night->transition_minutes, ==, 45);
+  }
+
+  /* The keybinding's toggle is the Night light page's switch: it saves the
+   * resolved value as an override, and the next load applies it.  Exercise the
+   * bridge on its own so a broken save cannot hide behind a GApplication
+   * invocation. */
+  g_assert_cmpint(whelk_bridge_toggle_night_light(NULL), ==, -1);
+  g_assert_cmpint(whelk_bridge_toggle_night_light(path), ==, 1);
+  g_assert_true(whelk_bridge_load(path));
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_true(night->enabled);
+    g_assert_cmpint(night->temperature, ==, 3200);
+    g_assert_cmpint(night->start_minute, ==, 20 * 60 + 30);
+    g_assert_cmpint(night->end_minute, ==, 6 * 60 + 15);
+  }
+  g_assert_cmpint(whelk_bridge_toggle_night_light(path), ==, 0);
+  g_assert_true(whelk_bridge_load(path));
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_false(night->enabled);
+    g_assert_cmpint(night->temperature, ==, 3200);
+  }
 
   GPtrArray *bars = whelk_bridge_bars(path);
   WhelkBarConfig *bar = first_bar(bars);
@@ -148,8 +189,22 @@ static void test_bridge_round_trip(void) {
       path, "module-clock-1-format", "second"));
   g_assert_true(whelk_bridge_save_preference_symbol(path, "launcher-default-mode",
                                                     "window"));
-  g_assert_true(whelk_bridge_save_preference_string(path, "launcher-key-run",
-                                                    "//"));
+    g_assert_true(
+      whelk_bridge_save_preference_string(path, "launcher-key-run",
+                                          "//"));
+  g_assert_true(
+      whelk_bridge_save_preference_bool(path, "night-light-enabled?", TRUE));
+  g_assert_true(
+      whelk_bridge_save_preference_int(path, "night-light-temperature", 2800));
+  g_assert_true(whelk_bridge_save_preference_symbol(path, "night-light-mode",
+                                                   "always"));
+  g_assert_true(whelk_bridge_save_preference_int(path, "night-light-start",
+                                                 21 * 60));
+  g_assert_true(whelk_bridge_save_preference_int(path, "night-light-end",
+                                                 6 * 60 + 45));
+  g_assert_true(whelk_bridge_save_preference_int(path, "night-light-transition",
+                                                 20));
+
 
   g_autofree char *prefs = g_build_filename(
       state_root, "whelk", "preferences-settings.scm", NULL);
@@ -197,6 +252,16 @@ static void test_bridge_round_trip(void) {
       whelk_bridge_preference_text(path, "launcher-key-run");
   g_assert_cmpstr(launcher_mode, ==, "window");
   g_assert_cmpstr(launcher_key, ==, "//");
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_true(night->enabled);
+    g_assert_cmpint(night->mode, ==, WHELK_NIGHT_LIGHT_ALWAYS);
+    g_assert_cmpint(night->temperature, ==, 2800);
+    g_assert_cmpint(night->start_minute, ==, 21 * 60);
+    g_assert_cmpint(night->end_minute, ==, 6 * 60 + 45);
+    g_assert_cmpint(night->transition_minutes, ==, 20);
+  }
   whelk_config_free_bars(bars);
 
   g_assert_true(whelk_bridge_reset_preferences(path));
@@ -215,6 +280,13 @@ static void test_bridge_round_trip(void) {
                   "%H:%M");
   g_assert_false(whelk_spec_bool(module_of(bar, "wifi"), "hidden?", FALSE));
   g_assert_null(whelk_bridge_preference_text(path, "launcher-key-run"));
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_false(night->enabled);
+    g_assert_cmpint(night->temperature, ==, 3200);
+    g_assert_cmpint(night->start_minute, ==, 20 * 60 + 30);
+  }
   whelk_config_free_bars(bars);
 
   g_unlink(path);
@@ -308,6 +380,12 @@ static void test_widget_controls(void) {
   GtkWidget *launcher_height = find_key(content, "launcher-height");
   GtkWidget *launcher_icon = find_key(content, "launcher-icon-size");
   GtkWidget *launcher_font = find_key(content, "launcher-font-scale");
+  GtkWidget *night_enabled = find_key(content, "night-light-enabled?");
+  GtkWidget *night_temperature = find_key(content, "night-light-temperature");
+  GtkWidget *night_mode = find_key(content, "night-light-mode");
+  GtkWidget *night_start = find_key(content, "night-light-start");
+  GtkWidget *night_end = find_key(content, "night-light-end");
+  GtkWidget *night_transition = find_key(content, "night-light-transition");
   GtkWidget *reset = NULL;
 
   g_assert_true(GTK_IS_SPIN_BUTTON(height));
@@ -336,6 +414,12 @@ static void test_widget_controls(void) {
   g_assert_true(GTK_IS_SPIN_BUTTON(launcher_height));
   g_assert_true(GTK_IS_SPIN_BUTTON(launcher_icon));
   g_assert_true(GTK_IS_SPIN_BUTTON(launcher_font));
+  g_assert_true(GTK_IS_SWITCH(night_enabled));
+  g_assert_true(GTK_IS_SPIN_BUTTON(night_temperature));
+  g_assert_true(GTK_IS_DROP_DOWN(night_mode));
+  g_assert_true(GTK_IS_ENTRY(night_start));
+  g_assert_true(GTK_IS_ENTRY(night_end));
+  g_assert_true(GTK_IS_SPIN_BUTTON(night_transition));
 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(height), 48);
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(launcher_width), 760);
@@ -354,6 +438,12 @@ static void test_widget_controls(void) {
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(module_ratio), 0.85);
   gtk_switch_set_active(GTK_SWITCH(module_visible), FALSE);
   gtk_editable_set_text(GTK_EDITABLE(launcher_key), "//");
+  gtk_switch_set_active(GTK_SWITCH(night_enabled), TRUE);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(night_temperature), 2700);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(night_transition), 15);
+  gtk_editable_set_text(GTK_EDITABLE(night_start), "21:15");
+  gtk_editable_set_text(GTK_EDITABLE(night_end), "06:45");
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(night_mode), 1);
 
   /* The drop-down shows labels, but the rows are in mode order, so the mode
    * name is what picks the index. */
@@ -402,6 +492,16 @@ static void test_widget_controls(void) {
   g_assert_cmpfloat_with_epsilon(bar->shine, 0.33, 0.0001);
   g_assert_cmpfloat_with_epsilon(bar->reflection, 0.22, 0.0001);
   g_assert_cmpfloat_with_epsilon(bar->flare, 0.11, 0.0001);
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_true(night->enabled);
+    g_assert_cmpint(night->mode, ==, WHELK_NIGHT_LIGHT_ALWAYS);
+    g_assert_cmpint(night->temperature, ==, 2700);
+    g_assert_cmpint(night->start_minute, ==, 21 * 60 + 15);
+    g_assert_cmpint(night->end_minute, ==, 6 * 60 + 45);
+    g_assert_cmpint(night->transition_minutes, ==, 15);
+  }
   g_assert_cmpstr(whelk_spec_str(module_of(bar, "notifications"), "format", ""),
                   ==, "{icon} {count}");
   g_assert_cmpstr(
@@ -439,6 +539,12 @@ static void test_widget_controls(void) {
   bar = first_bar(bars);
   g_assert_cmpint(bar->height, ==, 32);
   g_assert_cmpstr(bar->theme, ==, "gloss-2007");
+  {
+    g_autoptr(WhelkNightLightConfig) night = whelk_bridge_night_light(path);
+
+    g_assert_false(night->enabled);
+    g_assert_cmpint(night->temperature, ==, 3200);
+  }
   whelk_config_free_bars(bars);
 
   g_object_unref(content);

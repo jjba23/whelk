@@ -82,6 +82,11 @@ void whelk_shell_toggle_notifications(WhelkShell *shell);
 /* Turns do-not-disturb on or off.  The idle manager owns the flag. */
 void whelk_shell_toggle_dnd(WhelkShell *shell);
 
+/* Flips the night light's saved enable switch and reloads the shell: the
+ * keybinding's equivalent of the Night light page's switch.  Returns 1 when
+ * on, 0 when off, or -1 when the override could not be saved. */
+int whelk_shell_toggle_night_light(WhelkShell *shell);
+
 /* Takes or releases whelk's presentation inhibitor: a real logind idle lock
  * held by this process.  REASON is shown by `systemd-inhibit --list'. */
 void whelk_shell_toggle_inhibit(WhelkShell *shell, const char *reason);

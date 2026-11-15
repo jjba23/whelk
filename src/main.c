@@ -358,6 +358,16 @@ static void on_dnd_action(GSimpleAction *action, GVariant *parameter,
     whelk_shell_toggle_dnd(g_shell);
 }
 
+static void on_night_light_action(GSimpleAction *action, GVariant *parameter,
+                                  gpointer user_data) {
+  (void)action;
+  (void)parameter;
+  (void)user_data;
+
+  if (g_shell)
+    whelk_shell_toggle_night_light(g_shell);
+}
+
 static void on_inhibit_action(GSimpleAction *action, GVariant *parameter,
                               gpointer user_data) {
   (void)action;
@@ -388,6 +398,7 @@ static void add_actions(GtkApplication *app) {
       {"menu", on_menu_action, "s", NULL, NULL, {0, 0, 0}},
       {"notifications", on_notifications_action, NULL, NULL, NULL, {0, 0, 0}},
       {"dnd", on_dnd_action, NULL, NULL, NULL, {0, 0, 0}},
+      {"night-light", on_night_light_action, NULL, NULL, NULL, {0, 0, 0}},
       {"inhibit", on_inhibit_action, NULL, NULL, NULL, {0, 0, 0}},
       {"network", on_network_action, "s", NULL, NULL, {0, 0, 0}},
   };
@@ -516,6 +527,18 @@ static int on_command_line(GApplication *application,
   if (option_flag(command_line, "dnd"))
     whelk_shell_toggle_dnd(g_shell);
 
+  if (option_flag(command_line, "night-light")) {
+    const int state = whelk_shell_toggle_night_light(g_shell);
+
+    if (state >= 0)
+      g_application_command_line_print(command_line, "night light: %s\n",
+                                       state ? "on" : "off");
+    else
+      g_application_command_line_print(
+          command_line, "night light: unchanged (the override could not be "
+                        "saved)\n");
+  }
+
   if (option_flag(command_line, "inhibit"))
     whelk_shell_toggle_inhibit(g_shell,
                                option_text(command_line, "inhibit-reason"));
@@ -579,6 +602,11 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(G_APPLICATION(app), "dnd", 0,
                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
                                 "Turn do-not-disturb on or off", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "night-light", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE,
+      "Turn the night light on or off, like the Night light page's switch",
+      NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "inhibit", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
       "Take or release whelk's logind idle inhibitor", NULL);

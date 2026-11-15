@@ -9,6 +9,7 @@
 #include "config.h"
 #include "util/chord.h"
 #include "util/menudict.h"
+#include "util/nightlight.h"
 
 #include <glib.h>
 
@@ -136,6 +137,34 @@ WhelkClipboardConfig *whelk_bridge_clipboard(const char *path);
  * missing file or an older configuration answers the compatible zero.
  */
 int whelk_bridge_idle_lock_after(const char *path);
+
+/**
+ * whelk_bridge_night_light:
+ * @path: the settings file whose night-light policy is wanted (may be NULL).
+ *
+ * Reads `(night-light ...)' from CONFIG_PATH: whether it is on, the white
+ * point, the `schedule'/`always' mode, the two clock ends and the fade.  A
+ * settings file that never mentioned it answers the documented default -- off,
+ * 3400 K, 19:00 to 07:00, 30 minutes -- with @configured FALSE, so the shell
+ * can tell "not configured" apart from "configured off".
+ *
+ * Returns: (transfer full): the resolved policy; never NULL.
+ */
+WhelkNightLightConfig *whelk_bridge_night_light(const char *path);
+
+/**
+ * whelk_bridge_toggle_night_light:
+ * @path: the settings file whose night light is to be toggled (may be NULL).
+ *
+ * Flips the =night-light-enabled?= GUI override and leaves the shell to reload
+ * it.  The value being flipped is the resolved one -- the settings file with
+ * the other overrides already applied -- so a keybinding and the Night light
+ * page agree on what is on.
+ *
+ * Returns: 1 when the night light is now on, 0 when it is now off, and -1 when
+ *   there is no settings path or the override could not be saved.
+ */
+int whelk_bridge_toggle_night_light(const char *path);
 
 /**
  * whelk_bridge_menudict:

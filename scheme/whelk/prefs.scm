@@ -31,6 +31,7 @@
             preference-ref
             save-preference!
             reset-preferences!
+            toggle-night-light!
             apply-shell-preferences!))
 
 ;; =============================================================================
@@ -118,6 +119,8 @@ file cannot leave the shell with a half-applied look."
     notifications-show-count?
     menu-shortcuts? menu-app-name? menu-accelerator-style
     tray-max-items clock-format
+    night-light-enabled? night-light-mode night-light-temperature
+    night-light-start night-light-end night-light-transition
     launcher-default-mode
     launcher-key-window launcher-key-run launcher-key-calc launcher-key-file
     launcher-key-web launcher-key-ssh launcher-key-quit
@@ -425,6 +428,63 @@ settings window numbers it."
      (set-option-if-present mod prefs 'clock-format 'format))
     (else mod)))
 
+(define %night-light-preference-keys
+  '(night-light-enabled? night-light-mode night-light-temperature
+    night-light-start night-light-end night-light-transition))
+
+(define (apply-night-light-preferences prefs settings)
+  "Layer the Night light page's overrides over SETTINGS.
+
+SETTINGS is the alist `(night-light ...)' registered in the primary file.  A
+configuration that predates the feature is given the constructor's defaults,
+but only when the page has actually written one of its keys: a GUI edit to some
+unrelated bar setting must not invent a night-light configuration."
+  (define (overridden?)
+    (any (lambda (key) (assq key prefs)) %night-light-preference-keys))
+  (if (and (null? settings) (not (overridden?)))
+      '()
+      (let ((base (if (null? settings) (night-light) settings)))
+        (list (cons 'configured? #t)
+              (cons 'enabled?
+                    (boolean-preference prefs 'night-light-enabled?
+                                        (assq-ref base 'enabled?)))
+              (cons 'mode (symbol-preference prefs 'night-light-mode
+                                             (assq-ref base 'mode)))
+              (cons 'temperature
+                    (integer-preference prefs 'night-light-temperature
+                                        (assq-ref base 'temperature)))
+              (cons 'start (integer-preference prefs 'night-light-start
+                                               (assq-ref base 'start)))
+              (cons 'end (integer-preference prefs 'night-light-end
+                                             (assq-ref base 'end)))
+              (cons 'transition
+                    (integer-preference prefs 'night-light-transition
+                                        (assq-ref base 'transition)))))))
+
+(define (night-light-enabled? config-path)
+  "Whether CONFIG-PATH's night light is enabled after its overrides.
+
+This is the same layering the shell uses, so a keybinding toggles what the
+Night light page shows rather than whatever the primary file happened to say
+before a GUI override was saved."
+  (let* ((settings (get-shell-night-light config-path))
+         (resolved (apply-night-light-preferences
+                    (preferences-read config-path) settings)))
+    (and (pair? resolved)
+         (eq? (assq-ref resolved 'enabled?) #t))))
+
+(define (toggle-night-light! config-path)
+  "Flip CONFIG-PATH's night-light switch and save it as a GUI override.
+
+Returns 1 when the night light is now on, 0 when it is now off, or -1 when the
+override could not be written.  The caller reloads the shell, exactly as the
+Night light page does after a switch; keeping the write and the reload separate
+means this stays usable from a headless command line and from Guile tests."
+  (let ((enabled (not (night-light-enabled? config-path))))
+    (if (save-preference! config-path 'night-light-enabled? enabled)
+        (if enabled 1 0)
+        -1)))
+
 (define (apply-shell-preferences! config-path)
   "Apply CONFIG-PATH's GUI overrides to the shell registered for it.
 
@@ -455,6 +515,13 @@ the settings window's reload callback, so the two paths cannot drift apart."
            #:widgets (get-shell-widgets config-path)
            #:shell-menu (get-shell-menu config-path)
            #:clipboard (get-shell-clipboard config-path)
+           ;; A GUI edit is a bar edit, but the shell record it re-registers must
+           ;; still carry the policies the settings file owns.  Dropping idle
+           ;; here reset the lock timer on every preference save; dropping the
+           ;; night light would turn it off for the same reason.
+           #:idle (get-shell-idle config-path)
+           #:night-light (apply-night-light-preferences
+                          prefs (get-shell-night-light config-path))
            #:enable-repl? (get-shell-enable-repl? config-path)
            #:repl-socket-path (get-shell-repl-socket-path config-path))
           updated))))

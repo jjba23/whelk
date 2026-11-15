@@ -45,9 +45,10 @@ the first one.  That is how a keybinding opens a surface:
   whelk --menu "power-menu --plain"     # label<TAB>command lines
   whelk --session-menu                  # lock, log out, sleep, restart, off
   whelk --settings                      # the settings window
-  whelk --notifications                 # open/close the centre
-  whelk --dnd                           # do not disturb on/off
-  whelk --inhibit                       # presentation inhibitor on/off
+  whelk --notifications                  # open/close the centre
+  whelk --dnd                            # do not disturb on/off
+  whelk --night-light                    # night light on/off
+  whelk --inhibit                        # presentation inhibitor on/off
   whelk --inhibit-reason "Film"         # why it is held (with --inhibit)
   whelk --idle-status                   # why the screen will or will not lock
   whelk --network wifi                  # or: --network bluetooth
@@ -61,6 +62,7 @@ prefer them:
 #+begin_src sh
   gapplication action org.jointhefreeworld.whelk launcher window
   gapplication action org.jointhefreeworld.whelk notifications
+  gapplication action org.jointhefreeworld.whelk night-light
   gapplication action org.jointhefreeworld.whelk inhibit
 #+end_src
 

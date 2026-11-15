@@ -18,7 +18,8 @@ What has to exist on the machine before whelk can start, what the binary looks f
 - Meson, Ninja, a C17 compiler, =pkg-config=
 - =wayland-scanner=, which generates the river-status client binding at build
   time
-- Optional, found at build time: =libx11= (the X11 dock fallback)
+- Optional, found at build time: =libx11= (the X11 dock fallback) and
+  =libxrandr= (the X11 night light, which writes the CRTC gamma table)
 - Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
   (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
   menu shortcut), =nmcli=, =bluetoothctl=, =wlsunset=
@@ -33,8 +34,8 @@ and hides what is not.
 
 =ldd $(command -v whelk)= is the honest answer to "what does this binary
 need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO, libm, Guile, and
-=libX11= where the build found it.  PAM is not on that list, and that is
-deliberate.
+=libX11= and =libXrandr= where the build found them.  PAM is not on that list,
+and that is deliberate.
 
 The locker opens a PAM library with =dlopen= at the moment a password is
 submitted; [[file:lock-screen.org][The lock screen]] explains why.  A binary that linked

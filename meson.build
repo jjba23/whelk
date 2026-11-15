@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.33.0',
+  version: '0.34.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -90,6 +90,9 @@ libm_dep = cc.find_library('m', required: false)
 # window type and struts, because there is no layer-shell to ask.  Optional: a
 # Wayland-only build simply has no X11 fallback compiled into it.
 x11_dep = dependency('x11', include_type: 'system', required: false)
+# Xrandr: an X11 night light is a CRTC gamma table, which only RandR exposes.
+# Optional for the same reason Xlib is: an X11-less build has no use for it.
+xrandr_dep = dependency('xrandr', include_type: 'system', required: false)
 
 whelk_deps = [
   gtk_dep,
@@ -121,6 +124,11 @@ endif
 if x11_dep.found()
   whelk_deps += x11_dep
   add_project_arguments('-DHAVE_X11', language: 'c')
+
+  if xrandr_dep.found()
+    whelk_deps += xrandr_dep
+    add_project_arguments('-DHAVE_XRANDR', language: 'c')
+  endif
 endif
 
 add_project_arguments('-DHAVE_PAM', language: 'c')
@@ -205,6 +213,26 @@ river_protocol_code = custom_target(
   build_by_default: true,
 )
 
+# The night light's Wayland half.  This is the same protocol gammastep and
+# wlsunset speak: the compositor owns the CRTC, so gamma control is the native
+# Wayland API for warming the whole screen.  Scanned at build time like river's.
+gamma_protocol_xml = files('protocol/wlr-gamma-control-unstable-v1.xml')
+gamma_protocol_header = custom_target(
+  'wlr-gamma-control-client-protocol.h',
+  input: gamma_protocol_xml,
+  output: 'wlr-gamma-control-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  build_by_default: true,
+)
+gamma_protocol_code = custom_target(
+  'wlr-gamma-control-client-protocol.c',
+  input: gamma_protocol_xml,
+  output: 'wlr-gamma-control-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  depends: gamma_protocol_header,
+  build_by_default: true,
+)
+
 whelk_sources = files(
   'src/about.c',
   'src/bar.c',
@@ -215,6 +243,9 @@ whelk_sources = files(
   'src/launcher.c',
   'src/locker.c',
   'src/module.c',
+  'src/nightlight.c',
+  'src/nightlight_wayland.c',
+  'src/nightlight_x11.c',
   'src/network_panel.c',
   'src/notification_center.c',
   'src/notifications.c',
@@ -274,6 +305,7 @@ whelk_sources = files(
   'src/util/session.c',
   'src/util/shortcutmaps.c',
   'src/util/desktop.c',
+  'src/util/nightlight.c',
   'src/util/nmcli.c',
   'src/util/riverstatus.c',
   'src/util/sysfs.c',
@@ -291,6 +323,8 @@ whelk_exe = executable('whelk',
   whelk_resources,
   river_protocol_header,
   river_protocol_code,
+  gamma_protocol_header,
+  gamma_protocol_code,
   include_directories: inc,
   dependencies: whelk_deps,
   gnu_symbol_visibility: 'hidden',
@@ -305,6 +339,8 @@ bar_preview = executable('bar_preview',
   whelk_resources,
   river_protocol_header,
   river_protocol_code,
+  gamma_protocol_header,
+  gamma_protocol_code,
   include_directories: inc,
   dependencies: whelk_deps,
   install: false,
@@ -385,6 +421,7 @@ unit_tests = [
       'src/preferences.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/command.c',
       'src/util/format.c',
       'src/util/launcherkeys.c',
@@ -398,6 +435,7 @@ unit_tests = [
     'sources': [
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
       'src/util/menudict.c',
       'src/util/chord.c',
@@ -451,6 +489,7 @@ unit_tests = [
       'src/util/menutree.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
     ],
   },
@@ -462,6 +501,7 @@ unit_tests = [
       'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
     ],
   },
@@ -473,6 +513,7 @@ unit_tests = [
       'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
     ],
   },
@@ -485,6 +526,7 @@ unit_tests = [
       'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
     ],
   },
@@ -541,6 +583,7 @@ unit_tests = [
       'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
       'src/util/command.c',
     ],
@@ -571,6 +614,7 @@ unit_tests = [
       'src/util/chord.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
       'src/util/format.c',
     ],
   },
@@ -585,6 +629,13 @@ unit_tests = [
   {
     'id': 'widgetstate',
     'sources': ['src/util/widgetstate.c'],
+  },
+  # The night light's colour curve, schedule and gamma ramp.  The display
+  # server backends need a session; the arithmetic that decides what they send
+  # is what this covers.
+  {
+    'id': 'nightlight',
+    'sources': ['src/util/nightlight.c'],
   },
 ]
 
@@ -604,6 +655,58 @@ foreach t : unit_tests
        # failed on a preferences test that needs four seconds here.
        timeout: 300)
 endforeach
+
+# The X11 night light writes real CRTC gamma tables.  The pure tests prove the
+# ramp; this test installs a distinctive calibration table on a real X server,
+# applies 3400 K through the backend, and checks that neutral and destroy put
+# the calibration back.  Xvfb is a software X server with RandR 1.6 and a real
+# 256-entry gamma table, so xvfb-run gives the test a private display.  On a
+# server without gamma tables (XWayland, for example) the test exits 77 and
+# Meson reports it as skipped.
+if x11_dep.found() and xrandr_dep.found()
+  nightlight_x11_test = executable(
+    'test_nightlight_x11',
+    'tests/test_nightlight_x11.c',
+    'src/nightlight_x11.c',
+    'src/util/nightlight.c',
+    include_directories: inc,
+    dependencies: whelk_deps,
+  )
+
+  # A shell wrapper, not a configure-time find_program, so the test can use an
+  # xvfb-run that is only on the PATH of the test environment.
+  test(
+    'nightlight_x11_integration_tests',
+    find_program('sh'),
+    args: [
+      join_paths(meson.project_source_root(), 'tests',
+                 'nightlight-x11-test.sh'),
+      nightlight_x11_test,
+    ],
+    env: test_env,
+    timeout: 120,
+    # Both night-light integration tests start their own Xvfb.  Running them
+    # beside each other can hand one test the other's display and tear it down
+    # mid-shell; they are a few seconds each, so serialize them.
+    is_parallel: false,
+  )
+
+  # The command line option is the keybinding surface: a real shell in a
+  # private Xvfb and session bus, a second whelk forwarding --night-light, and
+  # the saved override checked after each toggle.  It skips when xvfb-run or
+  # dbus-run-session is not installed.
+  test(
+    'nightlight_cli_integration_tests',
+    find_program('sh'),
+    args: [
+      join_paths(meson.project_source_root(), 'tests', 'nightlight-cli.sh'),
+      whelk_exe,
+    ],
+    env: test_env,
+    timeout: 120,
+    is_parallel: false,
+  )
+endif
 
 # Drawing is the half the pure tests cannot see.  The renderer runs under
 # Broadway (a display server with no monitor), saves the bar and diffs it with

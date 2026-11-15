@@ -13,6 +13,35 @@ Nothing yet.
 
 *[Released]
 
+** v0.34.0 (2026-11-15)
+
+*** Added
+
+- *Night light.*  A configuration can now warm every output with a
+  =(night-light ...)= policy: configurable temperature, a clock window that may
+  cross midnight, a fade at each end, and an always-on mode.  The filter uses
+  the display server's gamma table -- =wlr-gamma-control-unstable-v1= on
+  Wayland, RandR on X11 -- so no overlay is drawn and no window is tinted.
+  Outputs that arrive later are picked up, and the gamma control is held only
+  while the filter is on: going neutral releases it for another calibrator or
+  night light.  The settings window has a *Night light* page for the same
+  policy, saved as a GUI override.
+- *Night light from a keybinding.*  =whelk --night-light= flips the same
+  enabled switch as the settings page, saves it as a GUI override and reloads
+  the shell.  It prints =night light: on= or =off=, and is also available as
+  the GApplication action =night-light=.
+
+*** Verified
+
+- The host suite passes (47 test binaries).  It covers the night-light
+  arithmetic and schedule, the preferences and bridge cases, the RandR
+  integration under a private Xvfb, and the CLI toggle end-to-end test.  The
+  X11 integration applied 3400 K to a CRTC and restored its original table
+  both after the filter went neutral and after the backend was destroyed.
+- The Wayland backend was not exercised against a live compositor by the
+  automated suite in this release; it builds and shares the tested controller
+  and arithmetic.
+
 ** v0.33.0 (2026-11-15)
 
 *** Changed
