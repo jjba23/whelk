@@ -176,6 +176,15 @@ void whelk_command_run_bytes(const char *command_line,
 }
 
 /* =========================================================================
+ * THE MENU SCRIPT'S TWO CALLS
+ * ========================================================================= */
+
+char *whelk_command_with_retv(const char *command_line, const char *retv) {
+  return g_strdup_printf("WHELK_RETV=%s %s", (retv && *retv) ? retv : "0",
+                         command_line ? command_line : "");
+}
+
+/* =========================================================================
  * FIRE AND FORGET
  * ========================================================================= */
 

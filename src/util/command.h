@@ -109,6 +109,23 @@ void whelk_command_run_bytes(const char *command_line,
                              gpointer user_data);
 
 /**
+ * whelk_command_with_retv:
+ * @command_line: a menu generator's command line.
+ * @retv: what WHELK_RETV should carry -- "0" when the menu is being listed,
+ *   "1" when one of its rows was chosen.
+ *
+ * Return a newly allocated command line that runs @command_line with
+ * WHELK_RETV set explicitly.
+ *
+ * A menu generator is a shell command like any other, so the variable is
+ * written where a shell reads it: at the front of the line.  Setting it, rather
+ * than leaving it unset when listing, is what makes the contract one value and
+ * not "whatever this process inherited": a menu opened from something that
+ * exported WHELK_RETV=1 would otherwise list itself in the accepting mode.
+ */
+char *whelk_command_with_retv(const char *command_line, const char *retv);
+
+/**
  * whelk_command_spawn:
  * @command_line: a shell command line.
  *

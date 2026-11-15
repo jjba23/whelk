@@ -447,7 +447,10 @@ The menu mode speaks two shapes a generator can print: =label<TAB>command=
 lines, and the script protocol (=label\0icon\x1f…\0disabled\x1ftrue=), where
 listing the menu runs the generator with =WHELK_RETV=0= and choosing a row runs
 it again with =WHELK_RETV=1= and that row's label -- which is how a menu that
-has state of its own keeps it.  A row marked =disabled= is shown and cannot be
+has state of its own keeps it.  The variable is set on the generator's own
+environment both times, not inherited from whatever opened the menu, so a menu
+started from another generator's chosen row still lists instead of believing a
+row was chosen.  A row marked =disabled= is shown and cannot be
 chosen; a rule drawn from box-drawing characters is dropped.
 
 The =quit= mode is what the shell menu's =Force Quit…= opens: it is niri's

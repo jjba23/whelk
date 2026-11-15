@@ -96,14 +96,46 @@ static void test_plain_run_still_works(void) {
   g_assert_cmpstr(out, ==, "still here");
 }
 
+/* The menu protocol says a listing is called with WHELK_RETV=0 and a choice
+ * with WHELK_RETV=1.  The launcher hands the generator a shell command, so the
+ * variable has to be written into that line -- and written even when the value
+ * it wants is 0, or a menu opened from a script that exported 1 lists itself in
+ * the accepting mode.
+ *
+ * The inner shell does the reading, because that is what a generator is.  A
+ * bare ~VAR=0 cmd "$VAR"~ would expand in this shell, before the assignment
+ * could apply, and would prove nothing about what the generator receives. */
+static void test_menu_listing_sets_retv(void) {
+  g_autofree char *command = whelk_command_with_retv(
+      "sh -c 'printf %s \"$WHELK_RETV\"'", "0");
+  g_autofree char *out = run_and_wait(command, NULL);
+
+  g_assert_cmpstr(out, ==, "0");
+}
+
+static void test_menu_choice_sets_retv(void) {
+  g_autofree char *command = whelk_command_with_retv(
+      "sh -c 'printf %s \"$WHELK_RETV\"'", "1");
+  g_autofree char *out = run_and_wait(command, NULL);
+
+  g_assert_cmpstr(out, ==, "1");
+}
+
 int main(int argc, char *argv[]) {
   g_test_init(&argc, &argv, NULL);
+
+  /* A process that already believes a row was chosen must not turn a listing
+   * into a second choice: the listing test runs under this.  It is set before
+   * any test spawns a thread, which is the only safe time to change it. */
+  g_setenv("WHELK_RETV", "1", TRUE);
 
   g_test_add_func("/command/input", test_input_reaches_the_program);
   g_test_add_func("/command/empty-input", test_empty_input_closes_stdin);
   g_test_add_func("/command/plain", test_plain_run_still_works);
   g_test_add_func("/command/status-failure", test_status_reports_failure);
   g_test_add_func("/command/status-success", test_status_reports_success);
+  g_test_add_func("/command/menu-listing-retv", test_menu_listing_sets_retv);
+  g_test_add_func("/command/menu-choice-retv", test_menu_choice_sets_retv);
 
   return g_test_run();
 }

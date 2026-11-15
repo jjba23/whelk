@@ -1347,9 +1347,9 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
     /* The menu-script contract: the chosen row comes back to the script that
      * printed it, in WHELK_RETV, so a menu that has state of its own keeps it. */
     g_autofree char *quoted = g_shell_quote(item->name);
-    g_autofree char *command = g_strdup_printf(
-        "WHELK_RETV=1 %s %s", self->menu_command ? self->menu_command : "",
-        quoted);
+    g_autofree char *call = g_strdup_printf(
+        "%s %s", self->menu_command ? self->menu_command : "", quoted);
+    g_autofree char *command = whelk_command_with_retv(call, "1");
 
     whelk_command_spawn(command);
     break;
@@ -1854,7 +1854,12 @@ void whelk_launcher_show_menu(WhelkLauncher *self, const char *command) {
   g_free(self->mode);
   self->mode = g_strdup("menu");
 
-  whelk_command_run_bytes(command, on_menu_bytes, self);
+  /* Listed with WHELK_RETV=0, said out loud rather than left to the
+   * environment: a menu opened from a script that exported WHELK_RETV=1 would
+   * otherwise be listed in the mode that expects a chosen row. */
+  g_autofree char *listing = whelk_command_with_retv(command, "0");
+
+  whelk_command_run_bytes(listing, on_menu_bytes, self);
 }
 
 void whelk_launcher_show_session_menu(WhelkLauncher *self) {
