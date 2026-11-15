@@ -1,0 +1,46 @@
+#+title: Status and roadmap
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+What works today, what is deliberately missing, and where the next pieces go.
+
+The table is the state of this checkout; [[file:../NEWS.org][NEWS.org]] is the history that got it
+here, release by release.
+
+| Area                       | State                                                                    |
+|----------------------------+--------------------------------------------------------------------------|
+| Build system, Guile engine | working: Meson, =scm_boot_guile=, Scheme-primitive registration           |
+| Configuration DSL          | working: bars, modules, hot reload, optional REPL                        |
+| Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu |
+| Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |
+| Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
+| Launcher                   | working: applications, windows, commands, calculator, files, web, menus   |
+| Right-side overflow        | working: trailing right modules fold behind a =+N= count; a configured shelf opens on a click |
+| Desktop widgets            | working: eight Golden Gate cards, Scheme placement, live Weather/Stocks |
+| Lock screen, idle manager  | working: the session lock where the compositor has it, a fail-closed fallback, one idle timer |
+| Menus                      | working: shell menu, GTK and DBusMenu and AT-SPI menubars, the dictionary and the Orbit corpus, tray context menus |
+| Sessions                   | working: niri, sway, Hyprland, river, X11; GNOME and KDE Wayland degrade to windows |
+
+* Where the next pieces go
+:PROPERTIES:
+:CUSTOM_ID: next
+:END:
+
+- *Editable notes*: Notes renders the value a settings file or a note file
+  gives it.  Editing the prose from the card would write through a preference
+  override, the same reversible path the settings window already uses; a
+  reminder's done state already takes that path.
+- *Configured surfaces*: =bar->alist= in =state.scm= is the pattern; a record for
+  the launcher or the panels would be the same trick applied once more.
+- *One monitor for the panels*: bars follow =#:monitor=; the panels, the toasts
+  and the launcher still open on the first output (see
+  [[file:known-limits.org][Known limits]]).
+- *A tray menu that follows its tree*: a tray menu is read when it opens
+  ([[file:tray.org][The tray]]); the global menu is the one that follows =LayoutUpdated=.  Making
+  the tray watch as well is one more subscription, not a new model.
+- *More module kinds*: a pomodoro timer, a weather reading or an MPRIS queue is
+  three steps each ([[file:modules.org][Modules]]).
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

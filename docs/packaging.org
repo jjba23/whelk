@@ -1,0 +1,59 @@
+#+title: Packaging and distribution
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Debian, Arch and RPM recipes, and the layout a packaged whelk installs.
+
+Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=)
+and =opensuse/= (spec file, rpmlint filters and the OBS =_service=).
+=packaging/pam/whelk-lock= is an optional, reviewed PAM stack for the locker;
+install it as =/etc/pam.d/whelk-lock= only after checking it against the
+distribution's PAM policy.
+
+* What a packaged whelk installs
+
+#+name: installed-layout
+#+caption: The install prefix decides the Scheme load path at configure time, which is why a package built with --prefix=/usr never needs the source tree.
+#+begin_src mermaid
+flowchart LR
+    P["--prefix=/usr"] --> B["/usr/bin/whelk"]
+    P --> D["/usr/share/applications/<br/>org.jointhefreeworld.whelk.desktop"]
+    P --> I["/usr/share/icons/hicolor<br/>the whelk mark"]
+    P --> S["/usr/share/guile/site/3.0/whelk/<br/>core, loader, state, modules,<br/>defaults, themes, presets, orbit"]
+    S -.->|"baked in at configure time"| B
+    R["resources/css/whelk.css<br/>compiled in as a GResource"] --> B
+#+end_src
+
+A packaged whelk installs the binary, the desktop entry and the icon tree, and
+the Scheme modules under =/usr/share/guile/site/3.0/whelk/= -- the path baked
+into the binary at configure time from the install prefix, so a package built
+with =--prefix=/usr= finds its own modules without being started from the source
+tree.  The structural stylesheet is compiled into the binary as a GResource, so
+a missing =/usr/share/whelk= cannot leave a bar unstyled.
+
+* The three recipes
+
+| Family              | Built with                | Result                       |
+|---------------------+---------------------------+------------------------------|
+| Debian/Ubuntu       | =maak deb-build=            | a =.deb=, from =packaging/debian= |
+| Arch                | =maak arch-build=           | a package, from =packaging/arch/PKGBUILD= |
+| openSUSE and Fedora | =maak rpm-build=            | an RPM, from =packaging/opensuse= |
+
+Each one builds the same installed layout, and each one carries the version the
+release script keeps in agreement (see [[file:releasing.org][Releasing]]).
+
+* What a packager has to keep
+
+- The Scheme modules must land in the directory the binary was configured with;
+  a recipe that moves them without passing =--prefix= gets a shell that cannot
+  find its own configuration language.
+- =libpam= is a run-time dependency, not a link-time one: do not add it to the
+  package's =NEEDED= set to "be safe".  [[file:installation.org][Installation]] has the candidate order
+  and the reason.
+- The locker's PAM service is optional and belongs to the distribution's
+  policy, not to this project.  Review =packaging/pam/whelk-lock= before
+  installing it.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

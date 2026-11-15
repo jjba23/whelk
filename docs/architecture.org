@@ -1,0 +1,152 @@
+#+title: Architecture
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+The source tree, the boundaries that keep it testable, how a bar becomes pixels, and where a change belongs.
+
+#+name: components
+#+caption: One direction only: Scheme describes, the bridge translates, C builds.  Nothing in the shell calls back into the evaluator to ask what it meant.
+#+begin_src mermaid
+flowchart TD
+    subgraph scheme["Scheme - what a user writes"]
+        S["settings.scm"]
+        CORE["scheme/whelk/core.scm<br/>configure-shell!, use-preset!, the REPL"]
+        LOADER["loader.scm<br/>isolated evaluation"]
+        STATE["state.scm<br/>bar, module and widget records"]
+        DEFAULTS["defaults.scm<br/>the built-in bar"]
+        THEMES["themes.scm<br/>twelve palettes"]
+        MENUDICT["menudict.scm, orbit.scm<br/>the shortcut tables"]
+    end
+
+    subgraph bridge["the boundary"]
+        GB["src/guile_bridge.c<br/>the only file that calls scm_*"]
+        CFG["src/config.h<br/>WhelkBarConfig, WhelkModuleSpec"]
+    end
+
+    subgraph engine["C - what the shell runs"]
+        SHELL["shell.c<br/>which bars, when to rebuild"]
+        BAR["bar.c<br/>surface, rows, generated CSS"]
+        SURF["surface.c<br/>layer-shell plumbing"]
+        MOD["module.c<br/>factory table, timers, rendering"]
+        MODULES["modules/*.c<br/>one reading per file"]
+        UTIL["util/*<br/>commands, sysfs, JSON, text, mouse"]
+        NOTIF["notifications.c, notification_center.c"]
+        LAUNCH["launcher.c"]
+        NET["network_panel.c"]
+        STYLE["style.c<br/>the generated skin"]
+    end
+
+    S --> CORE
+    CORE --> LOADER
+    LOADER --> STATE
+    CORE --> DEFAULTS
+    CORE --> THEMES
+    STATE --> GB
+    DEFAULTS --> GB
+    THEMES --> GB
+    MENUDICT --> GB
+    GB --> CFG
+    CFG --> SHELL
+    SHELL --> BAR
+    BAR --> SURF
+    BAR --> MOD
+    MOD --> MODULES
+    MODULES --> UTIL
+    BAR --> STYLE
+    SHELL --> NOTIF
+    SHELL --> LAUNCH
+    SHELL --> NET
+#+end_src
+
+#+begin_src text
+  settings.scm            the configuration, in Scheme
+       |
+  scheme/whelk/           core.scm      entry points, fallback bar, REPL
+                          loader.scm    isolated evaluation of a settings file
+                          state.scm     bar records, the shell table, alists
+                          modules.scm   module records and constructors
+                          defaults.scm  the built-in bar and configuration
+                          themes.scm    the palettes
+                          logger.scm    diagnostics on stderr
+       |
+  src/guile_bridge.c      the only file that speaks SCM: reads the alists and
+                          hands C plain structs (src/config.h)
+       |
+  src/shell.c             which settings file, which bars, when to rebuild,
+                          config-directory watching, monitor hotplug
+       |
+  src/bar.c               a bar = a surface + three module rows + generated CSS
+  src/surface.c           a generic anchored layer surface: bars, the panels,
+                          the toasts and the launcher are all this object
+  src/notifications.c     the notification service and its store
+  src/notification_center.c  the toast stack and the grouped centre
+  src/network_panel.c     the Wi-Fi and Bluetooth pages
+  src/launcher.c          the overlay, its modes and its ranking
+  src/style.c             the generated skin every surface wears
+       |
+  src/module.c            the factory table, the refresh timer, rendering
+  src/modules/*.c         one file per reading
+  src/util/*              commands, sysfs, JSON, text, mouse actions
+#+end_src
+
+* The boundaries are the design
+
+- *No SCM escapes the bridge.*  =src/guile_bridge.h= has no Scheme type in any
+  signature, and nothing outside =guile_bridge.c= calls =scm_*=.  The rest of
+  the shell builds and is tested from plain structs, and the built-in fallback
+  bar is built the same way, with no Scheme at all.
+- *A module is a value, not a subclass.*  A kind, a root widget, an =update=
+  function, a =destroy= function, and the factory table in =module.c=.  Adding
+  one is three steps: a =.c= file with a factory, its prototype in
+  =src/modules/modules.h=, and a row in the table.  Nothing else changes.
+- *A bar is a surface, and a surface is not a bar.*  =src/surface.c= owns the
+  layer-shell plumbing (edge, anchors, margins, exclusive zone, monitor,
+  namespace).  A notification stack is the same object with a different child;
+  that is why the next surface does not have to re-learn layer-shell.
+- *CSS is structure plus skin.*  =resources/css/whelk.css= is the structure:
+  module layout, hover, workspace states, the battery's warning colours.  The
+  skin -- this bar's colours, fonts and radius -- is generated from the
+  configuration and scoped to the bar's window id, so two bars can wear two
+  materials.
+
+* How a bar becomes pixels
+
+#+name: bar-pipeline
+#+caption: A bar crosses four layers, and each one can be tested without the next.  A reload throws the last three away and builds them again.
+#+begin_src mermaid
+flowchart LR
+    A["(bar #:name 'main ...)<br/>a Scheme record"] --> B["an alist<br/>state.scm: bar->alist"]
+    B --> C["WhelkBarConfig<br/>plain C structs, deep-copied"]
+    C --> D["WhelkBar<br/>bar.c"]
+    D --> E["WhelkSurface<br/>edge, anchors, margin,<br/>exclusive zone, monitor"]
+    D --> F["module rows<br/>left, centre, right, overflow"]
+    F --> G["WhelkModule<br/>a root widget + a timer"]
+    D --> H["a generated CSS provider<br/>scoped to this bar's window"]
+    I["resources/css/whelk.css<br/>the structure"] --> H
+    H --> J["the bar on screen"]
+    E --> J
+    G --> J
+#+end_src
+
+The deep copy is what makes a reload safe: the C structs do not point into the
+Scheme heap, so destroying every bar and building new ones from a fresh
+evaluation has nothing to reconcile.  A module's own generation guard covers the
+other direction -- a command that finishes after its module was freed writes
+nowhere (see [[file:lifecycle.org][Lifecycles]]).
+
+* Where a change belongs
+
+| You are adding                        | It goes in                                          |
+|---------------------------------------+-----------------------------------------------------|
+| a reading on the bar                  | =src/modules/<kind>.c=, =modules.h=, a row in =module.c= |
+| an option every module understands    | the shared reader in =src/config.c= and the table in =guile_bridge.c= |
+| a bar or widget keyword               | =guile_bridge.c= (read), =config.h= (carry), =bar.c= (use) |
+| a new kind of surface                 | =src/surface.c= as the parent, then its own file       |
+| a palette                             | =scheme/whelk/themes.scm=                             |
+| a menu producer                       | =src/modules/menu.c=, in the probing order            |
+| a settings-window control             | =src/preferences.c= and the page it belongs to        |
+| a new configuration entry point       | =scheme/whelk/core.scm=, and it must still be a value |
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

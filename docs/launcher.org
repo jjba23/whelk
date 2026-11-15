@@ -1,0 +1,74 @@
+#+title: The launcher
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+One overlay, one entry, eleven modes: applications, windows, commands, arithmetic, files, the web, ssh hosts, closing a window, the clipboard, the focused application's menus, and a menu a command generates.
+
+* One overlay, eleven modes
+
+=whelk --launcher= opens one overlay with one entry, and matches fuzzily: the
+query's characters in order, a word start worth more than a match in the
+middle, a short name over a long one.  =Tab= completes the selection into the
+entry, =Enter= opens it, =Esc= or the close button dismisses it, and the arrows
+move the selection and scroll the list with it.  A click on the dimmed area
+outside the card closes it too.  The card has a brand header, a search field,
+icon tiles, a selected-row accent and an empty-state line, so it reads as one
+surface rather than a form dropped on the screen.  A prefix picks the mode.
+
+| Mode     | What it searches                                  | Prefix   |
+|----------+---------------------------------------------------+----------|
+| =app=      | every =.desktop= entry on the system (default)     |          |
+| =window=   | the focused window (niri, sway, Hyprland, X11)     | =@=        |
+| =run=      | a command, plus completions from =$PATH=           | =>=        |
+| =calc=     | arithmetic; =Enter= copies the result              | ===        |
+| =file=     | files and folders under =$HOME=, caches skipped    | =/=        |
+| =web=      | the default browser (=WHELK_WEB_SEARCH= overrides)  | =?=        |
+| =ssh=      | the hosts =~/.ssh/config= names, in a terminal      | =%=        |
+| =quit=     | the open windows, closed instead of focused       | =!=        |
+| =clipboard= | what was copied, newest first; =Enter= puts it back, =Ctrl+P= pins, =Ctrl+Delete= removes, =Ctrl+Z= undoes | =;= |
+| =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
+| =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
+
+* The card's geometry
+
+The card is resizable.  Drag the lower-right grip, or use the footer's *Icons*
+and *Text* buttons; the current icon size and text percentage sit beside the
+buttons.  The starting geometry comes from the bar's =#:launcher-width=,
+=#:launcher-height=, =#:launcher-icon-size= and =#:launcher-font-scale=, and a
+drag or button press writes an override so the next launcher opens the same
+way.  The settings window's *Launcher* page edits those four values directly.
+
+* The prefix table is a default
+
+The prefixes above are the defaults.  The settings window's *Launcher* page can
+replace any of them, or empty one to disable it, and can choose the mode a bare
+=whelk --launcher= opens in; those choices are overrides in the state file, and
+*Reset GUI settings* puts the table back exactly as it is here.
+
+* A menu a command generates
+
+The menu mode speaks two shapes a generator can print: =label<TAB>command=
+lines, and the script protocol (=label\0icon\x1f…\0disabled\x1ftrue=), where
+listing the menu runs the generator with =WHELK_RETV=0= and choosing a row runs
+it again with =WHELK_RETV=1= and that row's label -- which is how a menu that
+has state of its own keeps it.  The variable is set on the generator's own
+environment both times, not inherited from whatever opened the menu, so a menu
+started from another generator's chosen row still lists instead of believing a
+row was chosen.  A row marked =disabled= is shown and cannot be
+chosen; a rule drawn from box-drawing characters is dropped.
+
+* quit, and menuitem
+
+The =quit= mode is what the shell menu's =Force Quit…= opens: it is niri's
+windows, and choosing one closes it rather than switching to it.
+
+The =menuitem= mode is a menu bar's answer to the Help menu's search field:
+every entry of the focused application's live menubar -- whichever producer
+made it, GTK, DBusMenu, a script or the dictionary -- is listed with its path
+(=View > Appearance > Dark=) and its chord, matched by label and by path, and
+activated the way the bar's click activates it.  A rule or a disabled entry is
+not a result; the list is the same tree the bar is showing at that moment.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

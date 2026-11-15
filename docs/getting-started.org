@@ -1,0 +1,84 @@
+#+title: Getting started
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Five commands to your own bar, what the first screen is made of, and how to talk to the shell once it is running.
+
+* Quick start
+:PROPERTIES:
+:CUSTOM_ID: quick-start
+:END:
+
+Five commands and you are looking at your own bar:
+
+#+begin_src sh
+  guix install whelk
+  mkdir -p ~/.config/whelk
+  cp settings/settings.scm ~/.config/whelk/settings.scm
+  whelk &            # or: whelk --quit, to replace a running one
+  $EDITOR ~/.config/whelk/settings.scm
+#+end_src
+
+Save the file and the bar changes; move a module from =#:right= to =#:left=
+and save again, and it moves.  With no settings file at all you get the built-in
+default bar: the shell's own menu and its File/Edit/View on the left, then the
+heks-linux status items in the reference order, so the first start is never a
+blank screen and never a stand-in for the documented one.
+
+Click things while you are there: the mark at the far left opens the machine's
+own menu (about, recent items, force quit, sleep and the ways out, then the
+launcher and the shell's reload and quit), a notification bell opens the
+centre, a Wi-Fi reading opens the network panel, and =whelk --launcher= opens
+the launcher from any keybinding you give it.
+
+* Talking to the running shell
+:PROPERTIES:
+:CUSTOM_ID: ipc
+:END:
+
+The second =whelk= is not a second shell: GApplication forwards its arguments to
+the first one.  That is how a keybinding opens a surface:
+
+#+begin_src sh
+  whelk --launcher                      # applications
+  whelk --launcher --launcher-mode=window
+  whelk --menu "power-menu --plain"     # label<TAB>command lines
+  whelk --session-menu                  # lock, log out, sleep, restart, off
+  whelk --settings                      # the settings window
+  whelk --notifications                 # open/close the centre
+  whelk --dnd                           # do not disturb on/off
+  whelk --inhibit                       # presentation inhibitor on/off
+  whelk --inhibit-reason "Film"         # why it is held (with --inhibit)
+  whelk --idle-status                   # why the screen will or will not lock
+  whelk --network wifi                  # or: --network bluetooth
+  whelk --reload
+  whelk --quit
+#+end_src
+
+The same entry points exist as application actions, for compositor configs that
+prefer them:
+
+#+begin_src sh
+  gapplication action org.jointhefreeworld.whelk launcher window
+  gapplication action org.jointhefreeworld.whelk notifications
+  gapplication action org.jointhefreeworld.whelk inhibit
+#+end_src
+
+* Where to go next
+
+| If you want to                              | Read                                          |
+|---------------------------------------------+-----------------------------------------------|
+| write your own bar from nothing              | [[file:configuration.org][Configuration]]                          |
+| know what a reading can be told              | [[file:modules.org][Modules]]                                |
+| put a clock, a note or the weather on the desktop | [[file:widgets.org][Desktop widgets]]                   |
+| change every colour at once                  | [[file:themes.org][Themes]]                                 |
+| make the left half your own                  | [[file:menus.org][Menus]]                                  |
+| bind keys to the launcher and the panels     | [[file:launcher.org][The launcher]] and the command list above   |
+| keep what you copy                           | [[file:clipboard.org][The clipboard]]                          |
+| understand a compositor whelk only half knows | [[file:sessions.org][Sessions]]                              |
+| know what the shell is doing and when        | [[file:lifecycle.org][Lifecycles]]                              |
+| build, test or package it                    | [[file:development.org][Development]] and [[file:packaging.org][Packaging]]        |
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

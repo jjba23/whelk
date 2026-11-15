@@ -1,0 +1,52 @@
+#+title: The tray
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+StatusNotifierItems on the bar: their icons, their own context menus, and the chevron for the ones that do not fit.
+
+=tray-module= reads the standard =RegisteredStatusNotifierItems= list and
+registers as a host, so an item that was already running -- JetBrains Toolbox,
+for one -- appears when the bar starts.  =#:max-items= (6) keeps that many on
+the bar and puts the rest behind a chevron; the icons behind it are the same
+widgets, so they keep their tooltips and clicks.
+
+=IconName= is resolved through the applet's =IconThemePath= first; that is
+where many apps keep their own colour icon, separate from the desktop theme.
+When the app publishes no path, GTK's icon theme is used, and an item that has
+no name falls back to its ARGB =IconPixmap=.  The path is added once per
+applet, not once per icon refresh.
+
+A right click opens the applet's own menu, read from =com.canonical.dbusmenu=
+after =AboutToShow= has let the applet build it, so every id belongs to the tree
+on screen; choosing a row sends =Event(id, "clicked")=.  An item with no =Menu=
+path still receives =ContextMenu=, and an item that says its menu is its primary
+action opens it on a left click too.
+
+* What happens when an item answers
+
+#+name: tray-sequence
+#+caption: An item is a small D-Bus service; the bar is its host.  Its menu is read after AboutToShow, so every id belongs to the tree that is on screen.
+#+begin_src mermaid
+sequenceDiagram
+    participant Bar as tray-module
+    participant Bus as session bus
+    participant Item as StatusNotifierItem
+
+    Bar->>Bus: RegisterStatusNotifierHost
+    Bar->>Bus: read RegisteredStatusNotifierItems
+    Bus-->>Bar: the ids already running
+    Bar->>Item: properties: IconName, IconThemePath, Menu, Title
+    Item-->>Bar: a name, or an ARGB pixmap
+    Note over Bar: IconThemePath is searched<br/>before the desktop icon theme
+    Bar->>Bar: draw the icon on the bar
+    Bar->>Item: AboutToShow, on a right click
+    Bar->>Bus: GetLayout on com.canonical.dbusmenu
+    Bus-->>Bar: the tree, with ids
+    Note over Bar: a popover, with the item's own rows
+    Bar->>Bus: Event(id, clicked)
+    Bus-->>Item: the row was chosen
+#+end_src
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

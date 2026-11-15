@@ -1,0 +1,186 @@
+#+title: Installation
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+What has to exist on the machine before whelk can start, what the binary looks for at run time, and the four ways to install it.
+
+* What you need
+:PROPERTIES:
+:CUSTOM_ID: requirements
+:END:
+
+- GTK 4 (>= 4.10 for =gdk_monitor_get_connector=; developed against 4.24)
+- =gtk4-layer-shell= (>= 1.2, for =ext-session-lock-v1= and the fallback)
+- GNU Guile 3.0, with its development headers
+- Linux-PAM development headers.  The library itself is not linked: the lock
+  screen loads the host's at run time (see [[file:installation.org][What the binary links]]), but
+  the build refuses to produce a shell that could only lock and never unlock.
+- Meson, Ninja, a C17 compiler, =pkg-config=
+- =wayland-scanner=, which generates the river-status client binding at build
+  time
+- Optional, found at build time: =libx11= (the X11 dock fallback)
+- Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
+  (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
+  menu shortcut), =nmcli=, =bluetoothctl=, =wlsunset=
+
+Nothing on that second list is required to start: whelk asks for what is there
+and hides what is not.
+
+* What the binary links
+:PROPERTIES:
+:CUSTOM_ID: linkage
+:END:
+
+=ldd $(command -v whelk)= is the honest answer to "what does this binary
+need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO, libm, Guile, and
+=libX11= where the build found it.  PAM is not on that list, and that is
+deliberate.
+
+The locker opens a PAM library with =dlopen= at the moment a password is
+submitted; [[file:lock-screen.org][The lock screen]] explains why.  A binary that linked
+libpam would answer with whichever copy the build found -- a store path in a
+Nix or Guix build -- and that copy's =pam_unix= cannot run the host's setuid
+=unix_chkpwd=, so every password would come back as =PAM_AUTHINFO_UNAVAIL=.
+The candidates, in order, are:
+
+1. the host's own copy: =/usr/lib64/libpam.so.0=, =/lib64/libpam.so.0=,
+   =/usr/lib/libpam.so.0=, =/lib/libpam.so.0=, then every
+   =/usr/lib/*-linux-gnu/libpam.so.0= (the Debian multiarch directories);
+2. the libdir the build configured (=WHELK_PAM_LIBDIR=), named in full;
+3. =libpam.so.0= through the loader: the build's rpath when it survived, the
+   host's ld cache everywhere else.
+
+#+name: pam-resolution
+#+caption: Which libpam answers, at the moment a password is submitted.
+#+begin_src mermaid
+flowchart TD
+    A["a password is submitted on the lock screen"] --> B{"host copy present?<br/>/usr/lib64, /lib64,<br/>/usr/lib, /lib, multiarch"}
+    B -->|yes| OK["dlopen the host's libpam.so.0"]
+    B -->|no| C{"WHELK_PAM_LIBDIR<br/>compiled in?"}
+    C -->|yes| D["dlopen that libdir/libpam.so.0"]
+    C -->|no| E["dlopen libpam.so.0<br/>rpath, then the ld cache"]
+    D --> F{"library opened?"}
+    E --> F
+    OK --> F
+    F -->|no| G["LOCK_AUTH_UNAVAILABLE<br/>no PAM library found"]
+    F -->|yes| H["choose the service:<br/>/etc/pam.d/whelk-lock,<br/>then login,<br/>then a per-user stack"]
+    H --> I{"service exists?"}
+    I -->|no| G
+    I -->|yes| J["pam_authenticate on a worker thread"]
+    J -->|PAM_SUCCESS| K["unlock, reset the retry count"]
+    J -->|"wrong password"| L["stay locked, double the delay<br/>1 s up to 30 s"]
+    J -->|"everything else"| G
+#+end_src
+
+=readelf -d $(command -v whelk)= shows no =NEEDED= entry for libpam.  It shows
+the configured libdir in =RUNPATH= when the build was not a system one, and a
+packager may shrink that =RUNPATH= (nixpkgs does) -- which is why the libdir is
+also compiled in as a candidate rather than trusted to the rpath.
+
+On a NixOS or Guix System, where =/usr= has no PAM, the second candidate is the
+one that answers and the system's =/etc/pam.d= entries name their modules by
+absolute store path, so the pair works.  On a distribution that keeps PAM in
+=/usr=, the first candidate is the distribution's copy and its modules are the
+distribution's modules.  That split is the whole point.
+
+* Guix
+:PROPERTIES:
+:CUSTOM_ID: guix
+:END:
+
+whelk lives in the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld
+channel]]:
+
+#+begin_src sh
+  # once, in ~/.config/guix/channels.scm:
+  #   (channel
+  #    (name 'jointhefreeworld)
+  #    (url "https://github.com/jjba23/guix-jointhefreeworld")
+  #    (branch "trunk"))
+  guix pull
+  guix install whelk
+#+end_src
+
+For hacking on it, the repository pins its own toolchain, so the build is the
+same one CI runs:
+
+#+begin_src sh
+  guix shell -m manifest.scm          # the pinned development environment
+  guix shell -D -f guix.scm           # just the dependencies
+  guix build -f guix.scm              # build and test this checkout
+#+end_src
+
+=maak run= and =maak test= wrap the first two in
+=guix time-machine --channels=channels.scm=, so they are reproducible even when
+the channels in =~/.config/guix= have moved on.
+
+* Nix
+:PROPERTIES:
+:CUSTOM_ID: nix
+:END:
+
+=default.nix= is a plain =callPackage= expression:
+
+#+begin_src sh
+  nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'
+  ./result/bin/whelk
+#+end_src
+
+* From source
+:PROPERTIES:
+:CUSTOM_ID: source
+:END:
+
+#+begin_src sh
+  meson setup build
+  ninja -C build
+  meson test -C build          # the C and Guile suites
+  ./build/whelk
+#+end_src
+
+Whelk must be started *from the project root* (or installed): the Guile engine
+resolves its modules through the relative =scheme/= directory as well as the
+installation path baked in at configure time, so a build without an install
+finds =scheme/whelk/*.scm= by looking in the current directory.
+
+Install it with:
+
+#+begin_src sh
+  meson setup build --prefix=/usr
+  ninja -C build install
+#+end_src
+
+* Distribution packages
+:PROPERTIES:
+:CUSTOM_ID: packages
+:END:
+
+=packaging/= carries recipes for the three families; each builds the same
+installed layout described in [[file:packaging.org][Packaging and distribution]].
+
+#+begin_src sh
+  maak deb-build     # Debian/Ubuntu .deb, from packaging/debian
+  maak arch-build    # Arch package, from packaging/arch/PKGBUILD
+  maak rpm-build     # RPM for openSUSE and Fedora, from packaging/opensuse
+#+end_src
+
+* Starting, and stopping
+:PROPERTIES:
+:CUSTOM_ID: starting
+:END:
+
+Start whelk inside the session, from a keybinding, or from your compositor's
+autostart.  If your environment forces the X11 backend (=GDK_BACKEND=x11=), a
+layer surface cannot be created and whelk falls back to a plain window -- start
+it inside the Wayland session instead:
+
+#+begin_src sh
+  GDK_BACKEND=wayland whelk
+#+end_src
+
+Quit with =Ctrl+C= in its terminal, =whelk --quit=, or
+=gapplication quit org.jointhefreeworld.whelk=.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

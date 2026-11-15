@@ -1,0 +1,145 @@
+#+title: The lock screen
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+The lock screen, the two ways it can be presented, and what every failure message means.
+
+#+name: lock-path
+#+caption: One way in, one way out.  The compositor path is the hardened one; the fallback keeps the session locked where no protocol exists.
+#+begin_src mermaid
+flowchart TD
+    A["whelk --lock<br/>shell:lock<br/>logind's Lock signal<br/>the idle timer, suspend, a VT switch"] --> B{"compositor implements<br/>ext-session-lock-v1?"}
+    B -->|yes| C["GtkSessionLockInstance<br/>the compositor owns the surfaces"]
+    B -->|no| D["one overlay per output<br/>keyboard exclusive on the primary"]
+    C --> E["every output locked"]
+    D --> E
+    E --> F["a password is submitted"]
+    F --> G["PAM on a worker thread<br/>the session user, never a typed name"]
+    G -->|success| H["unlock, reset the retry count"]
+    G -->|"wrong password"| I["stay locked<br/>wait 1 s, doubling to 30 s"]
+    G -->|"unavailable or a failed account check"| J["stay locked<br/>LOCK_AUTH_UNAVAILABLE"]
+    I --> F
+    J --> F
+#+end_src
+
+=whelk --lock= locks every output; =shell:lock= in the shell menu and
+logind's =Lock= signal (which is what =loginctl lock-session= sends) reach the
+same code.  On a Wayland compositor that implements =ext-session-lock-v1= --
+niri, Sway, Hyprland, River and other compositors that implement it -- whelk asks
+the compositor for a session lock through =gtk4-layer-shell='s
+=GtkSessionLockInstance=.  The compositor owns the lock surfaces: another
+client cannot put a window above them, and if the whelk process dies while the
+lock is up, the compositor keeps the session locked.  This is the hardened
+path; it needs =gtk4-layer-shell= 1.2 or newer.
+
+On a compositor without the protocol -- GNOME and KDE Wayland, and older
+compositors -- whelk falls back to one overlay layer surface per output, with
+the keyboard taken exclusively on the primary output.  The fallback is still
+fail-closed, but it is a user-space overlay: a client the compositor allows
+above the overlay layer, or a process that can kill whelk, is outside whelk's
+control.  On X11 the fallback is ordinary fullscreen windows, and a window
+manager that lets another window above them is likewise outside whelk's
+control.  The fallback is a compatibility path, not a claim of compositor
+enforcement.
+
+There is no close button, no Escape and no click-outside: the only thing that
+removes the lock is a successful PAM authentication for the session user.
+
+The security properties are deliberate:
+
+- fail closed -- a missing PAM, a conversation error, a failed account check or
+a missing display leaves the session locked;
+- no username field -- PAM is asked about =g_get_user_name()=, never about a
+name typed at the lock screen;
+- one attempt at a time, on a worker thread; the password is wiped as soon as
+PAM has seen it, and failures double the wait from one second to a 30-second
+cap;
+- logind's =Lock= signal locks the session, and =clear-on-lock= clears
+  unpinned clipboard entries at the same moment;
+- =PrepareForSleep= and a VT switch (=Active=false=) also request the lock, so
+  suspend and lid close do not need a second lock daemon; [[file:idle.org][the idle manager]]
+  is the one owner of =IdleHint= and of the delay before it locks;
+- a failed-attempt count survives a crash or restart in
+  =$XDG_RUNTIME_DIR/whelk/lock-failures= (mode 0600), so restarting the shell
+  does not reset the retry delay;
+- =SIGTERM=, =SIGINT= and =SIGHUP= do not unlock the protocol session; only
+  PAM success, or the compositor ending the lock, releases it;
+- no command-line or D-Bus unlock path exists.
+
+
+whelk loads PAM at run time instead of linking it.  The library that answers
+has to be the one the running system installed: it owns the module directory
+(=/usr/lib64/security=, =/usr/lib/x86_64-linux-gnu/security= and their
+relatives) and it knows the helper those modules exec.  A libpam from a package
+manager's private store does not, and on a distribution that keeps PAM in
+=/usr= its =pam_unix= cannot run the host's setuid =unix_chkpwd=: every password
+comes back as =PAM_AUTHINFO_UNAVAIL=, which the lock screen reports as
+"Authentication is unavailable".  So the host's library is tried first and the
+build's own store path is the last resort, which is what a NixOS or Guix System
+image needs.
+
+The service is chosen the same way.  =/etc/pam.d/whelk-lock= comes first and is
+authoritative: if it refuses, whelk stays locked instead of asking =login=.
+Then =/etc/pam.d/login=, the stack lock screens conventionally use.  Then a
+per-user =pam_unix= service in =$XDG_RUNTIME_DIR/whelk/pam.d=, because a machine
+can ship only the =common-*= fragments and neither =login= nor =other= -- that
+is the host this path was debugged on -- and =pam_unix= is the portable
+local-account stack.  The runtime directory is required: whelk will not put a
+PAM service in =/tmp=, where another user could write it.  A missing runtime
+directory leaves the session locked with the same message.
+
+=packaging/pam/whelk-lock= is a reviewed stack for a machine that wants
+=pam_faillock= throttling and an explicit account check; whelk's own retry delay
+still applies without it.  Review it against the distribution's own PAM policy
+before installing it.  PAM headers are a build requirement: a build without them
+could only ship a lock screen that never authenticates, so the build refuses.
+
+* If it says authentication is unavailable
+:PROPERTIES:
+:CUSTOM_ID: lock-auth-troubleshooting
+:END:
+
+"Authentication is unavailable. The screen stays locked." is one result --
+=LOCK_AUTH_UNAVAILABLE= -- and three different causes.  The locker logs which
+one, on stdout, so a session started from a terminal, a user unit or the
+journal keeps it:
+
+#+begin_src sh
+  journalctl --user -b | grep '\[C:Locker\]'
+#+end_src
+
+- *=no PAM library found; the lock screen cannot authenticate= -- none of the
+  candidates in [[file:installation.org][What the binary links]] could be opened.  Install the
+  distribution's PAM library, or point =ldd= at what is missing.  Nothing about
+  the build changes this: the library is a run-time dependency by design.
+- *=authentication library: <path>= followed by =PAM refused authentication
+  (status 9)= -- PAM answered =PAM_AUTHINFO_UNAVAIL=: the library that answered
+  cannot reach the credential store.  That is the signature of a store-built
+  libpam on a host whose PAM lives in =/usr=, and of a =pam_unix= whose
+  =unix_chkpwd= is not setuid.  The log line names the library, so the fix is
+  to make the host's copy reachable (usually: install the distribution's PAM
+  package, or make sure =/usr/lib64/libpam.so.0= exists).
+- *=no PAM service file and no per-user PAM directory= -- the host has neither
+  =/etc/pam.d/whelk-lock= nor =/etc/pam.d/login=, and
+  =$XDG_RUNTIME_DIR= is unset, so the per-user stack cannot be written.  A
+  session without =XDG_RUNTIME_DIR= has no secure place for a service; whelk
+  will not use =/tmp=.
+
+Two more lines say which stack answered: =authenticating with PAM service
+whelk-lock=, =... service login=, or =authenticating with the per-user PAM stack
+<dir>=.  A =whelk-lock= file that exists is never bypassed, so a broken local
+policy shows up as a refusal rather than a fallback to =login=.
+
+The status mapping is the one whelk's locker documents: =PAM_AUTH_ERR= (7),
+=PAM_USER_UNKNOWN= (10), =PAM_MAXTRIES= (11) and =PAM_NEW_AUTHTOK_REQD= (12)
+are a wrong password, and ask for another one after the retry delay; everything
+else is =LOCK_AUTH_UNAVAILABLE= and leaves the screen locked.
+
+The fallback is deliberately kept so a session without =ext-session-lock-v1=
+still locks rather than silently doing nothing.  It is weaker than the
+compositor-enforced path, and the hardened path is selected whenever the
+compositor advertises the protocol.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

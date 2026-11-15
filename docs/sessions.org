@@ -1,0 +1,107 @@
+#+title: Sessions: compositors and desktops
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+whelk asks the session what it can do: niri, sway, Hyprland, river and X11, and what goes quiet where.
+
+Whelk asks the session what it can do and does that much; nothing is assumed
+from the name, and the parts a session cannot support go quiet rather than print
+errors.
+
+| Session                                  | Bars                                  | Panels, toasts, launcher | Focused window, global menu | Workspaces |
+|------------------------------------------+---------------------------------------+--------------------------+-----------------------------+------------|
+| niri                                     | layer-shell, exclusive zone           | layer-shell              | niri IPC                    | niri IPC   |
+| sway                                     | layer-shell, exclusive zone           | layer-shell              | sway's window tree          | --         |
+| Hyprland                                 | layer-shell, exclusive zone           | layer-shell              | =hyprctl activewindow -j=   | =hyprctl workspaces= + =monitors= |
+| river                                    | layer-shell, exclusive zone           | layer-shell              | =river-status= (title only) | --         |
+| X11 (XFCE, MATE, Cinnamon, i3, openbox, GNOME on X11, ...) | dock window with EWMH struts | dock/floating window | EWMH via =xprop= | -- |
+| GNOME Wayland, KDE Wayland, other Wayland | ordinary windows: no layer-shell      | ordinary windows         | -- (no shell-facing IPC)    | --         |
+
+* Three capabilities, detected separately
+:PROPERTIES:
+:CUSTOM_ID: capabilities
+:END:
+
+#+name: session-detect
+#+caption: Placing a bar, knowing what is in front and acting on it are three separate questions, answered by whatever the session actually offers.
+#+begin_src mermaid
+flowchart TD
+    E["NIRI_SOCKET, SWAYSOCK"] --> Q{"does a compositor<br/>answer?"}
+    Q -->|"niri msg -j version"| N["niri<br/>IPC + river-style pushes"]
+    Q -->|"swaymsg -t get_version"| S["sway<br/>window tree"]
+    Q -->|"hyprctl"| HP["Hyprland<br/>JSON over hyprctl"]
+    Q -->|"riverctl + river-status"| R["river<br/>pushed focused view"]
+    Q -->|"X11 display"| X["X11<br/>EWMH via xprop"]
+    Q -->|"nothing"| G["no compositor recognised<br/>one log line, empty readings"]
+
+    N --> CAP["which capabilities answer"]
+    S --> CAP
+    HP --> CAP
+    R --> CAP
+    X --> CAP
+
+    CAP --> B["place a bar<br/>wlr-layer-shell, X11 dock, or a window"]
+    CAP --> F["read the focused window<br/>IPC, river-status, or EWMH"]
+    CAP --> A["act on it<br/>close, or type a chord"]
+#+end_src
+
+- *Placing a bar* needs =wlr-layer-shell=, which niri and sway implement and
+  GNOME and KDE do not.  Without it every surface is presented as an ordinary
+  undecorated window -- the launcher and the panels stay usable, and one line in
+  the log says why they are not docked.  With =libx11= at build time an X11
+  session gets the same window presented as a real dock:
+  =_NET_WM_WINDOW_TYPE_DOCK=, =_NET_WM_STATE= above/sticky/skip-taskbar,
+  =_NET_WM_DESKTOP= on every workspace, and =_NET_WM_STRUT_PARTIAL= (plus the
+  four-value =_NET_WM_STRUT= older panels read) for the bar's edge.  The strut
+  is taken from the window as it was actually laid out, not from the configured
+  height -- GTK can make a bar a pixel or two taller than asked -- and from its
+  translated position, so a bar with a margin reserves only its own strip; it is
+  refreshed whenever the window is resized.  The launcher, the notifications and
+  the toasts are docks without struts: they float and must not push the desktop
+  aside.
+- *Knowing what is in front* comes from niri's own IPC, sway's window tree,
+  Hyprland's =activewindow=, river's =river-status= push, or EWMH on X11.  They
+  produce the same two strings where the protocol has them, so =window-module=
+  works everywhere; river publishes only a title, so its ={app-id}= is empty and
+  the global menu (which needs an application identity) stays quiet there.
+  GNOME's Wayland session deliberately offers no such channel (=Shell.Eval= is
+  gone), so there the module stays empty.
+- *Closing a window and typing a shortcut* follow the same split:
+  =niri msg action close-window=, =swaymsg kill= or =wmctrl= on X11; =wtype= on
+  Wayland, =xdotool= on X11.  A session with no tool for it gets no menu entry
+  rather than an entry that does nothing.
+
+* How the session is found
+:PROPERTIES:
+:CUSTOM_ID: session-detection
+:END:
+
+The compositor is *asked*, not inferred from the environment alone.
+=NIRI_SOCKET= and =SWAYSOCK= are the first answer, and a fast one, but a bar
+started by a service unit or from a login shell inherits neither -- and
+=niri msg= works without it, because niri resolves its default socket by path.
+So when no variable names a session, whelk runs =niri msg -j version= and then
+=swaymsg -t get_version= (discovering sway's socket in =$XDG_RUNTIME_DIR= when
+=SWAYSOCK= is missing) with a 400 ms timeout, and takes the first compositor
+that answers.  Either way the answer is in the log:
+
+#+begin_example
+[INFO][whelk][C:Session] niri, from niri msg -j version answered
+[INFO][whelk][C:Session] sway, from SWAYSOCK
+[WARN][whelk][C:Session] no compositor answered (niri msg, swaymsg); the window and menu modules stay empty until one does
+#+end_example
+
+* GNOME's Wayland session
+:PROPERTIES:
+:CUSTOM_ID: gnome
+:END:
+
+GNOME's Wayland session is the one place where whelk cannot be a shell: Mutter
+exposes neither layer-shell nor a way to read focus.  Whelk still starts, still
+draws its bars as windows, and the launcher, notifications and network panel
+work -- that is the graceful degradation, and it is what the table's last row
+means.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

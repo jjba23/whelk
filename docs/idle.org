@@ -1,0 +1,115 @@
+#+title: Idle, inhibitors and do not disturb
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+whelk is the session's idle manager: one timer decides when to lock, one logind lock holds it back, and do-not-disturb is a flag on the same manager.
+
+The shell is the idle manager.  There is no separate idle daemon: whelk reads
+the logind session's =IdleHint=, runs the one countdown that decides when to
+lock, and holds its own inhibitor as a real logind =idle= lock.  It follows the
+hint rather than binding a compositor idle protocol, so every session that
+reports one gets the same policy; a session that never sets =IdleHint= never
+starts whelk's timer.
+
+The policy is one setting:
+
+#+begin_src scheme
+  (configure-shell!
+   #:idle (idle-settings #:lock-after 300))   ; five idle minutes
+#+end_src
+
+=#:lock-after= is in seconds.  The default =0= keeps the historical behaviour:
+lock as soon as logind reports the session idle.  A positive value waits that
+long.  =-1= disables locking on idle and leaves the other lock paths -- the lock
+key, =loginctl lock-session=, suspend, a VT switch -- untouched.  The countdown
+starts when the hint flips, so logind's own =IdleDelaySec= comes first and
+=#:lock-after= is added to it.
+
+#+name: idle-timer
+#+caption: One countdown decides.  The hint is logind's, the delay is the configuration's, and the inhibitor suspends the countdown instead of cancelling it.
+#+begin_src mermaid
+flowchart TD
+    H["logind IdleHint"] --> A{"hint"}
+    A -->|active| Z["no timer<br/>the compositor's own idle may still blank"]
+    A -->|idle| B{"#:lock-after"}
+    B -->|"-1"| D["disabled by the policy<br/>idle never locks"]
+    B -->|"0"| L["lock now"]
+    B -->|"N seconds"| T["countdown N s"]
+    T --> I{"presentation inhibitor held?"}
+    I -->|yes| S["suspended, the delay is kept"]
+    S --> R["resumed with the time it had left"]
+    I -->|no| L
+    R --> L
+    L --> P["the shell's lock path<br/>see lock-screen.org"]
+#+end_src
+
+=whelk --inhibit= takes or releases the presentation inhibitor.  It is not a
+flag in a status file: whelk asks logind for an =idle= lock named =whelk=, and
+the open file descriptor is the lock, so =systemd-inhibit --list= shows it and
+logind-based idle handling honours it.  While it is held, whelk's own countdown
+is suspended; on release it resumes with the delay it had left, so switching a
+film off does not immediately lock the screen.  =--inhibit-reason "..."= sets
+the why that logind and =systemd-inhibit= display.
+
+This is a logind idle lock, not a command to the compositor's DPMS.  It stops
+logind's idle action and whelk's timer; a compositor that blanks on its own idle
+protocol keeps that schedule unless it chooses to read logind's inhibitors.
+
+Do not disturb belongs to the same manager.  The bell's right click,
+=whelk --dnd=, the =dnd-module= and the centre all read and write that one flag.
+DND silences toasts and leaves notifications stored and counted; it deliberately
+does not pause the lock timer.  A quiet notification is not a reason to leave an
+unattended session unlocked.
+
+The =inhibit-module= is only a readout: it runs =systemd-inhibit= and renders
+what other programs -- and, when held, whelk's own idle lock -- are blocking.
+It takes no lock itself.
+
+* Why did the screen blank, or not?
+:PROPERTIES:
+:CUSTOM_ID: why-not-blank
+:END:
+
+Ask the manager first; it reports its decision, not just its configuration:
+
+#+begin_src sh
+  whelk --idle-status
+  systemd-inhibit --list --no-pager
+  loginctl show-session "$XDG_SESSION_ID" -p IdleHint -p IdleSinceHint
+#+end_src
+
+Read =whelk --idle-status= line by line:
+
+- =logind IdleHint: active= -- the session has not reported idle, so whelk has
+  no timer.  If the screen did not blank, the compositor's own idle or DPMS
+  setting is the place to look; whelk cannot start a lock the hint never asks
+  for.
+- =logind IdleHint: idle (N s)= with =lock timer: X s remaining= -- the timer is
+  armed and whelk will request the lock when it reaches zero.
+- =lock timer: fired; the lock has been requested= -- whelk did its part.  A
+  screen that is still on is a compositor, DPMS or lock-surface question.
+- =lock timer: suspended while the presentation inhibitor is held= -- whelk is
+  deliberately holding its own timer back.  =whelk --inhibit= releases it; the
+  status line above says whether it is on and why.
+- =lock timer: disabled by the policy= -- =#:lock-after= is negative, so idle
+  never locks.  =loginctl lock-session= and the lock key still work.
+- =presentation inhibitor: off= -- whelk is not holding anything.  If
+  =systemd-inhibit= still lists an =idle= lock, another program owns it; it can
+  suppress a logind idle action, and whether it also delays the compositor's
+  blanking depends on the compositor.  Whelk does not override it.
+
+One ordering is worth knowing: the compositor blanks on its own schedule and
+does not consult whelk's timer.  If =#:lock-after= is longer than the
+compositor's blank timeout, the screen goes dark first and the lock follows.  To
+lock before the screen blanks, set =#:lock-after= at or below that timeout (or
+disable the compositor's own idle blanking and let whelk's timer lead).
+
+Screen blanking itself is the compositor's and logind's business -- DPMS,
+=ext-idle-notify-v1= and its own settings.  Whelk draws the lock screen and asks
+for it; it does not turn the panel off.  So a blank screen with no lock and a
+locked session with the panel on are two different answers, and the report above
+says which half whelk handled.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

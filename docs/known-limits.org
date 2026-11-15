@@ -1,0 +1,53 @@
+#+title: Known limits
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Honest ceilings, so you know what you are adopting.
+
+* The ceilings
+
+- A tray menu is read when it opens, not followed live: an applet that rebuilds
+  its menu while the popover is up keeps the ids it published until the menu is
+  reopened.  The global menu, where a menubar stays open for as long as an
+  application is focused, is the one that follows =LayoutUpdated=.
+- Caps Lock is read from the input LED: the only compositor-independent state a
+  Wayland client can see.
+- Workspaces are niri's and Hyprland's; niri addresses them by =idx= and
+  Hyprland by =id=, which is what each session's focus command takes.  Other
+  sessions render nothing in that module.  The keyboard layout remains niri's
+  own module.
+- On X11 the dock hints are what a window manager reads; started on a bare X
+  server with no window manager (Xvfb on its own), the properties are set but
+  nothing places the bar or honours the struts, so the bars sit at the origin.
+- With no =wlr-layer-shell= (GNOME, KDE) the bars are ordinary windows.  They are
+  not docked, do not reserve space and can be covered; the launcher and the
+  panels still work.  There is no protocol a Wayland client can use to place
+  itself on an edge there, so this is the honest ceiling, not a missing flag.
+- A module that hides itself when its hardware is absent (battery, backlight,
+  power profile) reserves no space -- that is deliberate.
+- =#:icon= needs a face that carries the glyph: set =#:icon-font= (the example
+  settings use "Font Awesome 6 Free Solid").
+- Notifications: body markup is passed to Pango, =image-data= attachments are
+  ignored (an =image-path= is used), and sounds are not played.
+- The panels and the launcher wear the palette read at startup; a colour edited
+  later reaches the bars on reload, the panels on the next start.
+- The launcher's file mode walks =$HOME= six levels deep for each new query,
+  skipping caches, repositories and package trees (=\\.cache=, =\\.git=,
+  =node_modules=, ...), and reuses that walk for thirty seconds so typing does
+  not cost one walk per key.  Matches are ranked in C -- the name first, then
+  the shallower path, files before folders of the same name -- rather than in the
+  order =find= printed them.  The query is a plain substring, not a glob.
+- Bars follow =#:monitor=.  The panels, the toasts and the launcher open on the
+  first monitor the compositor reports; nothing ties them to the focused output
+  yet.
+- Wi-Fi and Bluetooth are read with =nmcli= and =bluetoothctl=; without them the
+  modules say "off" and the panel lists nothing, rather than pretending.
+- Connecting to a *new* secured network changes the system's network settings,
+  which NetworkManager polices: where no polkit agent is running, =nmcli= falls
+  back to asking for root's password and the panel shows that refusal.  A
+  network the machine already has a profile for connects without any of this, so
+  the everyday case -- the network you live on -- needs no agent.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

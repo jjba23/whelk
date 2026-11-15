@@ -1,0 +1,353 @@
+#+title: Configuration
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+=settings.scm= is evaluated, not parsed: the settings file, a bar from scratch, the bar keys, GUI overrides, presets and the REPL.
+
+* The settings file
+:PROPERTIES:
+:CUSTOM_ID: settings-file
+:END:
+
+Copy the example and edit it:
+
+#+begin_src sh
+  mkdir -p ~/.config/whelk
+  cp settings/settings.scm ~/.config/whelk/settings.scm
+#+end_src
+
+(=$XDG_CONFIG_HOME/whelk/settings.scm=, so the path follows =XDG_CONFIG_HOME=
+when you set it.)
+
+The file is read at startup and *again whenever it changes* (the directory is
+watched, with a 250 ms debounce), so editing the bar is instant.  With no
+settings file at all, whelk draws the same bar this example describes --
+=(default-bar)= from =(whelk defaults)=, the shell menu and the focused window's
+menus on the left and the heks-linux status items on the right -- so a fresh
+machine is never left without a shell,
+and never starts on a stand-in for the documented one.  A settings file that
+wants that bar and nothing else says:
+
+#+begin_src scheme
+  (configure-shell! #:bars (list (default-bar)))
+#+end_src
+
+** What is applied, and in what order
+
+One call builds the shell: =(configure-shell! ...)= takes the bars, the desktop
+widgets, the shell menu and the clipboard settings as keywords, and anything it
+is not told keeps the built-in default.  Three things can then move a value,
+and they are applied in this order:
+
+| Order | What                     | Where it lives                                                   |
+|-------+--------------------------+------------------------------------------------------------------|
+| 1     | =settings.scm=             | =$XDG_CONFIG_HOME/whelk/settings.scm=, hand-written                |
+| 2     | GUI overrides            | =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm=, written by the settings window |
+| 3     | widget positions         | =$XDG_STATE_HOME/whelk/widgets-<settings-stem>.ini=, written by dragging a card |
+
+#+name: config-order
+#+caption: The configuration is a value, the overrides are applied on top of it, and the geometry of a dragged card is remembered separately.
+#+begin_src mermaid
+flowchart LR
+    S["settings.scm<br/>bars, widgets, menu, clipboard"]
+    O["preferences-settings.scm<br/>GUI overrides"]
+    G["widgets-settings.ini<br/>dragged positions"]
+    B["bars"]
+    W["desktop widgets"]
+    P["panels, launcher, HUD"]
+    S --> B
+    S --> W
+    S --> P
+    O --> B
+    O --> W
+    O --> P
+    G --> W
+#+end_src
+
+The point of the split is that the file is yours and the state is the shell's.
+A settings window edit never rewrites =settings.scm=, so a configuration you
+version and share keeps its shape; *Reset GUI settings* deletes the overrides
+and everything falls back to the file.  The
+*Modules* page's keys are per module kind and occurrence
+(=module-clock-0-format=), which is why moving a module does not move its
+setting with it.
+
+* A bar, from scratch
+:PROPERTIES:
+:CUSTOM_ID: bar
+:END:
+
+A configuration is one call:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars
+   (list
+    (bar #:name 'main
+         #:position 'top
+         #:layer 'top
+         #:monitor "all"
+         #:height 32
+         #:margin 0
+         #:exclusive? #t
+         #:spacing 6
+         #:padding 12
+         #:font "Inter"
+         #:font-size "11pt"
+         #:icon-font "Font Awesome 6 Free Solid"
+         #:foreground "#f2f3f5"
+         #:background "rgba(27, 27, 29, 0.82)"
+         #:accent "#8fd16a"
+         #:border-color "rgba(255, 255, 255, 0.10)"
+         #:radius 0
+         #:css "/* free-form CSS for this bar only */"
+         #:left   (list (window-module))
+         #:center '()
+         #:right  (list (cpu-module) (clock-module)))))
+#+end_src
+
+* The bar keys
+:PROPERTIES:
+:CUSTOM_ID: bar-keys
+:END:
+
+| Key             | Meaning                                                                 |
+|-----------------+-------------------------------------------------------------------------|
+| =#:name=          | the bar's name; also its CSS id and its log label                      |
+| =#:position=      | ='top=, ='bottom=, ='left=, ='right= (strings accepted too)               |
+| =#:layer=        | ='top= (default), ='bottom=, ='background= or ='overlay=; see [[file:configuration.org][the overview note]] |
+| =#:monitor=       | ="all"= (one bar per output), ="default"=, or a connector such as ="DP-1"= |
+| =#:monitors=      | a list of connectors; wins over =#:monitor= and draws nothing on an output it does not name |
+| =#:when=          | ='always= (default), ='single= or ='multi=: the output-count rule |
+| =#:height=        | thickness: the row's height, or a vertical bar's width; a vertical bar widens to its widest module and reserves that width |
+| =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
+| =#:exclusive?=    | reserve the thickness so maximised windows stop at the bar              |
+| =#:spacing=       | pixels between modules                                                  |
+| =#:padding=       | pixels between the bar's ends and its first/last module                 |
+| =#:font=, =#:font-size=, =#:icon-font= | the text face, its size, and the face glyphs are drawn from |
+| =#:foreground=, =#:background=, =#:accent=, =#:border-color=, =#:radius= | the bar's material |
+| =#:css=           | free-form CSS appended to the bar's generated skin                      |
+| =#:launcher-width=, =#:launcher-height= | the launcher card's starting size in pixels              |
+| =#:launcher-icon-size= | the launcher icon's starting pixel size                            |
+| =#:launcher-font-scale= | the launcher text's starting percentage of =#:font-size=          |
+| =#:left=, =#:center=, =#:right= | lists of modules                                             |
+| =#:overflow=      | modules kept behind the right row's chevron, laid out when it opens     |
+| =#:overflow-expanded?= | =#f= (default) keeps that shelf closed; =#t= opens it at start     |
+
+Every colour, font and radius is optional: leave one out and the structural
+stylesheet's colour applies, so a bare =(bar)= is still readable.  A bar can also
+wear a whole palette at once with =#:theme= -- see [[file:themes.org][themes]].
+
+The right row can keep a shelf.  =#:overflow= names modules that are built
+with the bar -- their timers and clicks keep working -- but laid out only while
+the shelf's chevron is open, so a reading that is consulted now and then does
+not take the row's width all day.  =#:overflow-expanded?= decides whether the
+shelf starts open:
+
+#+begin_src scheme
+  (bar #:right (list (memory-module) (clock-module))
+       #:overflow (list (cpu-module) (backlight-module))
+       #:overflow-expanded? #f)
+#+end_src
+
+A bar can be deliberate about where it lives.  =#:monitors= names the exact
+connectors and never falls back to the compositor's default output:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars
+   (list (bar #:name 'laptop #:monitors '("eDP-1")
+              #:left (list (start-module)) #:right (list (clock-module)))
+         (bar #:name 'desk   #:monitors '("DP-1")
+              #:left (list (start-module)) #:right (list (clock-module)))
+         (bar #:name 'solo   #:when 'single
+              #:left (list (start-module)) #:right (list (clock-module)))))
+#+end_src
+
+=#:when 'single= draws only while there is one output, and =#:when 'multi=
+only while there is more than one.  The monitor model is watched, so plugging
+the external screen in rebuilds the bars and a bar with no matching output
+disappears instead of moving to another screen.
+
+** Right-side overflow
+
+Ordinary modules fold the same way, except that their fold shows a =+N= count
+rather than a chevron, so it cannot be mistaken for the shelf's toggle.  When
+the right row is too full for the monitor, the trailing modules move behind that
+count and keep updating and clicking there, rather than being clipped off the
+screen.  The left half and the centre keep their room.
+
+* The compositor's overview and =#:layer=
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+Niri moves and zooms the background and bottom layer-shell layers together
+with the workspaces in its overview, while top and overlay layers stay fixed
+over the overview.  Whelk places bars on the top layer by default, so a bar
+stays put even when the workspaces zoom out.  Waybar behaves the same way on
+the top layer; a Waybar configuration that moves in the overview is using
+~"layer": "bottom"~.
+
+To get that behaviour from whelk, put the bar on the bottom layer:
+
+#+begin_src scheme
+  (bar #:name 'main #:position 'top #:layer 'bottom
+       #:left (list (start-module)) #:right (list (clock-module)))
+#+end_src
+
+The bar still reserves its edge, because =#:exclusive?= is independent of the
+layer.  A bottom-layer bar is drawn below ordinary windows, however, so menus
+and popovers opened from it can end up behind those windows; the top layer
+remains the safe default.  The other accepted values are ='background= (also
+moves with the overview, below everything) and ='overlay= (fixed, above every
+other layer).
+
+* Presets
+:PROPERTIES:
+:CUSTOM_ID: presets
+:END:
+
+A preset is everything a shell can be switched to in one call: its bars, its
+desktop widgets, its shell menu and its clipboard settings.  The build ships
+two.
+
+- =current= is the bar this document describes and the Golden Gate widgets,
+  exactly as =settings/settings.scm= describes them.
+- =xp= is a Windows-XP-shaped taskbar: a Luna-blue bar on the bottom edge,
+  Start at the left, the focused window's title in the centre, the notification
+  area, battery and a 24-hour clock at the right, and a Start menu with
+  Programs, My Computer and Control Panel.  The centre is =window-module=, so
+  it tracks the focused window on Wayland (niri, sway and Hyprland over IPC,
+  river over =river-status=) and on X11 (xprop) with the same preset.
+
+A settings file chooses one by name:
+
+#+begin_src scheme
+  (use-preset! 'current)
+  ;; or
+  (use-preset! 'xp)
+#+end_src
+
+=use-preset!= is =configure-shell!= with the bundle's parts filled in, so a
+preset can be overridden by calling =configure-shell!= yourself, and a settings
+file can mix the two.  Presets live in their own Scheme modules under
+=scheme/whelk/presets/=; a third is a new module that calls
+
+#+begin_src scheme
+  (register-preset! (preset #:name 'mine
+                            #:bars (list (bar ...))
+                            #:widgets '()))
+#+end_src
+
+and is added to the imports in =(whelk core)= so every settings file can name
+it.  The XP preset is an arrangement, not a finished imitation: listing every
+open window as a task button needs a module whelk does not have yet.
+
+* GUI settings
+:PROPERTIES:
+:CUSTOM_ID: gui-settings
+:END:
+
+Right-click the bar and choose *Edit settings…*.  The settings window has a
+page for each part of the shell a person changes often: *Bar* (edge, layer,
+height, spacing, padding, font and reserved space), *Theme* (palette, surface,
+ink, accent and hairline colours, opacity, shadow blur, shine, reflection,
+flare and corner radius), *Notifications*, *Wi-Fi*, *Global menu*, *Modules*,
+*Launcher* (window and zoom, plus the prefix keys), and *More* (tray size and clock format).  Every control is live: the
+change is written, the bar and the shell's panels reload, and the window stays
+open for the next one.  Opening the settings window closes any bar popover
+first, so nothing is left floating above it.
+
+*Modules* mirrors the first bar: one card per module, in the order it is built
+(left, centre, right, overflow), with a *Show in the bar* switch and a control
+for every option the settings file gave that module.  The control follows the
+option's original Scheme type: booleans become switches, exact integers and
+decimal numbers become spin buttons, strings become entries, and symbols become
+entries that are written back as symbols -- so =#:accelerator-style 'cua= stays
+a symbol for a module that compares it with =eq?=.  Turning a module off keeps
+it in =settings.scm= -- and keeps its card in the window, so it can be turned
+back on.
+
+Three shapes still live only in the file: options that contain line breaks,
+such as a multi-line tooltip; list-valued options such as
+=#:choices '(one two)=; and exact fractions such as =1/3=, which a decimal spin
+button would round.  Editing them through one text field would change their
+Scheme shape, so the window leaves them alone and says so on the page.
+
+*Launcher* edits the card's starting width, height, icon size and text scale,
+and the keys whelk itself reads: the mode a bare =whelk --launcher= opens in,
+and the prefix that chooses each mode (=@= windows, =>= commands, and so on).  Clearing a prefix disables that key; the built-in map is the default,
+not a constant.  The binding that opens the launcher in the first place belongs
+to the compositor -- niri, Hyprland, river or X11 -- and =whelk --launcher= on
+a keybinding is the honest way to reach it.
+
+GUI choices are *overrides*, not edits to your configuration.  They are saved
+in =$XDG_STATE_HOME/whelk/preferences-<settings-stem>.scm= (normally
+=~/.local/state/whelk/preferences-settings.scm=) and are applied after
+=settings.scm= every time it loads, so the window wins without touching the
+file you version and share.  *Reset GUI settings* deletes that override file and
+returns every value to the configuration.  The same right-click menu carries
+*Reload settings* for a reload without a keybinding.
+
+Module overrides name the module's kind and its occurrence among modules of
+that kind: =module-clock-0-format= is the first clock and
+=module-clock-1-format= the second.  Occurrences are counted left, centre,
+right, overflow and start at zero, so inserting or moving a module of another
+kind cannot move a setting to a different module.  Keys from before this
+change, which named a bar position (=module-4-format=), are no longer applied;
+the *Modules* page writes the kind-and-occurrence keys for the current bar.
+
+* Hot reload and the REPL
+:PROPERTIES:
+:CUSTOM_ID: repl
+:END:
+
+Saving the settings file rebuilds every bar.  A bar holds no state that outlives
+its configuration, so there is nothing to reconcile: the bars are destroyed and
+built again from the new description.
+
+#+name: reload
+#+caption: One save, one rebuild: the file is watched, the evaluation replaces the configuration, and everything that wears it is rebuilt or re-skinned.
+#+begin_src mermaid
+sequenceDiagram
+    participant You as you
+    participant FS as config directory
+    participant Shell as shell.c
+    participant Guile as guile_bridge.c
+    participant Surfaces as bars, widgets, panels
+
+    You->>FS: save settings.scm
+    FS->>Shell: changed (one save is several events)
+    Shell->>Shell: restart the 250 ms countdown
+    Shell->>Guile: evaluate the file
+    Guile-->>Shell: bar and widget records
+    Shell->>Surfaces: destroy and rebuild the bars
+    Shell->>Surfaces: rebuild the desktop widgets
+    Shell->>Surfaces: re-skin the long-lived panels
+    Shell->>Guile: restart the REPL service, if asked for
+#+end_src
+
+The panels do not disappear during a reload.  They are long-lived surfaces, so
+they are re-skinned with the first bar's palette instead of being rebuilt; that
+is why a theme edit does not make the launcher flash.  [[file:lifecycle.org][Lifecycles]] has the
+same path with the code's own names.
+
+For changes without touching the file, a settings file can ask for a REPL:
+
+#+begin_src scheme
+  (configure-shell! #:bars (list (default-bar)) #:enable-repl? #t
+                    #:repl-socket-path "/tmp/whelk-repl.sock")
+#+end_src
+
+#+begin_src sh
+  echo '(reload-shell!)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock
+#+end_src
+
+Everything the configuration has is available there: =(get-shell-bars)=,
+=(load-shell-config! "...")=, =(bar ...)=, and the module constructors.  Geiser
+speaks to the socket too, so the running shell is an ordinary Guile buffer.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

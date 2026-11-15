@@ -1,0 +1,88 @@
+#+title: Releasing
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+One release has to agree in six places: the version check, the verification gates, and what =publish= does.
+
+* The six places the version lives
+
+A release is not one number; it is one number in six files, and
+=scripts/release.sh check= refuses to let them disagree.
+
+| Where                              | What it is                                  |
+|------------------------------------+---------------------------------------------|
+| =meson.build=                        | =project(... version: '0.32.0')=              |
+| =default.nix=                        | =version = "0.32.0";=                         |
+| =packaging/arch/PKGBUILD=            | =pkgver=0.32.0=                               |
+| =packaging/debian/changelog=         | =whelk (0.32.0-1)=                            |
+| =packaging/opensuse/whelk.spec=      | =Version: 0.32.0=                             |
+| =NEWS.org=                           | a =** v0.32.0 (YYYY-MM-DD)= section            |
+
+=set-version= writes the first five and refuses unless the sixth already exists:
+the changelog section is the one part a script cannot write, because it is the
+part that says what the release means.
+
+* The commands
+
+#+begin_src sh
+  scripts/release.sh check             # manifests + NEWS.org agree
+  scripts/release.sh set-version 0.32.0
+  scripts/release.sh verify            # host tests, Guix/Nix, smoke install
+  scripts/release.sh publish           # tag, push, tarball, GitHub release
+#+end_src
+
+* What publish does, in order
+
+#+name: publish
+#+caption: Every gate before the tag, every artifact after it.  A failure anywhere in the left column leaves nothing published.
+#+begin_src mermaid
+flowchart TD
+    A["scripts/release.sh publish"] --> B{"worktree clean?"}
+    B -->|no| Z["refuse: commit the release prep first"]
+    B -->|yes| C{"the six places agree?"}
+    C -->|no| Z2["refuse: name the file that disagrees"]
+    C -->|yes| D{"tag vX.Y.Z taken?"}
+    D -->|yes| Z3["refuse: choose the next version"]
+    D -->|no| E{"GitHub release exists?"}
+    E -->|yes| Z4["refuse: it is already published"]
+    E -->|no| F["verify:<br/>host build and meson test,<br/>Guix build, Nix build,<br/>release-smoke.sh --source"]
+    F -->|fails| Z5["refuse: nothing is tagged"]
+    F -->|passes| G["git archive the tagged tree<br/>+ SHA-256"]
+    G --> H["git tag -a vX.Y.Z<br/>push the branch, push the tag"]
+    H --> I["gh release create, with the tarball<br/>and its checksum"]
+    I --> J["the release workflow re-runs the suite<br/>and re-uploads the same two files"]
+#+end_src
+
+The order matters: the tag is created only after the gates pass, so a failed
+gate leaves a worktree and a remote with nothing new on them.
+
+=scripts/release-smoke.sh= builds, installs and checks =whelk --version= from
+the source tree or a published tarball; =publish= uses it as the final gate.
+=.github/workflows/release.yml= runs the Guix suite on a =v*= tag, then
+attaches =whelk-<version>.tar.gz= and its SHA-256 checksum to the GitHub
+release.  Publishing a tag is still an explicit authorization step: the
+workflow only publishes the artifact for the tag that was pushed.
+
+* Writing the changelog entry
+
+=NEWS.org= is organised by release and, inside each release, by what changed:
+
+#+begin_src org
+  ** v0.32.0 (2026-11-15)
+
+  *** Added
+  - *One sentence that says what a user gets.*  Then the detail: the keyword,
+    the file, the observable difference.
+
+  *** Changed
+  *** Fixed
+  *** Verified
+#+end_src
+
+*Verified* is not decoration: it is where the release says which suites ran and
+what they covered, which is what a reader of a tag wants to know before
+installing it.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

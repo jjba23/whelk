@@ -1,0 +1,102 @@
+#+title: Modules
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Twenty-two module kinds, one shape: the options they share, the options each one adds, and a worked example.
+
+All constructors are the same shape -- a kind plus keyword options -- and all
+accept the shared options:
+
+| Option                           | Meaning                                                       |
+|----------------------------------+---------------------------------------------------------------|
+| =#:icon=                           | a glyph, drawn from the bar's =#:icon-font=                    |
+| =#:format=                         | how the reading is rendered; ={icon}= is the glyph             |
+| =#:interval=                       | seconds between refreshes (0 = render once)                    |
+| =#:tooltip=                        | hover text; ={text}= is the current reading                    |
+| =#:on-click=, =#:on-click-right=, =#:on-click-middle= | shell commands on the mouse buttons     |
+| =#:on-scroll-up=, =#:on-scroll-down= | shell commands on the wheel                                  |
+| =#:css-class=                      | an extra CSS class on the module's own widget                  |
+
+Unknown options are ignored rather than rejected: a settings file can be ahead
+of the binary, which is what makes upgrading whelk safe.  Nor do options have to
+be edited in the file: the settings window's *Modules* page writes each module's
+options as GUI overrides, and its *Show in the bar* switch hides a module while
+leaving the configuration untouched.
+
+| Module               | Reading                                          | Options of its own                                    |
+|----------------------+--------------------------------------------------+-------------------------------------------------------|
+| =clock-module=         | strftime(3) on the local time                    | =#:format=, and ={calendar}= in the tooltip             |
+| =cpu-module=           | /proc/stat, as a difference between samples      | ={usage}=                                               |
+| =memory-module=        | /proc/meminfo                                    | ={percentage}=, ={used}=, ={total}=, ={avail}=, ={swap-used}=, ={swap-total}= |
+| =battery-module=       | /sys/class/power_supply                          | =#:device= (first pack by default), =#:charging-format=, =#:charging-icon=, =#:charging-color=, =#:show-capacity-when-charging?=, =#:warning=, =#:critical=, ={capacity}=, ={state}= |
+| =backlight-module=     | /sys/class/backlight                             | =#:device=, =#:format= (default ="{icon}"=), ={percent}= |
+| =audio-module=         | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, =#:format= (default ="{icon}"=), ={volume}= |
+| =power-profile-module= | powerprofilesctl                                 | ={profile}=                                             |
+| =workspaces-module=    | niri or Hyprland IPC, one button per workspace   | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
+| =window-module=        | the focused window: niri, sway, Hyprland, river, X11 | =#:max-length=, ={title}=, ={app-id}= (empty on river) |
+| =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
+| =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
+| =custom-module=        | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
+| =scheme-module=        | a Guile procedure's widget                       | =#:update= (a procedure returning a widget), =#:interval= |
+| =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |
+| =bluetooth-module=     | bluetoothctl: adapter state, connected devices   | =#:disabled-format=, ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip) |
+| =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
+| =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
+| =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
+| =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= (a readout only; the idle manager owns whelk's lock) | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
+| =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
+| =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
+| =menu-module=          | the focused application's menus                  | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?=, =#:menu-command= |
+
+A worked example of the whole set is in =settings/settings.scm=, which also has a
+commented-out workspace switcher for the centre of the bar.
+
+#+begin_src scheme
+  ;; A module is a value, so a list of them is a list like any other.
+  (define (status-item kind . options)
+    "A reading, with the two clicks everything on this bar has."
+    (apply kind #:on-click "whelk --launcher"
+           #:on-click-right "whelk --notifications" options))
+
+  (bar #:name 'main #:theme 'tinted-2024 #:height 30
+       #:left   (list (menu-module))
+       #:center (list (window-module #:format "{title}"))
+       #:right  (map (lambda (kind) (status-item kind))
+                     (list cpu-module memory-module clock-module)))
+#+end_src
+
+* What a module is
+
+#+name: module-shape
+#+caption: A module is a value with a widget, a timer and a destroy function; the factory table is the only place that knows the kinds.
+#+begin_src mermaid
+flowchart LR
+    K["(clock-module #:format ...)<br/>a Scheme record"] --> B["guile_bridge.c<br/>a WhelkModuleSpec"]
+    B --> F["module.c<br/>the factory table"]
+    F --> W["a root widget<br/>on a bar row"]
+    F --> T["a refresh timer<br/>#:interval seconds, 0 = once"]
+    T --> U["update: read, then render"]
+    W --> X["destroy, on a reload"]
+    U --> X
+    X --> G["ModuleGuard<br/>a late command writes nowhere"]
+#+end_src
+
+* Adding a module
+
+Three steps, and nothing else changes:
+
+1. a =.c= file in =src/modules/= with a factory that returns a
+   =WhelkModule *=;
+2. its prototype in =src/modules/modules.h=;
+3. a row in the factory table in =src/module.c=.
+
+The Scheme side needs nothing: every constructor is the same shape, so a new
+kind is reachable from =settings.scm= as soon as the row exists.  The factory
+boundary is also the failure boundary -- an unknown kind is logged and left out,
+and a factory that returns nothing does not stop the rest of the bar from being
+built.  [[file:architecture.org][Architecture]] has the boundary rules and [[file:lifecycle.org][Lifecycles]] has the
+refresh path in detail.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

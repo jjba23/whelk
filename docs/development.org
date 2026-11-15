@@ -1,0 +1,191 @@
+#+title: Development
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+=maak=, the three layers of tests, CI, and the house rules.
+
+* The maak tasks
+:PROPERTIES:
+:CUSTOM_ID: maak
+:END:
+
+=maak= runs the project's common operations; =maak= with no argument lists the
+tasks it finds.
+
+#+begin_src sh
+  maak run          # run whelk inside the pinned Guix environment
+  maak test         # rebuild from scratch and run the suite in that environment
+  maak meson-build  # plain meson + ninja in the current shell
+  maak add-libs     # regenerate .ccls for the LSP from the Guix store paths
+  maak debug-run    # meson build, then gdb
+  maak deb-build    # .deb, built from packaging/debian
+  maak arch-build   # Arch package, built from packaging/arch/PKGBUILD
+  maak rpm-build    # RPM for openSUSE and Fedora, from packaging/opensuse
+#+end_src
+
+The Guix tasks read =channels.scm= and =manifest.scm=, so they run in the pinned
+toolchain; =meson-build= and =debug-run= use whatever meson the shell already
+has.
+
+* The test suite
+:PROPERTIES:
+:CUSTOM_ID: testing
+:END:
+
+#+begin_src sh
+  meson test -C build --print-errorlogs
+#+end_src
+
+Three layers of tests cover the pure halves, real widgets and a real bar
+presented on a headless display.  The C tests start with the pure logic and end
+with real widgets:
+
+#+name: test-layers
+#+caption: The suite climbs from pure functions to a real presented bar; each layer exists because the one below it cannot answer that question.
+#+begin_src mermaid
+flowchart TD
+    P["pure C<br/>JSON, options, matcher, calculator,<br/>backoff, workspace shapes"] --> W["real GTK widgets<br/>preferences pages, menus, a live<br/>org.gtk.Menus and AT-SPI on a private bus"]
+    W --> S["a real bar on a headless display<br/>gtk4-broadwayd, snapshot compared<br/>with tests/golden/bar.png"]
+    G["the Guile suite<br/>themes, the built-in bar, overrides,<br/>the widget contract"] --> S
+    I["integration, outside the unit suite<br/>headless sway, a private session and<br/>system bus, a fake logind and PAM"] -.-> S
+#+end_src
+
+- =tests/test_json.c= -- the JSON reader against niri's real answer shapes
+  (workspaces, focused window), including escapes, surrogate pairs and the
+  malformed documents niri never sends but a broken IPC call does.
+- =tests/test_config.c= -- option parsing (=5=, ="5"=, =2px= is not a number),
+  text substitution, escaping, truncation, and the deep copy that lets a bar
+  outlive its configuration.
+- =tests/test_launcher.c= -- the fuzzy matcher's ordering (a prefix beats a
+  buried match, case is irrelevant, a query that is not a subsequence does not
+  match) and the calculator's grammar and refusals (=1 / 0=, =2x=, =1 +=).
+  The launcher geometry tests also keep the selected row inside the viewport
+  and distinguish the card from the dimmed dismissal area.
+- =tests/test_applets.c= -- the exact tray ids: =nm-applet= and =blueman= hide,
+  the loose word "network", a longer id that merely starts with an applet's, and
+  one radio's applet in the other radio's list do not.
+- =tests/test_trayicon.c= -- the app-owned =IconThemePath= side of a status
+  icon: PNG is preferred, SVG is the fallback, and a relative path or a name
+  that tries to escape the app's directory is refused.
+- =tests/test_command.c= -- the stdin path the Wi-Fi key takes: the program
+  receives the line it was sent, an absent answer is an end of file rather than a
+  hang, and a plain run still returns its output.
+- =tests/test_preferences.c= -- the GUI preference contract through the C
+  bridge, plus the keyed widgets: real spin buttons, dropdowns, switches and
+  entries write the value their page promises, including a module's option, its
+  Show switch and the launcher's default mode and prefix.  The widget half
+  skips on a headless runner.
+- =tests/test_launcherkeys.c= -- the launcher's key map as data: the built-in
+  prefixes, a replacement, a cleared prefix that stops choosing its mode, the
+  longer-prefix rule, and an unknown default mode that is refused.
+- =tests/test_widgetconfig.c= -- a =<widget-config>= crossing the Guile bridge:
+  kind, position, size, monitor and options arrive as a C struct deep enough to
+  outlive the Scheme call.
+- =tests/test_shortcutmaps.c= -- the optional JSON override: nested submenus,
+  CUA output, multi-chord sequences, actions, greyed placeholders, punctuation
+  and =Ctrl=-spelled accelerators, and empty answers when the application or
+  typing tool is absent.  =tests/test_session.c= covers the X11 =_GTK_*=
+  property parser and the active window id the registrar needs.
+- =tests/test_orbit.c= -- the built-in Scheme corpus through the real bridge:
+  identifiers, a nested submenu, a typed shortcut, a deliberately blank
+  application and the no-typing-tool answer.
+- =tests/test_menuprobe.c= -- the X11 registrar fallback order: exact GTK
+  paths, then the registrar's exact DBusMenu path, then the conventional
+  paths; a window with no id never asks the registrar, and an invalid bus name
+  gets no =org.gtk.Menus= call at all.
+- =tests/test_gtkmenu.c= -- a live =org.gtk.Menus= on a private bus: =Changed=
+  closes the old tree, =Start= is called again, and the next tree is the
+  application's new one.
+- =tests/test_atspimenus.c= -- a fake AT-SPI application on a private bus:
+  menu bars, nested menus, separators, disabled items, key bindings, the
+  =DoAction= address each entry carries, and a live =ChildrenChanged= that
+  makes the watch deliver the application's new =File= menu.
+- =tests/test_lockpolicy.c= -- the unlock backoff: one second, doubling, capped
+  at thirty seconds, including the overflow boundary.
+- =tests/test_idle.c= -- the idle decision as arithmetic: active sessions,
+  inhibited sessions, a zero delay, a positive delay part-way through, an
+  overdue timer and a negative policy, plus the manager's DND flag and the
+  status report without a system bus.  =tests/test_preferences.c= also carries
+  =#:idle= across the Guile bridge.
+- =tests/test_workspaces.c= -- both workspace shapes: niri's =idx= and
+  =active_window_id=, Hyprland's =id>/=windows= and the active workspace from
+  =monitors=, the special-workspace filter, the marker-less fallback, and the
+  focus command each compositor expects.  =tests/test_session.c= also covers
+  river-status's title parser, which has no application id to return.
+
+Drawing has its own layer.  =tests/bar_preview.c= builds a deterministic bar,
+presents it under =gtk4-broadwayd= (a display server for a machine with no
+monitor), snapshots it to PNG and compares every pixel with
+=tests/golden/bar.png=.  =meson test -C build golden_bar_image= fails on a
+colour, padding or font regression instead of waiting for a screenshot to show
+it.  Broadway is a headless compositor, not a mock: the same layer-shell
+fallback path a real session takes is exercised.
+
+The Guile tests cover the configuration layer:
+
+- =tests/test_themes.scm= -- the palettes: every theme resolves, every colour is
+  a colour, and the names the build does not know are refused politely.
+- =tests/test_defaults.scm= -- the built-in bar: which modules sit on which side
+  and in which order, and that =settings/settings.scm= and =(default-bar)= are
+  the same bar and ship the same widget set, so the example and the fallback
+  cannot drift apart.
+- =tests/test_prefs.scm= -- GUI overrides: the state-file path, save/read
+  round trips, precedence over the settings file, per-module option and
+  visibility overrides keyed by kind and occurrence, their stability when
+  another kind is inserted before them, launcher-key values including the empty
+  string, and the reset that restores it exactly.
+- =tests/test_widgets.scm= -- the desktop-widget contract: standard sizes,
+  placement overrides, malformed options, the eight-widget Golden Gate set and
+  the shell record the bridge reads.
+
+* CI
+:PROPERTIES:
+:CUSTOM_ID: ci
+:END:
+
+=.github/workflows/ci.yml= calls Byggsteg with =tasks: maak-test=, so a green CI
+run and a green =maak test= are the same commands in the same environment as
+=guix shell -m manifest.scm=.
+
+=.github/workflows/sanitize.yml= runs the same tree with
+=-Db_sanitize=address,undefined=.  Locally, =scripts/sanitize.sh= configures
+=build-sanitize/=, builds it and runs the suite with
+=ASAN_OPTIONS=detect_leaks=0= (the GTK and Guile test processes are not leak
+checked; the memory and undefined-behaviour checks still apply).
+
+The locker integration suite is deliberately outside the Guix unit suite:
+it needs a compositor, AT-SPI and PAM.  It runs under headless Sway on a
+private session bus and a private system bus:
+
+#+begin_src sh
+  # Needs sway, swaymsg, Python Atspi, wtype (optional), dbus and unshare.
+  PATH=/path/to/sway/bin:$PATH tests/integration/run.sh
+
+  # Type the password through a virtual keyboard instead of AT-SPI:
+  WHELK_TEST_KEYBOARD=1 PATH=/path/to/wtype:$PATH tests/integration/run.sh
+#+end_src
+
+The wrapper uses =unshare -r -m= to give PAM a private =/etc/pam.d= and
+therefore never touches the caller's desktop or PAM configuration.  It installs
+a =pam_exec= test service that accepts only the test password, then exercises
+wrong-password backoff, success, output replacement, logind transitions and
+=SIGTERM= lock survival.  A real =pam_unix= or logind session is a deployment
+check, not a unit test; the fake logind service is in
+=tests/integration/fake-logind.py=.
+
+* House rules
+:PROPERTIES:
+:CUSTOM_ID: rules
+:END:
+
+The repository's own guides are short and worth reading before a patch:
+
+- The conventions, in [[file:architecture.org][Architecture]]: C and GObject idioms, no =scm_*= outside
+  =src/guile_bridge.c=, =bar= and module constructors as the only public DSL,
+  theme names that are materials rather than products.
+- [[file:../AI_POLICY.md][AI_POLICY.md]] -- how AI-assisted contributions are handled, including the
+  test-first expectation.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

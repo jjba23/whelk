@@ -1,0 +1,219 @@
+#+title: Lifecycles
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+The paths a running shell takes: process supervision, startup, configuration reload, module refresh, notifications, the lock screen and shutdown.
+
+Each section below is one path through the code, in the order the code takes it.
+The names are the ones in the source, so a diagram can be followed with a
+grep.  Per-feature lifecycles live with their feature --
+[[file:notifications.org][Notifications]], [[file:lock-screen.org][The lock screen]], [[file:idle.org][Idle]],
+[[file:clipboard.org][The clipboard]], [[file:tray.org][The tray]] -- and this document is the shell's own.
+
+* One supervisor, one UI
+
+Running =whelk= starts a very small supervisor as the main process and the
+GTK/Guile UI as its child.  The supervisor owns no widgets and no configuration.
+
+#+name: process-tree
+#+caption: The parent exists only to notice an exit and to forward a signal; everything a user sees lives in the child.
+#+begin_src mermaid
+flowchart TD
+    A["whelk"] --> B["supervisor<br/>no widgets, no configuration"]
+    B -->|"fork + exec, PR_SET_PDEATHSIG"| C["the UI<br/>scm_boot_guile, GTK, Guile, every surface"]
+    C --> D["bars, widgets, panels"]
+    B -->|"waitpid"| E{"how did the child exit?"}
+    E -->|"normally"| F["exit with its status"]
+    E -->|"abnormally, fewer than five times"| G["log the wait status,<br/>wait with an increasing delay,<br/>start it again"]
+    G --> C
+    E -->|"abnormally, five times running"| H["stop<br/>a broken build is not restarted forever"]
+    I["SIGTERM, SIGINT, SIGHUP"] --> B
+    B -->|"forwarded"| C
+#+end_src
+
+The child sets Linux's parent-death signal, so a =SIGKILL= of the supervisor
+still terminates it.  It deliberately does not signal the child's whole process
+group: commands a module launched can be applications the user wants to keep.
+
+* Startup, in order
+
+#+name: startup
+#+caption: The order is not arbitrary: the idle manager exists before the notification service that consults it, the service exists before the modules that subscribe to it, and the configuration is read before the clipboard policy that lives in it.
+#+begin_src mermaid
+sequenceDiagram
+    participant Sup as supervisor
+    participant Guile as Guile
+    participant Shell as shell.c
+    participant Idle as WhelkIdle
+    participant Notif as notifications
+    participant Clip as clipboard
+    participant Bars as bars and widgets
+
+    Sup->>Guile: exec the UI
+    Guile->>Guile: scm_boot_guile, load path, (whelk core), primitives, actions
+    Guile->>Shell: activate, whelk_shell_new
+    Shell->>Shell: the structural stylesheet from the GResource
+    Shell->>Idle: new, the manager exists first
+    Shell->>Notif: new, set_idle, start
+    Notif-->>Shell: owns org.freedesktop.Notifications, or leaves it alone
+    Shell->>Guile: whelk_bridge_init, read settings.scm
+    Shell->>Clip: new, limits and policy from (clipboard-settings), start wl-paste
+    Shell->>Guile: read the menu tables, dictionary and Orbit
+    Shell->>Shell: whelk_locker_init, PAM and logind ready before any --lock
+    Shell->>Idle: lock action is this shell's lock, then start
+    Shell->>Bars: build_bars
+    Shell->>Shell: the centre, the launcher, the network panel, the OSD
+    Shell->>Shell: watch the config directory and the monitor model
+#+end_src
+
+Two consequences of that order are worth knowing:
+
+- The clipboard listens from the first second, not from the first time the
+  picker opens: a copy made while another window has focus is already in the
+  history when somebody asks.
+- The panels are created once, after the bars, and re-skinned on every later
+  reload.  They are the surfaces that do not get rebuilt.
+
+* Configuration reload
+
+#+name: reload-path
+#+caption: One save is several file events on most backends, so the shell restarts a countdown instead of reloading per event.
+#+begin_src mermaid
+sequenceDiagram
+    participant FS as config directory
+    participant Shell as shell.c
+    participant Guile as guile_bridge.c
+    participant Bars as bars and widgets
+    participant Panels as centre, launcher, panel, OSD
+
+    FS->>Shell: changed
+    Shell->>Shell: cancel the pending timeout, start a 250 ms one
+    Note over Shell: a second save inside the window<br/>restarts the countdown
+    Shell->>Guile: whelk_bridge_load
+    alt evaluation failed
+        Guile-->>Shell: false
+        Shell->>Shell: log a warning, keep the last configuration
+    else the file evaluated
+        Shell->>Guile: read the menu tables again
+        Shell->>Bars: build_bars
+        Shell->>Bars: rebuild the desktop widgets
+        Shell->>Panels: re-skin with the first bar's palette
+        Shell->>Guile: restart the REPL service, if the file asked for one
+    end
+#+end_src
+
+=build_bars= is also what a monitor hotplug calls, from an idle callback: the
+monitor model must stop emitting before a bar that queries it is destroyed.
+Both paths end in the same function, so a hotplug and a settings save cannot
+disagree about what a bar looks like.
+
+* A module's refresh
+
+#+name: module-refresh
+#+caption: The timer is the module's; the guard is what makes a late answer harmless.
+#+begin_src mermaid
+sequenceDiagram
+    participant Timer as the module's timer
+    participant Module as modules
+    participant Cmd as util/command.c
+    participant Guard as ModuleGuard
+
+    Timer->>Module: update, every #:interval seconds
+    Module->>Cmd: run the command, nmcli, xprop, niri msg, a sysfs read
+    Cmd-->>Module: output, lines, or an error
+    Module->>Guard: is this generation still mine?
+    alt the module still exists
+        Guard-->>Module: yes
+        Module->>Module: render: format, icon, tooltip
+    else a reload freed it
+        Guard-->>Module: no
+        Module->>Module: drop the answer
+    end
+#+end_src
+
+=#:interval 0= renders once and starts no timer.  A reading that hides itself
+when its hardware is absent stops its timer too, which is why a laptop without a
+battery does not spend a wake-up every two seconds finding that out again.
+
+* Notifications, and who owns the bus name
+
+The service is created before the bars because a module that shows a count
+subscribes to it while it is being built.  It takes
+=org.freedesktop.Notifications= only if the name is free; a daemon that already
+owns it is left alone, with one line in the log saying so.  From then on the
+store is the truth and the toasts and the centre are views of it -- the full
+lifecycle, with the timeouts, is in [[file:notifications.org][Notifications]].
+
+On shutdown the name is released as part of the same path that flushes the
+clipboard, so restarting the shell does not leave the session without a
+notification daemon for the length of a supervisor delay.
+
+* The lock path, from the shell's side
+
+#+name: lock-callers
+#+caption: Four ways in, one path out: everything that locks asks the same function, which is why the policy lives in one place.
+#+begin_src mermaid
+flowchart LR
+    K1["whelk --lock"] --> L["whelk_shell_lock"]
+    K2["shell:lock<br/>in the shell menu"] --> L
+    K3["logind's Lock signal<br/>loginctl lock-session"] --> L
+    K4["the idle manager's timer"] --> L
+    L --> M["the locker, initialised at startup<br/>PAM and logind ready before any --lock"]
+    M --> N{"ext-session-lock-v1 present?"}
+    N -->|yes| O["the compositor owns the lock"]
+    N -->|no| P["an overlay per output, fail-closed"]
+    M --> Q["clear-on-lock, if the clipboard asked for it"]
+#+end_src
+
+The locker is initialised during startup, not on the first lock: a lock request
+that arrives while PAM is still being located is a lock request that could fail
+open.  [[file:lock-screen.org][The lock screen]] is the full story, including what each failure
+message means.
+
+* Shutdown
+
+#+name: shutdown-path
+#+caption: One path, whether the signal came from the terminal, the supervisor, the menu or a command line.
+#+begin_src mermaid
+sequenceDiagram
+    participant Src as SIGTERM, SIGINT, SIGHUP, --quit, Quit
+    participant App as GApplication
+    participant Shell as shell.c
+
+    Src->>App: leave the application normally
+    App->>Shell: shutdown
+    Shell->>Shell: flush the clipboard history
+    Shell->>Shell: stop the wl-paste watcher
+    Shell->>Shell: release the notification bus name
+    Shell->>Shell: cancel the config-directory monitor
+    Shell->>Shell: remove the REPL socket
+    Shell->>Shell: destroy every surface
+#+end_src
+
+Because the flush is part of the same sequence as the surface teardown, a shell
+that is asked to quit does not lose the copy that was made a second earlier.
+
+* Crashes and restarts
+
+A module is a value with its own widgets, timer and destroy function.  Building
+one is guarded at the factory boundary: an unknown kind is logged and left out,
+and a module that returns nothing does not stop the rest of the bar from being
+built.  A finished command never writes into a module that a reload has already
+freed; =ModuleGuard= keeps that generation boundary.  That is enough for a bad
+option and a failed command.  It is not enough for a native segmentation fault:
+one address space cannot safely recover from that, and pretending otherwise
+would hide a real bug.
+
+So the process boundary does the recovering: the supervisor described above logs
+the wait status, waits with an increasing delay and starts the UI again, up to
+five consecutive failures.  That keeps a module crash, a GTK failure or a broken
+reload from taking the session down permanently, while a genuinely broken build
+is not restarted forever.
+
+To run the UI directly -- under a debugger, or in a test harness that owns the
+process -- set =WHELK_NO_SUPERVISE=1=.  The UI then handles the same signals and
+the same shutdown path by itself.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

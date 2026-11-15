@@ -1,0 +1,110 @@
+#+title: The clipboard
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+A clipboard history with an off switch: what is stored, how it comes back, and how memory, persistence and locking are bounded.
+
+* The picker
+
+The =clipboard= mode is the clipboard manager's picker: =whelk --clipboard=
+(or the =;= prefix) lists what was copied, newest first, and choosing a row puts
+it back on the clipboard.  The shell listens through =wl-paste --watch=, so
+every copy is caught even while another window has focus, and a repeated copy
+moves to the front instead of being listed twice.
+
+An entry keeps its MIME type and bytes, not just a line of text: images are
+stored as =image/png= (or JPEG/WebP), rich text as =text/html=, and copied
+files as =text/uri-list=, with a plain rendering kept for the row and for
+searching.  Restoring a rich entry offers more than one representation: HTML
+also advertises its plain text, and an image that is not PNG also advertises
+PNG, so an ordinary application asking for =text/plain= or =image/png= gets
+something rather than nothing.  A selection carrying
+=x-kde-passwordManagerHint= is never stored -- that is a password manager
+asking to be left out of histories -- but the hint is cooperative: a secret
+copied from a terminal, an editor or a browser field has no marker and is
+handled only by the controls below.
+
+The picker shows an image thumbnail, the type, size and age of every copy, and
+groups pinned entries first.  =Ctrl+P= pins or unpins the selected entry,
+=Ctrl+Delete= removes it, and =Ctrl+Z= undoes that removal.  Pinned entries are
+exempt from the fifty-copy cap.
+
+* Privacy and memory
+
+The right-click menu on =clipboard-module=, or the command line, is the off
+switch:
+
+#+begin_src sh
+whelk --clipboard-pause        # pause or resume capture
+whelk --clipboard-status       # availability, count and bytes
+whelk --clipboard-clear        # delete everything
+whelk --clipboard-clear-unpinned
+whelk --clipboard-restart      # after a dead wl-paste
+#+end_src
+
+The bar's menu confirms a full clear.  The history is bounded by a per-entry
+and whole-history byte budget as well as the entry count; unpinned entries are
+evicted oldest first, and a slow or oversized =wl-paste= source is abandoned
+instead of blocking the shell.  Persistence is debounced onto a worker thread,
+then flushed on shutdown.
+
+Persistence is opt-in.  =WHELK_CLIPBOARD_PERSIST=1= keeps the history in
+=$XDG_STATE_HOME/whelk/clipboard.variant= (mode 0600) across restarts, and a
+value with a slash names the file.  The settings file can say the same thing
+and add retention and lock behaviour:
+
+#+begin_src scheme
+(configure-shell!
+ #:clipboard (clipboard-settings
+               #:persist #t               ; or a path; #f is memory only
+               #:persist-only-pinned? #t  ; persistence is a vault, not a log
+               #:clear-on-lock? #t        ; logind lock clears unpinned copies
+               #:ttl-seconds 3600         ; unpinned entries expire
+               #:max-entries 50
+               #:max-entry-bytes (* 32 1024 1024)
+               #:max-total-bytes (* 128 1024 1024)))
+#+end_src
+
+Clear-on-lock watches logind's =LockedHint= and keeps pinned copies.  The
+history file is plaintext at mode 0600: that protects it from other users, not
+from same-user processes, backups or sync clients.  Encryption at rest is not
+implemented; use =#:persist-only-pinned? #t= for the entries you actually want
+to keep, or leave persistence off.
+
+Only the regular clipboard is managed.  Wayland's primary selection is a
+separate selection with its own lifetime, and whelk does not record it.
+
+The default bar's =clipboard-module= shows the history glyph, reports when the
+listener is stopped or paused, and opens this picker on a click.  The depth is
+opt-in: =#:format "{icon} {count}"= puts the number back on the tile.
+
+* What happens to one copy
+
+#+name: clipboard-life
+#+caption: Every copy takes the same path, and the three ways out are the ones the controls name.
+#+begin_src mermaid
+flowchart TD
+    W["wl-paste --watch sees a copy"] --> H{"x-kde-passwordManagerHint?"}
+    H -->|yes| X["never stored"]
+    H -->|no| D{"already in the history?"}
+    D -->|yes| M["moved to the front"]
+    D -->|no| S["stored with its MIME type and bytes<br/>plus a plain rendering"]
+    S --> L{"does it fit?<br/>count, entry bytes, total bytes"}
+    L -->|"no: over the entry budget"| R2["refused"]
+    L -->|"no: the history is full"| E["unpinned entries evicted oldest first"]
+    L -->|yes| K["in the history"]
+    E --> K
+    K --> P["Ctrl+P pins it<br/>exempt from the cap and from expiry"]
+    K --> T["#:ttl-seconds expires it"]
+    K --> C["clear, clear-unpinned,<br/>or clear-on-lock"]
+    K --> R["the picker puts it back<br/>with more than one representation"]
+    R --> K
+#+end_src
+
+The limits are independent, and an entry leaves the history only through them or
+through the picker's own delete.  Pinning is the one thing that makes an entry
+outlive a clear-on-lock.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

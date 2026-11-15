@@ -1,0 +1,48 @@
+#+title: The network panel
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Wi-Fi and Bluetooth, read and changed through =nmcli= and =bluetoothctl=, in one panel behind the bar's own modules.
+
+* The reading, and the panel
+
+=wifi-module= and =bluetooth-module= are the readings; a left click opens the
+panel behind them.  The Wi-Fi reading hides which network is joined: the bar
+shows the icon, and the hover text shows the signal, not the SSID.
+=#:show-ssid? #t= names it; an explicit =#:format= or =#:tooltip= still wins,
+because it was asked for.  The Bluetooth reading is the icon too: the
+connected-device count and the adapter's state are in its hover text, and the
+count is still available to an explicit =#:format= if a bar wants it back.
+
+- *Wi-Fi*: the access points in range with signal and a lock for a secured one,
+  a radio switch and a rescan.  Choosing a secured network asks for its
+  password in the panel -- where the keyboard is -- and an empty password means
+  "use the connection NetworkManager already has".  A typed password *replaces*
+  the saved one: =nmcli device wifi connect= would otherwise activate the
+  profile already on the machine and quietly drop what was typed, so the panel
+  finds the profile for that SSID first and rewrites its key.  The key is
+  written to =nmcli='s standard input -- for a new connection through =--ask=,
+  for an existing one through the interactive editor's =set= -- and never onto
+  its command line, where =ps= would show it to every user on the machine.  A
+  password that begins or ends with a space is refused rather than stored
+  trimmed, because the editor trims the value it is given.
+- *Bluetooth*: the adapter switch and the paired devices, each a click away
+  from connect or disconnect.
+
+Both speak =nmcli= and =bluetoothctl=, the command-line clients those projects
+ship as their scripting surface: no private D-Bus API, no secret agent to keep
+alive, and the same results a terminal would give.
+
+Because the bar reads the network itself, the tray drops the applets that would
+say it twice: with =wifi-module= present, =nm-applet=, =nm-tray=,
+=network-manager-applet= and GNOME's and KDE's network applets are hidden; with
+=bluetooth-module=, =blueman=, =blueman-tray=, =blueberry= and KDE's Bluetooth
+applets are.  The rule looks at the item's StatusNotifierItem *Id*, the whole id
+and nothing but the id: a title that merely mentions "network" is the
+application's own words, and hiding that icon would be hiding somebody else's.
+=#:hide "fragment, fragment"= on =tray-module= overrides the list, and does match
+titles, because there the configuration asked for words.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

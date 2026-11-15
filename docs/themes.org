@@ -1,0 +1,43 @@
+#+title: Themes
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Twelve palettes named after materials and years, and how a bar wears one.
+
+* Wearing a palette
+
+A bar can wear a palette instead of spelling out four colours.  The names are
+materials and years, not products: the look is the point, and nobody's mark is.
+
+#+begin_src scheme
+  (bar #:name 'main #:theme 'tinted-2024 #:height 30
+       #:left (list (menu-module)))
+#+end_src
+
+| Theme            | What it is                                                |
+|------------------+-----------------------------------------------------------|
+| =glass-2001=     | pale pinstriped plastic, a hairline along the bottom      |
+| =metal-2003=     | brushed alloy, square corners                             |
+| =gloss-2007=     | dark graphite glass, a top highlight, a square menu bar   |
+| =flat-2014=      | one flat sheet and one hairline                           |
+| =dark-2020=      | dark, rounded, no material                                |
+| =tinted-2024=    | pale tinted glass, generous corners, a soft shadow        |
+| =frost=          | cool blue-grey                                            |
+| =ember=          | warm dark, amber accent                                   |
+| =mocha=          | soft pastel dark                                          |
+| =midnight=       | deep blue night                                           |
+| =sandstone=      | paper light                                               |
+| =void=           | black, white ink, no accent                               |
+
+A theme sets the background, the ink, the accent, the hairline colour, the
+corner radius, how much the desktop shows through (opacity), the shadow blur,
+the top shine, the lower reflection, the accent flare and the few rules a
+palette cannot express (a gradient, an inset highlight).  Any value the bar or
+the settings window sets itself wins over the theme's, =(themes)= lists what
+the build has, and a name the build does not know leaves the bar's own colours
+alone with one warning.  The built-in bar uses =gloss-2007=; its CSS keeps the
+menu bar square while popovers keep the palette's rounded corners.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

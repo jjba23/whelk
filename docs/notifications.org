@@ -1,0 +1,65 @@
+#+title: Notifications
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+whelk owns =org.freedesktop.Notifications= when nothing else does: toasts, a centre grouped by application, actions and do-not-disturb.
+
+whelk owns =org.freedesktop.Notifications= when no other daemon has it (one
+that already owns the name is left alone, with one line in the log saying so).
+It advertises
+=body-markup=, =actions=, =icon-static= and =persistence=, keeps the history, and
+shows a notification twice:
+
+- as a *toast*, top right, five at most (the reference bar's visible limit),
+  leaving on the application's timeout -- ten seconds when it
+  does not say, and not at all for a critical one (a transient notification
+  also leaves the store then);
+- in the *centre*, a panel on the right edge, grouped by the application that
+  sent it -- its icon and its count over each group -- newest first, with the
+  application's actions as buttons, a dismiss per notification, =Clear all= and
+  do-not-disturb; an empty centre says so instead of showing an empty panel.
+
+A toast carries up to two of the notification's action buttons as well: a
+=Reply= that only appears after opening the centre is a button that arrives too
+late.  The centre's header counts what is stored: "3 notifications" over the
+groups, not hidden in a tooltip.
+
+The bell (=notifications-module=) marks what is stored; the count is in its
+hover text and in the centre, not printed on the bar.  A left click opens the
+centre, a right click toggles do-not-disturb.  With DND on, notifications are
+still stored and counted; they simply do not raise a toast.
+
+* A notification's life
+
+#+name: notification-life
+#+caption: One store, two views.  A toast is a view of the store, so leaving it loses nothing; do-not-disturb silences the toast and never the store.
+#+begin_src mermaid
+flowchart TD
+    N["Notify() arrives on org.freedesktop.Notifications"] --> S["the store<br/>newest first, grouped by application"]
+    S -->|"DND off"| T["a toast, top right<br/>five at most, two action buttons"]
+    S -->|"DND on"| Q["stored and counted,<br/>no toast"]
+    T -->|"the sender's timeout,<br/>ten seconds when it names none"| L["the toast leaves"]
+    T -->|"critical, or no timeout"| T
+    T -->|"the transient hint"| L2["the toast leaves,<br/>and the entry with it"]
+    S --> C["the centre<br/>a panel on the right edge"]
+    C -->|"an action button"| A["ActivateAction back to the sender"]
+    C -->|"dismiss, or Clear all"| R["gone"]
+    S -->|"CloseNotification"| R
+    L --> S
+    Q --> S
+#+end_src
+
+Three rules the diagram is really saying:
+
+- The store is the truth.  A toast is a view of it, so closing a toast loses
+  nothing, and opening the centre later shows what arrived while it was closed.
+- The timeout belongs to the sender.  With no =expire_timeout= the toast takes
+  ten seconds; a critical notification has no timeout; a transient one leaves
+  the store when its toast leaves.
+- Do-not-disturb is a flag on the [[file:idle.org][idle manager]], not a filter in the
+  store, so turning it off shows everything that arrived while it was on.  It
+  deliberately does not pause the lock timer (see [[file:idle.org][Idle]]).
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

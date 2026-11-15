@@ -1,0 +1,124 @@
+#+title: Desktop widgets
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Floating Golden Gate cards, described by the same file as the bar, placed in pixels and moved by their grip.
+
+Desktop widgets are floating cards on the background layer, described by the
+same file that describes the bar.  The standard collection is one value:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars (list (default-bar))
+   #:widgets (golden-gate-widgets))
+#+end_src
+
+That is the set macOS Golden Gate puts in its widget gallery and this shell can
+power from Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
+*Notes**, **Reminders**, **World Clock** and **Stocks**.  Each card drags by
+its grip, snaps to an 8px grid and stays inside its monitor.  The position is
+remembered per monitor, so the same widget can sit somewhere different on the
+laptop panel and the desk screen; a monitor that is unplugged falls back to the
+last place the widget was seen, clamped into the screen that is left.
+
+The same records can be written out one at a time, placed anywhere on any
+output:
+
+#+begin_src scheme
+  (configure-shell!
+   #:widgets
+   (list
+    (desktop-widget 'clock #:x 40 #:y 64)
+    (desktop-widget 'weather
+                    #:x 40 #:y 320
+                    #:width 340
+                    #:height 220
+                    #:monitor "DP-1"
+                    #:options '((location . "Amsterdam")
+                                (latitude . 52.3676)
+                                (longitude . 4.9041)
+                                (units . metric)))
+    (desktop-widget 'notes
+                    #:x 400 #:y 64
+                    #:options '((title . "Today")
+                                (text . "Ship the release.")))))
+#+end_src
+
+| Key             | Meaning                                                              |
+|-----------------+----------------------------------------------------------------------|
+| =#:x=, =#:y=       | pixels from the top-left of the chosen monitor                       |
+| =#:width=, =#:height= | the card's size; a bare widget gets its kind's standard size       |
+| =#:monitor=       | ="default"= or a connector such as ="DP-1"=                            |
+| =#:options=       | the widget's own alist; an unknown key is ignored                     |
+
+Every kind accepts =#:title=, =#:css=, =#:tooltip= and the mouse actions in that
+option alist: =on-click=, =on-click-middle=, =on-click-right=, =on-scroll-up=
+and =on-scroll-down=, each a command line.  The kind-specific options are:
+
+| Kind        | Options                                                              |
+|-------------+----------------------------------------------------------------------|
+| =clock=       | =style= (=analog= or =digital=), =show-seconds?=                        |
+| =calendar=    | the current month, with today marked; =‹= and =›= change it, the month title returns to today |
+| =weather=     | =latitude=, =longitude=, =location=, =units= (=metric= or =imperial=)   |
+| =battery=     | =device=, =warning=, =critical=                                        |
+| =notes=       | =text=, or =file= to read the note from disk                          |
+| =reminders=   | =items=, a list; prefix an item with =x= to mark it done; a row toggles when clicked |
+| =world-clock= | =cities=, as ="Name=Zone"= entries separated by commas                |
+| =stocks=      | =symbols=, a list of Yahoo Finance tickers                            |
+| =custom=      | =exec=, =interval=, =empty=; anything a command can print              |
+
+Weather asks [[https://open-meteo.com][Open-Meteo]] for the current conditions and today's high and low;
+Stocks asks Yahoo Finance for delayed quotes.  Neither needs an API key, and
+both keep their request off the main loop.  A card sits on the layer-shell
+=bottom= layer, takes no keyboard and reserves no screen space, so it is
+visible on the desktop and under the windows rather than over them.  Saving the
+settings file rebuilds every card with the bars.
+
+* Clicking, dragging and the grid
+
+A widget is a window you can move, not a printout.  The small grip at the
+top-right of every card is its drag handle: hold it with the primary button and
+the card follows the pointer, snaps to an eight-pixel grid and stops at the
+monitor's edges.  The grip is deliberately not the whole card, so the card's own
+buttons and its calendar and reminder rows keep their clicks.  The position is
+written to =$XDG_STATE_HOME/whelk/widgets-<settings-stem>.ini= (normally
+=~/.local/state/whelk/widgets-settings.ini=) and restored on the next reload or
+start; deleting that file returns every card to the position in the settings
+file.  Dragging is a Wayland layer-shell move: the position is the surface's
+margin from the monitor's top-left corner, not an X11 window coordinate.
+
+Every card's primary, middle and right click and its two scroll directions are
+commands from the settings file, so a Notes card can open the note in an editor,
+a Weather card can refresh a script and a right click can show a menu.  What
+needs no configuration is built in: the calendar's =‹= and =›= buttons change
+the month and its month title returns to today; a Reminders row toggles between
+done and not done and that state is saved in the same state file; a clock, a
+weather card and a stock card keep their own refresh timers.  Notes remains
+read-only: its text is what the settings file or the note file says.
+
+The standard set is a starting layout down the left and middle of a 1080p
+desktop, aligned to the same eight-pixel grid a dragged card snaps to.  It is
+not privileged: use =map=, a helper procedure, or a list of your own to place
+exactly the cards you want.  =custom= is the escape hatch for widgets whose data
+comes from another program.
+
+* Where a card's place comes from
+
+#+name: widget-placement
+#+caption: The settings file names a monitor and a pixel position; a drag overrides the position for that monitor and the state file remembers it.
+#+begin_src mermaid
+flowchart TD
+    A["(desktop-widget 'clock #:x 40 #:y 64)"] --> B["a card on the bottom layer<br/>no keyboard, no reserved space"]
+    B --> C{"dragged by its grip?"}
+    C -->|no| D["the position from settings.scm"]
+    C -->|yes| E["the position is written to<br/>widgets-settings.ini, per monitor"]
+    E --> F["the next reload or start<br/>restores it"]
+    D --> G{"is the named monitor<br/>still connected?"}
+    F --> G
+    G -->|yes| H["the card sits there"]
+    G -->|no| I["the last place it was seen,<br/>clamped into the screen that is left"]
+#+end_src
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

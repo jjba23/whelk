@@ -1,0 +1,41 @@
+#+title: Parity with the heks-linux Waybar bar
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+The reference Waybar bar, module by module, and what whelk answers with.
+
+* The mapping
+
+| Waybar module                  | Whelk                                                     |
+|--------------------------------+-----------------------------------------------------------|
+| =custom/heks-system-menu=        | =start-module= (a GTK popover, built in)                     |
+| =niri/window=                    | =window-module=                                            |
+| =custom/media=                   | =custom-module= + playerctl                                |
+| =custom/heks-clipboard=          | =clipboard-module= (native history, picker on click)        |
+| =custom/heks-password=           | =custom-module=                                            |
+| =custom/heks-language=           | =language-module= (native niri read)                       |
+| =custom/heks-palette/wallpaper/docs/capture/keys= | =custom-module=                            |
+| =cpu=, =memory=                    | =cpu-module=, =memory-module=                                |
+| =backlight=                      | =backlight-module=                                         |
+| =pulseaudio=                     | =audio-module=                                             |
+| =keyboard-state=                 | =keyboard-module= (Caps Lock, from the LED)                 |
+| =battery= (BAT0/BAT1)            | =battery-module=, one per =#:device=                         |
+| =power-profiles-daemon=          | =power-profile-module=                                     |
+| =tray=                           | =tray-module=                                              |
+| =clock=                          | =clock-module=                                             |
+| =style.css=                      | =bar= keys plus =#:css=                                       |
+| =config.jsonc=                   | =settings.scm=                                              |
+
+There is no =modules-center= in the reference bar; =workspaces-module= exists for
+it and is commented out in the default bar.
+
+The default bar has the reference's menu order: =start-module= where the system
+menu's mark sits, then =menu-module=, so the application's File/Edit/View sit
+where a menu bar puts them; =window-module= is one line away for a bar that also
+wants the window's name.  The reference's own system menu
+was a generated script; whelk's is a Scheme value (see [[file:menus.org][the shell
+menu]]), so no generated file can go stale.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

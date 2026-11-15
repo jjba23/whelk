@@ -1,0 +1,100 @@
+#+title: whelk documentation
+#+subtitle: a Wayland shell whose configuration is a Scheme program
+#+author: Josep Jesus Bigorra Algaba
+#+options: toc:nil num:nil
+
+This directory holds whelk's manual.  The [[file:../README.org][README]] is the front door: what the
+shell is, what it looks like and how to install it in five commands.  Everything
+that needs more than a paragraph lives here, one document per subject, so a
+question has one place to be answered.
+
+#+name: doc-map
+#+caption: The documents, and how a reader usually reaches them.
+#+begin_src mermaid
+flowchart TD
+    README["README.org<br/>what whelk is, features, install in five commands"]
+
+    README --> START["getting-started.org<br/>first bar, first clicks, talking to the shell"]
+    README --> INSTALL["installation.org<br/>requirements, linkage, Guix, Nix, packages"]
+
+    START --> CONFIG["configuration.org<br/>settings.scm, bar keys, overrides, presets, REPL"]
+    START --> USAGE["usage documents<br/>launcher, clipboard, notifications, network, tray"]
+
+    CONFIG --> MODULES["modules.org<br/>the twenty-two kinds and their options"]
+    CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
+    CONFIG --> THEMES["themes.org<br/>twelve palettes"]
+    CONFIG --> MENUS["menus.org<br/>the shell menu and the global menu"]
+
+    USAGE --> LOCK["lock-screen.org"]
+    USAGE --> IDLE["idle.org<br/>idle timer, inhibitors, do not disturb"]
+
+    MODULES --> ARCH["architecture.org<br/>the source tree and its boundaries"]
+    ARCH --> LIFE["lifecycle.org<br/>startup, reload, refresh, lock, shutdown"]
+
+    ARCH --> DEV["development.org<br/>maak, tests, CI"]
+    DEV --> REL["releasing.org"]
+    DEV --> PACK["packaging.org"]
+
+    README --> LIMITS["known-limits.org<br/>honest ceilings"]
+    README --> ROAD["roadmap.org<br/>state and next pieces"]
+    README --> CONTRIB["contributing.org"]
+#+end_src
+
+* The documents
+
+| Document                     | Answers                                                                  |
+|------------------------------+--------------------------------------------------------------------------|
+| [[file:getting-started.org][Getting started]]            | install, first bar, what is on screen, the command line that talks to it |
+| [[file:installation.org][Installation]]               | what must exist before whelk starts, what the binary links, four install routes |
+| [[file:configuration.org][Configuration]]              | =settings.scm=, a bar from scratch, the bar keys, GUI overrides, presets, the REPL |
+| [[file:modules.org][Modules]]                    | the module kinds, the options they share, a worked example                |
+| [[file:widgets.org][Desktop widgets]]            | the Golden Gate cards, placement, dragging, the state file               |
+| [[file:themes.org][Themes]]                     | the twelve palettes and what each one sets                               |
+| [[file:menus.org][Menus]]                      | the shell menu and the focused application's File/Edit/View               |
+| [[file:launcher.org][The launcher]]               | the eleven modes, the card's geometry, the menu script protocol           |
+| [[file:clipboard.org][The clipboard]]              | what is stored, how it comes back, memory, persistence, locking           |
+| [[file:notifications.org][Notifications]]              | the daemon, toasts, the grouped centre, actions, do-not-disturb           |
+| [[file:network.org][The network panel]]          | Wi-Fi and Bluetooth through =nmcli= and =bluetoothctl=                     |
+| [[file:tray.org][The tray]]                   | StatusNotifierItems, their context menus and the chevron                  |
+| [[file:lock-screen.org][The lock screen]]            | the session lock, the fallback overlay, PAM, and every failure message    |
+| [[file:idle.org][Idle, inhibitors, DND]]      | the one idle timer, the presentation inhibitor, why the screen blanked    |
+| [[file:sessions.org][Sessions]]                  | niri, sway, Hyprland, river and X11: what each one can do                 |
+| [[file:parity.org][Parity with Waybar]]        | the reference bar, module by module                                      |
+| [[file:architecture.org][Architecture]]              | the source tree, the Scheme boundary, how a bar becomes pixels            |
+| [[file:lifecycle.org][Lifecycles]]                | supervision, startup, reload, module refresh, notifications, lock, shutdown |
+| [[file:development.org][Development]]               | =maak=, the three test layers, CI, house rules                             |
+| [[file:releasing.org][Releasing]]                 | version agreement, verification gates, what =publish= does                 |
+| [[file:packaging.org][Packaging]]                 | Debian, Arch and RPM recipes, and the installed layout                    |
+| [[file:known-limits.org][Known limits]]               | what whelk deliberately cannot do                                        |
+| [[file:roadmap.org][Status and roadmap]]        | what works today and where the next pieces go                             |
+| [[file:contributing.org][Contributing]]              | bug reports, patches, new modules, the test-first expectation             |
+
+* Three reading paths
+
+** I want to use it
+
+[[file:getting-started.org][Getting started]] -> [[file:configuration.org][Configuration]] -> [[file:modules.org][Modules]] -> the usage document
+for whatever is on the bar.  Read [[file:known-limits.org][known limits]] before adopting it: the
+ceilings are stated, not discovered.
+
+** I want to hack on it
+
+[[file:architecture.org][Architecture]] -> [[file:lifecycle.org][Lifecycles]] -> [[file:development.org][Development]] -> [[file:contributing.org][Contributing]].
+The house rules are the short part of that path, and they are the ones a patch
+is judged by.
+
+** Something is wrong
+
+[[file:installation.org][Installation]] for what the binary needs, [[file:sessions.org][Sessions]] for a compositor
+that was not recognised, [[file:lock-screen.org][The lock screen]] for
+"Authentication is unavailable", [[file:idle.org][Idle]] for a screen that did or did not
+lock, and =whelk --idle-status= for the shell's own account of its decision.
+
+* Conventions in these pages
+
+- File names are literal; =code= is literal inside a sentence; *emphasis* marks
+  a control or a menu label.
+- Diagrams are mermaid, so they render on GitHub and in any editor that draws
+  them; the prose beside each one is the contract, not the picture.
+- Nothing here is a wish: a statement about behaviour is the behaviour the
+  binary has, and [[file:known-limits.org][known limits]] is where the gaps live.

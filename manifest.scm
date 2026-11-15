@@ -45,6 +45,6 @@
                           ;; dirname/mktemp; do not depend on the host PATH.
                           coreutils
                           ;; Reading these is how the shell is debugged without
-                          ;; a compositor (see README).
+                          ;; a compositor (see docs/installation.org).
                           procps
                           util-linux))

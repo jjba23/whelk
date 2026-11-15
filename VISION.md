@@ -145,7 +145,7 @@ another page; it is making the override layer trustworthy. Ranked by value.
    carries its preference key; the missing piece is remembering the inherited
    value and the change history, not inventing another writer. Tests should
    cover modified marks, row revert, page reset, undo and the confirmation
-   path, and the README should show one override being reverted. Effort:
+   path, and the documentation should show one override being reverted. Effort:
    low-medium.
 
 2. **One metadata schema for module options.** Describe each option once --
@@ -171,8 +171,8 @@ another page; it is making the override layer trustworthy. Ranked by value.
    looks saved and is not. Silent loss undermines every page and every type
    fix above. Tests should inject a failed write and an invalid value, assert
    that the old value survives and the error is visible, and cover the atomic
-   replacement itself. The README should say where overrides are stored and
-   what the window does when it cannot write there. Effort: medium.
+   replacement itself. The documentation should say where overrides are stored
+   and what the window does when it cannot write there. Effort: medium.
 
 4. **A bar selector, not an assumption.** Let the window choose which bar it
    edits when the configuration returns several, keep overrides distinct per
@@ -183,7 +183,7 @@ another page; it is making the override layer trustworthy. Ranked by value.
    visible and turns a repeated setup into one action. Tests should cover
    enumerating bars and outputs, editing a bar that is not first, keeping
    overrides isolated per output, and copying without aliasing the source;
-   the README should show a two-monitor example. Effort: medium-high.
+   the documentation should show a two-monitor example. Effort: medium-high.
 
 ## The vision
 
@@ -213,7 +213,7 @@ statements that should be true in a few years and are not true yet:
 0.19 closed five gaps this file used to list: a deliberate bar per monitor with
 hotplug, menus read from AT-SPI, a Scheme module whose update is a Guile
 procedure returning a widget, golden-image tests on a headless compositor, and
-a fail-closed PAM screen locker. They are documented in the README and covered
+a fail-closed PAM screen locker. They are documented in `docs/` and covered
 by the test suite. 0.20 closes the locker's remaining gap: on a compositor that
 implements `ext-session-lock-v1` the lock is compositor-enforced, so another
 client cannot cover it and a dead shell cannot unlock it. The layer-shell
@@ -250,7 +250,7 @@ Not reserved for by the code, but plausible and in character.
   the mapping exists, it is just written in prose right now.
 - **A reference generator.** Modes, bar keys, module options and settings
   docstrings are already in the source; a `whelk --docs` that emits the
-  reference would keep the README from drifting.
+  reference would keep the documentation from drifting.
 
 ## Contributions that would move the needle
 
@@ -268,7 +268,7 @@ In rough order of value per hour of work:
   and each one comes with tests that are easy to write: the parser for
   `hyprctl -j monitors`, the mapping from river's tags to workspaces.
 - **A module cookbook.** Ten worked examples -- a media player, a git branch, a
-  Pomodoro timer, a weather reading, an MPRIS queue -- in the README's style.
+  Pomodoro timer, a weather reading, an MPRIS queue -- in the documentation's style.
   Nothing demonstrates "it is a program" better than examples that are short.
 - **Accessibility.** A bar read by a screen reader needs the right GTK roles
   announced, a keyboard path through every panel, and the HUD not to steal
@@ -325,10 +325,10 @@ willingness to say in the log exactly which capability is missing.
 
 Read the source and file issues with a log line and a `settings.scm` that
 reproduces it. Send a menu dictionary entry. Send a theme. Send a paragraph
-explaining what you expected the shell to do -- the README is the specification,
-and a wrong README is a bug report with instructions.
+explaining what you expected the shell to do -- the documentation is the specification,
+and a wrong page is a bug report with instructions.
 
 ---
 
-_This document describes intent, not commitments; the README and `NEWS.org`
+_This document describes intent, not commitments; `docs/` and `NEWS.org`
 describe what exists._
