@@ -24,9 +24,8 @@ G_BEGIN_DECLS
  * as an oldest-first snapshot so the centre can group it.  Rendering is
  * src/notification_center.c's business; this file is the protocol and the store.
  *
- * When another daemon (mako, dunst, swaync) already owns the name, whelk says so
- * once and leaves the name to it: two daemons on one name is a race the user
- * loses.
+ * When another notification daemon already owns the name, whelk says so once and
+ * leaves the name to it: two daemons on one name is a race the user loses.
  */
 
 #define WHELK_TYPE_NOTIFICATIONS (whelk_notifications_get_type())

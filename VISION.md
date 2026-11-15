@@ -15,8 +15,8 @@ tell which pull request is on the path and which one is a detour.
 The pieces that exist and work: twenty-two module kinds behind one
 keyword-driven shape; hot reload and a socket REPL; a notification daemon with
 toasts, a grouped centre, actions and do-not-disturb; a Wi-Fi and Bluetooth
-panel over `nmcli` and `bluetoothctl`; a launcher with nine modes including
-rofi's own script protocol; the focused application's `File`/`Edit`/`View` from
+panel over `nmcli` and `bluetoothctl`; a launcher with nine modes and a menu
+protocol of its own; the focused application's `File`/`Edit`/`View` from
 five producers (`org.gtk.Menus`, `com.canonical.dbusmenu`, a configured command,
 a dictionary of ninety-five applications, and the compositor's own window
 verbs); a StatusNotifierItem tray with real `dbusmenu` popovers; a clipboard
@@ -234,8 +234,6 @@ In rough order of value per hour of work:
 | Quickshell | QtQuick shell framework in QML | Quickshell has the richer widget toolkit and a real declarative language; whelk has the notification daemon, global menu and tray as first-class native parts rather than plugins |
 | sfwbar, nwg-panel | pinned, focused panel programs | comparable on the bar; whelk is broader by design -- one process for the session's surfaces |
 | polybar | the X11 answer to all of the above | whelk keeps an X11 dock path with EWMH struts so the same configuration works there |
-| mako, dunst, swaync | notification daemons | whelk folds the daemon in, with a grouped centre and DND that the bar modules can see |
-| rofi, wofi | launchers | whelk runs the same overlay with the focused window's live menus, and speaks rofi's script protocol, so existing scripts keep working |
 | cliphist, clipman | clipboard history | whelk's history is a module with a picker, pinning, expiry and lock-time clearing |
 | GNOME Shell, KDE Plasma | the reference integrated shells | the comparison that matters: whelk is not a desktop environment, it is the shell layer of one you already chose |
 

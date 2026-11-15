@@ -27,7 +27,7 @@
 
 #define WHELK_PANEL_WIDTH 380
 #define WHELK_TOAST_WIDTH 380
-/* mako's max-visible, which the reference bar's configuration sets to 5. */
+/* Five toasts at most, which the reference bar's configuration asks for. */
 #define WHELK_TOAST_LIMIT 5
 
 typedef struct {

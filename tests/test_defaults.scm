@@ -112,31 +112,26 @@
                             "")
                         "(orpheus)"))
 
-;; What the reference delegated to mako and clipman is native now: no tile on
-;; the default bar may spawn either, because neither is installed any more.
+;; A reading is the shell's, not a daemon's: a custom tile prints its glyph or
+;; asks a media player, and the notification centre and the clipboard depth come
+;; from native modules.
 (define (default-modules b)
   (append (bar-config-modules-left b)
           (bar-config-modules-center b)
           (bar-config-modules-right b)
           (bar-config-modules-overflow b)))
 
-(check "no default tile shells out to mako or clipman"
-       (not (any (lambda (m)
-                   (let ((command (and (eq? (shell-module-kind m) 'custom)
-                                       (module-option m 'exec))))
-                     (and command
-                          (or (string-contains command "makoctl")
-                              (string-contains command "clipman")))))
-                 (default-modules built-in))))
+(check "no default tile shells out for its reading"
+       (every (lambda (m)
+                (let ((command (and (eq? (shell-module-kind m) 'custom)
+                                    (module-option m 'exec))))
+                  (or (not command)
+                      (string-contains command "printf")
+                      (string-contains command "playerctl"))))
+              (default-modules built-in)))
 
 ;; The session menu is whelk's own: a power button must not fail because a
 ;; desktop has not installed an external menu program.
-(check "no default tile calls an external menu program"
-       (not (any (lambda (m)
-                   (let ((click (module-option m 'on-click)))
-                     (and (string? click) (string-contains click "rofi "))))
-                 (default-modules built-in))))
-
 (check "the battery tile opens whelk's session menu"
        (equal? (module-option (default-reading 'battery) 'on-click)
                "whelk --session-menu"))
@@ -170,7 +165,7 @@
 ;; The reference's right half, in its order: the media and desktop items, the
 ;; hardware readouts, the status icons, then search and the clock.  The
 ;; clipboard and do-not-disturb tiles are whelk's own modules, so the defaults
-;; ask the shell for their state instead of spawning clipman or makoctl.
+;; ask the shell for their state instead of querying another program.
 (check "the right half keeps the reference's order"
        (equal? (kinds (bar-config-modules-right built-in))
                '(custom clipboard custom dnd custom custom memory audio keyboard

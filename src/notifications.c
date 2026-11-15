@@ -56,7 +56,7 @@ static const char notification_xml[] =
     "</node>";
 
 /* How long a toast stays when the application does not say (-1): the ten
- * seconds the reference mako configuration sets. */
+ * seconds the reference configuration sets. */
 #define WHELK_NOTIFICATION_DEFAULT_TIMEOUT 10000
 
 /* Reasons, from the specification. */

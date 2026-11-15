@@ -51,9 +51,7 @@ is doing, and it is where you ask for things.  whelk does that with one binary.
 | niri, sway, an X11 desktop  | a bar that docks itself, reserves its edge and stays out of the way |
 | a Waybar =config.jsonc=       | a =settings.scm= that is evaluated, not parsed               |
 | a =style.css=                 | bar keys for colour, font and radius, plus =#:css= for the rest |
-| mako or dunst               | a notification daemon, toasts and a grouped centre          |
 | nm-applet, Blueman          | a Wi-Fi and Bluetooth panel behind the bar's own modules    |
-| rofi                        | a launcher with seven modes and the same menu scripts       |
 | a menu bar on Wayland       | the focused application's own menus, where a menu bar puts them |
 
 Saving the settings file rebuilds the bar in place -- no restart, no relogin.
@@ -167,8 +165,8 @@ the documented one -- see [[#configuration][Configuration]].
   scripting surface those projects ship.
 - *A launcher, not a second program.* Applications, windows, commands with
   =$PATH= completion, arithmetic, files, the web, ssh hosts, closing a window
-  and rofi-style menus -- including rofi's own script protocol, icons and
-  =nonselectable= rows -- in one overlay with one fuzzy matcher.
+  and menus a command generates -- its script protocol, icons and rows that are
+  shown but never chosen -- in one overlay with one fuzzy matcher.
 - *Twelve themes, and no borrowed marks.* =glass-2001= through =tinted-2024=,
   plus =frost=, =ember=, =mocha=, =midnight=, =sandstone= and =void=: materials
   and years, not products.  The built-in bar wears =gloss-2007=: dark graphite
@@ -407,12 +405,12 @@ surface rather than a form dropped on the screen.  A prefix picks the mode.
 | =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
-The menu mode is the rofi-script replacement, and it speaks both shapes a
-machine already has: =label<TAB>command= lines, and rofi's own script protocol
-(=label\0icon\x1f…\0nonselectable\x1ftrue=), where choosing a row runs the
-generator again with =ROFI_RETV=1= and the label -- which is how a menu that has
-state of its own keeps it.  A row rofi marks =nonselectable= is shown disabled
-and cannot be chosen; a rule drawn from box-drawing characters is dropped.
+The menu mode speaks two shapes a generator can print: =label<TAB>command=
+lines, and the script protocol (=label\0icon\x1f…\0disabled\x1ftrue=), where
+listing the menu runs the generator with =WHELK_RETV=0= and choosing a row runs
+it again with =WHELK_RETV=1= and that row's label -- which is how a menu that
+has state of its own keeps it.  A row marked =disabled= is shown and cannot be
+chosen; a rule drawn from box-drawing characters is dropped.
 
 The =quit= mode is what the shell menu's =Force Quit…= opens: it is niri's
 windows, and choosing one closes it rather than switching to it.
@@ -569,13 +567,14 @@ not a result; the list is the same tree the bar is showing at that moment.
 :CUSTOM_ID: notifications
 :END:
 
-whelk owns =org.freedesktop.Notifications= when no other daemon has it (a
-running mako is left alone, with one line in the log saying so).  It advertises
+whelk owns =org.freedesktop.Notifications= when no other daemon has it (one
+that already owns the name is left alone, with one line in the log saying so).
+It advertises
 =body-markup=, =actions=, =icon-static= and =persistence=, keeps the history, and
 shows a notification twice:
 
-- as a *toast*, top right, five at most (mako's =max-visible= in the reference
-  configuration), leaving on the application's timeout -- ten seconds when it
+- as a *toast*, top right, five at most (the reference bar's visible limit),
+  leaving on the application's timeout -- ten seconds when it
   does not say, and not at all for a critical one (a transient notification
   also leaves the store then);
 - in the *centre*, a panel on the right edge, grouped by the application that
@@ -1455,12 +1454,11 @@ means.
 
 | Waybar module                  | Whelk                                                     |
 |--------------------------------+-----------------------------------------------------------|
-| =custom/heks-system-menu=        | =start-module= (a GTK popover, no rofi)                      |
+| =custom/heks-system-menu=        | =start-module= (a GTK popover, built in)                     |
 | =niri/window=                    | =window-module=                                            |
 | =custom/media=                   | =custom-module= + playerctl                                |
 | =custom/heks-clipboard=          | =clipboard-module= (native history, picker on click)        |
 | =custom/heks-password=           | =custom-module=                                            |
-| =custom/mako-dnd=                | =dnd-module= (whelk's own state, native toggle)             |
 | =custom/heks-language=           | =language-module= (native niri read)                       |
 | =custom/heks-palette/wallpaper/docs/capture/keys= | =custom-module=                            |
 | =cpu=, =memory=                    | =cpu-module=, =memory-module=                                |
@@ -1481,38 +1479,8 @@ The default bar has the reference's menu order: =start-module= where the system
 menu's mark sits, then =menu-module=, so the application's File/Edit/View sit
 where a menu bar puts them; =window-module= is one line away for a bar that also
 wants the window's name.  The reference's own system menu
-was a generated rofi script; whelk's is a Scheme value (see [[#shell-menu][the shell
-menu]]), so no rofi is involved and no generated file can go stale.
-
-** The other two programs
-:PROPERTIES:
-:CUSTOM_ID: other-two
-:END:
-
-whelk also took over what the reference delegated to rofi and mako.  What a
-machine configured for them needs, in the terms it used:
-
-| rofi / mako                          | whelk                                                      |
-|--------------------------------------+------------------------------------------------------------|
-| =rofi -show drun=                      | =whelk --launcher=                                           |
-| =rofi -show window=                    | =whelk --launcher --launcher-mode=window=                    |
-| =rofi -show run=                       | =whelk --launcher --launcher-mode=run=                       |
-| =rofi -show ssh=                       | =whelk --launcher --launcher-mode=ssh= (prefix =%=)          |
-| =rofi -show power= (a script mode)     | =whelk --session-menu= (built in)                            |
-| =rofi -show theme= (a script mode)     | =whelk --menu "the-theme-script"=                             |
-| =rofi -modi "Menu:script"=               | =whelk --menu "script"=, script protocol included            |
-| =rofi -replace=                        | the second =whelk= forwards to the first (GApplication)      |
-| =mako= toasts                          | =whelk= owns =org.freedesktop.Notifications=                  |
-| =makoctl mode -t do-not-disturb=        | =whelk --dnd=, the bell's right click, and =dnd-module=        |
-| =makoctl dismiss=                       | the toast's close button, and the centre's =Clear all=        |
-| =max-visible= 5, =default-timeout= 10000 | the same numbers                                            |
-| =max-history=                          | the centre keeps every notification it has not been told to drop |
-| =rofi-power-menu=                      | =whelk --session-menu=, or the shell menu's ways out           |
-
-A rofi script that draws its rows with =\0icon\x1f…= and =nonselectable= works
-unchanged: the launcher reads the protocol, shows the icons, keeps the rules
-out of reach, and comes back to the script with =ROFI_RETV=1= and the chosen
-label, which is the contract rofi's own script mode defines.
+was a generated script; whelk's is a Scheme value (see [[#shell-menu][the shell
+menu]]), so no generated file can go stale.
 
 ------------------
 

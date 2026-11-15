@@ -70,7 +70,7 @@ typedef struct {
   int clipboard_index; /* the entry in WhelkClipboard's history, or -1 */
   char *clipboard_id; /* the entry's stable id, when it is a clipboard row */
   GdkTexture *preview; /* a thumbnail for an image copy, or NULL */
-  gboolean disabled; /* rofi's `nonselectable': shown, never chosen */
+  gboolean disabled; /* shown, never chosen */
   WhelkMenuSearchItem *menu_item; /* a copy of a menu entry, when that is what
                                    * this row is */
 } LauncherItem;
@@ -351,8 +351,9 @@ static void load_commands(WhelkLauncher *self) {
 /* =========================================================================
  * SSH HOSTS
  * =========================================================================
- * Rofi's `ssh' mode, which heks-linux binds: the hosts this machine's own
- * ~/.ssh/config names, in a terminal.  It is read the way ssh reads it -- the
+ * The ssh hosts, which heks-linux binds: the names this machine's own
+ * ~/.ssh/config gives, opened in a terminal.  It is read the way ssh reads it --
+ * the
  * `Host' lines, one host or pattern per word -- and a pattern (a `*', a `?', a
  * `!' negation) is not a host, so it is left out rather than offered.
  */
@@ -596,10 +597,11 @@ static void search_files(WhelkLauncher *self, const char *query) {
  *   label<TAB>command
  *       the plain shape, one row per line;
  *
- *   label\0icon\x1fname\0nonselectable\x1ftrue\0info\x1fsomething
- *       the menu-script protocol an existing generator already prints.  A row
- *       in that shape is not a command: the script is called again with
- *       ROFI_RETV=1 and the chosen label, and so does this.
+ *   label\0icon\x1fname\0disabled\x1ftrue
+ *       the script protocol, for a generator with state of its own.  A row in
+ *       that shape is not a command: the script is called again with
+ *       WHELK_RETV=1 and the chosen label, which is how a menu that has state
+ *       keeps it.
  *
  * The protocol separates its fields with NUL, which is why this mode reads its
  * generator as bytes and not as text.
@@ -639,7 +641,7 @@ static void add_menu_row(WhelkLauncher *self, const guint8 *row, gsize length) {
 
       if (g_strcmp0(field, "icon") == 0)
         item->icon = g_strdup(sep + 1);
-      else if (g_strcmp0(field, "nonselectable") == 0 &&
+      else if (g_strcmp0(field, "disabled") == 0 &&
                g_strcmp0(sep + 1, "true") == 0)
         item->disabled = TRUE;
     }
@@ -789,7 +791,7 @@ static void add_row(WhelkLauncher *self, LauncherItem *item) {
   gtk_widget_set_hexpand(text, TRUE);
   gtk_box_append(GTK_BOX(box), text);
 
-  /* rofi's `nonselectable': a row that is there to be read, not chosen. */
+  /* A row that is there to be read, not chosen. */
   if (item->disabled)
     gtk_widget_set_sensitive(row, FALSE);
 
@@ -1343,10 +1345,10 @@ static void activate_item(WhelkLauncher *self, LauncherItem *item) {
     break;
   case ITEM_SCRIPT: {
     /* The menu-script contract: the chosen row comes back to the script that
-     * printed it, in ROFI_RETV, so a menu that has state of its own keeps it. */
+     * printed it, in WHELK_RETV, so a menu that has state of its own keeps it. */
     g_autofree char *quoted = g_shell_quote(item->name);
     g_autofree char *command = g_strdup_printf(
-        "ROFI_RETV=1 %s %s", self->menu_command ? self->menu_command : "",
+        "WHELK_RETV=1 %s %s", self->menu_command ? self->menu_command : "",
         quoted);
 
     whelk_command_spawn(command);
