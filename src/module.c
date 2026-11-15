@@ -30,6 +30,7 @@ static const WhelkModuleEntry factories[] = {
     {"custom", whelk_custom_module_new},
     {"scheme", whelk_scheme_module_new},
     {"dnd", whelk_dnd_module_new},
+    {"inhibit", whelk_inhibit_module_new},
     {"keyboard", whelk_keyboard_module_new},
     {"language", whelk_language_module_new},
     {"memory", whelk_memory_module_new},

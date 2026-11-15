@@ -15,6 +15,42 @@ Nothing yet.
 
 *[Released]*
 
+** v0.28.0 (2026-11-15)
+
+*** Added
+
+- *Hyprland is a session whelk can read and drive.*  The focused window comes
+  from =hyprctl activewindow -j= (its =initialClass= is preferred over a class
+  an application can rewrite), and close, full-screen, maximise, float and the
+  four move verbs go out through =hyprctl dispatch=.  The window module lights
+  up on Hyprland; the workspaces module is still niri's.
+
+- *river is a session whelk can drive.*  =riverctl= answers the probe, and
+  close, full-screen and float go through it.  Its focused view is published
+  only on the =river-status= Wayland protocol, which whelk does not bind yet, so
+  the window reading stays empty on river rather than guessing.
+
+- *An inhibitor reading.*  The new =inhibit= module runs =systemd-inhibit
+  --list= and turns it into a count plus a tooltip naming every holder, what it
+  holds and why -- the answer to "why did my screen not blank" that used to be a
+  guess.  The shell still owns the lock-on-idle timer through logind's
+  =IdleHint= and the do-not-disturb flag through the notification service.
+
+- *Widgets remember a position per monitor.*  A dragged corner is saved under
+  the monitor it was dragged on and, as a fallback, under the widget alone.  A
+  monitor that is gone loads the fallback and is clamped into the screen that
+  remains, so a hotplug never strands a card off-screen.
+
+- *The settings window has an escape hatch.*  "Open settings.scm at line 1"
+  launches =$VISUAL= or =$EDITOR= at the file, for the keybindings, launcher
+  modes and module options the window does not edit.
+
+*** Verified
+
+- The host build and the Meson suite pass: 41 tests, including the session
+  parsers for Hyprland, the per-monitor placement memory and the inhibitor
+  reader.
+
 ** v0.27.3 (2026-11-15)
 
 *** Fixed

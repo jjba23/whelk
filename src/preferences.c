@@ -8,6 +8,7 @@
 #include "config.h"
 #include "guile_bridge.h"
 #include "logger.h"
+#include "util/command.h"
 
 #include <string.h>
 
@@ -766,6 +767,29 @@ static void build_menu_page(PrefsState *state, GtkStack *stack) {
             "application without one gets whelk's shared Edit and View menus.");
 }
 
+/* The escape hatch: everything this window cannot express is still one line in
+ * a file the user owns.  $VISUAL and $EDITOR are asked first, and +LINE is the
+ * spelling vi, nano and emacs all understand; xdg-open is the fallback, where
+ * the line number is simply ignored. */
+static void on_open_settings_clicked(GtkButton *button, gpointer user_data) {
+  (void)button;
+
+  PrefsState *state = user_data;
+  const char *editor = g_getenv("VISUAL");
+
+  if (!editor || *editor == '\0')
+    editor = g_getenv("EDITOR");
+
+  if (!editor || *editor == '\0')
+    editor = "xdg-open";
+
+  g_autofree char *quoted =
+      g_shell_quote(state->config_path ? state->config_path : "");
+  g_autofree char *command = g_strdup_printf("%s +1 %s", editor, quoted);
+
+  whelk_command_spawn(command);
+}
+
 static void build_more_page(PrefsState *state, GtkStack *stack) {
   GtkWidget *body = page_body(stack, "more", "More");
   GtkWidget *tray = card_new("Tray", "The status icons hosted at the end of "
@@ -792,6 +816,22 @@ static void build_more_page(PrefsState *state, GtkStack *stack) {
   card_note(clock,
             "The clock's click and right-click actions, calendar tooltip and "
             "alternate format stay in settings.scm.");
+
+  GtkWidget *escape = card_new(
+      "Everything else in the file",
+      "Modules, keybindings and launcher modes this window does not edit.");
+
+  gtk_box_append(GTK_BOX(body), escape);
+
+  GtkWidget *open = gtk_button_new_with_label("Open settings.scm at line 1");
+
+  gtk_widget_set_halign(open, GTK_ALIGN_START);
+  g_signal_connect(open, "clicked", G_CALLBACK(on_open_settings_clicked),
+                   state);
+  gtk_box_append(GTK_BOX(escape), open);
+  card_note(escape,
+            "Your $VISUAL or $EDITOR, at the first line.  The window edits "
+            "only what it can undo; the rest is a line in a file you own.");
 }
 
 /* =========================================================================

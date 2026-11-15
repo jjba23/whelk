@@ -114,8 +114,39 @@ static gboolean save_keyfile(const char *path, GKeyFile *file) {
   return g_file_set_contents(path, data, (gssize)length, NULL);
 }
 
-gboolean whelk_widget_state_load_position(const char *path, const char *id,
-                                          int *x, int *y) {
+/* A position is "x,y".  Reading it out of one key is the whole parser, so the
+ * monitor-specific and fallback keys share it. */
+static gboolean read_position(GKeyFile *file, const char *key, int *x, int *y) {
+  g_autofree char *value =
+      g_key_file_get_string(file, POSITION_GROUP, key, NULL);
+
+  if (!value)
+    return FALSE;
+
+  int parsed_x = 0;
+  int parsed_y = 0;
+
+  if (sscanf(value, "%d,%d", &parsed_x, &parsed_y) != 2 || parsed_x < 0 ||
+      parsed_y < 0)
+    return FALSE;
+
+  *x = parsed_x;
+  *y = parsed_y;
+  return TRUE;
+}
+
+/* The key a placement is stored under.  "default" is how a settings file says
+ * "no monitor in particular", so it is the monitor-less key too. */
+static char *position_key(const char *id, const char *monitor) {
+  if (!monitor || *monitor == '\0' || g_strcmp0(monitor, "default") == 0)
+    return g_strdup(id);
+
+  return g_strdup_printf("%s@%s", id, monitor);
+}
+
+gboolean whelk_widget_state_load_position_for(const char *path, const char *id,
+                                              const char *monitor, int *x,
+                                              int *y) {
   if (!path || !id || !x || !y)
     return FALSE;
 
@@ -124,28 +155,26 @@ gboolean whelk_widget_state_load_position(const char *path, const char *id,
   if (!file)
     return FALSE;
 
-  g_autofree char *value =
-      g_key_file_get_string(file, POSITION_GROUP, id, NULL);
-  gboolean found = FALSE;
+  g_autofree char *key = position_key(id, monitor);
+  gboolean found = read_position(file, key, x, y);
 
-  if (value) {
-    int parsed_x = 0;
-    int parsed_y = 0;
-
-    if (sscanf(value, "%d,%d", &parsed_x, &parsed_y) == 2 &&
-        parsed_x >= 0 && parsed_y >= 0) {
-      *x = parsed_x;
-      *y = parsed_y;
-      found = TRUE;
-    }
-  }
+  /* The monitor is gone, or this widget was placed before positions were kept
+   * per monitor: the monitor-less key is the last place it was seen. */
+  if (!found && g_strcmp0(key, id) != 0)
+    found = read_position(file, id, x, y);
 
   g_key_file_free(file);
   return found;
 }
 
-gboolean whelk_widget_state_save_position(const char *path, const char *id,
-                                          int x, int y) {
+gboolean whelk_widget_state_load_position(const char *path, const char *id,
+                                          int *x, int *y) {
+  return whelk_widget_state_load_position_for(path, id, NULL, x, y);
+}
+
+gboolean whelk_widget_state_save_position_for(const char *path, const char *id,
+                                              const char *monitor, int x,
+                                              int y) {
   if (!path || !id || x < 0 || y < 0)
     return FALSE;
 
@@ -156,12 +185,25 @@ gboolean whelk_widget_state_save_position(const char *path, const char *id,
 
   g_autofree char *value = g_strdup_printf("%d,%d", x, y);
 
+  if (monitor && *monitor && g_strcmp0(monitor, "default") != 0) {
+    g_autofree char *key = position_key(id, monitor);
+
+    g_key_file_set_string(file, POSITION_GROUP, key, value);
+  }
+
+  /* Written even when a monitor was named: this is what an unplugged monitor
+   * falls back to, and what a widget with no monitor of its own reads. */
   g_key_file_set_string(file, POSITION_GROUP, id, value);
 
   const gboolean saved = save_keyfile(path, file);
 
   g_key_file_free(file);
   return saved;
+}
+
+gboolean whelk_widget_state_save_position(const char *path, const char *id,
+                                          int x, int y) {
+  return whelk_widget_state_save_position_for(path, id, NULL, x, y);
 }
 
 static char *state_key(const char *id, const char *key) {

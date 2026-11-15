@@ -16,10 +16,17 @@
  * of the shell should not carry an `if niri' in every module.
  *
  * WheLK talks to the compositor the way a shell has to: through the tools that
- * exist.  niri and sway answer over their own IPC; on an X11 desktop, EWMH is
- * the same information in `xprop'.  GNOME's Wayland session offers a shell
- * none of this (Shell.Eval is gone), so that session is named honestly and the
- * modules that need a compositor go quiet instead of printing errors.
+ * exist.  niri and sway answer over their own IPC, Hyprland through `hyprctl'
+ * (its `-j' output is JSON, like niri's), and River through `riverctl' for the
+ * actions it can carry out.  On an X11 desktop, EWMH is the same information
+ * in `xprop'.  GNOME's Wayland session offers a shell none of this (Shell.Eval
+ * is gone), so that session is named honestly and the modules that need a
+ * compositor go quiet instead of printing errors.
+ *
+ * River's `riverctl' has no query for the focused view -- that information is
+ * published on the `river-status' Wayland protocol, which whelk does not bind
+ * yet -- so on River the actions work and the focused-window readings stay
+ * empty.  The session says which half it can answer instead of guessing.
  *
  * The environment is the first guess, never the verdict: NIRI_SOCKET and
  * SWAYSOCK are set for the processes a compositor spawns, and absent for one
@@ -33,6 +40,8 @@
 typedef enum {
   WHELK_SESSION_NIRI,
   WHELK_SESSION_SWAY,
+  WHELK_SESSION_HYPRLAND,
+  WHELK_SESSION_RIVER,
   WHELK_SESSION_X11,
   WHELK_SESSION_WAYLAND, /* a Wayland compositor with no shell-facing IPC */
 } WhelkSession;
@@ -69,7 +78,7 @@ const char *whelk_session_probe_command(WhelkSession session);
  */
 gboolean whelk_session_command_answers(const char *command, guint timeout_ms);
 
-/* "niri", "sway", "x11" or "wayland". */
+/* "niri", "sway", "hyprland", "river", "x11" or "wayland". */
 const char *whelk_session_name(WhelkSession session);
 
 /* The command that prints the focused window in the shape this session's

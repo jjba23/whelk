@@ -202,6 +202,8 @@ whelk_sources = files(
   'src/modules/cpu.c',
   'src/modules/custom.c',
   'src/modules/dnd.c',
+  'src/modules/inhibit.c',
+  'src/util/inhibitors.c',
   'src/modules/keyboard.c',
   'src/modules/language.c',
   'src/modules/memory.c',
@@ -302,6 +304,10 @@ unit_tests = [
     'sources': ['src/util/json.c'],
   },
   {
+    'id': 'inhibitors',
+    'sources': ['src/util/inhibitors.c'],
+  },
+  {
     'id': 'chord',
     'sources': ['src/util/chord.c'],
   },
@@ -341,6 +347,7 @@ unit_tests = [
       'src/preferences.c',
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/command.c',
       'src/util/format.c',
       'src/util/menudict.c',
       'src/util/chord.c',

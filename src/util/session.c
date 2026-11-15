@@ -35,6 +35,8 @@ static const SessionProbe probes[] = {
      "niri msg -j version answered"},
     {WHELK_SESSION_SWAY, SWAY_SOCKET_DISCOVERY "swaymsg -t get_version",
      "swaymsg -t get_version answered"},
+    {WHELK_SESSION_HYPRLAND, "hyprctl version", "hyprctl version answered"},
+    {WHELK_SESSION_RIVER, "riverctl -version", "riverctl -version answered"},
 };
 
 /* The probe's shell is looked up rather than assumed: a Guix System and the
@@ -101,6 +103,8 @@ gboolean whelk_session_command_answers(const char *command, guint timeout_ms) {
 static WhelkSession from_environment(const char **evidence) {
   const char *niri = g_getenv("NIRI_SOCKET");
   const char *sway = g_getenv("SWAYSOCK");
+  const char *hyprland = g_getenv("HYPRLAND_INSTANCE_SIGNATURE");
+  const char *river = g_getenv("RIVER_SOCKET");
   const char *display = g_getenv("DISPLAY");
   const char *wayland = g_getenv("WAYLAND_DISPLAY");
   const char *type = g_getenv("XDG_SESSION_TYPE");
@@ -117,6 +121,22 @@ static WhelkSession from_environment(const char **evidence) {
       *evidence = "SWAYSOCK";
 
     return WHELK_SESSION_SWAY;
+  }
+
+  /* Hyprland exports its instance signature to everything it starts; river
+   * relies on the probe, because it publishes no socket variable of its own. */
+  if (hyprland && *hyprland) {
+    if (evidence)
+      *evidence = "HYPRLAND_INSTANCE_SIGNATURE";
+
+    return WHELK_SESSION_HYPRLAND;
+  }
+
+  if (river && *river) {
+    if (evidence)
+      *evidence = "RIVER_SOCKET";
+
+    return WHELK_SESSION_RIVER;
   }
 
   if (type && g_ascii_strcasecmp(type, "x11") == 0) {
@@ -187,8 +207,9 @@ WhelkSession whelk_session_detect(void) {
                  evidence);
     else
       LOG_C_WARN("Session",
-                 "no compositor answered (niri msg, swaymsg); the window and "
-                 "menu modules stay empty until one does");
+                 "no compositor answered (niri msg, swaymsg, hyprctl, "
+                 "riverctl); the window and menu modules stay empty until "
+                 "one does");
 
     g_once_init_leave(&detected, 1);
   }
@@ -202,6 +223,10 @@ const char *whelk_session_name(WhelkSession session) {
     return "niri";
   case WHELK_SESSION_SWAY:
     return "sway";
+  case WHELK_SESSION_HYPRLAND:
+    return "hyprland";
+  case WHELK_SESSION_RIVER:
+    return "river";
   case WHELK_SESSION_X11:
     return "x11";
   case WHELK_SESSION_WAYLAND:
@@ -217,6 +242,12 @@ char *whelk_session_focused_window_command(WhelkSession session) {
     return g_strdup("niri msg -j focused-window");
   case WHELK_SESSION_SWAY:
     return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg -t get_tree");
+  case WHELK_SESSION_HYPRLAND:
+    return g_strdup("hyprctl activewindow -j");
+  case WHELK_SESSION_RIVER:
+    /* riverctl has no query for the focused view; that is published on the
+     * river-status protocol, which whelk does not bind yet. */
+    break;
   case WHELK_SESSION_X11:
     /* EWMH: the active window's id, then its name and class.  A GTK window
      * also publishes the exact bus name and menu object paths it uses; those
@@ -241,6 +272,10 @@ char *whelk_session_close_window_command(WhelkSession session) {
     return g_strdup("niri msg action close-window");
   case WHELK_SESSION_SWAY:
     return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg kill");
+  case WHELK_SESSION_HYPRLAND:
+    return g_strdup("hyprctl dispatch killactive");
+  case WHELK_SESSION_RIVER:
+    return g_strdup("riverctl close");
   case WHELK_SESSION_X11:
     /* Whichever of the two EWMH clients the desktop happens to ship. */
     return g_strdup("wmctrl -c :ACTIVE: 2>/dev/null || "
@@ -258,6 +293,10 @@ char *whelk_session_fullscreen_window_command(WhelkSession session) {
     return g_strdup("niri msg action fullscreen-window");
   case WHELK_SESSION_SWAY:
     return g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg fullscreen toggle");
+  case WHELK_SESSION_HYPRLAND:
+    return g_strdup("hyprctl dispatch fullscreen 0");
+  case WHELK_SESSION_RIVER:
+    return g_strdup("riverctl toggle-fullscreen");
   case WHELK_SESSION_X11:
     return g_strdup("wmctrl -r :ACTIVE: -b toggle,fullscreen 2>/dev/null || "
                     "xdotool getactivewindow key F11 2>/dev/null");
@@ -293,6 +332,19 @@ void whelk_session_window_actions(WhelkSession session,
     actions->move_right = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move right");
     actions->move_up = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move up");
     actions->move_down = g_strdup(SWAY_SOCKET_DISCOVERY "swaymsg move down");
+    break;
+  case WHELK_SESSION_HYPRLAND:
+    actions->maximize = g_strdup("hyprctl dispatch fullscreen 1");
+    actions->float_window = g_strdup("hyprctl dispatch togglefloating");
+    actions->move_left = g_strdup("hyprctl dispatch movewindow l");
+    actions->move_right = g_strdup("hyprctl dispatch movewindow r");
+    actions->move_up = g_strdup("hyprctl dispatch movewindow u");
+    actions->move_down = g_strdup("hyprctl dispatch movewindow d");
+    break;
+  case WHELK_SESSION_RIVER:
+    /* riverctl floats the view, but its `move' takes a pixel delta rather than
+     * a direction, so the directional verbs stay unset on this session. */
+    actions->float_window = g_strdup("riverctl toggle-float");
     break;
   case WHELK_SESSION_X11:
     actions->maximize = g_strdup(
@@ -336,6 +388,36 @@ static gboolean parse_niri(const char *text, char **title, char **app_id) {
 
   const char *parsed_title = whelk_json_object_string(root, "title");
   const char *parsed_app = whelk_json_object_string(root, "app_id");
+  gboolean found = parsed_title != NULL || parsed_app != NULL;
+
+  if (found) {
+    *title = g_strdup(parsed_title ? parsed_title : "");
+    *app_id = g_strdup(parsed_app ? parsed_app : "");
+  }
+
+  whelk_json_free(root);
+
+  return found;
+}
+
+/* --- hyprland ------------------------------------------------------------ */
+
+/* `hyprctl activewindow -j' prints one object for the focused window.  The
+ * class is the app id; initialClass is what it was at launch, which is steadier
+ * for matching than a class an application can change at run time. */
+static gboolean parse_hyprland(const char *text, char **title, char **app_id) {
+  g_autoptr(GError) error = NULL;
+  WhelkJson *root = whelk_json_parse(text, &error);
+
+  if (!root)
+    return FALSE;
+
+  const char *parsed_title = whelk_json_object_string(root, "title");
+  const char *parsed_app = whelk_json_object_string(root, "initialClass");
+
+  if (!parsed_app)
+    parsed_app = whelk_json_object_string(root, "class");
+
   gboolean found = parsed_title != NULL || parsed_app != NULL;
 
   if (found) {
@@ -557,7 +639,8 @@ gint whelk_session_focused_pid(WhelkSession session, const char *text) {
                                  NULL, 10);
   }
 
-  if (session != WHELK_SESSION_NIRI && session != WHELK_SESSION_SWAY)
+  if (session != WHELK_SESSION_NIRI && session != WHELK_SESSION_SWAY &&
+      session != WHELK_SESSION_HYPRLAND)
     return 0;
 
   g_autoptr(GError) error = NULL;
@@ -566,10 +649,9 @@ gint whelk_session_focused_pid(WhelkSession session, const char *text) {
   if (!root)
     return 0;
 
-  const gint pid =
-      session == WHELK_SESSION_NIRI
-          ? (gint)whelk_json_object_number(root, "pid", 0)
-          : sway_focused_pid(root);
+  const gint pid = session == WHELK_SESSION_SWAY
+                       ? sway_focused_pid(root)
+                       : (gint)whelk_json_object_number(root, "pid", 0);
 
   whelk_json_free(root);
   return pid;
@@ -591,6 +673,10 @@ gboolean whelk_session_parse_focused(WhelkSession session, const char *text,
     return parse_niri(text, title, app_id);
   case WHELK_SESSION_SWAY:
     return parse_sway(text, title, app_id);
+  case WHELK_SESSION_HYPRLAND:
+    return parse_hyprland(text, title, app_id);
+  case WHELK_SESSION_RIVER:
+    break;
   case WHELK_SESSION_X11:
     return parse_x11(text, title, app_id);
   case WHELK_SESSION_WAYLAND:

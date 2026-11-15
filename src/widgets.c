@@ -194,6 +194,27 @@ static void widget_monitor_area(WidgetInstance *widget, int *width,
   }
 }
 
+/* The monitor a placement belongs to: the one the settings file names, or the
+ * one the widget's surface is actually on.  NULL when the display has no
+ * monitor model to ask, which leaves the placement in the monitor-less key. */
+static char *widget_monitor_key(WidgetInstance *widget) {
+  if (widget->config->monitor && *widget->config->monitor &&
+      g_strcmp0(widget->config->monitor, "default") != 0)
+    return g_strdup(widget->config->monitor);
+
+  if (!widget->display)
+    return NULL;
+
+  GtkWindow *window = whelk_surface_get_window(widget->surface);
+  GdkSurface *surface =
+      window ? gtk_native_get_surface(GTK_NATIVE(window)) : NULL;
+  GdkMonitor *monitor =
+      surface ? gdk_display_get_monitor_at_surface(widget->display, surface)
+              : NULL;
+
+  return monitor ? g_strdup(gdk_monitor_get_connector(monitor)) : NULL;
+}
+
 static void widget_drag_begin(GtkGestureDrag *gesture, double start_x,
                               double start_y, gpointer user_data) {
   (void)start_x;
@@ -247,9 +268,13 @@ static void widget_drag_end(GtkGestureDrag *gesture, double offset_x,
   if (handle)
     gtk_widget_set_cursor_from_name(handle, "grab");
 
-  if (widget->state_path && widget->widget_id)
-    whelk_widget_state_save_position(widget->state_path, widget->widget_id,
-                                     widget->config->x, widget->config->y);
+  if (widget->state_path && widget->widget_id) {
+    g_autofree char *monitor = widget_monitor_key(widget);
+
+    whelk_widget_state_save_position_for(widget->state_path, widget->widget_id,
+                                         monitor, widget->config->x,
+                                         widget->config->y);
+  }
 }
 
 /* The grip is the drag handle, not the whole card: a card's own on-click and
@@ -1682,8 +1707,11 @@ static WidgetInstance *widget_instance_new(GtkApplication *app,
   int x = widget->config->x;
   int y = widget->config->y;
 
-  if (whelk_widget_state_load_position(widget->state_path, widget->widget_id,
-                                       &x, &y)) {
+  g_autofree char *monitor_key = widget_monitor_key(widget);
+
+  if (whelk_widget_state_load_position_for(widget->state_path,
+                                            widget->widget_id, monitor_key, &x,
+                                            &y)) {
     int area_width = 0;
     int area_height = 0;
 

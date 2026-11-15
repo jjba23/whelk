@@ -13,6 +13,8 @@
 static void test_session_names(void) {
   g_assert_cmpstr(whelk_session_name(WHELK_SESSION_NIRI), ==, "niri");
   g_assert_cmpstr(whelk_session_name(WHELK_SESSION_SWAY), ==, "sway");
+  g_assert_cmpstr(whelk_session_name(WHELK_SESSION_HYPRLAND), ==, "hyprland");
+  g_assert_cmpstr(whelk_session_name(WHELK_SESSION_RIVER), ==, "river");
   g_assert_cmpstr(whelk_session_name(WHELK_SESSION_X11), ==, "x11");
   g_assert_cmpstr(whelk_session_name(WHELK_SESSION_WAYLAND), ==, "wayland");
 }
@@ -25,8 +27,16 @@ static void test_session_commands(void) {
   g_autofree char *x11 =
       whelk_session_focused_window_command(WHELK_SESSION_X11);
 
+  g_autofree char *hypr =
+      whelk_session_focused_window_command(WHELK_SESSION_HYPRLAND);
+
   g_assert_nonnull(strstr(niri, "niri msg -j focused-window"));
   g_assert_nonnull(strstr(sway, "swaymsg -t get_tree"));
+  g_assert_nonnull(strstr(hypr, "hyprctl activewindow -j"));
+
+  /* riverctl has no query for the focused view: the river-status protocol
+   * carries it, and whelk does not bind that yet, so the module stays quiet. */
+  g_assert_null(whelk_session_focused_window_command(WHELK_SESSION_RIVER));
   g_assert_nonnull(strstr(x11, "xprop"));
   g_assert_nonnull(strstr(x11, "_NET_ACTIVE_WINDOW"));
   g_assert_nonnull(strstr(x11, "_GTK_UNIQUE_BUS_NAME"));
@@ -42,8 +52,15 @@ static void test_session_commands(void) {
   g_autofree char *x11_close =
       whelk_session_close_window_command(WHELK_SESSION_X11);
 
+  g_autofree char *hypr_close =
+      whelk_session_close_window_command(WHELK_SESSION_HYPRLAND);
+  g_autofree char *river_close =
+      whelk_session_close_window_command(WHELK_SESSION_RIVER);
+
   g_assert_nonnull(strstr(niri_close, "close-window"));
   g_assert_nonnull(strstr(sway_close, "kill"));
+  g_assert_nonnull(strstr(hypr_close, "killactive"));
+  g_assert_nonnull(strstr(river_close, "riverctl close"));
   g_assert_nonnull(strstr(x11_close, "wmctrl"));
   g_assert_null(whelk_session_close_window_command(WHELK_SESSION_WAYLAND));
 
@@ -54,8 +71,15 @@ static void test_session_commands(void) {
   g_autofree char *x11_full =
       whelk_session_fullscreen_window_command(WHELK_SESSION_X11);
 
+  g_autofree char *hypr_full =
+      whelk_session_fullscreen_window_command(WHELK_SESSION_HYPRLAND);
+  g_autofree char *river_full =
+      whelk_session_fullscreen_window_command(WHELK_SESSION_RIVER);
+
   g_assert_nonnull(strstr(niri_full, "fullscreen-window"));
   g_assert_nonnull(strstr(sway_full, "fullscreen toggle"));
+  g_assert_nonnull(strstr(hypr_full, "fullscreen 0"));
+  g_assert_nonnull(strstr(river_full, "toggle-fullscreen"));
   g_assert_nonnull(strstr(x11_full, "toggle,fullscreen"));
   g_assert_null(whelk_session_fullscreen_window_command(WHELK_SESSION_WAYLAND));
 }
@@ -81,6 +105,39 @@ static void test_parse_niri(void) {
                                   &app_id));
 }
 
+static void test_parse_hyprland(void) {
+  char *title = NULL;
+  char *app_id = NULL;
+
+  g_assert_true(whelk_session_parse_focused(
+      WHELK_SESSION_HYPRLAND,
+      "{\"address\": \"0x55\", \"title\": \"Home\", \"class\": \"nautilus\","
+      " \"initialClass\": \"org.gnome.Nautilus\", \"pid\": 4242}",
+      &title, &app_id));
+  g_assert_cmpstr(title, ==, "Home");
+  /* initialClass is the launch-time identity and wins over a class the
+   * application can rewrite while it runs. */
+  g_assert_cmpstr(app_id, ==, "org.gnome.Nautilus");
+  g_free(title);
+  g_free(app_id);
+
+  /* No initialClass: the class is the fallback. */
+  g_assert_true(whelk_session_parse_focused(
+      WHELK_SESSION_HYPRLAND,
+      "{\"title\": \"Term\", \"class\": \"foot\"}", &title, &app_id));
+  g_assert_cmpstr(app_id, ==, "foot");
+  g_free(title);
+  g_free(app_id);
+
+  g_assert_false(whelk_session_parse_focused(
+      WHELK_SESSION_HYPRLAND, "{}", &title, &app_id));
+
+  /* river's session answers nothing about focus, and says so rather than
+   * inventing a window. */
+  g_assert_false(whelk_session_parse_focused(
+      WHELK_SESSION_RIVER, "{\"title\": \"Home\"}", &title, &app_id));
+}
+
 static void test_parse_pid(void) {
   const char *niri =
       "{\"id\": 5, \"title\": \"Home\", \"app_id\": \"org.gnome.Nautilus\","
@@ -91,6 +148,10 @@ static void test_parse_pid(void) {
 
   g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_NIRI, niri), ==,
                   4846);
+  g_assert_cmpint(
+      whelk_session_focused_pid(WHELK_SESSION_HYPRLAND,
+                                "{\"title\": \"Home\", \"pid\": 4242}"),
+      ==, 4242);
   g_assert_cmpint(whelk_session_focused_pid(WHELK_SESSION_SWAY, sway), ==,
                   911);
   g_assert_cmpint(whelk_session_focused_pid(
@@ -304,6 +365,7 @@ int main(int argc, char **argv) {
   g_test_add_func("/session/names", test_session_names);
   g_test_add_func("/session/commands", test_session_commands);
   g_test_add_func("/session/parse/niri", test_parse_niri);
+  g_test_add_func("/session/parse/hyprland", test_parse_hyprland);
   g_test_add_func("/session/parse/pid", test_parse_pid);
   g_test_add_func("/session/parse/sway", test_parse_sway);
   g_test_add_func("/session/parse/sway-x11", test_parse_sway_x11_window);

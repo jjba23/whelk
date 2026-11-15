@@ -48,7 +48,7 @@ is doing, and it is where you ask for things.  whelk does that with one binary.
 
 | You have                    | whelk gives you                                            |
 |-----------------------------+------------------------------------------------------------|
-| niri, sway, an X11 desktop  | a bar that docks itself, reserves its edge and stays out of the way |
+| niri, sway, Hyprland, river, an X11 desktop | a bar that docks itself, reserves its edge and stays out of the way |
 | a Waybar =config.jsonc=       | a =settings.scm= that is evaluated, not parsed               |
 | a =style.css=                 | bar keys for colour, font and radius, plus =#:css= for the rest |
 | nm-applet, Blueman          | a Wi-Fi and Bluetooth panel behind the bar's own modules    |
@@ -171,9 +171,13 @@ the documented one -- see [[#configuration][Configuration]].
   plus =frost=, =ember=, =mocha=, =midnight=, =sandstone= and =void=: materials
   and years, not products.  The built-in bar wears =gloss-2007=: dark graphite
   glass, a highlight across the top, and a square, black-hairlined menu bar.
-- *Sessions are asked, not assumed.* niri, sway and X11 each get their own
-  integration; what a session cannot do goes quiet, with one line in the log
-  saying why, instead of an error per frame.
+- *Sessions are asked, not assumed.* niri, sway, Hyprland, river and X11 each
+  get their own integration; what a session cannot do goes quiet, with one line
+  in the log saying why, instead of an error per frame.  Hyprland answers over
+  =hyprctl=, JSON like niri's.  river answers over =riverctl= for the window
+  actions it can carry out, but its focused view is published only on the
+  =river-status= protocol, which whelk does not bind yet -- so the window
+  reading stays empty there rather than guessing.
 - *Boring where it counts.* =-Werror=, unit tests for the pure halves, a Guile
   suite that pins the built-in bar, a hermetic Guix build, and CI that runs the
   same task you do.
@@ -214,9 +218,9 @@ the documented one -- see [[#configuration][Configuration]].
   the build refuses to produce a shell that could only lock and never unlock.
 - Meson, Ninja, a C17 compiler, =pkg-config=
 - Optional, found at build time: =libx11= (the X11 dock fallback)
-- Optional, found at run time: =niri= or =swaymsg= (compositor IPC),
-  =xprop= (X11 window focus), =wtype= or =xdotool= (typing a menu shortcut),
-  =nmcli=, =bluetoothctl=, =wlsunset=
+- Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
+  (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
+  menu shortcut), =nmcli=, =bluetoothctl=, =wlsunset=
 
 Nothing on that second list is required to start: whelk asks for what is there
 and hides what is not.
@@ -432,7 +436,7 @@ surface rather than a form dropped on the screen.  A prefix picks the mode.
 | Mode     | What it searches                                  | Prefix   |
 |----------+---------------------------------------------------+----------|
 | =app=      | every =.desktop= entry on the system (default)     |          |
-| =window=   | niri's open windows                               | =@=        |
+| =window=   | the focused window (niri, sway, Hyprland, X11)     | =@=        |
 | =run=      | a command, plus completions from =$PATH=           | =>=        |
 | =calc=     | arithmetic; =Enter= copies the result              | ===        |
 | =file=     | files and folders under =$HOME=, caches skipped    | =/=        |
@@ -908,8 +912,14 @@ same file that describes the bar.  The standard collection is one value:
 
 That is the set macOS Golden Gate puts in its widget gallery and this shell can
 power from Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
-**Notes**, **Reminders**, **World Clock** and **Stocks**.  The same records can
-be written out one at a time, placed anywhere on any output:
+**Notes**, **Reminders**, **World Clock** and **Stocks**.  Each card drags by
+its grip, snaps to an 8px grid and stays inside its monitor.  The position is
+remembered per monitor, so the same widget can sit somewhere different on the
+laptop panel and the desk screen; a monitor that is unplugged falls back to the
+last place the widget was seen, clamped into the screen that is left.
+
+The same records can be written out one at a time, placed anywhere on any
+output:
 
 #+begin_src scheme
   (configure-shell!
@@ -1116,6 +1126,7 @@ of the binary, which is what makes upgrading whelk safe.
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
 | =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
+| =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
 | =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
 | =menu-module=          | the focused application's menus                  | =#:shortcuts?=, =#:shortcut-tool=, =#:accelerator-style=, =#:app-name?=, =#:menu-command= |

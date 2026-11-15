@@ -53,6 +53,36 @@ gboolean whelk_widget_state_load_position(const char *path, const char *id,
 gboolean whelk_widget_state_save_position(const char *path, const char *id,
                                           int x, int y);
 
+/**
+ * whelk_widget_state_load_position_for:
+ * @path: the state file.
+ * @id: the widget's id.
+ * @monitor: (nullable): the monitor's connector name.
+ *
+ * The monitor-aware half of the placement memory.  A widget remembers where it
+ * was dragged on each monitor it has lived on, and falls back to the
+ * monitor-less position when the named one has none -- a monitor that is gone,
+ * or a placement saved before any monitor was recorded.
+ *
+ * Returns: TRUE when a position was found, monitor-specific first.
+ */
+gboolean whelk_widget_state_load_position_for(const char *path, const char *id,
+                                              const char *monitor, int *x,
+                                              int *y);
+
+/**
+ * whelk_widget_state_save_position_for:
+ * @path: the state file.
+ * @id: the widget's id.
+ * @monitor: (nullable): the monitor's connector name.
+ *
+ * Saves the position twice: under the monitor, and under the widget alone.  The
+ * second is the fallback that keeps a widget on screen when its monitor is
+ * unplugged, so the monitor's own memory is not lost either.
+ */
+gboolean whelk_widget_state_save_position_for(const char *path, const char *id,
+                                              const char *monitor, int x, int y);
+
 /* Read or write one string of per-widget state.  Passing NULL as VALUE
  * removes the key.  The returned string is owned by the caller. */
 char *whelk_widget_state_get(const char *path, const char *id,

@@ -83,6 +83,54 @@ static void test_positions(void) {
   g_rmdir(directory);
 }
 
+/* Dragging on a second monitor must not move the widget on the first one, and
+ * a monitor that is unplugged must not lose the widget: the monitor-less key is
+ * the fallback, and it is written on every save. */
+static void test_positions_per_monitor(void) {
+  g_autofree char *directory = g_dir_make_tmp("whelk-widgetstate-XXXXXX", NULL);
+  g_autofree char *path =
+      g_build_filename(directory, "widgets-settings.ini", NULL);
+  int x = 0;
+  int y = 0;
+
+  g_assert_nonnull(directory);
+  g_assert_true(whelk_widget_state_save_position_for(
+      path, "widget-clock-0", "DP-1", 32, 64));
+  g_assert_true(whelk_widget_state_save_position_for(
+      path, "widget-clock-0", "HDMI-A-1", 900, 400));
+
+  g_assert_true(whelk_widget_state_load_position_for(
+      path, "widget-clock-0", "DP-1", &x, &y));
+  g_assert_cmpint(x, ==, 32);
+  g_assert_cmpint(y, ==, 64);
+  g_assert_true(whelk_widget_state_load_position_for(
+      path, "widget-clock-0", "HDMI-A-1", &x, &y));
+  g_assert_cmpint(x, ==, 900);
+  g_assert_cmpint(y, ==, 400);
+
+  /* The monitor is gone: the last saved position is the fallback. */
+  g_assert_true(whelk_widget_state_load_position_for(
+      path, "widget-clock-0", "eDP-9", &x, &y));
+  g_assert_cmpint(x, ==, 900);
+  g_assert_cmpint(y, ==, 400);
+
+  /* No monitor at all reads the same fallback. */
+  g_assert_true(whelk_widget_state_load_position(path, "widget-clock-0", &x,
+                                                 &y));
+  g_assert_cmpint(x, ==, 900);
+  g_assert_cmpint(y, ==, 400);
+
+  /* A monitor-less save only writes the fallback, and leaks into no monitor. */
+  g_assert_true(whelk_widget_state_save_position(path, "widget-clock-0", 8, 16));
+  g_assert_true(whelk_widget_state_load_position_for(
+      path, "widget-clock-0", "DP-1", &x, &y));
+  g_assert_cmpint(x, ==, 32);
+  g_assert_cmpint(y, ==, 64);
+
+  g_unlink(path);
+  g_rmdir(directory);
+}
+
 static void test_widget_state(void) {
   g_autofree char *directory = g_dir_make_tmp("whelk-widgetstate-XXXXXX", NULL);
   g_autofree char *path =
@@ -131,6 +179,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/widgetstate/snap", test_snap);
   g_test_add_func("/widgetstate/clamp", test_clamp);
   g_test_add_func("/widgetstate/positions", test_positions);
+  g_test_add_func("/widgetstate/positions-per-monitor",
+                  test_positions_per_monitor);
   g_test_add_func("/widgetstate/state", test_widget_state);
   g_test_add_func("/widgetstate/path", test_state_path);
 

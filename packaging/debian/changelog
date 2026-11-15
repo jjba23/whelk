@@ -1,3 +1,19 @@
+whelk (0.28.0-1) unstable; urgency=medium
+
+  * Hyprland is a session: the focused window comes from `hyprctl
+    activewindow -j`, and close, full-screen, maximise, float and the move
+    verbs go out through `hyprctl dispatch`.
+  * River is a session for the window actions `riverctl` can carry out; its
+    focused view is published only on the river-status protocol, so the
+    window reading stays empty there.
+  * Desktop widgets remember their dragged position per monitor, with the
+    monitor-less position as the fallback for a screen that is gone.
+  * A new inhibit module reads `systemd-inhibit --list` and names what is
+    blocking sleep or idle, and why.
+  * The settings window can open settings.scm at line 1 in $VISUAL/$EDITOR.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 20:00:00 +0100
+
 whelk (0.27.3-1) unstable; urgency=medium
 
   * A menu being listed is told it is being listed: WHELK_RETV=0 is set on
