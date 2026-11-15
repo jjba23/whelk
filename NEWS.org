@@ -15,6 +15,21 @@ Nothing yet.
 
 *[Released]*
 
+** v0.27.2 (2026-11-15)
+
+*** Changed
+
+- *The binary's linkage is documented.*  =README= gains "What the binary
+  links": what =ldd= shows, why libpam is not on that list, the candidate order
+  a run-time load tries, and what =readelf= can and cannot prove about a
+  packaged whelk.
+
+- *The lock screen's PAM failures have a troubleshooting entry.*  The three
+  causes behind "Authentication is unavailable. The screen stays locked." are
+  told apart by the log lines whelk already prints, with the status codes that
+  mean a wrong password and the service order that decides which stack
+  answered.
+
 ** v0.27.1 (2026-11-15)
 
 *** Fixed

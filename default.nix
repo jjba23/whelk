@@ -27,7 +27,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "whelk";
-  version = "0.27.1";
+  version = "0.27.2";
 
   strictDeps = true;
   __structuredAttrs = true;

@@ -1,3 +1,13 @@
+whelk (0.27.2-1) unstable; urgency=medium
+
+  * The README documents the binary's linkage: what ldd and readelf show, why
+    libpam is loaded at run time instead of linked, and the candidate order.
+  * The lock screen section documents the three PAM failure modes behind
+    "Authentication is unavailable", the log lines that tell them apart and the
+    status codes treated as a wrong password.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 16:00:00 +0100
+
 whelk (0.27.1-1) unstable; urgency=medium
 
   * The lock screen names the libpam it was built against as a run-time
