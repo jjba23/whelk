@@ -13,6 +13,47 @@ Nothing yet.
 
 *[Released]
 
+** v0.33.0 (2026-11-15)
+
+*** Changed
+
+- *The global menu no longer closes itself.*  Every menu update used to close
+  the popover before adopting the new tree, and one of those updates arrives
+  while a menu is being built: =AboutToShow= makes an application publish
+  =LayoutUpdated= the moment somebody opens its menu, so the menu the reader
+  had just opened was taken away and put back.  The same happened for
+  =org.gtk.Menus= =Changed= and for an AT-SPI refresh.  A tree is now compared
+  before it is adopted -- menus, rows, labels, chords, enabled state, and the
+  DBusMenu id or AT-SPI address a click would send -- and a tree that says the
+  same thing is not rebuilt at all.
+- *A tree that really changed keeps the menu where it was.*  The open menu is
+  remembered by label (the top-level menu, each open submenu, the row the
+  keyboard was on), the new tree is rendered, and the menu is opened again on
+  the new rows: the same place, the same focus, with the new ids.  A label
+  that vanished stops the descent at the deepest level that still exists
+  instead of closing everything.  Choosing a row, a click outside and a focus
+  change to another application still close the menu as before.
+
+*** Added
+
+- *=whelk_menubar_equal()=*, in =util/menutree.c=: two menubars are the same
+  when nothing a reader could see -- or a click could use -- differs.  It is
+  pure data, so the rule is tested without a display: an identical tree, a
+  changed chord, a toggled entry, a moved id, a deeper submenu and an added
+  rule each have a case in =tests/test_menutree.c=.
+
+*** Fixed
+
+- *A menu with no rows no longer draws a button that opens nothing.*  A
+  producer can name a menu it has nothing to put in; the bar now leaves it out
+  rather than showing an empty popover.
+
+*** Verified
+
+- The host suite passes (44 test binaries, including the four new =menutree=
+  equality cases), and the shell starts, builds its bar and shuts down on a
+  headless Broadway display inside a private session bus.
+
 ** v0.32.2 (2026-11-15)
 
 *** Fixed
