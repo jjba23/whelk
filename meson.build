@@ -7,7 +7,7 @@
 # Project Initialization & Build Options
 # ------------------------------------------------------------------------------
 project('whelk', 'c',
-  version: '0.29.0',
+  version: '0.30.0',
   meson_version: '>= 0.62.0',
   default_options: [
     'c_std=gnu17',            # Target standard C17 with GNU extensions
@@ -174,7 +174,28 @@ install_subdir(
 # ------------------------------------------------------------------------------
 # Source Code Definitions & Executable Build
 # ------------------------------------------------------------------------------
-inc = include_directories('src')
+inc = include_directories('src', '.')
+
+# river's focused view lives only on the river-status protocol.  There is no
+# riverctl query for it, so the protocol is scanned the same way the shell's
+# other Wayland interfaces are: at build time, into the build directory.
+wayland_scanner = find_program('wayland-scanner')
+river_protocol_xml = files('protocol/river-status-unstable-v1.xml')
+river_protocol_header = custom_target(
+  'river-status-client-protocol.h',
+  input: river_protocol_xml,
+  output: 'river-status-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  build_by_default: true,
+)
+river_protocol_code = custom_target(
+  'river-status-client-protocol.c',
+  input: river_protocol_xml,
+  output: 'river-status-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  depends: river_protocol_header,
+  build_by_default: true,
+)
 
 whelk_sources = files(
   'src/about.c',
@@ -182,6 +203,7 @@ whelk_sources = files(
   'src/clipboard.c',
   'src/config.c',
   'src/guile_bridge.c',
+  'src/idle.c',
   'src/launcher.c',
   'src/locker.c',
   'src/module.c',
@@ -240,13 +262,16 @@ whelk_sources = files(
   'src/util/menuprobe.c',
   'src/util/gtkmenu.c',
   'src/util/hostinfo.c',
+  'src/util/idlepolicy.c',
   'src/util/session.c',
   'src/util/shortcutmaps.c',
   'src/util/desktop.c',
   'src/util/nmcli.c',
+  'src/util/riverstatus.c',
   'src/util/sysfs.c',
   'src/util/trayicon.c',
   'src/util/widgetstate.c',
+  'src/util/workspaces.c',
   'src/widgets.c',
 )
 
@@ -256,6 +281,8 @@ whelk_exe = executable('whelk',
   whelk_sources,
   whelk_main_source,
   whelk_resources,
+  river_protocol_header,
+  river_protocol_code,
   include_directories: inc,
   dependencies: whelk_deps,
   gnu_symbol_visibility: 'hidden',
@@ -268,6 +295,8 @@ bar_preview = executable('bar_preview',
   'tests/bar_preview.c',
   whelk_sources,
   whelk_resources,
+  river_protocol_header,
+  river_protocol_code,
   include_directories: inc,
   dependencies: whelk_deps,
   install: false,
@@ -392,6 +421,14 @@ unit_tests = [
     'sources': ['src/util/launcherkeys.c'],
   },
   {
+    'id': 'idle',
+    'sources': [
+      'src/idle.c',
+      'src/util/idlepolicy.c',
+      'src/util/inhibitors.c',
+    ],
+  },
+  {
     'id': 'filesearch',
     'sources': ['src/util/filesearch.c'],
   },
@@ -446,6 +483,10 @@ unit_tests = [
   {
     'id': 'session',
     'sources': ['src/util/session.c', 'src/util/json.c'],
+  },
+  {
+    'id': 'workspaces',
+    'sources': ['src/util/workspaces.c', 'src/util/json.c'],
   },
   # The About window's readings: the parsers take the text, so the per-core
   # "processor : 0" line and a missing MemAvailable are testable here.

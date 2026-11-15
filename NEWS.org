@@ -11,9 +11,57 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 Nothing yet.
 
----------
-
 *[Released]*
+
+** v0.30.0 (2026-11-15)
+
+*** Added
+
+- *One idle and inhibit manager.*  The new =WhelkIdle= owns the logind
+  =IdleHint= subscription, the one lock countdown, whelk's presentation
+  inhibitor (a real logind =idle= lock held by an fd) and the do-not-disturb
+  flag.  =idle-settings #:lock-after= sets the delay: =0= keeps the old
+  lock-on-first-hint policy, a positive value waits that long, and a negative
+  value disables timed locking.  The notification service, the DND module and
+  the centre read the manager's flag instead of keeping copies.
+- *Inhibit and idle diagnostics.*  =whelk --inhibit= takes or releases the
+  presentation inhibitor, =--inhibit-reason= says why, and =whelk
+  --idle-status= reports the session's current hint, the countdown's decision,
+  whelk's inhibitor, DND and every inhibitor =systemd-inhibit= lists.  The
+  =inhibit= application action and the README's "why did the screen blank, or
+  not" section answer the same question from a keybinding and from prose.
+- *Hyprland and niri workspaces.*  =workspaces-module= now reads both IPC
+  shapes: niri's =idx=/=is_active=/=active_window_id= answer and Hyprland's
+  =workspaces= joined with =monitors= so each monitor's active workspace is
+  marked.  A click focuses the same index or id the session addresses, empty
+  workspaces keep their `.empty` CSS class, and Hyprland's scratchpad
+  workspaces are filtered out.  The parser is a pure unit with real-shape
+  tests.
+- *river's focused window, through the protocol it actually publishes.*
+  =riverctl= has no focused-view query, so whelk now scans the
+  =river-status-unstable-v1= protocol at build time, opens a second Wayland
+  connection, and listens to =zriver_seat_status_v1.focused_view=.  The title
+  drives =window-module=; river does not publish an application id, so
+  ={app-id}= is honestly empty and the module does not invent one.
+
+*** Fixed
+
+- *Module overrides follow the module, not its slot.*  A module override is
+  now keyed by the module's kind and its occurrence among modules of that kind
+  (=module-clock-0-format= is the first clock, =module-clock-1-format= the
+  second) instead of by its position in the bar.  Adding or reordering another
+  kind can no longer hide or reconfigure a different module.  Positional keys
+  from 0.29 and earlier are ignored rather than applied to the wrong card; the
+  *Modules* page writes the new keys.
+
+*** Verified
+
+- The host build and the Meson suite pass: 44 tests, including the workspace
+  parser's niri and Hyprland answer shapes, the river focused-view parser, and
+  the module-override regression that inserts a module before the existing
+  cards.
+
+---------
 
 ** v0.29.0 (2026-11-15)
 

@@ -9,6 +9,7 @@
   meson,
   ninja,
   pkg-config,
+  wayland-scanner,
   makeWrapper,
   wrapGAppsHook4,
   glib,
@@ -27,7 +28,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "whelk";
-  version = "0.29.0";
+  version = "0.30.0";
 
   strictDeps = true;
   __structuredAttrs = true;
@@ -48,6 +49,7 @@ stdenv.mkDerivation (finalAttrs: {
     meson
     ninja
     pkg-config
+    wayland-scanner
     makeWrapper
     glib
     wrapGAppsHook4

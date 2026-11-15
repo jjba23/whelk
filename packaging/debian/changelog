@@ -1,3 +1,21 @@
+whelk (0.30.0-1) unstable; urgency=medium
+
+  * The shell owns the logind idle hint, its lock countdown, the
+    presentation inhibitor and the do-not-disturb flag; the new inhibit
+    module only reads `systemd-inhibit --list`.
+  * `whelk --inhibit`, `--inhibit-reason` and `--idle-status` expose that
+    manager, and the README explains the lock timer's decision.
+  * The workspaces module reads niri's and Hyprland's IPC shapes, including
+    the active workspace on each Hyprland monitor.
+  * River's focused window is read from the river-status protocol; the
+    window title is shown, and `{app-id}` stays empty because river does not
+    publish one.
+  * Module overrides are keyed by module kind and occurrence instead of bar
+    position, so adding or reordering another kind cannot move a saved
+    setting.  Positional keys from earlier releases are ignored.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sun, 15 Nov 2026 22:00:00 +0100
+
 whelk (0.29.0-1) unstable; urgency=medium
 
   * The settings window gains a Modules page: every module on the first bar,
