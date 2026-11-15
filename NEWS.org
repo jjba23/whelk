@@ -7,11 +7,50 @@ All notable changes to whelk. Changes are listed per release (tag), and within e
 
 This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioning]].
 
-*[Unreleased]*
+*[Unreleased]
 
 Nothing yet.
 
-*[Released]*
+*[Released]
+
+** v0.31.0 (2026-11-15)
+
+*** Added
+
+- *A resizable launcher with icon and text zoom.*  Drag the card's lower-right
+  grip to resize it, or use the footer's *Icons* and *Text* buttons; the footer
+  shows the current pixel size and percentage.  Both the drag and the buttons
+  write ordinary GUI overrides, so the next launcher opens the same way.  The
+  starting geometry comes from a bar's =#:launcher-width=,
+  =#:launcher-height=, =#:launcher-icon-size= and =#:launcher-font-scale=, and
+  the settings window's *Launcher* page edits the same four values.  Text zoom
+  scales the bar's configured font rather than replacing it, so =pt=, =px= and
+  =em= sizes all keep their unit.
+
+*** Changed
+
+- *The module editor preserves an option's Scheme type.*  The bridge records
+  whether each option arrived as a string, symbol, boolean, exact integer,
+  decimal number, list or something else, and the window chooses its control
+  from that type.  A symbol is written back with
+  =whelk_bridge_save_preference_symbol=, so a module that compares
+  =#:accelerator-style 'cua= with =eq?= keeps seeing a symbol after an edit;
+  decimal numbers get a spin button and are written back as numbers.  List
+  values and options containing line breaks still stay in =settings.scm=, and
+  the page says so rather than flattening them into text.
+
+*** Fixed
+
+- *Decimal options no longer become zero under a comma-decimal locale.*  Scheme
+  numbers used to reach C through a locale-aware =%g=, while the option readers
+  parse with =g_ascii_strtod=.  The bridge now formats with =g_ascii_formatd=,
+  so =0.85= stays =0.85= and not =0,85=.
+
+*** Verified
+
+- The host build and the Meson suite pass: 44 tests, including real settings
+  widgets for a symbol option, a decimal option and a list option that the
+  editor correctly leaves alone, plus the launcher's size and zoom bounds.
 
 ** v0.30.0 (2026-11-15)
 
