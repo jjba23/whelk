@@ -76,6 +76,54 @@ const char *whelk_lock_pam_path(void);
  * A symlink in the way is refused too. */
 char *whelk_lock_pam_confdir(const char *runtime_dir);
 
+/* =========================================================================
+ * THE HOST'S PASSWORD HELPER
+ * =========================================================================
+ * A store-built whelk (Nix, Guix) links its own C library, so it cannot load
+ * the host's libpam: that library needs the host's libaudit and libcrypt,
+ * which are not in the store's search path.  The store's libpam loads, but its
+ * pam_unix cannot exec the host's setuid `unix_chkpwd', so every password
+ * returns PAM_AUTHINFO_UNAVAIL -- the lock screen's "Authentication is
+ * unavailable".
+ *
+ * The host does install one helper that answers the local password question
+ * from any process: `unix_chkpwd', setuid root and owned by shadow.  It is
+ * what the host's own pam_unix execs, so asking it directly uses the same
+ * credential check without loading a foreign libpam.  It is only consulted
+ * after PAM has failed in a way that means "this library cannot reach the
+ * store", and only when the stack that refused is whelk's own pam_unix
+ * service: an administrator's `whelk-lock' or `login' policy is never
+ * bypassed.
+ */
+
+typedef enum {
+  WHELK_LOCAL_OK,
+  WHELK_LOCAL_DENIED,
+  WHELK_LOCAL_UNAVAILABLE,
+} WhelkLocalResult;
+
+/* The host's setuid password helper, or NULL when this machine has none
+ * (a build sandbox, a container without shadow).  The path is only returned
+ * when the file is a regular file owned by root with the setuid bit set and
+ * no group or world write permission.  Free with g_free(). */
+char *whelk_lock_local_helper(void);
+
+/* Verifies `password' for the session user through that helper.  The password
+ * is written to the helper's standard input and wiped from whelk's copy
+ * immediately afterwards; it is never placed on a command line.  Returns
+ * WHELK_LOCAL_UNAVAILABLE when no trustworthy helper exists, so a lock screen
+ * that cannot verify stays locked. */
+WhelkLocalResult whelk_lock_local_verify(const char *password);
+
+/* TRUE when the library whelk loaded is a package manager's copy (a Nix or
+ * Guix store path) *and* the host has its own libpam.  That combination means
+ * the library cannot see the host's configuration or module directory, so
+ * every answer it gives says more about the build than about the password:
+ * `pam_start("login")' reads the store's `etc/pam.d', which has no such
+ * service.  The locker treats an "unavailable" answer from that combination
+ * as the build's fault and verifies through the host's helper instead. */
+gboolean whelk_lock_pam_missing_host_policy(void);
+
 G_END_DECLS
 
 #endif // WHELK_LOCKAUTH_H

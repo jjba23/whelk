@@ -8,7 +8,12 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <glib/gstdio.h>
+#include <pthread.h>
+#include <signal.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /* The host's fixed locations, most specific first: /usr/lib64 is Fedora,
@@ -194,3 +199,173 @@ const WhelkPam *whelk_lock_pam_open(void) {
 }
 
 const char *whelk_lock_pam_path(void) { return pam_api_path; }
+
+gboolean whelk_lock_pam_missing_host_policy(void) {
+  if (!pam_api_path)
+    return FALSE;
+
+  const gboolean store_built = g_str_has_prefix(pam_api_path, "/nix/store/") ||
+                               g_str_has_prefix(pam_api_path, "/gnu/store/");
+
+  if (!store_built)
+    return FALSE;
+
+  /* A machine whose PAM lives entirely in the store (NixOS, Guix System) has
+   * no host policy to miss; only a distribution host does. */
+  g_auto(GStrv) candidates = whelk_lock_pam_library_candidates();
+
+  for (guint i = 0; candidates[i]; i++) {
+    if ((g_str_has_prefix(candidates[i], "/usr/") ||
+         g_str_has_prefix(candidates[i], "/lib")) &&
+        g_file_test(candidates[i], G_FILE_TEST_IS_REGULAR))
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+/* =========================================================================
+ * THE HOST'S PASSWORD HELPER
+ * =========================================================================
+ * See the header for why a store-built whelk cannot use the libpam it loaded.
+ * The helper is the host's own setuid `unix_chkpwd'; asking it is the same
+ * check pam_unix makes, without needing the host's PAM library. */
+
+static const char *const local_helper_paths[] = {
+    "/usr/sbin/unix_chkpwd",
+    "/sbin/unix_chkpwd",
+    "/usr/libexec/unix_chkpwd",
+    NULL,
+};
+
+char *whelk_lock_local_helper(void) {
+  for (guint i = 0; local_helper_paths[i]; i++) {
+    struct stat info;
+
+    if (stat(local_helper_paths[i], &info) != 0)
+      continue;
+
+    if (!S_ISREG(info.st_mode) || info.st_uid != 0)
+      continue;
+
+    /* setuid root, and nobody else may replace the file.  A helper another
+     * user could write is a password thief, not an authenticator. */
+    if ((info.st_mode & (S_ISUID | S_IWGRP | S_IWOTH)) != S_ISUID)
+      continue;
+
+    return g_strdup(local_helper_paths[i]);
+  }
+
+  return NULL;
+}
+
+/* Writing to a pipe whose reader has exited raises SIGPIPE, and SIGPIPE would
+ * end the shell.  The authentication worker masks it around the one write and
+ * drains it afterwards, so the process-wide disposition is left alone. */
+static gboolean write_password(int fd, const char *password) {
+  sigset_t pipe_set, old_set, pending;
+  gboolean failed = FALSE;
+
+  sigemptyset(&pipe_set);
+  sigaddset(&pipe_set, SIGPIPE);
+  pthread_sigmask(SIG_BLOCK, &pipe_set, &old_set);
+
+  const char *cursor = password;
+
+  while (*cursor) {
+    ssize_t count = write(fd, cursor, strlen(cursor));
+
+    if (count <= 0) {
+      failed = TRUE;
+      break;
+    }
+
+    cursor += count;
+  }
+
+  /* unix_chkpwd reads one line; the newline flushes its read loop. */
+  if (!failed && write(fd, "\n", 1) != 1)
+    failed = TRUE;
+
+  if (failed) {
+    sigpending(&pending);
+
+    if (sigismember(&pending, SIGPIPE)) {
+      struct timespec zero = {0, 0};
+      sigtimedwait(&pipe_set, NULL, &zero);
+    }
+  }
+
+  pthread_sigmask(SIG_SETMASK, &old_set, NULL);
+
+  return !failed;
+}
+
+WhelkLocalResult whelk_lock_local_verify(const char *password) {
+  g_autofree char *helper = whelk_lock_local_helper();
+
+  if (!helper || !password)
+    return WHELK_LOCAL_UNAVAILABLE;
+
+  const char *user = g_get_user_name();
+
+  if (!user || !*user)
+    return WHELK_LOCAL_UNAVAILABLE;
+
+  int input[2];
+
+  if (pipe2(input, O_CLOEXEC) != 0)
+    return WHELK_LOCAL_UNAVAILABLE;
+
+  const pid_t pid = fork();
+
+  if (pid < 0) {
+    close(input[0]);
+    close(input[1]);
+    return WHELK_LOCAL_UNAVAILABLE;
+  }
+
+  if (pid == 0) {
+    /* The child only needs the password on stdin; its diagnostics are not
+     * useful to a lock screen and must not reach the session's terminal. */
+    if (dup2(input[0], STDIN_FILENO) < 0)
+      _exit(127);
+
+    int quiet = open("/dev/null", O_WRONLY | O_CLOEXEC);
+
+    if (quiet >= 0) {
+      dup2(quiet, STDOUT_FILENO);
+      dup2(quiet, STDERR_FILENO);
+    }
+
+    char *argv[] = {helper, (char *)user, "nonull", NULL};
+    char *envp[] = {"PATH=/usr/sbin:/usr/bin:/sbin:/bin", NULL};
+
+    execve(helper, argv, envp);
+    _exit(127);
+  }
+
+  close(input[0]);
+
+  const gboolean delivered = write_password(input[1], password);
+
+  close(input[1]);
+
+  int status = 0;
+  const pid_t reaped = waitpid(pid, &status, 0);
+
+  if (!delivered || reaped != pid || !WIFEXITED(status))
+    return WHELK_LOCAL_UNAVAILABLE;
+
+  switch (WEXITSTATUS(status)) {
+  case PAM_SUCCESS:
+    return WHELK_LOCAL_OK;
+  case PAM_AUTH_ERR:
+  case PAM_USER_UNKNOWN:
+  case PAM_MAXTRIES:
+  case PAM_NEW_AUTHTOK_REQD:
+    return WHELK_LOCAL_DENIED;
+  default:
+    return WHELK_LOCAL_UNAVAILABLE;
+  }
+}

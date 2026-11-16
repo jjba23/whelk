@@ -204,6 +204,64 @@ static void test_confdir_refuses_unsafe_paths(void) {
   g_rmdir(runtime);
 }
 
+/* The fallback the store-built lock screen needs: the host's setuid helper is
+ * found by path and refused unless it really is root's setuid file.  A machine
+ * without shadow (a build sandbox) simply has none. */
+static void test_local_helper_is_trustworthy(void) {
+  g_autofree char *helper = whelk_lock_local_helper();
+
+  if (!helper) {
+    g_test_skip("this machine has no unix_chkpwd");
+    return;
+  }
+
+  struct stat info;
+
+  g_assert_cmpint(stat(helper, &info), ==, 0);
+  g_assert_true(S_ISREG(info.st_mode));
+  g_assert_cmpuint(info.st_uid, ==, 0);
+  g_assert_true((info.st_mode & S_ISUID) != 0);
+  g_assert_cmpuint(info.st_mode & (S_IWGRP | S_IWOTH), ==, 0);
+}
+
+/* A wrong password must be a refusal, never an acceptance, and a password for
+ * another account must not be tried as this one.  unix_chkpwd does not record
+ * failures, so this cannot lock the test user out. */
+static void test_local_verify_refuses_a_wrong_password(void) {
+  if (!whelk_lock_local_helper()) {
+    g_test_skip("this machine has no unix_chkpwd");
+    return;
+  }
+
+  const WhelkLocalResult result =
+      whelk_lock_local_verify("whelk-lockauth-not-the-password");
+
+  g_assert_cmpint(result, !=, WHELK_LOCAL_OK);
+}
+
+/* Detection must speak about the build, not about the host: a library loaded
+ * from /usr is never "missing the host policy", and a store copy only is when
+ * the host actually has one. */
+static void test_missing_host_policy_is_about_the_build(void) {
+  const char *path = whelk_lock_pam_path();
+
+  if (!path) {
+    g_test_skip("this machine has no libpam at all");
+    return;
+  }
+
+  const gboolean store_built = g_str_has_prefix(path, "/nix/store/") ||
+                               g_str_has_prefix(path, "/gnu/store/");
+
+  if (!store_built)
+    g_assert_false(whelk_lock_pam_missing_host_policy());
+  else if (whelk_lock_pam_missing_host_policy())
+    g_assert_true(g_file_test("/usr/lib64/libpam.so.0", G_FILE_TEST_EXISTS) ||
+                  g_file_test("/lib64/libpam.so.0", G_FILE_TEST_EXISTS) ||
+                  g_file_test("/usr/lib/libpam.so.0", G_FILE_TEST_EXISTS) ||
+                  g_file_test("/lib/libpam.so.0", G_FILE_TEST_EXISTS));
+}
+
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
 
@@ -213,6 +271,11 @@ int main(int argc, char **argv) {
                   test_confdir_writes_a_minimal_service);
   g_test_add_func("/lockauth/confdir-refuses",
                   test_confdir_refuses_unsafe_paths);
+  g_test_add_func("/lockauth/local-helper", test_local_helper_is_trustworthy);
+  g_test_add_func("/lockauth/local-verify",
+                  test_local_verify_refuses_a_wrong_password);
+  g_test_add_func("/lockauth/missing-host-policy",
+                  test_missing_host_policy_is_about_the_build);
 
   return g_test_run();
 }

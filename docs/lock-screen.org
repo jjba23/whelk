@@ -78,6 +78,25 @@ comes back as =PAM_AUTHINFO_UNAVAIL=, which the lock screen reports as
 build's own store path is the last resort, which is what a NixOS or Guix System
 image needs.
 
+A store-built whelk can load its own libpam and still be unable to use it: the
+store's library reads the store's =etc/pam.d= (where =login= does not exist) and
+loads the store's =pam_unix=, whose =unix_chkpwd= is not setuid.  A distribution
+host that has its own =libpam= cannot load it into a store process -- its
+=libaudit.so.1= is not on the store's search path -- so the lock screen is left
+with a library that cannot answer.  When the loaded library is a store copy and
+the host has one of its own, an =unavailable= answer is the build's fault, not
+the password's, and whelk asks the host's setuid =unix_chkpwd= directly.  That is
+the same credential check =pam_unix= makes, through the helper every
+distribution installs for it; it adds no dependency and no setuid binary of
+whelk's own.  The helper is only trusted when it is a root-owned setuid regular
+file that group and others cannot write, and it is never asked when an
+administrator's =whelk-lock= or =login= stack answered for itself: that policy is
+authoritative, and =pam_faillock= or a locked account must not be talked around.
+
+=whelk --check-lock= (=whelk-rs --check-lock= in the Rust bootstrap) prints the
+same decision without asking for a password: the candidate list, the library
+that loads, the service that would answer and whether a helper was found.
+
 The service is chosen the same way.  =/etc/pam.d/whelk-lock= comes first and is
 authoritative: if it refuses, whelk stays locked instead of asking =login=.
 Then =/etc/pam.d/login=, the stack lock screens conventionally use.  Then a
@@ -124,6 +143,14 @@ journal keeps it:
   =$XDG_RUNTIME_DIR= is unset, so the per-user stack cannot be written.  A
   session without =XDG_RUNTIME_DIR= has no secure place for a service; whelk
   will not use =/tmp=.
+- *=the loaded libpam is a store copy that cannot read the host's PAM policy= --
+  a Nix or Guix build loaded its own library while the host has one, so every
+  answer it gives is about the build.  The next line is
+  =password accepted by the host's unix_chkpwd= or
+  =the host's unix_chkpwd refused the password=, and the lock behaves normally.
+  If it says =this machine has no setuid unix_chkpwd=, the host has no
+  =/usr/sbin/unix_chkpwd= to ask; install the distribution's PAM package, or
+  run a build that links the host's libraries (the =build-host= directory).
 
 Two more lines say which stack answered: =authenticating with PAM service
 whelk-lock=, =... service login=, or =authenticating with the per-user PAM stack

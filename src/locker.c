@@ -395,16 +395,45 @@ static LockAuthResult pam_finish(const WhelkPam *pam,
   return result;
 }
 
+/* A store-built whelk can load its own libpam and still be unable to use it:
+ * that library's pam_unix execs a unix_chkpwd from the same store, which is
+ * not setuid, so PAM answers PAM_AUTHINFO_UNAVAIL for every password.  When
+ * the stack that refused is whelk's own pam_unix service -- never an
+ * administrator's `whelk-lock' or `login' policy -- the host's setuid helper
+ * is the same check without the foreign library.  See util/lockauth.h. */
+static LockAuthResult local_pam_fallback(const char *password) {
+  switch (whelk_lock_local_verify(password)) {
+  case WHELK_LOCAL_OK:
+    LOG_C_INFO("Locker", "password accepted by the host's unix_chkpwd");
+    return LOCK_AUTH_OK;
+  case WHELK_LOCAL_DENIED:
+    LOG_C_DEBUG("Locker", "the host's unix_chkpwd refused the password");
+    return LOCK_AUTH_DENIED;
+  case WHELK_LOCAL_UNAVAILABLE:
+  default:
+    return LOCK_AUTH_UNAVAILABLE;
+  }
+}
+
 static LockAuthResult pam_authenticate_user(const char *password) {
   const WhelkPam *pam = whelk_lock_pam_open();
 
   if (!pam) {
     LOG_C_WARN("Locker",
-               "no PAM library found; the lock screen cannot authenticate");
-    return LOCK_AUTH_UNAVAILABLE;
+               "no PAM library found; asking the host's unix_chkpwd instead");
+    return local_pam_fallback(password);
   }
 
   LOG_C_DEBUG("Locker", "authentication library: %s", whelk_lock_pam_path());
+
+  /* A store-built library cannot see the host's pam.d or module directory.
+   * Its refusals are about the build, not about this password. */
+  const gboolean build_locked = whelk_lock_pam_missing_host_policy();
+
+  if (build_locked)
+    LOG_C_WARN("Locker",
+               "the loaded libpam is a store copy that cannot read the host's "
+               "PAM policy; its answers will fall back to unix_chkpwd");
 
   const char *username = g_get_user_name();
   LockConversation conversation = {
@@ -417,6 +446,7 @@ static LockAuthResult pam_authenticate_user(const char *password) {
       .appdata_ptr = &conversation,
   };
   pam_handle_t *handle = NULL;
+  gboolean private_stack = FALSE;
   int status;
 
   if (pam_service_exists("whelk-lock")) {
@@ -435,11 +465,12 @@ static LockAuthResult pam_authenticate_user(const char *password) {
 
     if (!confdir || !pam->start_confdir) {
       LOG_C_WARN("Locker",
-                 "no PAM service file and no per-user PAM directory; the lock "
-                 "screen cannot authenticate");
-      return LOCK_AUTH_UNAVAILABLE;
+                 "no PAM service file and no per-user PAM directory; asking "
+                 "the host's unix_chkpwd instead");
+      return local_pam_fallback(password);
     }
 
+    private_stack = TRUE;
     LOG_C_DEBUG("Locker", "authenticating with the per-user PAM stack %s",
                 confdir);
     status =
@@ -450,10 +481,25 @@ static LockAuthResult pam_authenticate_user(const char *password) {
     LOG_C_WARN("Locker", "PAM could not start (status %d)", status);
     if (handle)
       pam->end(handle, status);
+
+    if (build_locked || private_stack)
+      return local_pam_fallback(password);
+
     return LOCK_AUTH_UNAVAILABLE;
   }
 
-  return pam_finish(pam, handle);
+  const LockAuthResult result = pam_finish(pam, handle);
+
+  /* Only whelk's own pam_unix stack falls through: an administrator's service
+   * file that refuses is authoritative, and pam_faillock or a locked account
+   * must not be talked around.  A store-built library is the second exception:
+   * it never read that policy at all, so none was bypassed -- and every answer
+   * it gives, a refusal included, is about the build. */
+  if ((result == LOCK_AUTH_UNAVAILABLE && private_stack) ||
+      (result != LOCK_AUTH_OK && build_locked))
+    return local_pam_fallback(password);
+
+  return result;
 }
 #else
 static LockAuthResult pam_authenticate_user(const char *password) {
