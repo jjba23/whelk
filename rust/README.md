@@ -48,6 +48,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
+- `src/idlepolicy.rs` — the idle manager's timer decision, without the bus or
+  the wall clock: the zero-second compatible policy, a countdown from the
+  first `IdleHint`, an inhibitor suspending it, and a disabled policy.
+- `src/inhibitors.rs` — the `systemd-inhibit --list` reader: padded-column
+  parsing that keeps spaces inside a reason, and the one-line-per-inhibitor
+  tooltip text for "why did my screen not blank".
 - `src/lockauth.rs` — the C lock screen's authentication boundary without GTK:
   libpam loaded at run time from the host's library first, with the host
   dependencies (`libaudit`, `libeconf`) resolved by absolute path when a store
