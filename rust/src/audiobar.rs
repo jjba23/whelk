@@ -47,17 +47,17 @@ pub fn parse(output: &str) -> AudioReading {
     // pactl also has a "Volume:" label, but its first number is a raw
     // amplitude rather than a fraction.  Falling back on the percentage keeps
     // the PulseAudio answer useful instead of showing zero.
-    if volume.is_none() {
-        if let Some(percent) = output.find('%') {
-            let bytes = output.as_bytes();
-            let mut start = percent;
+    if volume.is_none()
+        && let Some(percent) = output.find('%')
+    {
+        let bytes = output.as_bytes();
+        let mut start = percent;
 
-            while start > 0 && bytes[start - 1].is_ascii_digit() {
-                start -= 1;
-            }
-
-            volume = Some(output[start..percent].parse().unwrap_or(0));
+        while start > 0 && bytes[start - 1].is_ascii_digit() {
+            start -= 1;
         }
+
+        volume = Some(output[start..percent].parse().unwrap_or(0));
     }
 
     AudioReading {

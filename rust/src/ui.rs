@@ -26,6 +26,7 @@ use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::locker;
+use crate::notifications::NotificationService;
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::style;
@@ -126,6 +127,7 @@ struct Shell {
     monitor_watch: Option<(gtk::gio::ListModel, gtk::glib::SignalHandlerId)>,
     reload_source: Option<gtk::glib::SourceId>,
     monitor_rebuild_pending: bool,
+    notifications: Option<NotificationService>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -143,6 +145,14 @@ impl Shell {
         locker::watch_logind();
         start_idle(loaded.idle_lock_after);
 
+        // The notification service shares the idle manager's DND flag.  It is
+        // installed before the first bar is built so the notifications and
+        // dnd modules see their reading immediately.
+        let notifications = NotificationService::new(idle());
+
+        notifications.start();
+        NotificationService::install(Some(notifications.clone()));
+
         let shell = Rc::new(RefCell::new(Self {
             application: application.downgrade(),
             loader,
@@ -154,6 +164,7 @@ impl Shell {
             monitor_watch: None,
             reload_source: None,
             monitor_rebuild_pending: false,
+            notifications: Some(notifications),
             _hold: hold,
         }));
 
@@ -228,6 +239,12 @@ impl Shell {
     }
 
     fn teardown(&mut self) {
+        NotificationService::install(None);
+
+        if let Some(service) = self.notifications.take() {
+            service.shutdown();
+        }
+
         if let Some(source) = self.reload_source.take() {
             source.remove();
         }
@@ -278,10 +295,10 @@ impl Drop for BarWindow {
     fn drop(&mut self) {
         drop(self.clock_timer.take());
 
-        if let Some(css) = self.css.take() {
-            if let Some(display) = gtk::gdk::Display::default() {
-                gtk::style_context_remove_provider_for_display(&display, &css);
-            }
+        if let Some(css) = self.css.take()
+            && let Some(display) = gtk::gdk::Display::default()
+        {
+            gtk::style_context_remove_provider_for_display(&display, &css);
         }
 
         // Detach the CenterBox explicitly so the module roots receive their
@@ -564,6 +581,10 @@ fn start_idle(lock_after: i32) {
 
         *slot = Some(idle);
     });
+}
+
+fn idle() -> Option<Idle> {
+    IDLE.with(|slot| slot.borrow().clone())
 }
 
 fn configure_layer_shell(

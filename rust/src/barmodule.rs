@@ -13,7 +13,7 @@
 //! what to paint when it arrives.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use gtk::prelude::*;
@@ -152,6 +152,8 @@ impl ModuleState {
     }
 }
 
+type UpdateCallback = dyn Fn(&ModuleHost) + 'static;
+
 struct HostInner {
     root: gtk::glib::WeakRef<gtk::Box>,
     settings: ModuleSettings,
@@ -161,7 +163,7 @@ struct HostInner {
     state: RefCell<ModuleState>,
     pending: RefCell<Option<CommandHandle>>,
     timer: RefCell<Option<gtk::glib::SourceId>>,
-    update: RefCell<Option<Rc<dyn Fn(&ModuleHost)>>>,
+    update: RefCell<Option<Rc<UpdateCallback>>>,
     alive: Cell<bool>,
 }
 
@@ -195,6 +197,19 @@ impl Drop for HostInner {
 #[derive(Clone)]
 pub struct ModuleHost {
     inner: Rc<HostInner>,
+}
+
+/// A non-owning module handle for callbacks owned by a service that outlives
+/// the bar.  Upgrading after the root is destroyed returns `None`.
+#[derive(Clone)]
+pub struct WeakModuleHost {
+    inner: Weak<HostInner>,
+}
+
+impl WeakModuleHost {
+    pub fn upgrade(&self) -> Option<ModuleHost> {
+        self.inner.upgrade().map(|inner| ModuleHost { inner })
+    }
 }
 
 impl ModuleHost {
@@ -352,6 +367,12 @@ impl ModuleHost {
 
     pub fn is_alive(&self) -> bool {
         self.inner.alive.get()
+    }
+
+    pub fn downgrade(&self) -> WeakModuleHost {
+        WeakModuleHost {
+            inner: Rc::downgrade(&self.inner),
+        }
     }
 
     pub fn root(&self) -> Option<gtk::Box> {
@@ -521,20 +542,20 @@ fn attach_actions(root: &gtk::Box, actions: &ModuleActions) {
     let down = actions.scroll_down.clone();
 
     controller.connect_scroll(move |_, _, dy| {
-        if dy < 0.0 {
-            if let Some(command_line) = up.as_deref() {
-                command::spawn(command_line);
+        if dy < 0.0
+            && let Some(command_line) = up.as_deref()
+        {
+            command::spawn(command_line);
 
-                return gtk::glib::Propagation::Stop;
-            }
+            return gtk::glib::Propagation::Stop;
         }
 
-        if dy > 0.0 {
-            if let Some(command_line) = down.as_deref() {
-                command::spawn(command_line);
+        if dy > 0.0
+            && let Some(command_line) = down.as_deref()
+        {
+            command::spawn(command_line);
 
-                return gtk::glib::Propagation::Stop;
-            }
+            return gtk::glib::Propagation::Stop;
         }
 
         gtk::glib::Propagation::Proceed

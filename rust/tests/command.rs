@@ -228,12 +228,11 @@ fn wait_for_pid(path: &Path) -> u32 {
     let deadline = Instant::now() + Duration::from_secs(2);
 
     loop {
-        if let Ok(contents) = std::fs::read_to_string(path) {
-            if let Ok(pid) = contents.trim().parse::<u32>() {
-                if pid > 0 {
-                    return pid;
-                }
-            }
+        if let Ok(contents) = std::fs::read_to_string(path)
+            && let Ok(pid) = contents.trim().parse::<u32>()
+            && pid > 0
+        {
+            return pid;
         }
 
         assert!(

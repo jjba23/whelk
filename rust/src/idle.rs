@@ -602,10 +602,10 @@ fn read_current_hint(state: &Rc<RefCell<State>>) {
 
     match reply {
         Ok(reply) => {
-            if let Some((value,)) = reply.get::<(glib::Variant,)>() {
-                if let Some(idle) = value.get::<bool>() {
-                    apply_idle_hint(state, idle);
-                }
+            if let Some((value,)) = reply.get::<(glib::Variant,)>()
+                && let Some(idle) = value.get::<bool>()
+            {
+                apply_idle_hint(state, idle);
             }
         }
         Err(error) => log_debug(&format!("could not read the current idle hint: {error}")),

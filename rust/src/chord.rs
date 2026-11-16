@@ -326,16 +326,14 @@ fn parse_cua(text: &str) -> Option<Chord> {
             continue;
         }
 
-        let Some(set) = is_modifier_name(part) else {
-            return None;
-        };
+        let set = is_modifier_name(part)?;
 
         set(&mut chord);
     }
 
-    chord.key = canonical_key(key)?;
+    let key = canonical_key(key)?;
 
-    Some(chord)
+    Some(Chord { key, ..chord })
 }
 
 /// Emacs writes one letter and a dash per modifier, in any order.  The key is
@@ -413,11 +411,10 @@ impl Chord {
         }
 
         // A bare key: "F11", "Space", "Delete".
-        let mut chord = Chord::default();
-
-        chord.key = canonical_key(trimmed)?;
-
-        Some(chord)
+        Some(Chord {
+            key: canonical_key(trimmed)?,
+            ..Chord::default()
+        })
     }
 
     /// Reads a GTK accelerator as a menu model writes it: `<Primary>q`,
@@ -631,19 +628,19 @@ fn display_key(key: &str, style: ChordStyle) -> String {
 
     let mut characters = key.chars();
 
-    if let (Some(first), None) = (characters.next(), characters.next()) {
-        if first.is_ascii_alphabetic() {
-            return match style {
-                ChordStyle::Cua => first.to_ascii_uppercase().to_string(),
-                ChordStyle::Emacs => first.to_ascii_lowercase().to_string(),
-            };
-        }
+    if let (Some(first), None) = (characters.next(), characters.next())
+        && first.is_ascii_alphabetic()
+    {
+        return match style {
+            ChordStyle::Cua => first.to_ascii_uppercase().to_string(),
+            ChordStyle::Emacs => first.to_ascii_lowercase().to_string(),
+        };
     }
 
-    if let Some(rest) = key.strip_prefix("KP_") {
-        if !rest.is_empty() {
-            return format!("Numpad {rest}");
-        }
+    if let Some(rest) = key.strip_prefix("KP_")
+        && !rest.is_empty()
+    {
+        return format!("Numpad {rest}");
     }
 
     key.to_owned()
@@ -660,18 +657,17 @@ pub fn display(text: &str, style: ChordStyle) -> String {
     // A GTK accelerator starts with a modifier token and is one chord, not a
     // sequence.  Try it first: otherwise "<Primary>q" is an unknown bare key
     // that happens to contain no space.
-    if text.starts_with('<') {
-        if let Some(chord) = Chord::parse_gtk(text) {
-            if let Some(formatted) = chord.format(style) {
-                return formatted;
-            }
-        }
+    if text.starts_with('<')
+        && let Some(chord) = Chord::parse_gtk(text)
+        && let Some(formatted) = chord.format(style)
+    {
+        return formatted;
     }
 
-    if let Some(sequence) = ChordSequence::parse(text) {
-        if let Some(formatted) = sequence.format(style) {
-            return formatted;
-        }
+    if let Some(sequence) = ChordSequence::parse(text)
+        && let Some(formatted) = sequence.format(style)
+    {
+        return formatted;
     }
 
     text.to_owned()

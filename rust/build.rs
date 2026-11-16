@@ -23,9 +23,8 @@ fn main() {
     if let Ok(pam) = pkg_config::Config::new()
         .atleast_version("1.4")
         .probe("pam")
+        && let Some(libdir) = pam.link_paths.first()
     {
-        if let Some(libdir) = pam.link_paths.first() {
-            println!("cargo:rustc-env=WHELK_PAM_LIBDIR={}", libdir.display());
-        }
+        println!("cargo:rustc-env=WHELK_PAM_LIBDIR={}", libdir.display());
     }
 }

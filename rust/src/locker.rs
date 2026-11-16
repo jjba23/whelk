@@ -249,10 +249,9 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
         if let Some(monitor) = values
             .get(1)
             .and_then(|value| value.get::<gtk::gdk::Monitor>().ok())
+            && let Some(state) = weak.upgrade()
         {
-            if let Some(state) = weak.upgrade() {
-                create_session_window(&state, &monitor);
-            }
+            create_session_window(&state, &monitor);
         }
 
         None
@@ -277,7 +276,9 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
     instance.connect_local("unlocked", false, move |_| {
         // The compositor ended the lock on its own; do not ask it again.
         if let Some(state) = weak.upgrade() {
-            if !state.borrow().unlocked {
+            let already_unlocked = state.borrow().unlocked;
+
+            if !already_unlocked {
                 unlock_local(&state);
             }
         }
@@ -800,10 +801,10 @@ fn unlock_local(state: &Rc<RefCell<Locker>>) {
 // ---------------------------------------------------------------------------
 
 fn failure_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("WHELK_LOCK_STATE_FILE") {
-        if !path.is_empty() {
-            return Some(PathBuf::from(path));
-        }
+    if let Some(path) = std::env::var_os("WHELK_LOCK_STATE_FILE")
+        && !path.is_empty()
+    {
+        return Some(PathBuf::from(path));
     }
 
     std::env::var_os("XDG_RUNTIME_DIR")

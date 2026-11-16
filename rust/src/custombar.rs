@@ -35,10 +35,10 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         context.icon_font.as_deref(),
     );
 
-    if let Some(label) = host.add_label() {
-        if max_length > 0 {
-            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        }
+    if let Some(label) = host.add_label()
+        && max_length > 0
+    {
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     }
 
     host.start(move |host| update(command.as_deref(), max_length, host));

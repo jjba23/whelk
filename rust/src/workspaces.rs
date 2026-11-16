@@ -82,9 +82,7 @@ fn parse_niri(text: &str) -> Option<Vec<Workspace>> {
 
         let active =
             workspace.get_bool("is_active", false) || workspace.get_bool("is_focused", false);
-        let empty = workspace
-            .get("active_window_id")
-            .map_or(true, Json::is_null);
+        let empty = workspace.get("active_window_id").is_none_or(Json::is_null);
 
         out.push(Workspace {
             index: index as i32,

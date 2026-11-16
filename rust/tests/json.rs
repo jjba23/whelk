@@ -32,7 +32,7 @@ fn object() {
     assert_eq!(root.get_str("absent"), None);
     assert!(!root.get_bool("absent", false));
     assert_eq!(root.get_number("absent", 4.5), 4.5);
-    assert_eq!(root.get_bool("id", true), true);
+    assert!(root.get_bool("id", true));
 }
 
 #[test]

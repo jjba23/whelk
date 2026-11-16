@@ -78,7 +78,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     );
 
     host.add_label();
-    host.start(|host| update(host));
+    host.start(update);
 
     Some(root)
 }

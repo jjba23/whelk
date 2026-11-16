@@ -108,12 +108,13 @@ fn every_selected_output_gets_its_own_bar_placement() {
 #[test]
 fn a_named_bar_does_not_move_to_a_remaining_output() {
     let outputs = outputs();
-    let mut bar = BarSettings::default();
-
-    bar.monitor = "DP-1".to_owned();
+    let bar = BarSettings {
+        monitor: "DP-1".to_owned(),
+        ..BarSettings::default()
+    };
 
     assert_eq!(
-        plan_bars(&[bar.clone()], &outputs),
+        plan_bars(std::slice::from_ref(&bar), &outputs),
         vec![BarPlacement {
             bar_index: 0,
             monitor: 1,
@@ -125,9 +126,10 @@ fn a_named_bar_does_not_move_to_a_remaining_output() {
 #[test]
 fn a_monitor_list_maps_to_the_current_output_indexes() {
     let outputs = outputs();
-    let mut bar = BarSettings::default();
-
-    bar.monitors = vec!["HDMI-A-1".to_owned(), "DP-1".to_owned()];
+    let bar = BarSettings {
+        monitors: vec!["HDMI-A-1".to_owned(), "DP-1".to_owned()],
+        ..BarSettings::default()
+    };
 
     assert_eq!(
         plan_bars(&[bar], &outputs),

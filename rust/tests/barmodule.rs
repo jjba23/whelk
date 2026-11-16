@@ -164,10 +164,12 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "clock",
         "cpu",
         "custom",
+        "dnd",
         "inhibit",
         "keyboard",
         "language",
         "memory",
+        "notifications",
         "power-profile",
         "wifi",
         "window",
@@ -183,9 +185,11 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
 
 #[test]
 fn factory_context_carries_the_bar_facts() {
-    let mut bar = BarSettings::default();
-    bar.spacing = 10;
-    bar.icon_font = Some("Icons".to_owned());
+    let bar = BarSettings {
+        spacing: 10,
+        icon_font: Some("Icons".to_owned()),
+        ..BarSettings::default()
+    };
 
     let context = barfactory::ModuleContext::from_bar(&bar, Session::Niri);
 

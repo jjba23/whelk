@@ -104,24 +104,19 @@ impl Parser<'_> {
     fn term(&mut self) -> Option<f64> {
         let mut value = self.power()?;
 
-        loop {
-            match self.peek() {
-                Some(operator @ (b'*' | b'/' | b'%')) => {
-                    self.at += 1;
+        while let Some(operator @ (b'*' | b'/' | b'%')) = self.peek() {
+            self.at += 1;
 
-                    let right = self.power()?;
+            let right = self.power()?;
 
-                    if (operator == b'/' || operator == b'%') && right == 0.0 {
-                        return None;
-                    }
+            if (operator == b'/' || operator == b'%') && right == 0.0 {
+                return None;
+            }
 
-                    match operator {
-                        b'*' => value *= right,
-                        b'/' => value /= right,
-                        _ => value %= right,
-                    }
-                }
-                _ => break,
+            match operator {
+                b'*' => value *= right,
+                b'/' => value /= right,
+                _ => value %= right,
             }
         }
 

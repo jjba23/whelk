@@ -199,7 +199,7 @@ impl Pam {
         let start_confdir = if confdir.is_null() {
             None
         } else {
-            Some(unsafe { std::mem::transmute(confdir) })
+            Some(unsafe { std::mem::transmute::<*mut c_void, PamStartConfdir>(confdir) })
         };
 
         Some(Self {
@@ -377,10 +377,10 @@ pub fn candidates() -> Vec<String> {
         }
     }
 
-    if let Some(libdir) = option_env!("WHELK_PAM_LIBDIR") {
-        if !libdir.is_empty() {
-            push_unique(&mut paths, format!("{libdir}/libpam.so.0"));
-        }
+    if let Some(libdir) = option_env!("WHELK_PAM_LIBDIR")
+        && !libdir.is_empty()
+    {
+        push_unique(&mut paths, format!("{libdir}/libpam.so.0"));
     }
 
     push_unique(&mut paths, "libpam.so.0".to_owned());
@@ -590,10 +590,10 @@ pub fn confdir(runtime_dir: &Path) -> Option<PathBuf> {
 
     let file = directory.join("whelk-lock");
 
-    if let Ok(metadata) = fs::symlink_metadata(&file) {
-        if metadata.file_type().is_symlink() {
-            return None;
-        }
+    if let Ok(metadata) = fs::symlink_metadata(&file)
+        && metadata.file_type().is_symlink()
+    {
+        return None;
     }
 
     let mut handle = OpenOptions::new()

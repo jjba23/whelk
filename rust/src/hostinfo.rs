@@ -90,10 +90,10 @@ pub fn memory_summary_from(meminfo: &str) -> Option<String> {
             if let Some(kibibytes) = parse_u64_prefix(value) {
                 total = kibibytes;
             }
-        } else if let Some(value) = line.strip_prefix("MemAvailable:") {
-            if let Some(kibibytes) = parse_u64_prefix(value) {
-                available = kibibytes;
-            }
+        } else if let Some(value) = line.strip_prefix("MemAvailable:")
+            && let Some(kibibytes) = parse_u64_prefix(value)
+        {
+            available = kibibytes;
         }
     }
 

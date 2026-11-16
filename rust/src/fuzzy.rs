@@ -90,11 +90,11 @@ pub fn best(needle: &str, candidates: &[&str]) -> Option<usize> {
     let mut best_score = -1;
 
     for (index, candidate) in candidates.iter().enumerate() {
-        if let Some(score) = score(needle, candidate) {
-            if score > best_score {
-                best_score = score;
-                best_index = Some(index);
-            }
+        if let Some(score) = score(needle, candidate)
+            && score > best_score
+        {
+            best_score = score;
+            best_index = Some(index);
         }
     }
 

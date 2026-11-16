@@ -83,6 +83,25 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/barfactory.rs` — the Rust equivalent of the C factory table: a kind is
   looked up without building a widget, an unknown kind is logged and left out,
   and the module receives only the session/bar facts it needs.
+- `src/nightlight.rs` — the C night light's display-independent half: the
+  normalised blackbody curve, 1000–6500 K clamping, overnight and short-window
+  schedules, fade strength, next-tick policy, strict `HH:MM` parsing, and typed
+  `Rgb`/`GammaRamp` values.  The wlr-gamma-control and RandR backends still live
+  in C; this slice is what both backends consume.
+- `src/notifications.rs` — the notification store and the
+  `org.freedesktop.Notifications` session service.  The oldest-first store
+  assigns stable ids, replaces a notification in place for `replaces_id`,
+  resolves the C default/critical timeout rules, and keeps DND in the existing
+  idle manager.  The service exports `Notify`, `CloseNotification`,
+  `GetCapabilities` and `GetServerInformation`, and emits `NotificationClosed`
+  and `ActionInvoked`.  It remains alive, with its store usable, when another
+  daemon owns the bus name.
+- `src/notificationsbar.rs` and `src/dndbar.rs` — the `notifications` and `dnd`
+  bar modules.  They read the service's count and DND flag, repaint from a weak
+  listener when either changes, and keep their configured format/icon/tooltip
+  overrides.  A bare right click on the count toggles DND; the `dnd` module's
+  bare left click does the same, and `#:show-off?` keeps it visible while DND
+  is off.
 - `src/config.rs` — the loaded wallpaper/bar/idle snapshot and its reload
   boundary.  The Guile handle lives with the shell, so a second load reuses it;
   a missing file means the built-in bar, and a failed reload keeps the previous
@@ -246,8 +265,10 @@ shows its first line.  `audio` prefers wpctl and falls back to pactl; `battery`
 reads `/sys/class/power_supply`; `wifi` and `bluetooth` read nmcli and
 bluetoothctl.  `backlight`, `cpu` and `memory` read sysfs/proc directly;
 `power-profile`, `language` and `inhibit` run powerprofilesctl, niri and
-systemd-inhibit; `keyboard` reads the Caps Lock LED.  The configured `#:overflow`
-list is built too and expands from the chevron at the end of the right group.
+systemd-inhibit; `keyboard` reads the Caps Lock LED.  `notifications` and `dnd`
+read the in-process notification service, which shares the idle manager's DND
+flag.  The configured `#:overflow` list is built too and expands from the
+chevron at the end of the right group.
 
 Every module built by the host accepts the shared mouse options
 (`#:on-click`, `#:on-click-right`, `#:on-click-middle`, `#:on-scroll-up`,
@@ -258,7 +279,10 @@ that is known to finish.
 
 The C Wi-Fi and Bluetooth modules open the network panel on a primary click.
 The Rust shell does not have that panel yet, so its modules only run an
-explicit `#:on-click`; without one they are readouts.
+explicit `#:on-click`; without one they are readouts.  The same applies to the
+notification centre: `notifications` runs a configured `#:on-click`, but a bare
+left click waits for the centre surface.  Its bare right click is still the C
+DND toggle, and `dnd` is a working toggle without the centre.
 
 ## Monitors, hotplug and reload
 
@@ -297,6 +321,7 @@ root.
 
 ```sh
 cargo test
+cargo clippy --all-targets -- -D warnings
 cargo run -- --version
 cargo run -- --check-config
 cargo run -- --config /path/to/settings.scm
@@ -349,6 +374,9 @@ The tests are split by what they can prove without a session:
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
+| `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps and config normalization |
+| `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND and listener notifications |
+| `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
 | unit tests | Scheme literal escaping, `--config` parsing |
 
@@ -395,13 +423,15 @@ This is still a bootstrap, not a replacement of the whole shell. The bar model,
 its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
 module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
-`memory`, `power-profile`, `keyboard`, `language` and `inhibit` modules are now
-ported and wired into the Rust bar, and so is the lock screen: its policy, PAM
-boundary, surfaces and logind triggers are Rust.  The idle manager's `IdleHint`
-watch, inhibitor, timer and DND flag are Rust too; the locker's per-monitor
-rebuild while the protocol lock is up is still in C, as are the remaining module
-kinds (clipboard, tray, menu/start, notifications and the rest), the network
-panel, launcher, notifications, night-light policies and session management.
-The next slices should move those surface-owning modules onto the Rust host,
-then make the Rust binary the installed `whelk` once the C and Rust suites both
-cover the same behavior.
+`memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications` and
+`dnd` modules are now ported and wired into the Rust bar, and so is the lock screen:
+its policy, PAM boundary, surfaces and logind triggers are Rust.  The idle
+manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too, and the
+notification service now owns the session-bus methods and the store; the
+notification-centre surface itself is still to come.  The night light's
+arithmetic and schedule are Rust; its wlr-gamma-control and RandR backends are
+still C.  The locker's per-monitor rebuild while the protocol lock is up is still
+in C, as are the remaining module kinds (clipboard, tray, menu/start and the
+rest), the network panel, launcher and session management.  The next slices should move those
+surface-owning modules onto the Rust host, then make the Rust binary the
+installed `whelk` once the C and Rust suites both cover the same behavior.

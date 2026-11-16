@@ -22,10 +22,12 @@ use crate::bluetoothbar;
 use crate::clockbar;
 use crate::cpubar;
 use crate::custombar;
+use crate::dndbar;
 use crate::inhibitbar;
 use crate::keyboardbar;
 use crate::languagebar;
 use crate::memorybar;
+use crate::notificationsbar;
 use crate::powerprofilebar;
 use crate::session::Session;
 use crate::wifibar;
@@ -61,10 +63,12 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("clock", clockbar::module),
     ("cpu", cpubar::module),
     ("custom", custombar::module),
+    ("dnd", dndbar::module),
     ("inhibit", inhibitbar::module),
     ("keyboard", keyboardbar::module),
     ("language", languagebar::module),
     ("memory", memorybar::module),
+    ("notifications", notificationsbar::module),
     ("power-profile", powerprofilebar::module),
     ("wifi", wifibar::module),
     ("window", windowbar::module),
