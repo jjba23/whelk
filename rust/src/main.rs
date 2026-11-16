@@ -9,6 +9,8 @@ use std::process::ExitCode;
 use whelk_rs::bar::BarSettings;
 use whelk_rs::collection::collect;
 use whelk_rs::guile::Guile;
+use whelk_rs::lockauth::{self, Stack};
+use whelk_rs::locker;
 use whelk_rs::rotation::Playlist;
 use whelk_rs::settings::{WallpaperSettings, default_config_path};
 use whelk_rs::ui;
@@ -21,6 +23,8 @@ Usage: whelk-rs [OPTIONS]
 Options:
   --config PATH     Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
   --check-config    Load the configuration, print the wallpaper policy and exit
+  --lock            Show the lock screen and exit once the password is accepted
+  --check-lock      Print how this machine would authenticate and exit
   --version, -V     Print the Rust bootstrap version and exit
   -h, --help        Print this help and exit
 
@@ -32,6 +36,8 @@ bootstrap and uses a separate application id.
 struct Options {
     config: Option<PathBuf>,
     check_config: bool,
+    lock: bool,
+    check_lock: bool,
     version: bool,
     help: bool,
 }
@@ -57,6 +63,16 @@ fn run() -> Result<ExitCode, String> {
     if options.version {
         println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
         return Ok(ExitCode::SUCCESS);
+    }
+
+    if options.check_lock {
+        print_lock_report();
+
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if options.lock {
+        return Ok(locker::run().into());
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
@@ -151,6 +167,8 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
             "--help" | "-h" => options.help = true,
             "--version" | "-V" => options.version = true,
             "--check-config" => options.check_config = true,
+            "--lock" => options.lock = true,
+            "--check-lock" => options.check_lock = true,
             "--config" => {
                 let value = arguments
                     .next()
@@ -171,6 +189,49 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
     }
 
     Ok(options)
+}
+
+/// The same order the lock screen resolves, printed without asking for a
+/// password: which libraries exist, which one loads, which stack would answer
+/// and whether this machine has a setuid helper for the store-built case.
+fn print_lock_report() {
+    println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "user: {}",
+        lockauth::session_user().unwrap_or_else(|| "unknown".to_owned())
+    );
+    println!("pam candidates:");
+
+    for candidate in lockauth::candidates() {
+        let present = if candidate.starts_with('/') && Path::new(&candidate).is_file() {
+            " (present)"
+        } else {
+            ""
+        };
+
+        println!("  {candidate}{present}");
+    }
+
+    println!(
+        "loaded: {}",
+        lockauth::pam_path().unwrap_or_else(|| "none".to_owned())
+    );
+
+    match lockauth::stack_plan() {
+        Stack::Admin(name) => println!("service: {name} (administrator policy)"),
+        Stack::Private(directory) => println!(
+            "service: per-user pam_unix stack in {}",
+            directory.display()
+        ),
+        Stack::LocalFallback => {
+            println!("service: none; only the host's unix_chkpwd can answer")
+        }
+    }
+
+    println!(
+        "helper: {}",
+        lockauth::local_helper().unwrap_or_else(|| "none".to_owned())
+    );
 }
 
 #[cfg(test)]

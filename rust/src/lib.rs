@@ -14,6 +14,9 @@
 pub mod bar;
 pub mod collection;
 pub mod guile;
+pub mod lockauth;
+pub mod locker;
+pub mod lockpolicy;
 pub mod rotation;
 pub mod settings;
 pub mod style;

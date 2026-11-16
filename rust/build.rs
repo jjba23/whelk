@@ -14,4 +14,18 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=WHELK_SCHEME_DIR");
+
+    // The lock screen loads PAM at run time.  The path the build linked against
+    // is a candidate after the host's own library: a Nix or Guix build can have
+    // an rpath nothing links against shrunk away, and then only the bare soname
+    // is left to find a store copy.  Optional, because a machine may have no PAM
+    // development files and the lock screen must still build.
+    if let Ok(pam) = pkg_config::Config::new()
+        .atleast_version("1.4")
+        .probe("pam")
+    {
+        if let Some(libdir) = pam.link_paths.first() {
+            println!("cargo:rustc-env=WHELK_PAM_LIBDIR={}", libdir.display());
+        }
+    }
 }

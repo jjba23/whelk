@@ -36,6 +36,19 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/style.rs` — the C surface skin generator: CSS-safe widget ids, colour
   alpha handling, material backgrounds, effects, shadows, accent rules and the
   configuration's free-form CSS.
+- `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
+  retry delay with its 30-second cap and the one authoritative
+  "may this attempt be submitted" guard.
+- `src/lockauth.rs` — the C lock screen's authentication boundary without GTK:
+  libpam loaded at run time from the host's library first, the per-user
+  `pam_unix` service written with `0700`/`0600` and `O_NOFOLLOW`, the PAM status
+  classification, and the host's setuid `unix_chkpwd` as the fallback a
+  store-built binary needs.  `--check-lock` prints what it would do.
+- `src/locker.rs` — the Rust lock screen: a compositor-enforced session lock
+  through `ext-session-lock-v1` when the compositor has it, one overlay layer
+  surface per output otherwise, one password field on the primary output,
+  authentication on a worker thread with the password wiped, the persisted
+  retry delay, and no close button, Escape or click-outside.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
@@ -70,7 +83,15 @@ cargo test
 cargo run -- --version
 cargo run -- --check-config
 cargo run -- --config /path/to/settings.scm
+cargo run -- --check-lock
+cargo run -- --lock
 ```
+
+`--check-lock` is the lock screen's diagnosis without a password: the library
+candidates, the one that loads, the service stack that would answer, and
+whether this machine has a setuid helper for the store-built case.  `--lock`
+shows the Rust lock screen itself; like the C one, only a successful
+authentication for the session user removes it.
 
 `--check-config` loads the real settings file through Guile, prints the
 wallpaper policy, walks the collection and resolves the current file. A missing
@@ -104,6 +125,7 @@ The tests are split by what they can prove without a session:
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
+| `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | unit tests | Scheme literal escaping, `--config` parsing |
 
@@ -147,8 +169,10 @@ of the C engine:
 ## Scope and next steps
 
 This is still a bootstrap, not a replacement of the whole shell. The bar model
-and its generated skin are now ported, but the module factories, launcher,
-notifications, panels, locker, idle/night-light policies and session management
-remain in C. The next slices should move the module protocol and one real module
+and its generated skin are now ported, and so is the lock screen: its policy,
+PAM boundary and surfaces are Rust.  The locker's logind `Lock`/`PrepareForSleep`
+subscriptions and its per-monitor rebuild while the protocol lock is up are still
+in C, as are the module factories, launcher, notifications, panels, idle and
+night-light policies and session management. The next slices should move the module protocol and one real module
 family behind the Rust process, then make the Rust binary the installed `whelk`
 once the C and Rust suites both cover the same behavior.
