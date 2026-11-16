@@ -6,8 +6,11 @@
 //! A bar's monitor rule is the difference between a layout and a fallback.
 //! These are the decisions the shell makes on every build and every hotplug.
 
+use whelk_rs::bar::BarSettings;
 use whelk_rs::bar::When;
-use whelk_rs::barmonitors::{DEFAULT_MONITOR, select_monitors, when_matches};
+use whelk_rs::barmonitors::{
+    BarPlacement, DEFAULT_MONITOR, plan_bars, select_monitors, when_matches,
+};
 
 fn outputs() -> Vec<String> {
     vec!["eDP-1".to_owned(), "DP-1".to_owned()]
@@ -79,5 +82,96 @@ fn default_asks_the_compositor_and_an_empty_model_still_gets_a_surface() {
     assert_eq!(
         select_monitors(When::Always, "all", &[], &[]),
         vec![DEFAULT_MONITOR]
+    );
+}
+
+#[test]
+fn every_selected_output_gets_its_own_bar_placement() {
+    let outputs = outputs();
+    let bar = BarSettings::default();
+
+    assert_eq!(
+        plan_bars(&[bar], &outputs),
+        vec![
+            BarPlacement {
+                bar_index: 0,
+                monitor: 0,
+            },
+            BarPlacement {
+                bar_index: 0,
+                monitor: 1,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_named_bar_does_not_move_to_a_remaining_output() {
+    let outputs = outputs();
+    let mut bar = BarSettings::default();
+
+    bar.monitor = "DP-1".to_owned();
+
+    assert_eq!(
+        plan_bars(&[bar.clone()], &outputs),
+        vec![BarPlacement {
+            bar_index: 0,
+            monitor: 1,
+        }]
+    );
+    assert!(plan_bars(&[bar], &outputs[..1]).is_empty());
+}
+
+#[test]
+fn a_monitor_list_maps_to_the_current_output_indexes() {
+    let outputs = outputs();
+    let mut bar = BarSettings::default();
+
+    bar.monitors = vec!["HDMI-A-1".to_owned(), "DP-1".to_owned()];
+
+    assert_eq!(
+        plan_bars(&[bar], &outputs),
+        vec![BarPlacement {
+            bar_index: 0,
+            monitor: 1,
+        }]
+    );
+}
+
+#[test]
+fn plans_keep_bar_configuration_order_and_respect_when() {
+    let outputs = outputs();
+    let mut multi = BarSettings::default();
+    let mut single = BarSettings::default();
+
+    multi.name = "multi".to_owned();
+    multi.when = When::Multi;
+    single.name = "single".to_owned();
+    single.when = When::Single;
+    single.monitor = "DP-1".to_owned();
+
+    assert_eq!(
+        plan_bars(&[multi, single], &outputs),
+        vec![
+            BarPlacement {
+                bar_index: 0,
+                monitor: 0,
+            },
+            BarPlacement {
+                bar_index: 0,
+                monitor: 1,
+            },
+        ]
+    );
+}
+
+#[test]
+fn an_empty_display_model_still_plans_the_default_surface() {
+    assert_eq!(
+        plan_bars(&[BarSettings::default()], &[]),
+        vec![BarPlacement {
+            bar_index: 0,
+            monitor: DEFAULT_MONITOR,
+        }]
     );
 }

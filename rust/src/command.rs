@@ -11,14 +11,73 @@
 //! whose bar freezes while `playerctl` waits on a stopped player is not a
 //! compositor any more.
 
+use std::cell::{Cell, RefCell};
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
+use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::gio;
+use gtk::gio::prelude::CancellableExt;
 use gtk::glib;
 use gtk4 as gtk;
 
 use crate::format;
+
+/// A command started by [`run_with_timeout`].  Dropping the handle cancels the
+/// command; a module keeps it for exactly as long as it still wants the answer.
+pub struct CommandHandle {
+    inner: Rc<CommandRun>,
+}
+
+struct CommandRun {
+    cancellable: gio::Cancellable,
+    process: gio::Subprocess,
+    timeout_source: RefCell<Option<glib::SourceId>>,
+    completed: Cell<bool>,
+    timed_out: Cell<bool>,
+}
+
+impl CommandHandle {
+    /// Stop waiting and terminate the child.  Safe to call more than once.
+    pub fn cancel(&self) {
+        if self.inner.completed.get() {
+            return;
+        }
+
+        self.inner.cancel();
+    }
+
+    pub fn timed_out(&self) -> bool {
+        self.inner.timed_out.get()
+    }
+}
+
+impl Drop for CommandHandle {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+impl CommandRun {
+    fn cancel(&self) {
+        if let Some(source) = self.timeout_source.borrow_mut().take() {
+            source.remove();
+        }
+
+        self.cancellable.cancel();
+        self.process.force_exit();
+    }
+
+    fn expire(&self) {
+        // The timeout source is running; removing its own SourceId would be a
+        // self-remove.  It is one-shot, so forget it instead.
+        self.timed_out.set(true);
+        self.timeout_source.borrow_mut().take();
+        self.cancellable.cancel();
+        self.process.force_exit();
+    }
+}
 
 /// Runs `command_line` asynchronously.  Standard error is discarded, because a
 /// missing optional tool is a normal answer and not something to paint on the
@@ -31,6 +90,95 @@ where
     F: FnOnce(Option<String>) + 'static,
 {
     run_text(command_line, None, move |output, _status| callback(output));
+}
+
+/// Runs `command_line` with a deadline and returns a handle that can cancel it.
+///
+/// A timeout or an explicit [`CommandHandle::cancel`] terminates the child and
+/// delivers `None` to the callback, exactly as a program that could not be
+/// started does.  The callback always arrives on the main loop, including for
+/// an empty command or a spawn failure, so a caller may install its pending
+/// state before the answer and never miss a synchronous callback.
+///
+/// `timeout` of zero means no deadline.  Drop the handle to cancel; retain it
+/// until the callback if the answer is still wanted.
+pub fn run_with_timeout<F>(
+    command_line: &str,
+    timeout: Duration,
+    callback: F,
+) -> Option<CommandHandle>
+where
+    F: FnOnce(Option<String>) + 'static,
+{
+    if command_line.is_empty() {
+        glib::idle_add_local_once(move || callback(None));
+
+        return None;
+    }
+
+    let process = match spawn_process(
+        command_line,
+        gio::SubprocessFlags::STDOUT_PIPE
+            | gio::SubprocessFlags::STDERR_SILENCE
+            | gio::SubprocessFlags::STDIN_PIPE,
+    ) {
+        Ok(process) => process,
+        Err(error) => {
+            log(&format!("could not start '{command_line}': {error}"));
+            glib::idle_add_local_once(move || callback(None));
+
+            return None;
+        }
+    };
+    let cancellable = gio::Cancellable::new();
+    let run = Rc::new(CommandRun {
+        cancellable: cancellable.clone(),
+        process: process.clone(),
+        timeout_source: RefCell::new(None),
+        completed: Cell::new(false),
+        timed_out: Cell::new(false),
+    });
+
+    if !timeout.is_zero() {
+        let weak = Rc::downgrade(&run);
+        let source = glib::timeout_add_local_once(timeout, move || {
+            if let Some(run) = weak.upgrade() {
+                run.expire();
+            }
+        });
+
+        *run.timeout_source.borrow_mut() = Some(source);
+    }
+
+    let callback_run = Rc::clone(&run);
+
+    process.communicate_utf8_async(None, Some(&cancellable), move |result| {
+        callback_run.completed.set(true);
+
+        if let Some(source) = callback_run.timeout_source.borrow_mut().take() {
+            source.remove();
+        }
+
+        let answer = if callback_run.cancellable.is_cancelled() {
+            None
+        } else {
+            match result {
+                Ok((stdout, _)) => {
+                    let text = stdout.map(|text| text.to_string()).unwrap_or_default();
+
+                    Some(format::strip_newline(&text).to_owned())
+                }
+                Err(error) => {
+                    log(&format!("reading the program's output failed: {error}"));
+                    Some(String::new())
+                }
+            }
+        };
+
+        callback(answer);
+    });
+
+    Some(CommandHandle { inner: run })
 }
 
 /// The same as [`run`], for a program that asks its question on standard input:

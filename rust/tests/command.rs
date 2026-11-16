@@ -57,6 +57,40 @@ fn wait_status(
     wait(|done| register(Box::new(move |output, status| done((output, status)))))
 }
 
+/// The same wait, retaining whatever the registration returns (a command handle
+/// or a shared cancellation handle) so a test can assert on it afterwards.
+fn wait_with_handle<T: 'static, H>(register: impl FnOnce(Box<dyn FnOnce(T)>) -> H) -> (T, H) {
+    let _serial = CONTEXT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let result = Rc::new(RefCell::new(None));
+    let done = Rc::new(Cell::new(false));
+    let context = gtk4::glib::MainContext::default();
+    let _guard = context.acquire().expect("the main context");
+
+    let handle = {
+        let result = Rc::clone(&result);
+        let done = Rc::clone(&done);
+
+        register(Box::new(move |value| {
+            *result.borrow_mut() = Some(value);
+            done.set(true);
+        }))
+    };
+
+    while !done.get() {
+        context.iteration(true);
+    }
+
+    (
+        result
+            .borrow_mut()
+            .take()
+            .expect("the command callback to run"),
+        handle,
+    )
+}
+
 fn run_and_wait(command_line: &str, input: Option<&str>) -> Option<String> {
     wait(|done| command::run_input(command_line, input, done))
 }
@@ -147,6 +181,47 @@ fn retv_defaults_to_zero() {
 #[test]
 fn an_empty_command_does_not_spawn() {
     assert_eq!(run_and_wait("", None), None);
+}
+
+#[test]
+fn a_timeout_terminates_a_slow_command() {
+    let started = Instant::now();
+    let (answer, handle) = wait_with_handle(|done| {
+        command::run_with_timeout("sleep 5", Duration::from_millis(150), done)
+    });
+
+    assert_eq!(answer, None);
+    assert!(
+        handle.expect("a command handle").timed_out(),
+        "the deadline, not a spawn failure, ended the command"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the timeout should not wait for the child"
+    );
+}
+
+#[test]
+fn an_explicit_cancel_terminates_a_slow_command() {
+    let started = Instant::now();
+    let (answer, handle) = wait_with_handle(|done| {
+        let handle = Rc::new(
+            command::run_with_timeout("sleep 5", Duration::from_secs(30), done)
+                .expect("a command handle"),
+        );
+        let cancel = Rc::clone(&handle);
+
+        gtk4::glib::timeout_add_local_once(Duration::from_millis(100), move || cancel.cancel());
+
+        handle
+    });
+
+    assert_eq!(answer, None);
+    assert!(!handle.timed_out());
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "cancellation should not wait for the child"
+    );
 }
 
 fn wait_for_pid(path: &Path) -> u32 {

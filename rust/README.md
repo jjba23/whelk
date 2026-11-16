@@ -75,10 +75,78 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   `idx`/`is_active`/`active_window_id` and Hyprland's `id`/`windows` plus the
   active workspace on its monitors, with special workspaces left out and the
   focus commands for both.
+- `src/barmodule.rs` — the lifecycle every Rust bar module shares: the C
+  interval defaults, one command in flight, a five-second default deadline,
+  explicit cancellation, request tokens that reject stale answers, common
+  click/scroll options, CSS classes and a root widget that cancels its command
+  when GTK destroys it.
+- `src/barfactory.rs` — the Rust equivalent of the C factory table: a kind is
+  looked up without building a widget, an unknown kind is logged and left out,
+  and the module receives only the session/bar facts it needs.
+- `src/config.rs` — the loaded wallpaper/bar/idle snapshot and its reload
+  boundary.  The Guile handle lives with the shell, so a second load reuses it;
+  a missing file means the built-in bar, and a failed reload keeps the previous
+  windows instead of partially applying a broken configuration.
+- `src/barmonitors.rs` also plans concrete windows: every bar configuration is
+  evaluated against the current connector list, producing one placement per
+  selected output (or the compositor-chosen sentinel when there is no monitor
+  model).  The pure plan is tested without a display.
+- `src/workspacebar.rs` — the configured `workspaces` module in the Rust bar:
+  session detection once at startup, the niri/Hyprland command and JSON shape
+  for that session, `{index}`/`{name}` labels, `hide-empty?`, and a click that
+  spawns the matching focus command.  It runs on the shared module host, so its
+  timer, deadline, cancellation and mouse actions are the same as every later
+  module.  A malformed answer leaves the last good row in place; an interval of
+  zero polls once instead of starting a timer.
+- `src/clockbar.rs` — the `clock` module: a strftime `#:format`, the C default
+  `%a %d %b  %H:%M`, and a month-calendar tooltip built with Monday-first
+  columns.
+- `src/windowbar.rs` — the `window` module: the session's focused-window
+  command and parser, `{title}`/`{app-id}`, UTF-8-safe `#:max-length` truncation
+  (50 by default) and an end-ellipsized label.  River has no Rust push client
+  yet, so it stays empty there like a session without IPC.
+- `src/custombar.rs` — the `custom` module: `#:exec`, the first line of its
+  output, `{text}` and an optional `#:max-length`; `#:interval 0` makes it a
+  static, clickable reading.
+- `src/audiobar.rs` — the `audio` module: the wpctl default-sink query with the
+  pactl fallback, Volume/mute parsing, 0–150 clamping, `{volume}`, and
+  `#:muted-format`/`#:muted-icon` overrides.
+- `src/batterybar.rs` — the `battery` module: a testable sysfs reader (explicit
+  `#:device` or the first `type=Battery` entry), capacity clamping, hiding when
+  the pack is absent, charging/warning/critical classes, and the C charging
+  format/icon rules.
+- `src/wifibar.rs` — the `wifi` module: nmcli's radio state and active terse
+  row, `{ssid}`/`{signal}`/`{state}`, the SSID-hiding default, the off and
+  disconnected readings, and `off`/`connected` classes.
+- `src/bluetoothbar.rs` — the `bluetooth` module: bluetoothctl's adapter power
+  and connected-device count, `{count}`/`{state}`, the off reading, and
+  `off`/`connected` classes.
+- `src/backlightbar.rs` — the `backlight` module: the first panel under
+  `/sys/class/backlight` (or `#:device`), rounded/clamped 0–100 percentages,
+  `{percent}`, and hiding when the machine has no panel.
+- `src/cpubar.rs` — the `cpu` module: `/proc/stat`'s aggregate line, the idle
+  plus iowait subtraction, two-sample deltas, counter-reset recovery and the
+  C module's rounded `{usage}` percentage.
+- `src/memorybar.rs` — the `memory` module: `/proc/meminfo` totals and
+  availability, rounded percentages, swap used/total and every `{used}`,
+  `{total}`, `{avail}` and `{swap-*}` value formatted as GiB.
+- `src/powerprofilebar.rs` — the `power-profile` module: powerprofilesctl's
+  first line as `{profile}`, with the module hidden when the daemon has no
+  answer.
+- `src/keyboardbar.rs` — the `keyboard` Caps Lock module: the first
+  `::capslock` LED in sysfs, hidden while unlocked and `{state}`/the `locked`
+  class while lit.
+- `src/languagebar.rs` — the `language` module: niri's active-layout marker,
+  the active display name, and `#:codes` turned into the uppercase XKB code
+  with `{text}`/`{name}`.
+- `src/inhibitbar.rs` — the `inhibit` readout on top of the existing
+  `inhibitors` parser: count, `show-off?` visibility and the inhibitor summary
+  as the tooltip.
 - `src/command.rs` — the asynchronous program runner: shell command lines,
   optional stdin for secrets that must not appear in `ps`, exit status, one
   byte-exact reader for NUL-separated menu output, the explicit `WHELK_RETV`
-  prefix, and fire-and-forget spawns.
+  prefix, fire-and-forget spawns, and timed commands whose handle cancels and
+  kills the child.
 - `src/hostinfo.rs` — the About window's account of the machine: the
   os-release name, CPU model and thread summary (skipping per-core index
   lines), memory total and availability, root-filesystem usage, kernel,
@@ -133,12 +201,82 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   `(whelk-rust-version)` as a Rust primitive, loads the real
   `(whelk core)`/`(whelk state)` modules and reads both the wallpaper and bar
   alists. Nested alists and exact/inexact numbers survive the typed conversion.
-- `src/ui.rs` — a GTK4 top bar whose edge, layer, margins, thickness, clock
-  format and generated skin come from the Scheme bar. It still renders the
-  bootstrap labels; its configured module list is not instantiated yet. It uses
-  `gtk4-layer-shell` when the compositor supports it and falls back to a normal
-  window on Broadway/X11 test displays.
+- `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
+  thickness, clock format and generated skin come from its Scheme bar. Every
+  configured left, centre, right and overflow module goes through the factory; the
+  bootstrap name, wallpaper summary and clock remain only where the
+  configuration leaves them empty, and a configured `clock` is not duplicated
+  by the fallback.  The configured overflow row is built with the bar and
+  opens behind its chevron.  It watches the settings directory with a 250 ms debounce,
+  watches the GDK monitor model for hotplug, and rebuilds by destroying the old
+  windows (and their module hosts/CSS/clock timers) before building the new
+  plan.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
+  on Broadway/X11 test displays.
 - `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--help`.
+
+## Bar modules
+
+The Rust bar now builds the daily-use readings from the same module lists as
+the C shell.  Put them in whichever half the configuration names:
+
+```scheme
+#:left   (list (workspaces-module #:interval 1
+                                  #:hide-empty? #f
+                                  #:format "{index}")
+              (window-module #:max-length 50))
+#:center (list (clock-module #:format "%a %d %b  %H:%M"))
+#:right  (list (audio-module #:format "{icon} {volume}%")
+              (battery-module #:warning 30 #:critical 15)
+              (wifi-module #:show-ssid? #f)
+              (bluetooth-module))
+```
+
+`workspaces` uses the session detected once at startup: on niri it runs
+`niri msg -j workspaces`; on Hyprland it runs the workspaces and monitors
+queries together.  Labels are built from `{index}` and `{name}`, empty
+workspaces follow `#:hide-empty?`, and a primary click runs the session's focus
+command.  `#:interval 0` paints the row once and starts no timer.  Other
+sessions have no workspace IPC, so the module stays empty rather than guessing.
+
+`window` uses the same session's focused-window command and parser, filling
+`{title}` and `{app-id}`.  A session with no focused-window answer leaves the
+module empty; River's push interface is not ported yet.  `clock` is a strftime
+pattern, and its tooltip is the month calendar.  `custom` runs `#:exec` and
+shows its first line.  `audio` prefers wpctl and falls back to pactl; `battery`
+reads `/sys/class/power_supply`; `wifi` and `bluetooth` read nmcli and
+bluetoothctl.  `backlight`, `cpu` and `memory` read sysfs/proc directly;
+`power-profile`, `language` and `inhibit` run powerprofilesctl, niri and
+systemd-inhibit; `keyboard` reads the Caps Lock LED.  The configured `#:overflow`
+list is built too and expands from the chevron at the end of the right group.
+
+Every module built by the host accepts the shared mouse options
+(`#:on-click`, `#:on-click-right`, `#:on-click-middle`, `#:on-scroll-up`,
+`#:on-scroll-down`) and `#:css-class`.  `#:command-timeout` is a deadline in
+seconds for the module's command, defaulting to 5; a timed-out or cancelled
+command leaves the last good reading in place.  Set it to 0 only for a command
+that is known to finish.
+
+The C Wi-Fi and Bluetooth modules open the network panel on a primary click.
+The Rust shell does not have that panel yet, so its modules only run an
+explicit `#:on-click`; without one they are readouts.
+
+## Monitors, hotplug and reload
+
+Each configured bar is placed independently by its `#:monitor`, `#:monitors`
+and `#:when` rule.  `all` creates one window per output, a connector name waits
+for that output, `default` leaves placement to the compositor, and an empty
+monitor model still gets one compositor-placed surface for `all`/`default`.
+The shell holds the GTK application so a bar that is waiting for an external
+screen does not exit the process; when the monitor model changes, it schedules
+one idle rebuild and evaluates every rule again.
+
+The settings directory is watched, with a 250 ms debounce so one editor save is
+not several rebuilds.  A successful reload replaces the complete bar set; a
+failed load logs the error and keeps the previous bars.  Reload currently
+refreshes the bars, their generated CSS, their modules, the idle policy and the
+wallpaper summary shown by the fallback centre label.  The wallpaper surface
+itself and the long-lived panels are still started once and are not restarted
+by a bar reload.
 
 ## Requirements
 
@@ -202,12 +340,16 @@ The tests are split by what they can prove without a session:
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
+| `tests/barmonitors.rs` | Monitor-rule selection, output-count conditions and flattened bar placements |
+| `tests/config.rs` | Missing-file defaults, the configuration label, and reloading a real two-bar config through one Guile handle |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
 | `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
 | `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
+| `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
+| `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
 | unit tests | Scheme literal escaping, `--config` parsing |
 
 The Guile test deliberately stays in one test function: Guile is process-global
@@ -249,12 +391,17 @@ of the C engine:
 
 ## Scope and next steps
 
-This is still a bootstrap, not a replacement of the whole shell. The bar model
-and its generated skin are now ported, and so is the lock screen: its policy,
-PAM boundary, surfaces and logind triggers are Rust.  The idle manager's
-`IdleHint` watch, inhibitor, timer and DND flag are Rust too; the locker's
-per-monitor rebuild while the protocol lock is up is still in C, as are the
-module factories, launcher, notifications, panels, night-light policies and
-session management. The next slices should move the module protocol and one
-real module family behind the Rust process, then make the Rust binary the
-installed `whelk` once the C and Rust suites both cover the same behavior.
+This is still a bootstrap, not a replacement of the whole shell. The bar model,
+its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
+module host/factory, the configured overflow row, and the `workspaces`, `clock`,
+`window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
+`memory`, `power-profile`, `keyboard`, `language` and `inhibit` modules are now
+ported and wired into the Rust bar, and so is the lock screen: its policy, PAM
+boundary, surfaces and logind triggers are Rust.  The idle manager's `IdleHint`
+watch, inhibitor, timer and DND flag are Rust too; the locker's per-monitor
+rebuild while the protocol lock is up is still in C, as are the remaining module
+kinds (clipboard, tray, menu/start, notifications and the rest), the network
+panel, launcher, notifications, night-light policies and session management.
+The next slices should move those surface-owning modules onto the Rust host,
+then make the Rust binary the installed `whelk` once the C and Rust suites both
+cover the same behavior.

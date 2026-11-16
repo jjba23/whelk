@@ -76,6 +76,16 @@ pub enum When {
     Multi,
 }
 
+/// The half of a bar a module was configured in.  The C factory walks left,
+/// centre, then right; naming the half lets the Rust shell put the few
+/// implemented modules where the configuration asked for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Left,
+    Center,
+    Right,
+}
+
 impl When {
     fn parse(text: &str) -> Self {
         match text {
@@ -298,6 +308,19 @@ impl BarSettings {
             .chain(self.center.iter())
             .chain(self.right.iter())
             .find(|module| module.kind == kind)
+    }
+
+    /// The first half that configures `kind`, in the C factory's order.
+    pub fn section(&self, kind: &str) -> Option<Section> {
+        if self.left.iter().any(|module| module.kind == kind) {
+            Some(Section::Left)
+        } else if self.center.iter().any(|module| module.kind == kind) {
+            Some(Section::Center)
+        } else if self.right.iter().any(|module| module.kind == kind) {
+            Some(Section::Right)
+        } else {
+            None
+        }
     }
 }
 

@@ -3,24 +3,34 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-//! The first Rust-owned surface: a small top bar.
+//! The Rust-owned shell surfaces.
 //!
-//! It reads the same bar alist as the C shell.  The widget tree is still a
-//! bootstrap -- the configured modules are not all built yet -- but the
-//! geometry, edge, layer, margins, clock format and generated skin now come
-//! from Scheme rather than a hardcoded stylesheet.
+//! One bar is built for every monitor selected by its declarative rule.  The
+//! display's monitor model and the settings file are both watched: a hotplug or
+//! a save tears the old windows down and evaluates the rules again.  The old
+//! windows own their modules, so destroying a window stops its timers and
+//! cancels its in-flight commands through the shared module host.
 
+use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer};
+use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer, ModuleSpec};
+use crate::barfactory::{self, ModuleContext};
+use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
+use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::locker;
+use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::style;
+
+const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 
 thread_local! {
     /// One manager owns the idle timer, its logind inhibitor and DND, for as
@@ -28,22 +38,64 @@ thread_local! {
     static IDLE: std::cell::RefCell<Option<Idle>> = const { std::cell::RefCell::new(None) };
 }
 
-pub fn run(
-    settings: WallpaperSettings,
-    bar: BarSettings,
+struct Bootstrap {
+    loader: ConfigLoader,
+    loaded: LoadedConfig,
     config_label: String,
-    idle_lock_after: i32,
+    hold: gtk::gio::ApplicationHoldGuard,
+}
+
+type ShellRef = Rc<RefCell<Shell>>;
+type ShellSlot = Rc<RefCell<Option<ShellRef>>>;
+
+pub fn run(
+    loader: ConfigLoader,
+    loaded: LoadedConfig,
+    config_label: String,
 ) -> gtk::glib::ExitCode {
     let application = gtk::Application::builder()
         .application_id("org.jointhefreeworld.whelk.rust")
         .build();
 
-    let settings = Rc::new(settings);
-    let bar = Rc::new(bar);
-    let config_label = Rc::new(config_label);
+    // A configuration can intentionally have no bar on the current outputs
+    // (a named external connector, or `#:when 'multi`).  Hold the application
+    // so it can wait for the monitor that makes the rule true.
+    let hold = application.hold();
 
+    let bootstrap = Rc::new(RefCell::new(Some(Bootstrap {
+        loader,
+        loaded,
+        config_label,
+        hold,
+    })));
+    let slot: ShellSlot = Rc::new(RefCell::new(None));
+
+    let activate_slot = slot.clone();
+    let activate_bootstrap = bootstrap.clone();
     application.connect_activate(move |application| {
-        present(application, &settings, &bar, &config_label, idle_lock_after);
+        if activate_slot.borrow().is_some() {
+            return;
+        }
+
+        let Some(bootstrap) = activate_bootstrap.borrow_mut().take() else {
+            return;
+        };
+        let shell = Shell::present(
+            application,
+            bootstrap.loader,
+            bootstrap.loaded,
+            bootstrap.config_label,
+            bootstrap.hold,
+        );
+
+        *activate_slot.borrow_mut() = Some(shell);
+    });
+
+    let shutdown_slot = slot.clone();
+    application.connect_shutdown(move |_application| {
+        if let Some(shell) = shutdown_slot.borrow_mut().take() {
+            shell.borrow_mut().teardown();
+        }
     });
 
     let quit = gtk::gio::SimpleAction::new("quit", None);
@@ -63,21 +115,190 @@ pub fn run(
     application.run_with_args(&["whelk-rs"])
 }
 
-fn present(
+struct Shell {
+    application: gtk::glib::WeakRef<gtk::Application>,
+    loader: ConfigLoader,
+    loaded: LoadedConfig,
+    config_label: String,
+    session: Session,
+    bars: Vec<BarWindow>,
+    config_watch: Option<(gtk::gio::FileMonitor, gtk::glib::SignalHandlerId)>,
+    monitor_watch: Option<(gtk::gio::ListModel, gtk::glib::SignalHandlerId)>,
+    reload_source: Option<gtk::glib::SourceId>,
+    monitor_rebuild_pending: bool,
+    _hold: gtk::gio::ApplicationHoldGuard,
+}
+
+impl Shell {
+    fn present(
+        application: &gtk::Application,
+        loader: ConfigLoader,
+        loaded: LoadedConfig,
+        config_label: String,
+        hold: gtk::gio::ApplicationHoldGuard,
+    ) -> ShellRef {
+        // The C shell prepares the locker at startup, before a `--lock` or a
+        // logind signal can arrive; the Rust shell watches logind at the same
+        // point and starts `whelk-rs --lock` when a trigger fires.
+        locker::watch_logind();
+        start_idle(loaded.idle_lock_after);
+
+        let shell = Rc::new(RefCell::new(Self {
+            application: application.downgrade(),
+            loader,
+            loaded,
+            config_label,
+            session: Session::detect(),
+            bars: Vec::new(),
+            config_watch: None,
+            monitor_watch: None,
+            reload_source: None,
+            monitor_rebuild_pending: false,
+            _hold: hold,
+        }));
+
+        {
+            let mut state = shell.borrow_mut();
+
+            state.rebuild();
+        }
+
+        watch_config(&shell);
+        watch_monitors(&shell);
+
+        let wallpaper = shell.borrow().loaded.wallpaper.clone();
+
+        crate::wallpaper_surface::present(application, &wallpaper);
+
+        shell
+    }
+
+    /// Destroy every current bar and build the set the current monitor model
+    /// and loaded configuration select.  This is the only rebuild path: a
+    /// monitor change and a settings save both land here.
+    fn rebuild(&mut self) {
+        let Some(application) = self.application.upgrade() else {
+            self.bars.clear();
+
+            return;
+        };
+
+        self.bars.clear();
+
+        let (monitors, connectors) = monitor_snapshot();
+        let placements = plan_bars(&self.loaded.bars, &connectors);
+        let mut built = 0;
+
+        for placement in placements {
+            let Some(bar_settings) = self.loaded.bars.get(placement.bar_index) else {
+                continue;
+            };
+            let monitor = placement_monitor(&placement, &monitors);
+
+            self.bars.push(build_bar_window(
+                &application,
+                bar_settings,
+                monitor,
+                &self.config_label,
+                &self.loaded.wallpaper,
+                self.session,
+            ));
+            built += 1;
+        }
+
+        if built == 0 {
+            eprintln!("whelk-rs: no bar matches the current monitor model; waiting for an output");
+        }
+    }
+
+    fn reload(&mut self) {
+        match self.loader.load() {
+            Ok(loaded) => {
+                self.loaded = loaded;
+                self.config_label = self.loader.label();
+                start_idle(self.loaded.idle_lock_after);
+                self.rebuild();
+            }
+            Err(error) => {
+                eprintln!(
+                    "whelk-rs: configuration reload failed: {error}; keeping the previous bars"
+                );
+            }
+        }
+    }
+
+    fn teardown(&mut self) {
+        if let Some(source) = self.reload_source.take() {
+            source.remove();
+        }
+
+        if let Some((monitor, handler)) = self.config_watch.take() {
+            monitor.disconnect(handler);
+        }
+
+        if let Some((model, handler)) = self.monitor_watch.take() {
+            model.disconnect(handler);
+        }
+
+        // BarWindow's Drop removes its fallback clock source and CSS provider,
+        // then destroys the window.  Destroying the window shuts down every
+        // ModuleHost beneath it, cancelling timers and commands.
+        self.bars.clear();
+    }
+}
+
+impl Drop for Shell {
+    fn drop(&mut self) {
+        self.teardown();
+    }
+}
+
+struct BarWindow {
+    window: gtk::ApplicationWindow,
+    clock_timer: Option<ClockTimer>,
+    css: Option<gtk::CssProvider>,
+}
+
+struct ClockTimer {
+    source: Rc<RefCell<Option<gtk::glib::SourceId>>>,
+    alive: Rc<Cell<bool>>,
+}
+
+impl Drop for ClockTimer {
+    fn drop(&mut self) {
+        self.alive.set(false);
+
+        if let Some(source) = self.source.borrow_mut().take() {
+            source.remove();
+        }
+    }
+}
+
+impl Drop for BarWindow {
+    fn drop(&mut self) {
+        drop(self.clock_timer.take());
+
+        if let Some(css) = self.css.take() {
+            if let Some(display) = gtk::gdk::Display::default() {
+                gtk::style_context_remove_provider_for_display(&display, &css);
+            }
+        }
+
+        // Detach the CenterBox explicitly so the module roots receive their
+        // destroy signal before the window itself goes away.
+        self.window.set_child(None::<&gtk::Widget>);
+        self.window.destroy();
+    }
+}
+
+fn build_bar_window(
     application: &gtk::Application,
-    settings: &WallpaperSettings,
     bar_settings: &BarSettings,
+    monitor: Option<&gtk::gdk::Monitor>,
     config_label: &str,
-    idle_lock_after: i32,
-) {
-    install_css(bar_settings);
-
-    // The C shell prepares the locker at startup, before a `--lock` or a
-    // logind signal can arrive; the Rust shell watches logind at the same
-    // point and starts `whelk-rs --lock` when a trigger fires.
-    locker::watch_logind();
-    start_idle(idle_lock_after);
-
+    wallpaper_settings: &WallpaperSettings,
+    session: Session,
+) -> BarWindow {
     let widget_id = style::widget_id(&bar_settings.name);
     let window = gtk::ApplicationWindow::builder()
         .application(application)
@@ -97,44 +318,234 @@ fn present(
     name.add_css_class("whelk-rs-name");
     name.set_tooltip_text(Some(config_label));
 
-    let wallpaper = gtk::Label::new(Some(&settings.summary()));
+    let wallpaper = gtk::Label::new(Some(&wallpaper_settings.summary()));
     wallpaper.add_css_class("whelk-rs-status");
     wallpaper.set_ellipsize(gtk::pango::EllipsizeMode::End);
 
-    let clock = gtk::Label::new(None);
-    let clock_format = bar_settings
-        .clock_format()
-        .unwrap_or_else(|| "%H:%M".to_owned());
+    let start = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
+    let center = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
+    let end = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
 
-    clock.add_css_class("whelk-rs-clock");
-    update_clock(&clock, &clock_format);
+    start.add_css_class("whelk-rs-start");
+    center.add_css_class("whelk-rs-center");
+    end.add_css_class("whelk-rs-end");
+    start.append(&name);
 
-    bar.set_start_widget(Some(&name));
-    bar.set_center_widget(Some(&wallpaper));
-    bar.set_end_widget(Some(&clock));
+    let context = ModuleContext::from_bar(bar_settings, session);
+
+    append_modules(&start, &bar_settings.left, &context);
+    append_modules(&center, &bar_settings.center, &context);
+    append_modules(&end, &bar_settings.right, &context);
+
+    if center.first_child().is_none() {
+        center.append(&wallpaper);
+    }
+
+    // A clock module is itself one of the readings now.  Only a configuration
+    // without one needs the bootstrap clock, so a configured clock is not
+    // duplicated in the right half.
+    let configured_clock = bar_settings.module("clock").is_some()
+        || bar_settings
+            .overflow
+            .iter()
+            .any(|module| module.kind == "clock");
+    let clock_timer = if !configured_clock {
+        let clock = gtk::Label::new(None);
+        let clock_format = bar_settings
+            .clock_format()
+            .unwrap_or_else(|| "%H:%M".to_owned());
+        let weak_clock = clock.downgrade();
+        let source = Rc::new(RefCell::new(None));
+        let alive = Rc::new(Cell::new(true));
+        let callback_source = source.clone();
+        let callback_alive = alive.clone();
+        let timer_format = clock_format.clone();
+
+        let timer = gtk::glib::timeout_add_seconds_local(1, move || {
+            if !callback_alive.get() {
+                return gtk::glib::ControlFlow::Break;
+            }
+
+            let Some(clock) = weak_clock.upgrade() else {
+                *callback_source.borrow_mut() = None;
+
+                return gtk::glib::ControlFlow::Break;
+            };
+
+            update_clock(&clock, &timer_format);
+
+            gtk::glib::ControlFlow::Continue
+        });
+
+        *source.borrow_mut() = Some(timer);
+
+        clock.add_css_class("whelk-rs-clock");
+        update_clock(&clock, &clock_format);
+        end.append(&clock);
+
+        Some(ClockTimer { source, alive })
+    } else {
+        None
+    };
+
+    append_overflow(&end, bar_settings, &context);
+
+    bar.set_start_widget(Some(&start));
+    bar.set_center_widget(Some(&center));
+    bar.set_end_widget(Some(&end));
     window.set_child(Some(&bar));
 
+    let css = install_css(bar_settings);
+
     if layer_shell_available() {
-        configure_layer_shell(&window, bar_settings);
+        configure_layer_shell(&window, bar_settings, monitor);
     } else {
         // Broadway and a plain X11 test display have no layer shell.  A normal
         // window is still a useful smoke test for the widget tree.
         window.set_default_size(720, bar_settings.height.max(32));
     }
 
-    let clock = clock.clone();
-    gtk::glib::timeout_add_seconds_local(1, move || {
-        update_clock(&clock, &clock_format);
-        gtk::glib::ControlFlow::Continue
-    });
-
     window.present();
 
-    crate::wallpaper_surface::present(application, settings);
+    BarWindow {
+        window,
+        clock_timer,
+        css,
+    }
 }
 
-/// Starts the idle manager once; a later activation only updates the policy,
-/// so a second window does not start a second logind session lookup.
+fn placement_monitor<'a>(
+    placement: &BarPlacement,
+    monitors: &'a [gtk::gdk::Monitor],
+) -> Option<&'a gtk::gdk::Monitor> {
+    if placement.monitor == DEFAULT_MONITOR {
+        return None;
+    }
+
+    monitors.get(placement.monitor as usize)
+}
+
+fn monitor_snapshot() -> (Vec<gtk::gdk::Monitor>, Vec<String>) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return (Vec::new(), Vec::new());
+    };
+    let model = display.monitors();
+    let mut monitors = Vec::new();
+    let mut connectors = Vec::new();
+
+    for index in 0..model.n_items() {
+        let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() else {
+            continue;
+        };
+        let connector = monitor.connector().unwrap_or_default().to_string();
+
+        monitors.push(monitor);
+        connectors.push(connector);
+    }
+
+    (monitors, connectors)
+}
+
+fn watch_config(shell: &ShellRef) {
+    let path = shell.borrow().loader.path().to_owned();
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
+    if let Err(error) = std::fs::create_dir_all(directory) {
+        eprintln!(
+            "whelk-rs: cannot create the configuration directory '{}': {error}",
+            directory.display()
+        );
+
+        return;
+    }
+
+    let directory = gtk::gio::File::for_path(directory);
+    let monitor = match directory.monitor_directory(
+        gtk::gio::FileMonitorFlags::NONE,
+        None::<&gtk::gio::Cancellable>,
+    ) {
+        Ok(monitor) => monitor,
+        Err(error) => {
+            eprintln!("whelk-rs: cannot watch the configuration directory: {error}");
+
+            return;
+        }
+    };
+    let weak = Rc::downgrade(shell);
+    let handler = monitor.connect_changed(move |_, _, _, _| {
+        if let Some(shell) = weak.upgrade() {
+            schedule_reload(&shell);
+        }
+    });
+
+    shell.borrow_mut().config_watch = Some((monitor, handler));
+}
+
+fn schedule_reload(shell: &ShellRef) {
+    let mut state = shell.borrow_mut();
+
+    if let Some(source) = state.reload_source.take() {
+        source.remove();
+    }
+
+    let weak = Rc::downgrade(shell);
+
+    state.reload_source = Some(gtk::glib::timeout_add_local_once(
+        CONFIG_RELOAD_DEBOUNCE,
+        move || {
+            if let Some(shell) = weak.upgrade() {
+                let mut state = shell.borrow_mut();
+
+                state.reload_source = None;
+                state.reload();
+            }
+        },
+    ));
+}
+
+fn watch_monitors(shell: &ShellRef) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    let model = display.monitors();
+    let weak = Rc::downgrade(shell);
+    let handler = model.connect_items_changed(move |_, _, _, _| {
+        if let Some(shell) = weak.upgrade() {
+            schedule_monitor_rebuild(&shell);
+        }
+    });
+
+    shell.borrow_mut().monitor_watch = Some((model, handler));
+}
+
+fn schedule_monitor_rebuild(shell: &ShellRef) {
+    let mut state = shell.borrow_mut();
+
+    if state.monitor_rebuild_pending {
+        return;
+    }
+
+    state.monitor_rebuild_pending = true;
+    let weak = Rc::downgrade(shell);
+
+    // Rebuilding while the monitor model is still emitting is reentrancy-prone:
+    // a bar being destroyed queries the same model.  The idle runs after the
+    // model has settled, just like the C shell's monitor idle.
+    gtk::glib::idle_add_local_once(move || {
+        if let Some(shell) = weak.upgrade() {
+            let mut state = shell.borrow_mut();
+
+            state.monitor_rebuild_pending = false;
+            state.rebuild();
+        }
+    });
+}
+
+/// Starts the idle manager once; a later reload only updates the policy, so a
+/// second activation does not start a second logind session lookup.
 fn start_idle(lock_after: i32) {
     IDLE.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -155,7 +566,11 @@ fn start_idle(lock_after: i32) {
     });
 }
 
-fn configure_layer_shell(window: &gtk::ApplicationWindow, bar: &BarSettings) {
+fn configure_layer_shell(
+    window: &gtk::ApplicationWindow,
+    bar: &BarSettings,
+    monitor: Option<&gtk::gdk::Monitor>,
+) {
     window.init_layer_shell();
     window.set_layer(layer_for(bar.layer));
     window.set_namespace(Some("whelk-rust"));
@@ -181,6 +596,10 @@ fn configure_layer_shell(window: &gtk::ApplicationWindow, bar: &BarSettings) {
     window.set_margin(Edge::Left, bar.margin_left);
     window.set_exclusive_zone(if bar.exclusive { bar.height } else { -1 });
     window.set_keyboard_mode(KeyboardMode::None);
+
+    if let Some(monitor) = monitor {
+        window.set_monitor(Some(monitor));
+    }
 }
 
 fn edge_for(edge: BarEdge) -> Edge {
@@ -214,6 +633,73 @@ pub(crate) fn layer_shell_available() -> bool {
     display.backend().is_wayland() && gtk4_layer_shell::is_supported()
 }
 
+fn append_modules(section: &gtk::Box, modules: &[ModuleSpec], context: &ModuleContext) {
+    for module in modules {
+        if let Some(widget) = barfactory::build(module, context) {
+            section.append(&widget);
+        }
+    }
+}
+
+/// The configured overflow row: built with the bar so its modules have already
+/// started, but hidden behind the chevron until it is opened.  This is the
+/// Rust equivalent of C's inline `#:overflow` area; the width-driven folded
+/// menu is still a later slice.
+fn append_overflow(end: &gtk::Box, bar_settings: &BarSettings, context: &ModuleContext) {
+    if bar_settings.overflow.is_empty() {
+        return;
+    }
+
+    let expanded = bar_settings.overflow_expanded;
+    let overflow = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
+    overflow.add_css_class("whelk-overflow");
+    overflow.set_valign(gtk::Align::Center);
+    append_modules(&overflow, &bar_settings.overflow, context);
+
+    let toggle = gtk::ToggleButton::new();
+    let icon = gtk::Image::from_icon_name("pan-start-symbolic");
+
+    icon.set_pixel_size(16);
+    toggle.set_child(Some(&icon));
+    toggle.add_css_class("flat");
+    toggle.add_css_class("whelk-overflow-toggle");
+    toggle.set_valign(gtk::Align::Center);
+    toggle.set_active(expanded);
+    overflow.set_visible(expanded);
+    icon.set_icon_name(Some(if expanded {
+        "pan-end-symbolic"
+    } else {
+        "pan-start-symbolic"
+    }));
+    toggle.set_tooltip_text(Some(if expanded {
+        "Extra items · click to hide"
+    } else {
+        "Extra items · click to show"
+    }));
+
+    let overflow_for_toggle = overflow.clone();
+    let icon_for_toggle = icon.clone();
+
+    toggle.connect_toggled(move |button| {
+        let expanded = button.is_active();
+
+        overflow_for_toggle.set_visible(expanded);
+        icon_for_toggle.set_icon_name(Some(if expanded {
+            "pan-end-symbolic"
+        } else {
+            "pan-start-symbolic"
+        }));
+        button.set_tooltip_text(Some(if expanded {
+            "Extra items · click to hide"
+        } else {
+            "Extra items · click to show"
+        }));
+    });
+
+    end.append(&overflow);
+    end.append(&toggle);
+}
+
 fn update_clock(label: &gtk::Label, format: &str) {
     let text = gtk::glib::DateTime::now_local()
         .and_then(|now| now.format(format))
@@ -223,11 +709,8 @@ fn update_clock(label: &gtk::Label, format: &str) {
     label.set_text(&text);
 }
 
-fn install_css(bar: &BarSettings) {
-    let Some(display) = gtk::gdk::Display::default() else {
-        return;
-    };
-
+fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
+    let display = gtk::gdk::Display::default()?;
     let widget_id = style::widget_id(&bar.name);
     let base = "
         .whelk-surface {
@@ -245,6 +728,39 @@ fn install_css(bar: &BarSettings) {
         .whelk-rs-clock {
             font-weight: 700;
         }
+        .whelk-module {
+            padding: 0 6px;
+            border-radius: 6px;
+            transition: background-color 120ms ease-in-out;
+        }
+        .whelk-module:hover {
+            background-color: alpha(currentColor, 0.10);
+        }
+        .whelk-label {
+            font-feature-settings: \"tnum\";
+        }
+        .whelk-battery.warning {
+            color: #ffb340;
+        }
+        .whelk-battery.critical {
+            color: #ff5f56;
+            font-weight: bold;
+        }
+        .whelk-wifi.off, .whelk-bluetooth.off {
+            opacity: 0.55;
+        }
+        .whelk-window {
+            font-weight: 600;
+        }
+        .whelk-workspace {
+            padding: 0 3px;
+        }
+        .whelk-workspace.inactive {
+            opacity: 0.62;
+        }
+        .whelk-workspace.empty {
+            opacity: 0.38;
+        }
         ";
     let generated = style::css(&widget_id, bar, "whelk-bar", bar.css.as_deref());
     let css = gtk::CssProvider::new();
@@ -256,4 +772,6 @@ fn install_css(bar: &BarSettings) {
         &css,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+
+    Some(css)
 }

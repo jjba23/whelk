@@ -6,13 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use whelk_rs::bar::BarSettings;
 use whelk_rs::collection::collect;
-use whelk_rs::guile::Guile;
+use whelk_rs::config::ConfigLoader;
 use whelk_rs::lockauth::{self, Stack};
 use whelk_rs::locker;
 use whelk_rs::rotation::Playlist;
-use whelk_rs::settings::{WallpaperSettings, default_config_path};
+use whelk_rs::settings::default_config_path;
 use whelk_rs::ui;
 
 const USAGE: &str = "\
@@ -76,23 +75,32 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
-    let (settings, bar, idle_lock_after) = load_settings(&config_path)?;
+    let mut loader = ConfigLoader::new(config_path.clone(), scheme_paths());
+    let loaded = loader.load()?;
 
     if options.check_config {
         println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
         println!("config: {}", config_path.display());
-        println!("{}", settings.summary());
-        println!("{}", bar.summary());
-        println!("idle lock-after: {idle_lock_after} s");
+        println!("{}", loaded.wallpaper.summary());
+
+        for bar in &loaded.bars {
+            println!("{}", bar.summary());
+        }
+
+        println!("idle lock-after: {} s", loaded.idle_lock_after);
 
         // Exercise the same walk the wallpaper engine will use.  A file the
         // walker cannot see is a configuration problem worth reporting here,
         // before the shell starts.
-        let wallpapers = collect(&settings.paths, settings.current.as_deref(), settings.video);
+        let wallpapers = collect(
+            &loaded.wallpaper.paths,
+            loaded.wallpaper.current.as_deref(),
+            loaded.wallpaper.video,
+        );
         println!("wallpapers: {}", wallpapers.len());
 
-        let mut playlist = Playlist::new(wallpapers, settings.video, 0x9e37_79b9_7f4a_7c15);
-        playlist.resolve(settings.current.as_deref());
+        let mut playlist = Playlist::new(wallpapers, loaded.wallpaper.video, 0x9e37_79b9_7f4a_7c15);
+        playlist.resolve(loaded.wallpaper.current.as_deref());
 
         if let Some(current) = playlist.selected() {
             println!("current: {}", current.display());
@@ -101,36 +109,9 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let label = if config_path.is_file() {
-        config_path.display().to_string()
-    } else {
-        format!("{} (missing; using defaults)", config_path.display())
-    };
+    let label = loader.label();
 
-    Ok(ui::run(settings, bar, label, idle_lock_after).into())
-}
-
-fn load_settings(path: &Path) -> Result<(WallpaperSettings, BarSettings, i32), String> {
-    if !path.is_file() {
-        return Ok((WallpaperSettings::default(), BarSettings::default(), 0));
-    }
-
-    let guile = Guile::init(&scheme_paths())
-        .map_err(|error| format!("shell settings could not be loaded: {error}"))?;
-    let wallpaper = guile
-        .load_wallpaper(path)
-        .map_err(|error| format!("wallpaper settings could not be loaded: {error}"))?;
-    let bar = guile
-        .load_bars(path)
-        .map_err(|error| format!("bar settings could not be loaded: {error}"))?
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-    let idle_lock_after = guile
-        .load_idle_lock_after(path)
-        .map_err(|error| format!("idle settings could not be loaded: {error}"))?;
-
-    Ok((wallpaper, bar, idle_lock_after))
+    Ok(ui::run(loader, loaded, label).into())
 }
 
 fn scheme_paths() -> Vec<PathBuf> {

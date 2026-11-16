@@ -14,7 +14,7 @@
 //! [`DEFAULT_MONITOR`] means "let the compositor choose", which is what a
 //! `default` rule means and what a machine with no monitor model gets.
 
-use crate::bar::When;
+use crate::bar::{BarSettings, When};
 
 pub const DEFAULT_MONITOR: i32 = -1;
 
@@ -89,4 +89,27 @@ fn select_one(selected: &mut Vec<i32>, index: i32) {
     if !selected.contains(&index) {
         selected.push(index);
     }
+}
+
+/// One bar configuration placed on one output.  `monitor` is either an index
+/// into the caller's monitor list or [`DEFAULT_MONITOR`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarPlacement {
+    pub bar_index: usize,
+    pub monitor: i32,
+}
+
+/// Flatten every bar's monitor rule into the windows the shell should build.
+/// A bar that selects no present connector contributes nothing; a later
+/// hotplug re-runs this against the new connector list.
+pub fn plan_bars(bars: &[BarSettings], connectors: &[String]) -> Vec<BarPlacement> {
+    let mut placements = Vec::new();
+
+    for (bar_index, bar) in bars.iter().enumerate() {
+        for monitor in select_monitors(bar.when, &bar.monitor, &bar.monitors, connectors) {
+            placements.push(BarPlacement { bar_index, monitor });
+        }
+    }
+
+    placements
 }
