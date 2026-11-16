@@ -70,6 +70,23 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/clipboardbar.rs` — the `clipboard` bar module: the live count, status
   classes, picker click, and the right-click menu for pause/resume, clear
   unpinned, clear-all confirmation, restart and opening the picker.
+- `src/startmenu.rs` — the shell's own menu as data: `(whelk menu)` units become
+  items, disabled rows, separators, submenus and the `shell:recent-items` slot,
+  plus the default/fallback menus and the rule that `whelk --reload` and
+  `whelk --quit` stay in the running process instead of spawning a second
+  shell.
+- `src/startbar.rs` — the `start` bar module: the drawn whelk mark (or an
+  `#:label` glyph), the configured menu popover, Recent Items filled from
+  GTK's recent manager when it opens, Up/Down/Right/Escape navigation in every
+  submenu, and the shell actions (`launcher`, `force-quit`, `network`,
+  `bluetooth`, `notifications`, `dnd`, `lock`, `reload`, `quit`, `about`).
+  Commands from the menu run through the shared asynchronous runner.  The
+  settings window is still the C shell's, so `shell:settings` logs that it is
+  not ported yet rather than pretending to open one.
+- `src/about.rs` — the menu's About This System window, using the Rust
+  host-info readers: host and OS header, processor/memory/display/disk/kernel/
+  session/uptime rows, a copyable report (button or Ctrl+C), Escape to close,
+  and the bar's own solid palette.
 - `src/filesearch.rs` — the launcher's file mode: case-insensitive ranking that
   puts a basename match before a parent-directory match, shallower paths before
   deeper ones, files before directories, and the `find` command that prunes the
@@ -145,8 +162,8 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   overrides.  A bare left click on the count toggles the notification centre;
   a bare right click toggles DND.  The `dnd` module's bare left click does the
   same, and `#:show-off?` keeps it visible while DND is off.
-- `src/config.rs` — the loaded wallpaper/bar/idle snapshot and its reload
-  boundary.  The Guile handle lives with the shell, so a second load reuses it;
+- `src/config.rs` — the loaded wallpaper/bar/idle/shell-menu snapshot and its
+  reload boundary.  The Guile handle lives with the shell, so a second load reuses it;
   a missing file means the built-in bar, and a failed reload keeps the previous
   windows instead of partially applying a broken configuration.
 - `src/barmonitors.rs` also plans concrete windows: every bar configuration is
@@ -262,8 +279,10 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
-  `(whelk core)`/`(whelk state)` modules and reads both the wallpaper and bar
-  alists. Nested alists and exact/inexact numbers survive the typed conversion.
+  `(whelk core)`/`(whelk state)` modules, reads the wallpaper and bar alists,
+  and walks the shell menu's tagged units (falling back to
+  `(default-shell-menu)` when the file names none). Nested alists and
+  exact/inexact numbers survive the typed conversion.
 - `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
   thickness, clock format and generated skin come from its Scheme bar. Every
   configured left, centre, right and overflow module goes through the factory; the
@@ -317,8 +336,10 @@ systemd-inhibit; `keyboard` reads the Caps Lock LED.  `notifications` and `dnd`
 read the in-process notification service, which shares the idle manager's DND
 flag.  `clipboard` reads the shell's own history and opens the same picker as
 `whelk-rs --clipboard`; its right-click menu pauses, restarts, clears or opens
-that picker.  The configured `#:overflow` list is built too and expands from
-the chevron at the end of the right group.
+that picker.  `start` draws the whelk mark and opens the configured shell menu;
+its Recent Items submenu is live, and a shell item it cannot perform yet is
+reported on stderr instead of closing silently.  The configured `#:overflow`
+list is built too and expands from the chevron at the end of the right group.
 
 Every module built by the host accepts the shared mouse options
 (`#:on-click`, `#:on-click-right`, `#:on-click-middle`, `#:on-scroll-up`,
@@ -345,7 +366,9 @@ one idle rebuild and evaluates every rule again.
 
 The settings directory is watched, with a 250 ms debounce so one editor save is
 not several rebuilds.  A successful reload replaces the complete bar set; a
-failed load logs the error and keeps the previous bars.  Reload currently
+failed load logs the error and keeps the previous bars.  The shell's `reload`
+application action uses the same path, so the start menu's reload row rebuilds
+the bars and their menus without starting a second process.  Reload currently
 refreshes the bars, their generated CSS, their modules, the idle policy and the
 wallpaper summary shown by the fallback centre label.  The wallpaper surface
 itself and the long-lived panels are still started once and are not restarted
@@ -430,13 +453,14 @@ The tests are split by what they can prove without a session:
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
 | `tests/barmonitors.rs` | Monitor-rule selection, output-count conditions and flattened bar placements |
-| `tests/config.rs` | Missing-file defaults, the configuration label, and reloading a real two-bar config through one Guile handle |
+| `tests/config.rs` | Missing-file defaults (including the built-in shell menu), the configuration label, and reloading a real two-bar config through one Guile handle |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
 | `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
 | `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
 | `tests/launcherdata.rs` | Desktop-entry shadowing, hidden/non-application entries, PATH executable scanning, niri windows, SSH patterns, file rows, menu protocols, ranking and the session menu |
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
-| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
+| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, repeated loads, caught exceptions |
+| `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
@@ -494,7 +518,9 @@ module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
 `memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications` and
 `dnd` modules are now ported and wired into the Rust bar, and so is the lock screen:
-its policy, PAM boundary, surfaces and logind triggers are Rust.  The idle
+its policy, PAM boundary, surfaces and logind triggers are Rust.  The start
+menu (`start`), its drawn mark, popover and About window are Rust too; only its
+settings-window action remains a C surface.  The idle
 manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too.  The
 notification service owns the session-bus methods and the store, and the Rust
 notification centre owns the panel and toast surfaces.  The Wi-Fi/Bluetooth
@@ -506,7 +532,7 @@ menu are wired; the clipboard history, its bar module, picker mode and the
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
 locker's per-monitor rebuild while the protocol lock is up is still in C, as are
-the remaining module kinds (tray, menu/start and the rest) and session
-management.  The next slices should move those surface-owning modules
-onto the Rust host, then make the Rust binary the installed `whelk` once the C
-and Rust suites both cover the same behavior.
+the remaining module kinds (`tray`, the global `menu` and the Scheme `scheme`
+module), the settings window, and session management.  The next slices should
+move those surface-owning modules onto the Rust host, then make the Rust binary
+the installed `whelk` once the C and Rust suites both cover the same behavior.

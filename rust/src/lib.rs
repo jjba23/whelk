@@ -11,6 +11,7 @@
 //! Rust surface.  Each layer has a stable Rust API so a later commit can move
 //! callers over without rewriting the logic again.
 
+pub mod about;
 pub mod applets;
 pub mod audiobar;
 pub mod backlightbar;
@@ -65,6 +66,8 @@ pub mod powerprofilebar;
 pub mod rotation;
 pub mod session;
 pub mod settings;
+pub mod startbar;
+pub mod startmenu;
 pub mod style;
 pub mod trayicon;
 pub mod ui;

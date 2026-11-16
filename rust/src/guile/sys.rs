@@ -32,6 +32,7 @@ unsafe extern "C" {
         procedure: ScmSubr,
     ) -> Scm;
     pub fn scm_c_export(name: *const c_char, ...);
+    pub fn scm_call_0(procedure: Scm) -> Scm;
     pub fn scm_call_1(procedure: Scm, argument: Scm) -> Scm;
     pub fn scm_from_utf8_string(text: *const c_char) -> Scm;
     pub fn scm_to_utf8_stringn(text: Scm, length: *mut size_t) -> *mut c_char;

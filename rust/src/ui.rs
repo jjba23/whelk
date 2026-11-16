@@ -34,6 +34,7 @@ use crate::notifications::NotificationService;
 use crate::osd::Osd;
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
+use crate::startmenu::MenuEntry;
 use crate::style;
 
 const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
@@ -119,6 +120,19 @@ pub fn run(
 
     application.add_action(&quit);
     application.set_accels_for_action("app.quit", &["<Control>q"]);
+
+    // The shell menu's reload row, and the default menu's `whelk --reload`,
+    // both ask the running shell to re-read its settings.  A second process
+    // would be a second shell, so the request stays in this application.
+    let reload = gtk::gio::SimpleAction::new("reload", None);
+    let reload_slot = slot.clone();
+
+    reload.connect_activate(move |_, _| {
+        if let Some(shell) = reload_slot.borrow().as_ref() {
+            shell.borrow_mut().reload();
+        }
+    });
+    application.add_action(&reload);
 
     let launcher = gtk::gio::SimpleAction::new("launcher", Some(gtk::glib::VariantTy::STRING));
 
@@ -267,6 +281,7 @@ impl Shell {
                 monitor,
                 &self.config_label,
                 &self.loaded.wallpaper,
+                &self.loaded.menu,
                 self.session,
             ));
             built += 1;
@@ -408,6 +423,7 @@ fn build_bar_window(
     monitor: Option<&gtk::gdk::Monitor>,
     config_label: &str,
     wallpaper_settings: &WallpaperSettings,
+    shell_menu: &[MenuEntry],
     session: Session,
 ) -> BarWindow {
     let widget_id = style::widget_id(&bar_settings.name);
@@ -442,7 +458,9 @@ fn build_bar_window(
     end.add_css_class("whelk-rs-end");
     start.append(&name);
 
-    let context = ModuleContext::from_bar(bar_settings, session);
+    let mut context = ModuleContext::from_bar(bar_settings, session);
+
+    context.shell_menu = Rc::new(shell_menu.to_vec());
 
     append_modules(&start, &bar_settings.left, &context);
     append_modules(&center, &bar_settings.center, &context);

@@ -100,6 +100,56 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
         300
     );
 
+    // A settings file that names no menu gets the default one, read through
+    // the same Scheme units a custom menu uses.
+    let menu = guile
+        .load_shell_menu(&config_path)
+        .expect("load shell menu");
+
+    assert!(!menu.is_empty());
+    assert!(menu.iter().any(|entry| matches!(
+        entry,
+        whelk_rs::startmenu::MenuEntry::Item {
+            label,
+            ..
+        } if label == "About This System"
+    )));
+
+    let custom_path = directory.path().join("custom-menu.scm");
+
+    std::fs::write(
+        &custom_path,
+        r#"
+(configure-shell!
+ #:bars '()
+ #:shell-menu (list (list 'item "Search" "shell:launcher")
+                     (list 'separator)
+                     (list 'submenu "Recent Items" "shell:recent-items")))
+"#,
+    )
+    .expect("write custom menu settings");
+
+    let custom = guile
+        .load_shell_menu(&custom_path)
+        .expect("load custom shell menu");
+
+    assert_eq!(custom.len(), 3);
+    assert!(matches!(
+        &custom[0],
+        whelk_rs::startmenu::MenuEntry::Item {
+            label,
+            action: Some(action),
+            enabled: true,
+        } if label == "Search" && action == "shell:launcher"
+    ));
+    assert!(matches!(
+        &custom[2],
+        whelk_rs::startmenu::MenuEntry::Submenu {
+            marker: Some(marker),
+            ..
+        } if marker == "shell:recent-items"
+    ));
+
     let bars = guile.load_bars(&config_path).expect("load bar settings");
     assert_eq!(bars.len(), 1);
     assert_eq!(bars[0].name, "rust-test");

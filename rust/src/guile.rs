@@ -25,6 +25,7 @@ use std::slice;
 
 use crate::bar::BarSettings;
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
+use crate::startmenu::MenuEntry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuileError {
@@ -209,6 +210,172 @@ impl Guile {
                 _ => None,
             })
             .collect())
+    }
+
+    /// Read the shell menu as `(whelk menu)` units.  A configuration that
+    /// writes no menu gets `(default-shell-menu)` from `(whelk defaults)`;
+    /// the no-configuration path never reaches Guile and uses the Rust copy of
+    /// that menu instead.
+    pub fn load_shell_menu(&self, config_path: &Path) -> Result<Vec<MenuEntry>, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let units = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("shell-menu->units").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+        let _units_root = Root::new(units);
+        let entries = self.menu_entries(units, 0)?;
+
+        if !entries.is_empty() {
+            return Ok(entries);
+        }
+
+        // `default-shell-menu` lives in a module the settings file may never
+        // have loaded; importing it is harmless when it is already there.
+        self.eval_string("(use-modules (whelk defaults))")?;
+
+        let default = self.catch(|| {
+            let module = CString::new("whelk defaults").expect("static module name");
+            let name = CString::new("default-shell-menu").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_0(procedure) })
+        })?;
+        let _default_root = Root::new(default);
+
+        self.menu_entries(default, 0)
+    }
+
+    /// Read `(whelk menu)` units directly from SCM.  The generic value walk
+    /// classifies a list whose first element is a symbol as an alist, which is
+    /// right for a keyed record and wrong for a tagged menu row; the menu has
+    /// its own small walk so both shapes stay unambiguous.
+    fn menu_entries(&self, units: sys::Scm, depth: usize) -> Result<Vec<MenuEntry>, GuileError> {
+        if depth > 8 {
+            return Ok(Vec::new());
+        }
+
+        let mut entries = Vec::new();
+        let mut cursor = units;
+        let mut seen = 0usize;
+
+        while unsafe { sys::scm_is_pair(cursor) } != 0 {
+            let unit = unsafe { sys::scm_car(cursor) };
+
+            if unsafe { sys::scm_is_pair(unit) } != 0
+                && let Some(entry) = self.menu_entry(unit, depth)?
+            {
+                entries.push(entry);
+            }
+
+            cursor = unsafe { sys::scm_cdr(cursor) };
+            seen += 1;
+
+            if seen > 4096 {
+                return Err(GuileError::Evaluation(
+                    "Scheme menu is longer than the bridge allows".to_owned(),
+                ));
+            }
+        }
+
+        Ok(entries)
+    }
+
+    fn menu_entry(&self, unit: sys::Scm, depth: usize) -> Result<Option<MenuEntry>, GuileError> {
+        let tag = unsafe { sys::scm_car(unit) };
+        let rest = unsafe { sys::scm_cdr(unit) };
+        let Some(tag) = self.value_text(tag)? else {
+            return Ok(None);
+        };
+
+        match tag.as_str() {
+            "separator" => Ok(Some(MenuEntry::Separator)),
+            "item" => {
+                if unsafe { sys::scm_is_pair(rest) } == 0 {
+                    return Ok(None);
+                }
+
+                let Some(label) = self
+                    .value_text(unsafe { sys::scm_car(rest) })?
+                    .filter(|label| !label.is_empty())
+                else {
+                    return Ok(None);
+                };
+                let action_rest = unsafe { sys::scm_cdr(rest) };
+                let action = if unsafe { sys::scm_is_pair(action_rest) } != 0 {
+                    self.value_text(unsafe { sys::scm_car(action_rest) })?
+                        .filter(|action| !action.is_empty())
+                } else {
+                    None
+                };
+
+                Ok(Some(MenuEntry::Item {
+                    label,
+                    enabled: action.is_some(),
+                    action,
+                }))
+            }
+            "submenu" | "menu" => {
+                if unsafe { sys::scm_is_pair(rest) } == 0 {
+                    return Ok(None);
+                }
+
+                let Some(label) = self
+                    .value_text(unsafe { sys::scm_car(rest) })?
+                    .filter(|label| !label.is_empty())
+                else {
+                    return Ok(None);
+                };
+                let body = unsafe { sys::scm_cdr(rest) };
+                let marker = if unsafe { sys::scm_is_pair(body) } != 0
+                    && unsafe { sys::scm_is_pair(sys::scm_cdr(body)) } == 0
+                {
+                    self.value_text(unsafe { sys::scm_car(body) })?
+                        .filter(|marker| !marker.is_empty())
+                } else {
+                    None
+                };
+
+                if let Some(marker) = marker {
+                    return Ok(Some(MenuEntry::Submenu {
+                        label,
+                        marker: Some(marker),
+                        entries: Vec::new(),
+                    }));
+                }
+
+                Ok(Some(MenuEntry::Submenu {
+                    label,
+                    marker: None,
+                    entries: self.menu_entries(body, depth + 1)?,
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn value_text(&self, value: sys::Scm) -> Result<Option<String>, GuileError> {
+        if unsafe { sys::scm_is_string(value) } != 0 {
+            return self.text(value).map(Some);
+        }
+
+        if self.is_symbol(value)? {
+            return self.symbol_text(value).map(Some);
+        }
+
+        Ok(None)
     }
 
     pub fn load_wallpaper(&self, config_path: &Path) -> Result<WallpaperSettings, GuileError> {

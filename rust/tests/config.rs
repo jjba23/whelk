@@ -27,6 +27,11 @@ fn a_missing_file_loads_the_builtin_bar_and_a_clear_label() {
     assert_eq!(loaded.bars[0].name, "main");
     assert_eq!(loaded.idle_lock_after, 0);
     assert_eq!(loaded.clipboard, Default::default());
+    assert!(!loaded.menu.is_empty());
+    assert!(loaded.menu.iter().any(|entry| matches!(
+        entry,
+        whelk_rs::startmenu::MenuEntry::Item { label, .. } if label == "About This System"
+    )));
     assert_eq!(
         loader.label(),
         format!("{} (missing; using defaults)", path.display())

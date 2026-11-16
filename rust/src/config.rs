@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::bar::BarSettings;
 use crate::guile::Guile;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
+use crate::startmenu::MenuEntry;
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
@@ -22,6 +23,7 @@ pub struct LoadedConfig {
     pub bars: Vec<BarSettings>,
     pub idle_lock_after: i32,
     pub clipboard: ClipboardSettings,
+    pub menu: Vec<MenuEntry>,
 }
 
 impl LoadedConfig {
@@ -32,6 +34,7 @@ impl LoadedConfig {
             bars: vec![BarSettings::default()],
             idle_lock_after: 0,
             clipboard: ClipboardSettings::default(),
+            menu: MenuEntry::default_menu(),
         }
     }
 }
@@ -88,12 +91,21 @@ impl ConfigLoader {
         let clipboard = guile
             .load_clipboard(&self.path)
             .map_err(|error| format!("clipboard settings could not be loaded: {error}"))?;
+        // A menu is configuration, not a reason to refuse a valid shell.  The
+        // C bridge returns its short fallback when the Scheme side cannot
+        // answer; this does the same, with the full default menu instead.
+        let menu = guile.load_shell_menu(&self.path).unwrap_or_else(|error| {
+            eprintln!("whelk-rs: shell menu could not be loaded: {error}; using the default menu");
+
+            MenuEntry::default_menu()
+        });
 
         Ok(LoadedConfig {
             wallpaper,
             bars,
             idle_lock_after,
             clipboard,
+            menu,
         })
     }
 

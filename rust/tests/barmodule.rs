@@ -172,6 +172,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "memory",
         "notifications",
         "power-profile",
+        "start",
         "wifi",
         "window",
         "workspaces",
@@ -197,4 +198,6 @@ fn factory_context_carries_the_bar_facts() {
     assert_eq!(context.session, Session::Niri);
     assert_eq!(context.spacing, 10);
     assert_eq!(context.icon_font.as_deref(), Some("Icons"));
+    assert_eq!(context.bar.spacing, 10);
+    assert!(context.shell_menu.is_empty());
 }

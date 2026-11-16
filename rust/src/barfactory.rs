@@ -12,6 +12,8 @@
 //! A factory receives the settings it needs in [`ModuleContext`], so a module
 //! does not reach back into the global configuration.
 
+use std::rc::Rc;
+
 use gtk4 as gtk;
 
 use crate::audiobar;
@@ -31,17 +33,22 @@ use crate::memorybar;
 use crate::notificationsbar;
 use crate::powerprofilebar;
 use crate::session::Session;
+use crate::startbar;
+use crate::startmenu::MenuEntry;
 use crate::wifibar;
 use crate::windowbar;
 use crate::workspacebar;
 
-/// The session and bar facts a module factory may need.  Keep this small: a
-/// factory should receive settings, not a second configuration authority.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The session, bar material and loaded shell menu a factory may need.  A
+/// factory receives settings, not a second configuration authority; the menu is
+/// included because the start module renders the same value the reload did.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModuleContext {
     pub session: Session,
     pub spacing: i32,
     pub icon_font: Option<String>,
+    pub bar: BarSettings,
+    pub shell_menu: Rc<Vec<MenuEntry>>,
 }
 
 impl ModuleContext {
@@ -50,6 +57,8 @@ impl ModuleContext {
             session,
             spacing: bar.spacing,
             icon_font: bar.icon_font.clone(),
+            bar: bar.clone(),
+            shell_menu: Rc::new(Vec::new()),
         }
     }
 }
@@ -72,6 +81,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("memory", memorybar::module),
     ("notifications", notificationsbar::module),
     ("power-profile", powerprofilebar::module),
+    ("start", startbar::module),
     ("wifi", wifibar::module),
     ("window", windowbar::module),
     ("workspaces", workspacebar::module),

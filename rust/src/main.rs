@@ -101,6 +101,7 @@ fn run() -> Result<ExitCode, String> {
 
         println!("idle lock-after: {} s", loaded.idle_lock_after);
         println!("{}", loaded.clipboard.summary());
+        println!("shell menu: {} row(s)", loaded.menu.len());
 
         // Exercise the same walk the wallpaper engine will use.  A file the
         // walker cannot see is a configuration problem worth reporting here,
