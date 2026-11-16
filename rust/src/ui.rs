@@ -26,6 +26,7 @@ use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::locker;
+use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
 use crate::osd::Osd;
 use crate::session::Session;
@@ -129,6 +130,7 @@ struct Shell {
     reload_source: Option<gtk::glib::SourceId>,
     monitor_rebuild_pending: bool,
     notifications: Option<NotificationService>,
+    center: Option<NotificationCenter>,
     osd: Option<Osd>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
@@ -156,8 +158,10 @@ impl Shell {
         NotificationService::install(Some(notifications.clone()));
 
         let osd_style = loaded.bars.first().cloned().unwrap_or_default();
+        let center = NotificationCenter::new(application, &notifications, &osd_style);
         let osd = Osd::new(application, &osd_style);
 
+        NotificationCenter::install(Some(center.clone()));
         Osd::install(Some(osd.clone()));
 
         let shell = Rc::new(RefCell::new(Self {
@@ -172,6 +176,7 @@ impl Shell {
             reload_source: None,
             monitor_rebuild_pending: false,
             notifications: Some(notifications),
+            center: Some(center),
             osd: Some(osd),
             _hold: hold,
         }));
@@ -237,9 +242,13 @@ impl Shell {
                 self.config_label = self.loader.label();
                 start_idle(self.loaded.idle_lock_after);
 
-                if let Some(osd) = self.osd.as_ref() {
-                    let style = self.loaded.bars.first().cloned().unwrap_or_default();
+                let style = self.loaded.bars.first().cloned().unwrap_or_default();
 
+                if let Some(center) = self.center.as_ref() {
+                    center.set_style(&style);
+                }
+
+                if let Some(osd) = self.osd.as_ref() {
                     osd.set_style(&style);
                 }
 
@@ -255,8 +264,10 @@ impl Shell {
 
     fn teardown(&mut self) {
         Osd::install(None);
+        NotificationCenter::install(None);
         NotificationService::install(None);
 
+        self.center.take();
         self.osd.take();
 
         if let Some(service) = self.notifications.take() {

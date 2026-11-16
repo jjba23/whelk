@@ -313,12 +313,43 @@ impl Drop for NotificationSubscription {
     }
 }
 
+/// A store event, mirroring the C service's `changed`, `posted` and `closed`
+/// signals.  The centre needs the posted event to tell a replacement from a
+/// fresh notification even though both keep the same id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationEvent {
+    Changed,
+    Posted(u32),
+    Closed(u32),
+}
+
+/// A live event listener.  Dropping the guard removes the callback.
+pub struct NotificationEventSubscription {
+    inner: Weak<RefCell<ServiceState>>,
+    id: u64,
+}
+
+impl Drop for NotificationEventSubscription {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner
+                .borrow_mut()
+                .event_listeners
+                .retain(|(id, _)| *id != self.id);
+        }
+    }
+}
+
+type EventListener = dyn Fn(NotificationEvent);
+
 struct ServiceState {
     store: NotificationStore,
     idle: Option<Idle>,
     dnd: bool,
     next_listener_id: u64,
     listeners: Vec<(u64, Rc<dyn Fn()>)>,
+    next_event_listener_id: u64,
+    event_listeners: Vec<(u64, Rc<EventListener>)>,
     connection: Option<gio::DBusConnection>,
     registration: Option<gio::RegistrationId>,
     owner: Option<gio::OwnerId>,
@@ -333,6 +364,8 @@ impl NotificationService {
             dnd: false,
             next_listener_id: 0,
             listeners: Vec::new(),
+            next_event_listener_id: 0,
+            event_listeners: Vec::new(),
             connection: None,
             registration: None,
             owner: None,
@@ -486,6 +519,12 @@ impl NotificationService {
 
         self.changed();
 
+        // DND suppresses the interrupt, not the stored history; the C service
+        // emits `posted` only when the shell is free to show a toast.
+        if !self.has_dnd() {
+            self.publish_event(NotificationEvent::Posted(id));
+        }
+
         id
     }
 
@@ -510,6 +549,7 @@ impl NotificationService {
 
         for notification in &notifications {
             self.emit_closed(notification.id, CLOSED_DISMISSED);
+            self.publish_event(NotificationEvent::Closed(notification.id));
         }
 
         self.changed();
@@ -540,6 +580,24 @@ impl NotificationService {
         }
     }
 
+    pub fn on_event<F: Fn(NotificationEvent) + 'static>(
+        &self,
+        callback: F,
+    ) -> NotificationEventSubscription {
+        let mut state = self.inner.borrow_mut();
+
+        state.next_event_listener_id = state.next_event_listener_id.wrapping_add(1).max(1);
+
+        let id = state.next_event_listener_id;
+
+        state.event_listeners.push((id, Rc::new(callback)));
+
+        NotificationEventSubscription {
+            inner: Rc::downgrade(&self.inner),
+            id,
+        }
+    }
+
     fn close_with_reason(&self, id: u32, reason: u32) -> bool {
         let removed = self.inner.borrow_mut().store.remove(id);
 
@@ -548,6 +606,7 @@ impl NotificationService {
         }
 
         self.emit_closed(id, reason);
+        self.publish_event(NotificationEvent::Closed(id));
         self.changed();
 
         true
@@ -555,9 +614,22 @@ impl NotificationService {
 
     fn changed(&self) {
         let listeners = self.inner.borrow().listeners.clone();
+        let event_listeners = self.inner.borrow().event_listeners.clone();
 
         for (_, listener) in listeners {
             listener();
+        }
+
+        for (_, listener) in event_listeners {
+            listener(NotificationEvent::Changed);
+        }
+    }
+
+    fn publish_event(&self, event: NotificationEvent) {
+        let listeners = self.inner.borrow().event_listeners.clone();
+
+        for (_, listener) in listeners {
+            listener(event);
         }
     }
 

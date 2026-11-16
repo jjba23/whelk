@@ -98,15 +98,23 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   assigns stable ids, replaces a notification in place for `replaces_id`,
   resolves the C default/critical timeout rules, and keeps DND in the existing
   idle manager.  The service exports `Notify`, `CloseNotification`,
-  `GetCapabilities` and `GetServerInformation`, and emits `NotificationClosed`
-  and `ActionInvoked`.  It remains alive, with its store usable, when another
-  daemon owns the bus name.
+  `GetCapabilities` and `GetServerInformation`, emits `NotificationClosed` and
+  `ActionInvoked`, and publishes changed/posted/closed events to in-process
+  listeners.  It remains alive, with its store usable, when another daemon owns
+  the bus name.
+- `src/notificationcenter.rs` — the C notification centre and toast stack as
+  Rust layer-shell surfaces.  History is grouped by application with the newest
+  card on top, the header carries DND/clear/close, malformed markup falls back
+  to plain text, and cards invoke their default/action buttons through the
+  service.  The corner shows at most five toasts, replaces duplicates, opens
+  the panel from a toast click, and expires transient notices on their own
+  timers.  It restyles both surfaces when the configuration reloads.
 - `src/notificationsbar.rs` and `src/dndbar.rs` — the `notifications` and `dnd`
   bar modules.  They read the service's count and DND flag, repaint from a weak
   listener when either changes, and keep their configured format/icon/tooltip
-  overrides.  A bare right click on the count toggles DND; the `dnd` module's
-  bare left click does the same, and `#:show-off?` keeps it visible while DND
-  is off.
+  overrides.  A bare left click on the count toggles the notification centre;
+  a bare right click toggles DND.  The `dnd` module's bare left click does the
+  same, and `#:show-off?` keeps it visible while DND is off.
 - `src/config.rs` — the loaded wallpaper/bar/idle snapshot and its reload
   boundary.  The Guile handle lives with the shell, so a second load reuses it;
   a missing file means the built-in bar, and a failed reload keeps the previous
@@ -284,10 +292,10 @@ that is known to finish.
 
 The C Wi-Fi and Bluetooth modules open the network panel on a primary click.
 The Rust shell does not have that panel yet, so its modules only run an
-explicit `#:on-click`; without one they are readouts.  The same applies to the
-notification centre: `notifications` runs a configured `#:on-click`, but a bare
-left click waits for the centre surface.  Its bare right click is still the C
-DND toggle, and `dnd` is a working toggle without the centre.
+explicit `#:on-click`; without one they are readouts.  The `notifications`
+module's bare left click now toggles the Rust notification centre, while an
+explicit `#:on-click` still wins; its bare right click is the C DND toggle, and
+`dnd` is a working toggle without the centre.
 
 ## Monitors, hotplug and reload
 
@@ -381,7 +389,8 @@ The tests are split by what they can prove without a session:
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
 | `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps and config normalization |
 | `tests/osd.rs` | HUD placement above a bottom bar, progress clamping and the percentage label |
-| `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND and listener notifications |
+| `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND, changed/posted/closed events and listener notifications |
+| `tests/notificationcenter.rs` | App grouping and newest-first cards, empty summaries, toast queue limit/replacement, toast margins, body-markup validation and local time labels |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
 | unit tests | Scheme literal escaping, `--config` parsing |
@@ -432,11 +441,11 @@ module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications` and
 `dnd` modules are now ported and wired into the Rust bar, and so is the lock screen:
 its policy, PAM boundary, surfaces and logind triggers are Rust.  The idle
-manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too, and the
-notification service now owns the session-bus methods and the store; the
-notification-centre surface itself is still to come.  The night light's
+manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too.  The
+notification service owns the session-bus methods and the store, and the Rust
+notification centre owns the panel and toast surfaces.  The night light's
 arithmetic and schedule are Rust; its wlr-gamma-control and RandR backends are
-still C.  The volume/brightness HUD is now a Rust surface.  The locker's
+still C.  The volume/brightness HUD is a Rust surface.  The locker's
 per-monitor rebuild while the protocol lock is up is still in C, as are the
 remaining module kinds (clipboard, tray, menu/start and the rest), the network
 panel, launcher and session management.  The next slices should move those

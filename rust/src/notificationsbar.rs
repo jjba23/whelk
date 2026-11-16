@@ -6,10 +6,8 @@
 //! The notification-count bar module, ported from `modules/notifications.c`.
 //!
 //! The service is the reading: it owns the count and the DND flag, and the
-//! module only formats them.  The C left click opens the notification centre;
-//! that surface is a separate migration, so a configured `on-click` works and
-//! a bare left click does nothing until the centre exists.  A bare right click
-//! still toggles DND.
+//! module only formats them.  A configured `on-click` still wins; a bare left
+//! click toggles the notification centre, and a bare right click toggles DND.
 
 use gtk::prelude::*;
 use gtk4 as gtk;
@@ -17,6 +15,7 @@ use gtk4 as gtk;
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
+use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 0;
@@ -66,6 +65,10 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
 
     if host.settings().actions.secondary.is_none() {
         attach_toggle(&root, gtk::gdk::BUTTON_SECONDARY, &service);
+    }
+
+    if host.settings().actions.primary.is_none() {
+        attach_center(&root);
     }
 
     Some(root)
@@ -126,6 +129,15 @@ fn attach_toggle(root: &gtk::Box, button: u32, service: &NotificationService) {
 
     gesture.set_button(button);
     gesture.connect_pressed(move |_, _, _, _| service.set_dnd(!service.has_dnd()));
+    root.add_controller(gesture);
+    root.set_cursor_from_name(Some("pointer"));
+}
+
+fn attach_center(root: &gtk::Box) {
+    let gesture = gtk::GestureClick::new();
+
+    gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
+    gesture.connect_pressed(|_, _, _, _| NotificationCenter::toggle_current());
     root.add_controller(gesture);
     root.set_cursor_from_name(Some("pointer"));
 }

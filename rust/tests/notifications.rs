@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use whelk_rs::notifications::{
-    Action, DEFAULT_TIMEOUT_MS, Notification, NotificationRequest, NotificationService,
-    NotificationStore,
+    Action, DEFAULT_TIMEOUT_MS, Notification, NotificationEvent, NotificationRequest,
+    NotificationService, NotificationStore,
 };
 
 fn request(summary: &str) -> NotificationRequest {
@@ -222,6 +222,52 @@ fn invoke_closes_an_existing_notification_and_ignores_missing_ids() {
     assert!(service.invoke(id, Some("open")));
     assert_eq!(service.count(), 0);
     assert!(!service.invoke(id, None));
+}
+
+#[test]
+fn service_events_distinguish_posted_and_closed() {
+    let service = NotificationService::new(None);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let callback_events = events.clone();
+
+    let _subscription = service.on_event(move |event| {
+        callback_events.borrow_mut().push(event);
+    });
+
+    let id = service.post(request("posted"));
+
+    assert_eq!(
+        *events.borrow(),
+        [NotificationEvent::Changed, NotificationEvent::Posted(id)]
+    );
+
+    events.borrow_mut().clear();
+    service.close(id);
+
+    assert_eq!(
+        *events.borrow(),
+        [NotificationEvent::Closed(id), NotificationEvent::Changed]
+    );
+}
+
+#[test]
+fn do_not_disturb_suppresses_posted_events_but_not_storage() {
+    let service = NotificationService::new(None);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let callback_events = events.clone();
+
+    let _subscription = service.on_event(move |event| {
+        callback_events.borrow_mut().push(event);
+    });
+
+    service.set_dnd(true);
+    events.borrow_mut().clear();
+
+    let id = service.post(request("quiet"));
+
+    assert_eq!(service.count(), 1);
+    assert_eq!(service.snapshot()[0].id, id);
+    assert_eq!(*events.borrow(), [NotificationEvent::Changed]);
 }
 
 #[test]

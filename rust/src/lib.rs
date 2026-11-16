@@ -52,6 +52,7 @@ pub mod memorybar;
 pub mod menuprobe;
 pub mod nightlight;
 pub mod nmcli;
+pub mod notificationcenter;
 pub mod notifications;
 pub mod notificationsbar;
 pub mod osd;
