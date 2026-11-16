@@ -17,6 +17,7 @@ pub mod chord;
 pub mod collection;
 pub mod fuzzy;
 pub mod guile;
+pub mod idle;
 pub mod idlepolicy;
 pub mod inhibitors;
 pub mod launcher;

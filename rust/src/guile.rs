@@ -237,6 +237,43 @@ impl Guile {
         Ok(WallpaperSettings::from_alist(&values))
     }
 
+    /// Reads `(idle-settings #:lock-after ...)`, clamped the way the C bridge
+    /// clamps it: `-1` disables timed locking, `0` locks on the first hint, and
+    /// a day is the largest delay the shell accepts.  A machine with no
+    /// `idle-settings` gets zero, the compatible policy.
+    pub fn load_idle_lock_after(&self, config_path: &Path) -> Result<i32, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let alist = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("get-shell-idle").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+
+        let _alist_root = Root::new(alist);
+        let values = self.alist(alist)?;
+        let seconds = values
+            .iter()
+            .find_map(|(key, value)| match (key.as_str(), value) {
+                ("lock-after", SchemeValue::Integer(seconds)) => Some(*seconds),
+                _ => None,
+            })
+            .unwrap_or(0);
+
+        Ok(seconds.clamp(-1, 86_400) as i32)
+    }
+
     fn load_config(&self, config_path: &Path) -> Result<(), GuileError> {
         if !config_path.is_file() {
             return Err(GuileError::Evaluation(format!(

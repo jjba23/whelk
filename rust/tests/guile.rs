@@ -48,6 +48,7 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
               #:picker-width 1200
               #:picker-height 700
               #:picker-columns 5)
+ #:idle (idle-settings #:lock-after 300)
  #:bars (list (bar #:name 'rust-test
                     #:height 40
                     #:background "rgba(10, 20, 30, 0.5)"
@@ -91,6 +92,13 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
     assert_eq!(settings.picker_width, 1200);
     assert_eq!(settings.picker_height, 700);
     assert_eq!(settings.picker_columns, 5);
+
+    assert_eq!(
+        guile
+            .load_idle_lock_after(&config_path)
+            .expect("load idle settings"),
+        300
+    );
 
     let bars = guile.load_bars(&config_path).expect("load bar settings");
     assert_eq!(bars.len(), 1);

@@ -17,14 +17,22 @@ use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer};
+use crate::idle::Idle;
 use crate::locker;
 use crate::settings::WallpaperSettings;
 use crate::style;
+
+thread_local! {
+    /// One manager owns the idle timer, its logind inhibitor and DND, for as
+    /// long as the shell runs.
+    static IDLE: std::cell::RefCell<Option<Idle>> = const { std::cell::RefCell::new(None) };
+}
 
 pub fn run(
     settings: WallpaperSettings,
     bar: BarSettings,
     config_label: String,
+    idle_lock_after: i32,
 ) -> gtk::glib::ExitCode {
     let application = gtk::Application::builder()
         .application_id("org.jointhefreeworld.whelk.rust")
@@ -35,7 +43,7 @@ pub fn run(
     let config_label = Rc::new(config_label);
 
     application.connect_activate(move |application| {
-        present(application, &settings, &bar, &config_label);
+        present(application, &settings, &bar, &config_label, idle_lock_after);
     });
 
     let quit = gtk::gio::SimpleAction::new("quit", None);
@@ -60,6 +68,7 @@ fn present(
     settings: &WallpaperSettings,
     bar_settings: &BarSettings,
     config_label: &str,
+    idle_lock_after: i32,
 ) {
     install_css(bar_settings);
 
@@ -67,6 +76,7 @@ fn present(
     // logind signal can arrive; the Rust shell watches logind at the same
     // point and starts `whelk-rs --lock` when a trigger fires.
     locker::watch_logind();
+    start_idle(idle_lock_after);
 
     let widget_id = style::widget_id(&bar_settings.name);
     let window = gtk::ApplicationWindow::builder()
@@ -121,6 +131,28 @@ fn present(
     window.present();
 
     crate::wallpaper_surface::present(application, settings);
+}
+
+/// Starts the idle manager once; a later activation only updates the policy,
+/// so a second window does not start a second logind session lookup.
+fn start_idle(lock_after: i32) {
+    IDLE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+
+        if let Some(idle) = slot.as_ref() {
+            idle.set_lock_after(lock_after);
+
+            return;
+        }
+
+        let idle = Idle::new();
+
+        idle.set_lock_action(locker::start_lock_screen);
+        idle.set_lock_after(lock_after);
+        idle.start();
+
+        *slot = Some(idle);
+    });
 }
 
 fn configure_layer_shell(window: &gtk::ApplicationWindow, bar: &BarSettings) {

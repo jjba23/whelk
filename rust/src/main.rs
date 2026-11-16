@@ -76,13 +76,14 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
-    let (settings, bar) = load_settings(&config_path)?;
+    let (settings, bar, idle_lock_after) = load_settings(&config_path)?;
 
     if options.check_config {
         println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
         println!("config: {}", config_path.display());
         println!("{}", settings.summary());
         println!("{}", bar.summary());
+        println!("idle lock-after: {idle_lock_after} s");
 
         // Exercise the same walk the wallpaper engine will use.  A file the
         // walker cannot see is a configuration problem worth reporting here,
@@ -106,12 +107,12 @@ fn run() -> Result<ExitCode, String> {
         format!("{} (missing; using defaults)", config_path.display())
     };
 
-    Ok(ui::run(settings, bar, label).into())
+    Ok(ui::run(settings, bar, label, idle_lock_after).into())
 }
 
-fn load_settings(path: &Path) -> Result<(WallpaperSettings, BarSettings), String> {
+fn load_settings(path: &Path) -> Result<(WallpaperSettings, BarSettings, i32), String> {
     if !path.is_file() {
-        return Ok((WallpaperSettings::default(), BarSettings::default()));
+        return Ok((WallpaperSettings::default(), BarSettings::default(), 0));
     }
 
     let guile = Guile::init(&scheme_paths())
@@ -125,8 +126,11 @@ fn load_settings(path: &Path) -> Result<(WallpaperSettings, BarSettings), String
         .into_iter()
         .next()
         .unwrap_or_default();
+    let idle_lock_after = guile
+        .load_idle_lock_after(path)
+        .map_err(|error| format!("idle settings could not be loaded: {error}"))?;
 
-    Ok((wallpaper, bar))
+    Ok((wallpaper, bar, idle_lock_after))
 }
 
 fn scheme_paths() -> Vec<PathBuf> {

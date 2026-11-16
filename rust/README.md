@@ -54,6 +54,11 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/inhibitors.rs` — the `systemd-inhibit --list` reader: padded-column
   parsing that keeps spaces inside a reason, and the one-line-per-inhibitor
   tooltip text for "why did my screen not blank".
+- `src/idle.rs` — the idle and inhibit manager: logind's `IdleHint` and session
+  lookup, the policy timer, a real logind idle inhibitor held as an fd, DND
+  ownership with its change callback, and the status report that reads
+  `systemd-inhibit`.  The Rust shell starts one and wires its lock action to
+  the Rust lock screen.
 - `src/lockauth.rs` — the C lock screen's authentication boundary without GTK:
   libpam loaded at run time from the host's library first, with the host
   dependencies (`libaudit`, `libeconf`) resolved by absolute path when a store
@@ -195,9 +200,10 @@ of the C engine:
 
 This is still a bootstrap, not a replacement of the whole shell. The bar model
 and its generated skin are now ported, and so is the lock screen: its policy,
-PAM boundary and surfaces are Rust.  The locker's logind `Lock`/`PrepareForSleep`
-subscriptions and its per-monitor rebuild while the protocol lock is up are still
-in C, as are the module factories, launcher, notifications, panels, idle and
-night-light policies and session management. The next slices should move the module protocol and one real module
-family behind the Rust process, then make the Rust binary the installed `whelk`
-once the C and Rust suites both cover the same behavior.
+PAM boundary, surfaces and logind triggers are Rust.  The idle manager's
+`IdleHint` watch, inhibitor, timer and DND flag are Rust too; the locker's
+per-monitor rebuild while the protocol lock is up is still in C, as are the
+module factories, launcher, notifications, panels, night-light policies and
+session management. The next slices should move the module protocol and one
+real module family behind the Rust process, then make the Rust binary the
+installed `whelk` once the C and Rust suites both cover the same behavior.

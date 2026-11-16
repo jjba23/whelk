@@ -60,14 +60,15 @@ pub fn watch_logind() {
             return;
         }
 
-        crate::logind::watch(spawn_for_logind);
+        crate::logind::watch(start_lock_screen);
     });
 }
 
 /// Starts one detached lock screen unless the previous one is still running.
 /// The lock is a separate GTK application, so there is no window to present
-/// in this process; `--lock` is the same entry point a keybinding uses.
-fn spawn_for_logind() {
+/// in this process; `--lock` is the same entry point a keybinding uses.  Both
+/// logind and the idle timer reach the lock through here.
+pub(crate) fn start_lock_screen() {
     SPAWNED_LOCKER.with(|slot| {
         let mut slot = slot.borrow_mut();
 
