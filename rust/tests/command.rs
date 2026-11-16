@@ -7,8 +7,10 @@
 // travels this way so that `ps` never shows it.
 
 use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use whelk_rs::command;
 
@@ -145,4 +147,48 @@ fn retv_defaults_to_zero() {
 #[test]
 fn an_empty_command_does_not_spawn() {
     assert_eq!(run_and_wait("", None), None);
+}
+
+fn wait_for_pid(path: &Path) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(2);
+
+    loop {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            if let Ok(pid) = contents.trim().parse::<u32>() {
+                if pid > 0 {
+                    return pid;
+                }
+            }
+        }
+
+        assert!(
+            Instant::now() < deadline,
+            "the spawned command did not write a pid to {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_detached_spawn_runs_and_is_reaped() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let pid_file = directory.path().join("pid");
+    let quoted = pid_file.to_string_lossy().replace('\'', "'\\''");
+
+    command::spawn(&format!("echo $$ > '{quoted}'"));
+
+    let pid = wait_for_pid(&pid_file);
+    let process_entry = format!("/proc/{pid}");
+    let deadline = Instant::now() + Duration::from_secs(3);
+
+    // A child that was merely started and never waited on stays in /proc as a
+    // zombie, so its entry disappearing is the proof that the reaper ran.
+    while Path::new(&process_entry).exists() {
+        assert!(
+            Instant::now() < deadline,
+            "child {pid} was not reaped: {process_entry} still exists"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
