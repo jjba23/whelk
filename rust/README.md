@@ -252,6 +252,13 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   case-insensitive id rules, and the File/Edit/View/Window merge.  It also owns
   the data model for a dictionary item's short Emacs form and long
   accelerator/modifier/key form.
+- `src/shortcutmaps.rs` — user-installed Orbit JSON maps, ported from
+  `util/shortcutmaps.c`: `WHELK_SHORTCUT_MAPS` or the XDG/system
+  `global-menu/shortcuts/apps` directories, deterministic path order, the
+  identifier index and lazy file reads, nested submenus, separators, chords in
+  either notation, GTK action rows, disabled targets and placeholders, and the
+  blank-map answer.  A matching map wins over the built-in corpus but loses to
+  the curated dictionary.
 - `src/atspi.rs` — the accessibility producer: a bounded, display-free tree
   walk (roles, names, children, state and key bindings) plus the live
   accessibility-bus watch.  The tests cover an owned fake tree and a fake
@@ -417,8 +424,9 @@ File/Edit/View menus.  The first producer that answers wins:
 5. The application fallbacks.  A matching curated dictionary entry comes
    first: its File menu is filled with the application's desktop actions, New
    Window from its desktop `Exec`, and Close Window before Quit; its other
-   menus follow.  When the dictionary does not know the application, the
-   shipped Orbit corpus is used, replacing the shared Edit/View rows it
+   menus follow.  When the dictionary does not know the application, a
+   user-installed JSON shortcut map is tried first; otherwise the shipped
+   Orbit corpus is used.  Either replaces the shared Edit/View rows it
    describes while keeping Window.  The last resort is the shared Edit/View
    table (only when `#:shortcuts?` is on and a typing tool exists), Close
    Window, and the compositor's maximize, float, move and full-screen verbs.
@@ -458,12 +466,13 @@ The main producers are ported, with these deliberate gaps:
 - `org.gtk.Menus.Changed` and DBusMenu `LayoutUpdated`/
   `ItemsPropertiesUpdated` are not followed live.  A focus change or shell
   reload re-reads those producers; AT-SPI changes are followed live.
-- User-installed Orbit JSON maps (`WHELK_SHORTCUT_MAPS` and the
-  `global-menu/shortcuts/apps` directories) are still C-only.  The shipped
-  Scheme corpus is ported and is the fallback used here.
 - The application name comes from the dictionary, then the desktop entry's
   `Name`, then the id's last component.  A dictionary name still wins over the
   desktop entry, matching the C order.
+
+User-installed Orbit JSON maps are read by the Rust producer as well as the C
+one.  The Rust index is loaded with each configuration reload; a map that
+changes on disk becomes visible on the next reload.
 
 ## Monitors, hotplug and reload
 
@@ -513,7 +522,19 @@ cargo run -- --lock
 cargo run -- --launcher
 cargo run -- --launcher --launcher-mode=window
 cargo run -- --clipboard
+cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
+cargo xtask dist --output /tmp
 ```
+
+The `rust/` package is now a small Cargo workspace with an `xtask` member.  The
+`xtask` target is the first, deliberately narrow piece of the lambdock-style
+packaging: `install` builds the release `whelk-rs` and stages the binary, the
+shared `scheme/whelk` modules and this README under the requested prefix and
+`DESTDIR`; `dist` writes the Git source archive.  It does not install the C
+`whelk`, and the Meson/Nix/Guix/Debian recipes still build the C shell.  Use
+`--no-build` to stage an existing target, and `--debug` to stage the debug
+profile.  A custom prefix needs `WHELK_SCHEME_DIR` until the Rust binary becomes
+the installed `whelk` and its final data path is settled.
 
 `--check-lock` is the lock screen's diagnosis without a password: the library
 candidates, the one that loads, the service stack that would answer, and
@@ -584,7 +605,7 @@ The tests are split by what they can prove without a session:
 | `tests/networkpanel.rs` | Wi-Fi radio/active/access-point parsing, escaped SSIDs, dedupe and signal order; Bluetooth paired/connected sections, malformed rows and both status/empty readings |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
-| unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, the dictionary/Orbit/desktop fallbacks and their id rules, the AT-SPI tree walk over a fake accessibility tree, fallback menus and global-menu app paths |
+| unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, the dictionary/Orbit/desktop/shortcut-map fallbacks and their id rules, the AT-SPI tree walk over a fake accessibility tree, fallback menus and global-menu app paths |
 
 The Guile test deliberately stays in one test function: Guile is process-global
 and thread-affine, and Cargo's test harness runs tests on multiple threads.
@@ -672,8 +693,7 @@ menu are wired; the clipboard history, its bar module, picker mode and the
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
 locker's per-monitor rebuild while the protocol lock is up is still in C, as
-are the Scheme `scheme` module, the global menu's live GTK/DBusMenu watchers
-and user-installed Orbit JSON maps, the settings window and session management.
-The next slices should finish those protocol watches and the Scheme widget
-bridge, then make the Rust binary the installed `whelk` once the C and Rust
-suites both cover the same behavior.
+are the Scheme `scheme` module, the global menu's live GTK/DBusMenu watchers,
+the settings window and session management.  The next slices should finish
+those protocol watches and the Scheme widget bridge, then make the Rust binary
+the installed `whelk` once the C and Rust suites both cover the same behavior.

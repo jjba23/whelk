@@ -345,8 +345,11 @@ Current boundaries are narrow, and stated rather than hidden:
 - =org.gtk.Menus.Changed= and DBusMenu =LayoutUpdated=/=ItemsPropertiesUpdated=
   are not followed live.  A focus change or reload re-reads those producers;
   AT-SPI changes are followed live.
-- User-installed Orbit JSON maps under =global-menu/shortcuts/apps= are still
-  C-only.  The shipped Scheme corpus is read by =whelk-rs=.
+- User-installed Orbit JSON maps under =global-menu/shortcuts/apps= or
+  =WHELK_SHORTCUT_MAPS= are read by both the C shell and =whelk-rs=.  The Rust
+  producer indexes the sorted files with the configuration, reads the matching
+  file lazily, and places the map before the shipped Scheme corpus and after
+  the curated dictionary.
 - A malformed or cyclic D-Bus or accessibility tree is truncated or refused
   instead of panicking, and every asynchronous answer is checked against the
   generation of the application in front.

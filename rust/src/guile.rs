@@ -392,6 +392,7 @@ impl Guile {
         Ok(MenuSources {
             dictionary: menuapps::dictionary_from_scheme(&dictionary),
             orbit: menuapps::orbit_from_scheme(&orbit),
+            ..MenuSources::default()
         })
     }
 

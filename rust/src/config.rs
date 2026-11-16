@@ -17,6 +17,7 @@ use crate::bar::BarSettings;
 use crate::guile::Guile;
 use crate::menuapps::MenuSources;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
+use crate::shortcutmaps::ShortcutMaps;
 use crate::startmenu::MenuEntry;
 
 #[derive(Debug, Clone)]
@@ -108,13 +109,17 @@ impl ConfigLoader {
         // The dictionary and Orbit corpus are fallbacks, not a reason to
         // refuse an otherwise valid configuration.  A missing or broken
         // module leaves the shared Edit/View and window verbs in place.
-        let menu_sources = guile.load_menu_sources(&self.path).unwrap_or_else(|error| {
+        let mut menu_sources = guile.load_menu_sources(&self.path).unwrap_or_else(|error| {
             eprintln!(
                 "whelk-rs: application menu sources could not be loaded: {error}; using shared menus only"
             );
 
             MenuSources::default()
         });
+
+        // This is independent of Guile: a user can install an Orbit JSON map
+        // even when the Scheme modules are unavailable.
+        menu_sources.shortcut_maps = ShortcutMaps::load();
 
         Ok(LoadedConfig {
             wallpaper,

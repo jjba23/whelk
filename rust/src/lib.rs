@@ -70,6 +70,7 @@ pub mod powerprofilebar;
 pub mod rotation;
 pub mod session;
 pub mod settings;
+pub mod shortcutmaps;
 pub mod startbar;
 pub mod startmenu;
 pub mod style;

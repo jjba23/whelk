@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.34.0"
+edition = "2024"
+publish = false
+description = "Build and staged-install helper for whelk-rs"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"

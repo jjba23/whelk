@@ -1,3 +1,10 @@
+[workspace]
+members = ["xtask"]
+resolver = "2"
+
+[profile.release]
+codegen-units = 256
+
 [package]
 name = "whelk-rs"
 version = "0.34.0"

@@ -28,6 +28,7 @@ use crate::launcherdata;
 use crate::menubar::{self, Menu, MenuAction, MenuEntry};
 use crate::session::WindowActions;
 use crate::settings::SchemeValue;
+use crate::shortcutmaps::ShortcutMaps;
 
 /// One application in the curated Scheme dictionary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +116,9 @@ pub enum OrbitEntry {
 pub struct MenuSources {
     pub dictionary: Vec<DictionaryApp>,
     pub orbit: Vec<OrbitApp>,
+    /// A user-installed Orbit JSON corpus.  It sits between the curated
+    /// dictionary and the built-in corpus, as it does in the C module.
+    pub shortcut_maps: ShortcutMaps,
 }
 
 impl MenuSources {
@@ -875,11 +879,33 @@ pub fn build_menus(
         bar.push(Menu::with_entries("Window", window));
     }
 
+    // A user-installed JSON map wins over the built-in corpus; the curated
+    // dictionary still wins over both.  A matched map with no rows (or a
+    // deliberately blank map) is still an answer, so it suppresses the corpus
+    // rather than letting a local correction fall through.
+    let mut imported_map = false;
+
+    if dictionary.is_none()
+        && can_type
+        && !app_id.is_empty()
+        && let Some(imported) =
+            sources
+                .shortcut_maps
+                .menus_for(app_id, tool.unwrap_or_default(), style)
+    {
+        if !imported.is_empty() {
+            bar = merge_imported(bar, imported);
+        }
+
+        imported_map = true;
+    }
+
     // Orbit is a gap-filler: a curated dictionary wins for the application it
     // knows, and Orbit's menus replace the synthesized menus with the same
     // label while keeping Window (which the corpus does not describe).
     if dictionary.is_none()
         && can_type
+        && !imported_map
         && !app_id.is_empty()
         && let Some(orbit) = sources.orbit_for(app_id)
         && !orbit.blank
@@ -1473,5 +1499,69 @@ mod tests {
         // not describe (View here) remains the gap-filler, exactly as the C
         // merge does.
         assert!(built.menus.iter().any(|menu| menu.label == "View"));
+    }
+
+    #[test]
+    fn an_installed_json_map_wins_over_the_built_in_corpus() {
+        let directory = tempfile::tempdir().expect("tempdir");
+
+        std::fs::write(
+            directory.path().join("demo.json"),
+            r#"{
+              "identifiers": ["example"],
+              "menus": [{"label": "File", "items": [
+                {"label": "Mapped", "shortcut": "<Ctrl>M"}
+              ]}]
+            }"#,
+        )
+        .expect("write shortcut map");
+
+        let actions = WindowActions {
+            close: Some("close".to_owned()),
+            fullscreen: Some("fullscreen".to_owned()),
+            ..WindowActions::default()
+        };
+        let sources = MenuSources {
+            orbit: vec![OrbitApp {
+                name: "Orbit".to_owned(),
+                ids: vec!["example".to_owned()],
+                blank: false,
+                menus: vec![OrbitMenu {
+                    label: "File".to_owned(),
+                    entries: vec![OrbitEntry::Item {
+                        label: "Orbit Only".to_owned(),
+                        shortcut: Some("<Ctrl>O".to_owned()),
+                        action: None,
+                    }],
+                }],
+            }],
+            shortcut_maps: ShortcutMaps::from_paths(vec![directory.path().to_path_buf()]),
+            ..MenuSources::default()
+        };
+        let built = build_menus(
+            &sources,
+            "example",
+            None,
+            &actions,
+            Some("wtype"),
+            true,
+            ChordStyle::Cua,
+        );
+        let file = built
+            .menus
+            .iter()
+            .find(|menu| menu.label == "File")
+            .expect("mapped File menu");
+
+        assert!(
+            file.entries.iter().any(|entry| {
+                matches!(entry, MenuEntry::Item { label, .. } if label == "Mapped")
+            })
+        );
+        assert!(!file.entries.iter().any(|entry| {
+            matches!(entry, MenuEntry::Item { label, .. } if label == "Orbit Only")
+        }));
+        assert!(built.menus.iter().any(|menu| menu.label == "Edit"));
+        assert!(built.menus.iter().any(|menu| menu.label == "Window"));
     }
 }
