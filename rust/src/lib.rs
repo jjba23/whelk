@@ -21,6 +21,7 @@ pub mod filesearch;
 pub mod format;
 pub mod fuzzy;
 pub mod guile;
+pub mod hostinfo;
 pub mod idle;
 pub mod idlepolicy;
 pub mod inhibitors;

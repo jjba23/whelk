@@ -79,6 +79,11 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   optional stdin for secrets that must not appear in `ps`, exit status, one
   byte-exact reader for NUL-separated menu output, the explicit `WHELK_RETV`
   prefix, and fire-and-forget spawns.
+- `src/hostinfo.rs` — the About window's account of the machine: the
+  os-release name, CPU model and thread summary (skipping per-core index
+  lines), memory total and availability, root-filesystem usage, kernel,
+  uptime sentences, session/protocol summary and the first monitor's display
+  summary.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
