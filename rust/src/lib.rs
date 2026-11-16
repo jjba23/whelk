@@ -12,9 +12,12 @@
 //! callers over without rewriting the logic again.
 
 pub mod bar;
+pub mod calc;
 pub mod chord;
 pub mod collection;
+pub mod fuzzy;
 pub mod guile;
+pub mod launcher;
 pub mod lockauth;
 pub mod locker;
 pub mod lockpolicy;

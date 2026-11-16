@@ -39,6 +39,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/chord.rs` — the C chord notation: Emacs (`C-S-p`) and CUA
   (`Ctrl+Shift+P`) parsing, GTK accelerators, the key alias and display tables,
   key sequences, formatting, and the `wtype`/`xdotool` command strings.
+- `src/fuzzy.rs` — the launcher's subsequence scorer, with the C weights for
+  word starts, consecutive runs and short names, and its best-candidate pick.
+- `src/calc.rs` — the `=` mode calculator: the same recursive-descent grammar,
+  refusals, and the `%.10g` printer the C answer is read through.
+- `src/launcher.rs` — the launcher's display-free geometry: scroll value that
+  follows the selected row, click-outside hit test, and the card's zoom bounds.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
@@ -128,6 +134,7 @@ The tests are split by what they can prove without a session:
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
 | `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
+| `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
