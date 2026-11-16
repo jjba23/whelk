@@ -21,6 +21,7 @@ pub mod launcher;
 pub mod lockauth;
 pub mod locker;
 pub mod lockpolicy;
+pub mod logind;
 pub mod rotation;
 pub mod settings;
 pub mod style;

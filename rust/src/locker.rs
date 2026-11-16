@@ -19,14 +19,18 @@
 //! no close button, Escape or click-outside that ends the lock.  There is no
 //! command-line or D-Bus unlock path.
 //!
-//! Not ported yet: logind's `Lock`/`PrepareForSleep` subscriptions and the
-//! per-monitor rebuild while the protocol lock is up.  They remain in the C
-//! shell until the Rust binary becomes the installed `whelk`.
+//! Not ported yet: the per-monitor rebuild while the protocol lock is up.
+//!
+//! logind's triggers (`Lock`, `PrepareForSleep`, and the session's
+//! `Active=false`) live in [`crate::logind`].  The shell calls
+//! [`watch_logind`] once; a trigger starts this lock screen as a separate
+//! process, which is what the C shell's `whelk_shell_lock()` does in-process.
 
 use std::cell::RefCell;
 use std::fs;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use std::process::{Child, Command};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -36,6 +40,56 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::lockauth::{self, AuthOutcome};
 use crate::lockpolicy;
+
+thread_local! {
+    /// The last lock process this shell started, so a second logind trigger
+    /// while it is still running does not start another one.
+    static SPAWNED_LOCKER: RefCell<Option<Child>> = const { RefCell::new(None) };
+    static WATCHING_LOGIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// A logind trigger can overlap a manual `--lock`.  GTK forwards the second
+    /// launch to this process as another activation, which must not build a
+    /// second set of lock surfaces over the first.
+    static LOCKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Starts logind's `Lock`, `PrepareForSleep` and session `Active=false`
+/// triggers.  Idempotent; the shell calls it once at startup.
+pub fn watch_logind() {
+    WATCHING_LOGIND.with(|watching| {
+        if watching.replace(true) {
+            return;
+        }
+
+        crate::logind::watch(spawn_for_logind);
+    });
+}
+
+/// Starts one detached lock screen unless the previous one is still running.
+/// The lock is a separate GTK application, so there is no window to present
+/// in this process; `--lock` is the same entry point a keybinding uses.
+fn spawn_for_logind() {
+    SPAWNED_LOCKER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+
+        if let Some(child) = slot.as_mut() {
+            match child.try_wait() {
+                Ok(None) => return,
+                Ok(Some(_)) | Err(_) => *slot = None,
+            }
+        }
+
+        let Ok(executable) = std::env::current_exe() else {
+            log("could not find whelk-rs to start the lock screen");
+
+            return;
+        };
+
+        match Command::new(executable).arg("--lock").spawn() {
+            Ok(child) => *slot = Some(child),
+            Err(error) => log(&format!("could not start the lock screen: {error}")),
+        }
+    });
+}
 
 /// The handful of `gtk4-session-lock.h` entry points this slice calls.
 ///
@@ -119,6 +173,12 @@ pub fn run() -> glib::ExitCode {
 }
 
 fn lock(application: &gtk::Application) {
+    if LOCKING.with(|locking| locking.replace(true)) {
+        log("a lock screen is already up; ignoring another activation");
+
+        return;
+    }
+
     install_css();
 
     let state = Rc::new(RefCell::new(Locker {

@@ -17,6 +17,7 @@ use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer};
+use crate::locker;
 use crate::settings::WallpaperSettings;
 use crate::style;
 
@@ -61,6 +62,11 @@ fn present(
     config_label: &str,
 ) {
     install_css(bar_settings);
+
+    // The C shell prepares the locker at startup, before a `--lock` or a
+    // logind signal can arrive; the Rust shell watches logind at the same
+    // point and starts `whelk-rs --lock` when a trigger fires.
+    locker::watch_logind();
 
     let widget_id = style::widget_id(&bar_settings.name);
     let window = gtk::ApplicationWindow::builder()

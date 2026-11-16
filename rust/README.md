@@ -56,11 +56,16 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   setuid `unix_chkpwd` is a helper of last resort: it is never asked when a
   `whelk-lock` or `login` service file exists, and `WHELK_LOCK_STRICT=1`
   disables it entirely.  `--check-lock` prints what it would do.
+- `src/logind.rs` — logind's lock triggers: the manager and per-session
+  `Lock` signals, `PrepareForSleep(true)`, and the session's `Active=false`
+  change, with the D-Bus subscriptions and the payload policy kept apart so the
+  latter is testable without a bus.
 - `src/locker.rs` — the Rust lock screen: a compositor-enforced session lock
   through `ext-session-lock-v1` when the compositor has it, one overlay layer
   surface per output otherwise, one password field on the primary output,
   authentication on a worker thread with the password wiped, the persisted
-  retry delay, and no close button, Escape or click-outside.
+  retry delay, and no close button, Escape or click-outside.  `watch_logind()`
+  starts the lock once per logind trigger, reusing a still-running process.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
