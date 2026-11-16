@@ -148,6 +148,12 @@ pub struct BarSettings {
     pub monitor: String,
     pub monitors: Vec<String>,
     pub when: When,
+    /// Whether a visible `wifi` module already speaks for the network.  The
+    /// tray reads this after the bar is parsed so an `nm-applet` icon is not a
+    /// second control for the same radio.
+    pub native_network: bool,
+    /// The same rule for a visible `bluetooth` module.
+    pub native_bluetooth: bool,
     pub height: i32,
     pub margin_top: i32,
     pub margin_right: i32,
@@ -191,6 +197,8 @@ impl Default for BarSettings {
             monitor: "all".to_owned(),
             monitors: Vec::new(),
             when: When::Always,
+            native_network: false,
+            native_bluetooth: false,
             height: 32,
             margin_top: 0,
             margin_right: 0,
@@ -278,6 +286,8 @@ impl BarSettings {
         bar.center = modules(alist, "modules-center");
         bar.right = modules(alist, "modules-right");
         bar.overflow = modules(alist, "overflow");
+        bar.native_network = native_module(&bar, "wifi");
+        bar.native_bluetooth = native_module(&bar, "bluetooth");
 
         bar
     }
@@ -322,6 +332,14 @@ impl BarSettings {
             None
         }
     }
+}
+
+fn native_module(bar: &BarSettings, kind: &str) -> bool {
+    bar.left
+        .iter()
+        .chain(bar.center.iter())
+        .chain(bar.right.iter())
+        .any(|module| module.kind == kind && !module.boolean("hidden?").unwrap_or(false))
 }
 
 fn value_at<'a>(alist: &'a [(String, SchemeValue)], key: &str) -> Option<&'a SchemeValue> {

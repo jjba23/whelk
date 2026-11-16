@@ -173,6 +173,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "notifications",
         "power-profile",
         "start",
+        "tray",
         "wifi",
         "window",
         "workspaces",
@@ -181,8 +182,8 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         assert!(barfactory::factory(kind).is_some());
     }
 
-    assert!(!barfactory::supports("tray"));
-    assert!(barfactory::factory("tray").is_none());
+    assert!(!barfactory::supports("unknown"));
+    assert!(barfactory::factory("unknown").is_none());
 }
 
 #[test]

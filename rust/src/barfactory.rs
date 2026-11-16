@@ -35,6 +35,7 @@ use crate::powerprofilebar;
 use crate::session::Session;
 use crate::startbar;
 use crate::startmenu::MenuEntry;
+use crate::traybar;
 use crate::wifibar;
 use crate::windowbar;
 use crate::workspacebar;
@@ -82,6 +83,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("notifications", notificationsbar::module),
     ("power-profile", powerprofilebar::module),
     ("start", startbar::module),
+    ("tray", traybar::module),
     ("wifi", wifibar::module),
     ("window", windowbar::module),
     ("workspaces", workspacebar::module),

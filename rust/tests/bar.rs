@@ -148,6 +148,43 @@ fn the_scheme_alist_becomes_a_typed_bar() {
     assert_eq!(bar.clock_format().as_deref(), Some("%H:%M"));
     assert_eq!(bar.right[0].integer("interval"), Some(2));
     assert_eq!(bar.overflow[0].kind, "tray");
+    assert!(!bar.native_network);
+    assert!(!bar.native_bluetooth);
+}
+
+#[test]
+fn a_visible_native_reading_suppresses_the_matching_tray_applet() {
+    let values = alist(vec![
+        (
+            "modules-left",
+            SchemeValue::List(vec![module(
+                "wifi",
+                vec![("hidden?", SchemeValue::Bool(false))],
+            )]),
+        ),
+        (
+            "modules-right",
+            SchemeValue::List(vec![
+                module("bluetooth", vec![("hidden?", SchemeValue::Bool(true))]),
+                module("tray", vec![]),
+            ]),
+        ),
+    ]);
+
+    let bar = BarSettings::from_alist(&values);
+
+    assert!(bar.native_network);
+    assert!(!bar.native_bluetooth);
+
+    let hidden = alist(vec![(
+        "modules-left",
+        SchemeValue::List(vec![module(
+            "wifi",
+            vec![("hidden?", SchemeValue::Bool(true))],
+        )]),
+    )]);
+
+    assert!(!BarSettings::from_alist(&hidden).native_network);
 }
 
 #[test]

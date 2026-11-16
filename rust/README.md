@@ -241,6 +241,18 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/menuprobe.rs` — the global menu's ordered fallback chain: exact X11 GTK
   paths before conventional paths, the registrar only when a window id exists,
   and DBusMenu paths with the registrar's answer moved to the front.
+- `src/tray.rs` — the tray's display-free rules: watcher entries as service and
+  path, `#:hide` word fragments, exact network/Bluetooth applet suppression,
+  the item limit and overflow decision, and validated ARGB32-to-RGBA pixmap
+  conversion.
+- `src/traymenu.rs` — the `com.canonical.dbusmenu` layout reader: owned rows
+  with labels, enabled state, accelerators, separators, submenus and the ids
+  that become `Event` calls, with malformed replies refused rather than
+  panicking.
+- `src/traybar.rs` — the `tray` bar module: the StatusNotifierWatcher watch and
+  host registration, initial and live item lists, per-item D-Bus proxies,
+  icon names/theme paths/pixmaps, automatic and configured hiding, the
+  overflow chevron, `Activate`/`ContextMenu`, and the applet menu popover.
 - `src/trayicon.rs` — a tray item's own icon directory: absolute theme paths
   only, no name that escapes the directory, and precedence for an exact name,
   PNG, SVG and XPM.
@@ -461,6 +473,7 @@ The tests are split by what they can prove without a session:
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, repeated loads, caught exceptions |
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
+| `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
@@ -516,8 +529,9 @@ This is still a bootstrap, not a replacement of the whole shell. The bar model,
 its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
 module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
-`memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications` and
-`dnd` modules are now ported and wired into the Rust bar, and so is the lock screen:
+`memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications`,
+`dnd` and `tray` modules are now ported and wired into the Rust bar, and so is
+the lock screen:
 its policy, PAM boundary, surfaces and logind triggers are Rust.  The start
 menu (`start`), its drawn mark, popover and About window are Rust too; only its
 settings-window action remains a C surface.  The idle
@@ -532,7 +546,7 @@ menu are wired; the clipboard history, its bar module, picker mode and the
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
 locker's per-monitor rebuild while the protocol lock is up is still in C, as are
-the remaining module kinds (`tray`, the global `menu` and the Scheme `scheme`
-module), the settings window, and session management.  The next slices should
+the remaining module kinds (the global `menu` and the Scheme `scheme` module),
+the settings window, and session management.  The next slices should
 move those surface-owning modules onto the Rust host, then make the Rust binary
 the installed `whelk` once the C and Rust suites both cover the same behavior.
