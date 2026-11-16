@@ -36,6 +36,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/style.rs` — the C surface skin generator: CSS-safe widget ids, colour
   alpha handling, material backgrounds, effects, shadows, accent rules and the
   configuration's free-form CSS.
+- `src/chord.rs` — the C chord notation: Emacs (`C-S-p`) and CUA
+  (`Ctrl+Shift+P`) parsing, GTK accelerators, the key alias and display tables,
+  key sequences, formatting, and the `wtype`/`xdotool` command strings.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
@@ -124,6 +127,7 @@ The tests are split by what they can prove without a session:
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
+| `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
