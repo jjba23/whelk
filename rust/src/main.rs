@@ -24,6 +24,9 @@ Options:
   --check-config    Load the configuration, print the wallpaper policy and exit
   --lock            Show the lock screen and exit once the password is accepted
   --check-lock      Print how this machine would authenticate and exit
+  --launcher        Open the launcher after the shell starts
+  --launcher-mode M Open the launcher in M (app, window, run, calc, file, web,
+                    menu, ssh, quit, clipboard, menuitem or session)
   --version, -V     Print the Rust bootstrap version and exit
   -h, --help        Print this help and exit
 
@@ -37,6 +40,8 @@ struct Options {
     check_config: bool,
     lock: bool,
     check_lock: bool,
+    launcher: bool,
+    launcher_mode: Option<String>,
     version: bool,
     help: bool,
 }
@@ -110,8 +115,11 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let label = loader.label();
+    let launcher = options
+        .launcher
+        .then(|| options.launcher_mode.unwrap_or_default());
 
-    Ok(ui::run(loader, loaded, label).into())
+    Ok(ui::run(loader, loaded, label, launcher).into())
 }
 
 fn scheme_paths() -> Vec<PathBuf> {
@@ -154,6 +162,16 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
             "--check-config" => options.check_config = true,
             "--lock" => options.lock = true,
             "--check-lock" => options.check_lock = true,
+            "--launcher" | "-l" => options.launcher = true,
+            "--launcher-mode" => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--launcher-mode needs a mode".to_owned())?;
+                options.launcher_mode = Some(value);
+            }
+            _ if argument.starts_with("--launcher-mode=") => {
+                options.launcher_mode = Some(argument["--launcher-mode=".len()..].to_owned());
+            }
             "--config" => {
                 let value = arguments
                     .next()
@@ -254,8 +272,30 @@ mod tests {
     }
 
     #[test]
+    fn launcher_options_are_named_or_split() {
+        let short = parse_args(["-l".to_owned()].into_iter()).expect("short launcher");
+        let split = parse_args(
+            [
+                "--launcher".to_owned(),
+                "--launcher-mode".to_owned(),
+                "window".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("split launcher mode");
+        let joined =
+            parse_args(["--launcher".to_owned(), "--launcher-mode=window".to_owned()].into_iter())
+                .expect("joined launcher mode");
+
+        assert!(short.launcher);
+        assert_eq!(split.launcher_mode.as_deref(), Some("window"));
+        assert_eq!(joined.launcher_mode.as_deref(), Some("window"));
+    }
+
+    #[test]
     fn unknown_options_are_errors() {
         assert!(parse_args(["--nope".to_owned()].into_iter()).is_err());
         assert!(parse_args(["--config".to_owned()].into_iter()).is_err());
+        assert!(parse_args(["--launcher-mode".to_owned()].into_iter()).is_err());
     }
 }

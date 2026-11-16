@@ -82,11 +82,20 @@ pub fn score(query: &str, path: &str, is_directory: bool) -> i32 {
 /// Ranks the output of the walk (`find -printf '%y\\t%p\\n'`) and returns at
 /// most `limit` paths.
 pub fn rank(query: &str, output: &str, limit: u32) -> Vec<String> {
+    rank_entries(query, output, limit)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// [`rank`], keeping the type the walk reported.  A launcher row needs to know
+/// whether it is offering a directory before it can paint the trailing slash.
+pub fn rank_entries(query: &str, output: &str, limit: u32) -> Vec<(String, bool)> {
     if query.is_empty() {
         return Vec::new();
     }
 
-    let mut ranked: Vec<(i32, String)> = output
+    let mut ranked: Vec<(i32, String, bool)> = output
         .lines()
         .filter(|line| !line.is_empty())
         .filter_map(|line| {
@@ -98,11 +107,11 @@ pub fn rank(query: &str, output: &str, limit: u32) -> Vec<String> {
             };
             let score = score(query, path, is_directory);
 
-            (score >= 0).then(|| (score, path.to_owned()))
+            (score >= 0).then(|| (score, path.to_owned(), is_directory))
         })
         .collect();
 
-    ranked.sort_by(|(left_score, left_path), (right_score, right_path)| {
+    ranked.sort_by(|(left_score, left_path, _), (right_score, right_path, _)| {
         right_score
             .cmp(left_score)
             .then(left_path.len().cmp(&right_path.len()))
@@ -112,7 +121,7 @@ pub fn rank(query: &str, output: &str, limit: u32) -> Vec<String> {
     ranked
         .into_iter()
         .take(limit as usize)
-        .map(|(_, path)| path)
+        .map(|(_, path, is_directory)| (path, is_directory))
         .collect()
 }
 

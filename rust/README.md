@@ -48,6 +48,16 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/launcherkeys.rs` — the launcher's mode prefixes as data: the built-in
   map, overrides that can replace or disable a prefix, and the longest-prefix
   rule.
+- `src/launcherdata.rs` — the launcher's searchable databases: XDG desktop
+  entries and their shadowing rules, executable PATH commands, SSH hosts,
+  niri windows, file rows, both menu-script protocols, the built-in session
+  menu, fuzzy ranking and web-query escaping.
+- `src/launcherpanel.rs` — the C launcher overlay as a Rust surface: a
+  full-output layer surface with a debounced search entry, ranked list,
+  keyboard selection/completion, outside-click dismissal, icon/text zoom and a
+  resize grip.  Application, window, run, calc, file, web, menu, SSH, quit and
+  session modes are wired; clipboard history and live application menu items
+  remain C-backed for now.
 - `src/filesearch.rs` — the launcher's file mode: case-insensitive ranking that
   puts a basename match before a parent-directory match, shallower paths before
   deeper ones, files before directories, and the `find` command that prunes the
@@ -253,7 +263,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   windows (and their module hosts/CSS/clock timers) before building the new
   plan.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
   on Broadway/X11 test displays.
-- `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--help`.
+- `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--launcher`,
+  `--launcher-mode MODE`, `--help`, plus the lock screen's `--lock` and
+  `--check-lock`.
 
 ## Bar modules
 
@@ -348,6 +360,8 @@ cargo run -- --check-config
 cargo run -- --config /path/to/settings.scm
 cargo run -- --check-lock
 cargo run -- --lock
+cargo run -- --launcher
+cargo run -- --launcher --launcher-mode=window
 ```
 
 `--check-lock` is the lock screen's diagnosis without a password: the library
@@ -360,6 +374,10 @@ authentication for the session user removes it.
 wallpaper policy, walks the collection and resolves the current file. A missing
 file is the C shell's "no configuration" case and uses defaults; a file that
 Guile rejects exits non-zero with the reason.
+
+`--launcher` opens the Rust launcher after the shell has started.  A second
+mode can be selected with `--launcher-mode`; the built-in mode prefixes still
+work while typing (`>`, `=`, `/`, `?`, `@`, `%`, `!`, `;`, `:`).
 
 With a valid configuration, `whelk-rs` presents the Rust bar and a Rust
 background surface. On Wayland it uses `zwlr_layer_shell_v1`'s background
@@ -391,6 +409,7 @@ The tests are split by what they can prove without a session:
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
 | `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
 | `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
+| `tests/launcherdata.rs` | Desktop-entry shadowing, hidden/non-application entries, PATH executable scanning, niri windows, SSH patterns, file rows, menu protocols, ranking and the session menu |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
@@ -454,10 +473,13 @@ manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too.  The
 notification service owns the session-bus methods and the store, and the Rust
 notification centre owns the panel and toast surfaces.  The Wi-Fi/Bluetooth
 network panel, including saved-profile keys and device connect/disconnect, is a
-Rust surface.  The night light's arithmetic and schedule are Rust; its
-wlr-gamma-control and RandR backends are still C.  The volume/brightness HUD is
-a Rust surface.  The locker's per-monitor rebuild while the protocol lock is up
-is still in C, as are the remaining module kinds (clipboard, tray, menu/start
-and the rest), launcher and session management.  The next slices should move
-those surface-owning modules onto the Rust host, then make the Rust binary the
-installed `whelk` once the C and Rust suites both cover the same behavior.
+Rust surface.  The launcher overlay is Rust: applications, windows, commands,
+calculator, files, web, generic menus, SSH hosts, force-quit and the session
+menu are wired, while clipboard history and live menu items remain C-backed.
+The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
+RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
+locker's per-monitor rebuild while the protocol lock is up is still in C, as are
+the remaining module kinds (clipboard, tray, menu/start and the rest) and
+session management.  The next slices should move those surface-owning modules
+onto the Rust host, then make the Rust binary the installed `whelk` once the C
+and Rust suites both cover the same behavior.

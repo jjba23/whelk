@@ -25,6 +25,7 @@ use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
+use crate::launcherpanel::Launcher;
 use crate::locker;
 use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
@@ -46,6 +47,7 @@ struct Bootstrap {
     loader: ConfigLoader,
     loaded: LoadedConfig,
     config_label: String,
+    launcher: Option<String>,
     hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -56,6 +58,7 @@ pub fn run(
     loader: ConfigLoader,
     loaded: LoadedConfig,
     config_label: String,
+    launcher: Option<String>,
 ) -> gtk::glib::ExitCode {
     let application = gtk::Application::builder()
         .application_id("org.jointhefreeworld.whelk.rust")
@@ -70,6 +73,7 @@ pub fn run(
         loader,
         loaded,
         config_label,
+        launcher,
         hold,
     })));
     let slot: ShellSlot = Rc::new(RefCell::new(None));
@@ -89,6 +93,7 @@ pub fn run(
             bootstrap.loader,
             bootstrap.loaded,
             bootstrap.config_label,
+            bootstrap.launcher,
             bootstrap.hold,
         );
 
@@ -114,6 +119,17 @@ pub fn run(
     application.add_action(&quit);
     application.set_accels_for_action("app.quit", &["<Control>q"]);
 
+    let launcher = gtk::gio::SimpleAction::new("launcher", Some(gtk::glib::VariantTy::STRING));
+
+    launcher.connect_activate(|_, parameter| {
+        let mode = parameter
+            .and_then(|parameter| parameter.get::<String>())
+            .unwrap_or_default();
+
+        Launcher::show_current((!mode.is_empty()).then_some(mode.as_str()));
+    });
+    application.add_action(&launcher);
+
     // main() has already consumed whelk's options; give GTK only a program
     // name, or it will reject --config as one of its own.
     application.run_with_args(&["whelk-rs"])
@@ -133,6 +149,7 @@ struct Shell {
     notifications: Option<NotificationService>,
     center: Option<NotificationCenter>,
     network: Option<NetworkPanel>,
+    launcher: Option<Launcher>,
     osd: Option<Osd>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
@@ -143,6 +160,7 @@ impl Shell {
         loader: ConfigLoader,
         loaded: LoadedConfig,
         config_label: String,
+        launcher_mode: Option<String>,
         hold: gtk::gio::ApplicationHoldGuard,
     ) -> ShellRef {
         // The C shell prepares the locker at startup, before a `--lock` or a
@@ -162,10 +180,12 @@ impl Shell {
         let osd_style = loaded.bars.first().cloned().unwrap_or_default();
         let center = NotificationCenter::new(application, &notifications, &osd_style);
         let network = NetworkPanel::new(application, &osd_style);
+        let launcher = Launcher::new(application, &osd_style);
         let osd = Osd::new(application, &osd_style);
 
         NotificationCenter::install(Some(center.clone()));
         NetworkPanel::install(Some(network.clone()));
+        Launcher::install(Some(launcher.clone()));
         Osd::install(Some(osd.clone()));
 
         let shell = Rc::new(RefCell::new(Self {
@@ -182,6 +202,7 @@ impl Shell {
             notifications: Some(notifications),
             center: Some(center),
             network: Some(network),
+            launcher: Some(launcher),
             osd: Some(osd),
             _hold: hold,
         }));
@@ -198,6 +219,12 @@ impl Shell {
         let wallpaper = shell.borrow().loaded.wallpaper.clone();
 
         crate::wallpaper_surface::present(application, &wallpaper);
+
+        if let Some(mode) = launcher_mode {
+            gtk::glib::idle_add_local_once(move || {
+                Launcher::show_current((!mode.is_empty()).then_some(mode.as_str()));
+            });
+        }
 
         shell
     }
@@ -257,6 +284,10 @@ impl Shell {
                     network.set_style(&style);
                 }
 
+                if let Some(launcher) = self.launcher.as_ref() {
+                    launcher.set_style(&style);
+                }
+
                 if let Some(osd) = self.osd.as_ref() {
                     osd.set_style(&style);
                 }
@@ -273,10 +304,12 @@ impl Shell {
 
     fn teardown(&mut self) {
         Osd::install(None);
+        Launcher::install(None);
         NetworkPanel::install(None);
         NotificationCenter::install(None);
         NotificationService::install(None);
 
+        self.launcher.take();
         self.network.take();
         self.center.take();
         self.osd.take();
