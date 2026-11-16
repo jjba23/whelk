@@ -1,3 +1,17 @@
+whelk (0.35.0-1) unstable; urgency=medium
+
+  * The Rust shell preview now covers the bar and hardware readouts, launcher,
+    clipboard, notifications, network panel, tray, global menu fallbacks,
+    start menu, lock screen, wallpaper surfaces and the Scheme bridge.
+  * Add the native wallpaper engine and picker, with per-monitor layer-shell
+    backgrounds and still, animated and video sources.
+  * Read user-installed Orbit JSON shortcut maps, with the curated dictionary
+    still taking precedence over a local map and the shipped corpus.
+  * Add the Rust Cargo workspace and `cargo xtask' staged install and source
+    archive helper; the C shell and Meson install remain the default.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Mon, 16 Nov 2026 19:30:00 +0100
+
 whelk (0.34.0-1) unstable; urgency=medium
 
   * The shell owns the logind idle hint, its lock countdown, the

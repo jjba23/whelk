@@ -9,8 +9,22 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
-** Added
+Nothing yet.
 
+*[Released]
+
+** v0.35.0 (2026-11-16)
+
+*** Added
+
+- *Rust shell preview.*  =whelk-rs= is a second, independently runnable shell
+  with its own application id: a Rust bar and module host, launcher, clipboard
+  history and picker, notification service and centre, Wi-Fi/Bluetooth panel,
+  tray, global menu with application fallbacks and AT-SPI, start menu and About
+  window, lock screen, wallpaper surfaces, OSDs and the Scheme configuration
+  bridge.  The C shell remains the default =whelk= and its Meson install; the
+  migration stays incremental while the remaining live GTK/DBusMenu watches
+  and the settings window are finished.
 - *Wallpaper engine.*  A =(wallpaper-settings ...)= policy makes whelk draw the
   desktop background itself, one =wlr-layer-shell= background surface per
   monitor, with PNG, JPEG, WebP, AVIF, GIF, animated GIF/WebP and GStreamer-
@@ -21,8 +35,39 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   overlay with a centred thumbnail card; *F11*/*Ctrl+F* expands it to the
   monitor, arrow keys and *Enter* apply a tile, *Esc* or an outside click
   dismisses.  The choice is saved as a GUI preference and survives a restart.
+- *Global-menu application fallbacks.*  The Rust menu implements the curated
+  Scheme dictionary, desktop-entry actions and New Window, the shipped Orbit
+  corpus, user-installed Orbit JSON maps under =WHELK_SHORTCUT_MAPS= or the
+  XDG/system =global-menu/shortcuts/apps= directories, and AT-SPI menu reading
+  with a live accessibility-event watch.  A local JSON map wins over the shipped
+  corpus while the curated dictionary still wins over both.
+- *Cargo workspace and packaging helper.*  =rust/= is now a small Cargo
+  workspace with a dependency-free =xtask= that stages =whelk-rs=, the shared
+  Scheme modules and its README under a prefix, and writes the source archive.
+  The C Meson, Nix, Guix and distribution recipes remain the default packaging
+  until the Rust binary replaces the C shell.
 
-*[Released]
+*** Fixed
+
+- *PAM fallback after a library failure.*  The lock screen's setuid
+  =unix_chkpwd= path is never used when a =whelk-lock= or =login= service file
+  exists, so an administrator's PAM policy cannot be bypassed.
+
+*** Verified
+
+- The C host suite passes: 48 tests passed and 2 skipped (the X11 night-light
+  integration and CLI tests need a display).  The suite covers the lockauth
+  boundary, wallpaper policy, menu trees and the existing shell surface.
+- The Rust workspace suite passes, including the private-bus AT-SPI test, the
+  clipboard and notification suites, and the C shortcut-map fixture.  `cargo
+  fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
+  `--check-config` pass.
+- The staged Rust install loads the Scheme corpus (293 Orbit applications) and
+  reports =whelk-rs 0.35.0=; the release smoke test builds, installs and checks
+  the C binary's =--version=.
+- The GTK and Wayland surfaces were not visually exercised against a live
+  compositor in this release; their display-free policy and private-bus tests
+  pass, and the C shell's existing session remains the installed default.
 
 ** v0.34.0 (2026-11-15)
 
