@@ -73,6 +73,10 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   `idx`/`is_active`/`active_window_id` and Hyprland's `id`/`windows` plus the
   active workspace on its monitors, with special workspaces left out and the
   focus commands for both.
+- `src/command.rs` — the asynchronous program runner: shell command lines,
+  optional stdin for secrets that must not appear in `ps`, exit status, one
+  byte-exact reader for NUL-separated menu output, the explicit `WHELK_RETV`
+  prefix, and fire-and-forget spawns.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.

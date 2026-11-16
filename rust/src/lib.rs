@@ -16,6 +16,7 @@ pub mod barmonitors;
 pub mod calc;
 pub mod chord;
 pub mod collection;
+pub mod command;
 pub mod filesearch;
 pub mod format;
 pub mod fuzzy;
