@@ -84,6 +84,18 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   lines), memory total and availability, root-filesystem usage, kernel,
   uptime sentences, session/protocol summary and the first monitor's display
   summary.
+- `src/nmcli.rs` — NetworkManager's escaped terse output: field splitting that
+  honours `\:` and `\\`, Wi-Fi profile names, the SSID-hiding reading and
+  tooltip, and the literal editor script that carries a Wi-Fi key on stdin.
+- `src/applets.rs` — the exact StatusNotifierItem ids of network and Bluetooth
+  applets a bar already replaces, with case-insensitive, trimmed matching and
+  no substring near-misses.
+- `src/menuprobe.rs` — the global menu's ordered fallback chain: exact X11 GTK
+  paths before conventional paths, the registrar only when a window id exists,
+  and DBusMenu paths with the registrar's answer moved to the front.
+- `src/trayicon.rs` — a tray item's own icon directory: absolute theme paths
+  only, no name that escapes the directory, and precedence for an exact name,
+  PNG, SVG and XPM.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
