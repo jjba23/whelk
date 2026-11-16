@@ -60,6 +60,17 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   truncation, first-line extraction and binary sizes.
 - `src/level.rs` — the change detector behind a volume or backlight HUD: the
   first reading is not a change, and a mute toggle at the same number is.
+- `src/json.rs` — the small JSON reader niri and Hyprland answers are read
+  through: objects keep key order, arrays keep document order, escapes and
+  surrogate pairs decode to UTF-8, and a malformed document reports its offset
+  instead of yielding a partial tree.
+- `src/session.rs` — the session enum and its environment guess: niri, sway,
+  Hyprland and river socket variables, X11 from `XDG_SESSION_TYPE` or a
+  `DISPLAY` with no `WAYLAND_DISPLAY`, and Wayland otherwise.
+- `src/workspaces.rs` — the two workspace answers through one shape: niri's
+  `idx`/`is_active`/`active_window_id` and Hyprland's `id`/`windows` plus the
+  active workspace on its monitors, with special workspaces left out and the
+  focus commands for both.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
