@@ -6,18 +6,21 @@
 //! The panel brightness, ported from `modules/backlight.c`.
 //!
 //! A machine without a backlight hides the module rather than showing a zero.
-//! The C module also drives the brightness OSD through the level detector; the
-//! Rust shell has no OSD surface yet, so this slice keeps the reading and the
-//! module's own formatting.
+//! The module's level detector raises the shell's brightness HUD only when the
+//! percentage actually changes.
 
+use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use gtk4 as gtk;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
+use crate::level::Level;
+use crate::osd::Osd;
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 5;
 const BACKLIGHT_ROOT: &str = "/sys/class/backlight";
@@ -81,12 +84,20 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     );
 
     host.add_label();
-    host.start(move |host| update(device.as_deref(), host));
+
+    let level = Rc::new(RefCell::new(Level::default()));
+
+    host.start(move |host| update(device.as_deref(), host, &module, &level));
 
     Some(root)
 }
 
-fn update(device: Option<&str>, host: &ModuleHost) {
+fn update(
+    device: Option<&str>,
+    host: &ModuleHost,
+    module: &ModuleSpec,
+    level: &Rc<RefCell<Level>>,
+) {
     let Some(percent) = percent(device) else {
         host.set_visible(false);
         host.set_text("");
@@ -96,8 +107,14 @@ fn update(device: Option<&str>, host: &ModuleHost) {
 
     host.set_visible(true);
 
-    let percent = percent.to_string();
-    let values = [("percent", percent.as_str())];
+    let value = percent.to_string();
+    let values = [("percent", value.as_str())];
 
     host.present("{icon}", &values);
+
+    if level.borrow_mut().update(percent, false) {
+        let icon = module.text("icon").unwrap_or_else(|| "\u{f185}".to_owned());
+
+        Osd::show_current(&icon, "Brightness", percent);
+    }
 }

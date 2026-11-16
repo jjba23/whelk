@@ -88,6 +88,11 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   schedules, fade strength, next-tick policy, strict `HH:MM` parsing, and typed
   `Rgb`/`GammaRamp` values.  The wlr-gamma-control and RandR backends still live
   in C; this slice is what both backends consume.
+- `src/osd.rs` — the C on-screen display as a Rust layer-shell surface: one
+  shell-owned HUD, bottom placement relative to the bar, a 1400 ms hide timer,
+  clamped progress with the unbounded percentage label, and restyling when the
+  configuration reloads.  The `audio` and `backlight` modules now use the
+  existing `Level` detector to show it only on real changes.
 - `src/notifications.rs` — the notification store and the
   `org.freedesktop.Notifications` session service.  The oldest-first store
   assigns stable ids, replaces a notification in place for `replaces_id`,
@@ -375,6 +380,7 @@ The tests are split by what they can prove without a session:
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
 | `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps and config normalization |
+| `tests/osd.rs` | HUD placement above a bottom bar, progress clamping and the percentage label |
 | `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND and listener notifications |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
@@ -430,8 +436,9 @@ manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too, and the
 notification service now owns the session-bus methods and the store; the
 notification-centre surface itself is still to come.  The night light's
 arithmetic and schedule are Rust; its wlr-gamma-control and RandR backends are
-still C.  The locker's per-monitor rebuild while the protocol lock is up is still
-in C, as are the remaining module kinds (clipboard, tray, menu/start and the
-rest), the network panel, launcher and session management.  The next slices should move those
+still C.  The volume/brightness HUD is now a Rust surface.  The locker's
+per-monitor rebuild while the protocol lock is up is still in C, as are the
+remaining module kinds (clipboard, tray, menu/start and the rest), the network
+panel, launcher and session management.  The next slices should move those
 surface-owning modules onto the Rust host, then make the Rust binary the
 installed `whelk` once the C and Rust suites both cover the same behavior.

@@ -9,11 +9,16 @@
 //! glyph by default; a configuration that wants the number writes it in its
 //! own `#:format`.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gtk4 as gtk;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
+use crate::level::Level;
+use crate::osd::Osd;
 
 pub const COMMAND: &str = "wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || \
      pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null";
@@ -76,14 +81,18 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     );
 
     host.add_label();
-    host.start(move |host| update(&module, host));
+
+    let level = Rc::new(RefCell::new(Level::default()));
+
+    host.start(move |host| update(&module, host, &level));
 
     Some(root)
 }
 
-fn update(module: &ModuleSpec, host: &ModuleHost) {
+fn update(module: &ModuleSpec, host: &ModuleHost, level: &Rc<RefCell<Level>>) {
     let callback_host = host.clone();
     let module = module.clone();
+    let level = level.clone();
 
     host.run_command(COMMAND, move |text| {
         let Some(text) = text else {
@@ -119,5 +128,18 @@ fn update(module: &ModuleSpec, host: &ModuleHost) {
             callback_host.settings().tooltip.as_deref(),
             &values,
         );
+
+        if level.borrow_mut().update(reading.volume, reading.muted) {
+            let osd_icon = if reading.muted {
+                module
+                    .text("muted-icon")
+                    .unwrap_or_else(|| "\u{f026}".to_owned())
+            } else {
+                module.text("icon").unwrap_or_else(|| "\u{f028}".to_owned())
+            };
+            let percent = if reading.muted { 0 } else { reading.volume };
+
+            Osd::show_current(&osd_icon, "Sound", percent);
+        }
     });
 }

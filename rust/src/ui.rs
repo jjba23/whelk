@@ -27,6 +27,7 @@ use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::locker;
 use crate::notifications::NotificationService;
+use crate::osd::Osd;
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::style;
@@ -128,6 +129,7 @@ struct Shell {
     reload_source: Option<gtk::glib::SourceId>,
     monitor_rebuild_pending: bool,
     notifications: Option<NotificationService>,
+    osd: Option<Osd>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -153,6 +155,11 @@ impl Shell {
         notifications.start();
         NotificationService::install(Some(notifications.clone()));
 
+        let osd_style = loaded.bars.first().cloned().unwrap_or_default();
+        let osd = Osd::new(application, &osd_style);
+
+        Osd::install(Some(osd.clone()));
+
         let shell = Rc::new(RefCell::new(Self {
             application: application.downgrade(),
             loader,
@@ -165,6 +172,7 @@ impl Shell {
             reload_source: None,
             monitor_rebuild_pending: false,
             notifications: Some(notifications),
+            osd: Some(osd),
             _hold: hold,
         }));
 
@@ -228,6 +236,13 @@ impl Shell {
                 self.loaded = loaded;
                 self.config_label = self.loader.label();
                 start_idle(self.loaded.idle_lock_after);
+
+                if let Some(osd) = self.osd.as_ref() {
+                    let style = self.loaded.bars.first().cloned().unwrap_or_default();
+
+                    osd.set_style(&style);
+                }
+
                 self.rebuild();
             }
             Err(error) => {
@@ -239,7 +254,10 @@ impl Shell {
     }
 
     fn teardown(&mut self) {
+        Osd::install(None);
         NotificationService::install(None);
+
+        self.osd.take();
 
         if let Some(service) = self.notifications.take() {
             service.shutdown();
