@@ -81,21 +81,42 @@ image needs.
 A store-built whelk can load its own libpam and still be unable to use it: the
 store's library reads the store's =etc/pam.d= (where =login= does not exist) and
 loads the store's =pam_unix=, whose =unix_chkpwd= is not setuid.  A distribution
-host that has its own =libpam= cannot load it into a store process -- its
-=libaudit.so.1= is not on the store's search path -- so the lock screen is left
-with a library that cannot answer.  When the loaded library is a store copy and
-the host has one of its own, an =unavailable= answer is the build's fault, not
-the password's, and whelk asks the host's setuid =unix_chkpwd= directly.  That is
-the same credential check =pam_unix= makes, through the helper every
-distribution installs for it; it adds no dependency and no setuid binary of
-whelk's own.  The helper is only trusted when it is a root-owned setuid regular
-file that group and others cannot write, and it is never asked when an
-administrator's =whelk-lock= or =login= stack answered for itself: that policy is
-authoritative, and =pam_faillock= or a locked account must not be talked around.
+host that has its own =libpam= cannot load it into a store process on its own:
+the host library names =libaudit.so.1= and =libeconf.so.0=, which the store's
+loader does not search for.  Before giving up, whelk loads exactly those
+objects by absolute path -- only from fixed distribution directories, never
+from the environment -- with =RTLD_GLOBAL=, and retries.  The host's libpam then
+loads with the host's module directory and =pam.d=, so a store build applies
+the same policy a distribution build does.
+
+If even that does not work, whelk stays locked rather than
+substituting a weaker check: a =whelk-lock= or =login= service file is an
+administrator's policy, and PAM's answer for it is final.  The host's setuid
+=unix_chkpwd= is a last resort for the one case where no administrator policy
+exists at all: a machine with only the =common-*= fragments, where whelk wrote
+its own minimal =pam_unix= service.  It is never consulted when a service file
+exists, it is only trusted as a root-owned setuid regular file that group and
+others cannot write, and its password goes over stdin, never a command line.
 
 =whelk --check-lock= (=whelk-rs --check-lock= in the Rust bootstrap) prints the
 same decision without asking for a password: the candidate list, the library
-that loads, the service that would answer and whether a helper was found.
+that loads, the service that would answer, whether a helper was found, whether
+strict mode is on, and whether the helper would be allowed to run.
+
+* Keeping it strictly fail-closed
+:PROPERTIES:
+:CUSTOM_ID: lock-strict
+:END:
+
+Set =WHELK_LOCK_STRICT=1= in the shell's environment (any spelling of =1=,
+=true=, =yes= or =on= works) to refuse the =unix_chkpwd= fallback entirely.  The
+lock screen then authenticates through PAM or not at all.  This is the mode for
+a machine whose PAM stack is complete: it removes the fallback the store-built
+case may still need, and every failure stays a locked screen.
+
+There is deliberately no environment variable, command-line flag or D-Bus call
+that unlocks without a password; strict mode narrows what may authenticate, it
+never widens it.
 
 The service is chosen the same way.  =/etc/pam.d/whelk-lock= comes first and is
 authoritative: if it refuses, whelk stays locked instead of asking =login=.
@@ -143,14 +164,17 @@ journal keeps it:
   =$XDG_RUNTIME_DIR= is unset, so the per-user stack cannot be written.  A
   session without =XDG_RUNTIME_DIR= has no secure place for a service; whelk
   will not use =/tmp=.
-- *=the loaded libpam is a store copy that cannot read the host's PAM policy= --
-  a Nix or Guix build loaded its own library while the host has one, so every
-  answer it gives is about the build.  The next line is
-  =password accepted by the host's unix_chkpwd= or
-  =the host's unix_chkpwd refused the password=, and the lock behaves normally.
-  If it says =this machine has no setuid unix_chkpwd=, the host has no
-  =/usr/sbin/unix_chkpwd= to ask; install the distribution's PAM package, or
-  run a build that links the host's libraries (the =build-host= directory).
+- *=an administrator's PAM service is authoritative; not asking unix_chkpwd= --
+  the loaded library could not read a =whelk-lock= or =login= service file, and
+  the screen stayed locked instead of substituting the weaker check.  Install
+  the distribution's PAM package, or run a build that links the host's
+  libraries (the =build-host= directory).
+- *=strict lock mode; not asking unix_chkpwd= -- =WHELK_LOCK_STRICT= is set and
+  PAM could not answer.  That is the mode working as documented.
+- *=no trustworthy unix_chkpwd= -- no administrator service file exists, the
+  private stack could not answer, and there is no helper to fall back to.  A
+  machine without =/usr/sbin/unix_chkpwd= should install the distribution's PAM
+  package.
 
 Two more lines say which stack answered: =authenticating with PAM service
 whelk-lock=, =... service login=, or =authenticating with the per-user PAM stack

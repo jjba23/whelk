@@ -114,26 +114,31 @@ fn the_session_user_is_the_process_owner() {
 }
 
 #[test]
-fn a_host_library_is_never_reported_as_missing_the_host_policy() {
-    let Some(path) = lockauth::pam_path() else {
-        return;
-    };
+fn an_administrator_policy_never_falls_back_to_the_helper() {
+    // Whether or not a helper exists, and whatever the strict setting is, a
+    // whelk-lock or login service file owns the answer.
+    assert!(!lockauth::fallback_allowed(true, true, false));
+    assert!(!lockauth::fallback_allowed(true, true, true));
+    assert!(!lockauth::fallback_allowed(true, false, false));
+    assert!(!lockauth::fallback_allowed(true, false, true));
+}
 
-    let store_built = path.starts_with("/nix/store/") || path.starts_with("/gnu/store/");
+#[test]
+fn the_helper_needs_no_policy_a_present_helper_and_a_lax_setting() {
+    assert!(lockauth::fallback_allowed(false, true, false));
+    assert!(!lockauth::fallback_allowed(false, true, true));
+    assert!(!lockauth::fallback_allowed(false, false, false));
+}
 
-    if !store_built {
-        assert!(!lockauth::missing_host_policy());
-    } else if lockauth::missing_host_policy() {
-        assert!(
-            [
-                "/usr/lib64/libpam.so.0",
-                "/lib64/libpam.so.0",
-                "/usr/lib/libpam.so.0",
-                "/lib/libpam.so.0",
-            ]
-            .iter()
-            .any(|candidate| std::path::Path::new(candidate).is_file()),
-            "a store copy only misses a host policy that exists"
-        );
+#[test]
+fn strict_mode_reads_the_documented_spellings() {
+    for value in ["1", "true", "TRUE", "yes", "On", " on "] {
+        assert!(lockauth::strict_from_value(Some(value)), "{value}");
     }
+
+    for value in ["", "0", "false", "off", "no", "strictly"] {
+        assert!(!lockauth::strict_from_value(Some(value)), "{value}");
+    }
+
+    assert!(!lockauth::strict_from_value(None));
 }

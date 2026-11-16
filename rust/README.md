@@ -49,10 +49,13 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.
 - `src/lockauth.rs` — the C lock screen's authentication boundary without GTK:
-  libpam loaded at run time from the host's library first, the per-user
-  `pam_unix` service written with `0700`/`0600` and `O_NOFOLLOW`, the PAM status
-  classification, and the host's setuid `unix_chkpwd` as the fallback a
-  store-built binary needs.  `--check-lock` prints what it would do.
+  libpam loaded at run time from the host's library first, with the host
+  dependencies (`libaudit`, `libeconf`) resolved by absolute path when a store
+  build cannot find them, the per-user `pam_unix` service written with
+  `0700`/`0600` and `O_NOFOLLOW`, and the PAM status classification.  The host's
+  setuid `unix_chkpwd` is a helper of last resort: it is never asked when a
+  `whelk-lock` or `login` service file exists, and `WHELK_LOCK_STRICT=1`
+  disables it entirely.  `--check-lock` prints what it would do.
 - `src/locker.rs` — the Rust lock screen: a compositor-enforced session lock
   through `ext-session-lock-v1` when the compositor has it, one overlay layer
   surface per output otherwise, one password field on the primary output,

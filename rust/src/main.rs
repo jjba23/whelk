@@ -192,8 +192,8 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
 }
 
 /// The same order the lock screen resolves, printed without asking for a
-/// password: which libraries exist, which one loads, which stack would answer
-/// and whether this machine has a setuid helper for the store-built case.
+/// password: which libraries exist, which one loads, which stack would answer,
+/// and whether the helper fallback is available to it.
 fn print_lock_report() {
     println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
     println!(
@@ -217,7 +217,10 @@ fn print_lock_report() {
         lockauth::pam_path().unwrap_or_else(|| "none".to_owned())
     );
 
-    match lockauth::stack_plan() {
+    let stack = lockauth::stack_plan();
+    let admin_policy = matches!(stack, Stack::Admin(_));
+
+    match stack {
         Stack::Admin(name) => println!("service: {name} (administrator policy)"),
         Stack::Private(directory) => println!(
             "service: per-user pam_unix stack in {}",
@@ -228,9 +231,22 @@ fn print_lock_report() {
         }
     }
 
+    let helper = lockauth::local_helper();
+    let strict = lockauth::strict_mode();
+
+    println!("helper: {}", helper.as_deref().unwrap_or("none"));
+    println!("strict: {}", if strict { "on (PAM only)" } else { "off" });
     println!(
-        "helper: {}",
-        lockauth::local_helper().unwrap_or_else(|| "none".to_owned())
+        "helper fallback: {}",
+        if lockauth::fallback_allowed(admin_policy, helper.is_some(), strict) {
+            "allowed (no administrator policy)"
+        } else if admin_policy {
+            "refused (administrator policy is authoritative)"
+        } else if strict {
+            "refused (strict mode)"
+        } else {
+            "refused (no trustworthy helper)"
+        }
     );
 }
 

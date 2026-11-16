@@ -415,25 +415,48 @@ static LockAuthResult local_pam_fallback(const char *password) {
   }
 }
 
+/* The one place the helper may be reached.  An administrator's service file
+ * (whelk-lock or login) owns the answer: PAM's refusal is final, even when the
+ * library could not read that file.  WHELK_LOCK_STRICT makes even the remaining
+ * no-policy case fail closed. */
+static LockAuthResult local_pam_fallback_guarded(const char *password,
+                                                 gboolean admin_policy,
+                                                 gboolean strict) {
+  g_autofree char *helper = whelk_lock_local_helper();
+
+  if (!whelk_lock_fallback_allowed(admin_policy, helper != NULL, strict)) {
+    if (admin_policy)
+      LOG_C_WARN("Locker",
+                 "an administrator's PAM service is authoritative; not asking "
+                 "unix_chkpwd");
+    else if (strict)
+      LOG_C_WARN("Locker", "strict lock mode; not asking unix_chkpwd");
+    else
+      LOG_C_WARN("Locker", "no trustworthy unix_chkpwd; the screen stays "
+                            "locked");
+
+    return LOCK_AUTH_UNAVAILABLE;
+  }
+
+  return local_pam_fallback(password);
+}
+
 static LockAuthResult pam_authenticate_user(const char *password) {
   const WhelkPam *pam = whelk_lock_pam_open();
 
+  /* Read once: both decisions below must speak about the same policy. */
+  const gboolean admin_policy =
+      pam_service_exists("whelk-lock") || pam_service_exists("login");
+  const gboolean strict = whelk_lock_strict_mode();
+
   if (!pam) {
     LOG_C_WARN("Locker",
-               "no PAM library found; asking the host's unix_chkpwd instead");
-    return local_pam_fallback(password);
+               "no PAM library found; the helper may answer only without an "
+               "administrator policy");
+    return local_pam_fallback_guarded(password, admin_policy, strict);
   }
 
   LOG_C_DEBUG("Locker", "authentication library: %s", whelk_lock_pam_path());
-
-  /* A store-built library cannot see the host's pam.d or module directory.
-   * Its refusals are about the build, not about this password. */
-  const gboolean build_locked = whelk_lock_pam_missing_host_policy();
-
-  if (build_locked)
-    LOG_C_WARN("Locker",
-               "the loaded libpam is a store copy that cannot read the host's "
-               "PAM policy; its answers will fall back to unix_chkpwd");
 
   const char *username = g_get_user_name();
   LockConversation conversation = {
@@ -465,9 +488,9 @@ static LockAuthResult pam_authenticate_user(const char *password) {
 
     if (!confdir || !pam->start_confdir) {
       LOG_C_WARN("Locker",
-                 "no PAM service file and no per-user PAM directory; asking "
-                 "the host's unix_chkpwd instead");
-      return local_pam_fallback(password);
+                 "no PAM service file and no per-user PAM directory; the "
+                 "helper may answer only without an administrator policy");
+      return local_pam_fallback_guarded(password, admin_policy, strict);
     }
 
     private_stack = TRUE;
@@ -482,22 +505,16 @@ static LockAuthResult pam_authenticate_user(const char *password) {
     if (handle)
       pam->end(handle, status);
 
-    if (build_locked || private_stack)
-      return local_pam_fallback(password);
-
-    return LOCK_AUTH_UNAVAILABLE;
+    return local_pam_fallback_guarded(password, admin_policy, strict);
   }
 
   const LockAuthResult result = pam_finish(pam, handle);
 
   /* Only whelk's own pam_unix stack falls through: an administrator's service
    * file that refuses is authoritative, and pam_faillock or a locked account
-   * must not be talked around.  A store-built library is the second exception:
-   * it never read that policy at all, so none was bypassed -- and every answer
-   * it gives, a refusal included, is about the build. */
-  if ((result == LOCK_AUTH_UNAVAILABLE && private_stack) ||
-      (result != LOCK_AUTH_OK && build_locked))
-    return local_pam_fallback(password);
+   * must not be talked around. */
+  if (result == LOCK_AUTH_UNAVAILABLE && private_stack)
+    return local_pam_fallback_guarded(password, admin_policy, strict);
 
   return result;
 }

@@ -239,27 +239,31 @@ static void test_local_verify_refuses_a_wrong_password(void) {
   g_assert_cmpint(result, !=, WHELK_LOCAL_OK);
 }
 
-/* Detection must speak about the build, not about the host: a library loaded
- * from /usr is never "missing the host policy", and a store copy only is when
- * the host actually has one. */
-static void test_missing_host_policy_is_about_the_build(void) {
-  const char *path = whelk_lock_pam_path();
+/* The bypass policy: an administrator's service file always wins, a missing
+ * helper always loses, and strict mode refuses the helper even when it is the
+ * only answer left. */
+static void test_helper_fallback_policy(void) {
+  g_assert_false(whelk_lock_fallback_allowed(TRUE, TRUE, FALSE));
+  g_assert_false(whelk_lock_fallback_allowed(TRUE, TRUE, TRUE));
+  g_assert_false(whelk_lock_fallback_allowed(TRUE, FALSE, FALSE));
+  g_assert_false(whelk_lock_fallback_allowed(TRUE, FALSE, TRUE));
 
-  if (!path) {
-    g_test_skip("this machine has no libpam at all");
-    return;
-  }
+  g_assert_true(whelk_lock_fallback_allowed(FALSE, TRUE, FALSE));
+  g_assert_false(whelk_lock_fallback_allowed(FALSE, TRUE, TRUE));
+  g_assert_false(whelk_lock_fallback_allowed(FALSE, FALSE, FALSE));
+}
 
-  const gboolean store_built = g_str_has_prefix(path, "/nix/store/") ||
-                               g_str_has_prefix(path, "/gnu/store/");
+static void test_strict_mode_spellings(void) {
+  const char *const on[] = {"1", "true", "TRUE", "yes", "On", NULL};
+  const char *const off[] = {"", "0", "false", "off", "no", "strictly", NULL};
 
-  if (!store_built)
-    g_assert_false(whelk_lock_pam_missing_host_policy());
-  else if (whelk_lock_pam_missing_host_policy())
-    g_assert_true(g_file_test("/usr/lib64/libpam.so.0", G_FILE_TEST_EXISTS) ||
-                  g_file_test("/lib64/libpam.so.0", G_FILE_TEST_EXISTS) ||
-                  g_file_test("/usr/lib/libpam.so.0", G_FILE_TEST_EXISTS) ||
-                  g_file_test("/lib/libpam.so.0", G_FILE_TEST_EXISTS));
+  for (guint i = 0; on[i]; i++)
+    g_assert_true(whelk_lock_strict_value(on[i]));
+
+  for (guint i = 0; off[i]; i++)
+    g_assert_false(whelk_lock_strict_value(off[i]));
+
+  g_assert_false(whelk_lock_strict_value(NULL));
 }
 
 int main(int argc, char **argv) {
@@ -274,8 +278,8 @@ int main(int argc, char **argv) {
   g_test_add_func("/lockauth/local-helper", test_local_helper_is_trustworthy);
   g_test_add_func("/lockauth/local-verify",
                   test_local_verify_refuses_a_wrong_password);
-  g_test_add_func("/lockauth/missing-host-policy",
-                  test_missing_host_policy_is_about_the_build);
+  g_test_add_func("/lockauth/fallback-policy", test_helper_fallback_policy);
+  g_test_add_func("/lockauth/strict-spellings", test_strict_mode_spellings);
 
   return g_test_run();
 }

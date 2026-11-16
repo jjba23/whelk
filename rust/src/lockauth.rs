@@ -156,12 +156,21 @@ impl Drop for Pam {
 
 impl Pam {
     fn open(path: &str) -> Option<Self> {
-        let library = CString::new(path).ok()?;
-        let handle = unsafe { libc::dlopen(library.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
+        // A host candidate gets the dependency shim; a store candidate is
+        // reached through the build's own rpath and loads as it always has.
+        let handle = if path.starts_with("/usr/") || path.starts_with("/lib") {
+            open_host_object(Path::new(path), 0, false)?
+        } else {
+            let library = CString::new(path).ok()?;
+            let handle =
+                unsafe { libc::dlopen(library.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
 
-        if handle.is_null() {
-            return None;
-        }
+            if handle.is_null() {
+                return None;
+            }
+
+            handle
+        };
 
         macro_rules! resolve {
             ($symbol:literal) => {{
@@ -204,6 +213,127 @@ impl Pam {
             strerror,
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// The host library's own dependencies
+// ---------------------------------------------------------------------------
+
+const HOST_LIBRARY_DIRS: [&str; 4] = ["/lib64", "/usr/lib64", "/lib", "/usr/lib"];
+
+fn is_glibc_soname(soname: &str) -> bool {
+    matches!(
+        soname,
+        "libc.so.6"
+            | "libm.so.6"
+            | "libmvec.so.1"
+            | "libpthread.so.0"
+            | "libdl.so.2"
+            | "librt.so.1"
+            | "libresolv.so.2"
+            | "libutil.so.1"
+            | "libanl.so.1"
+    ) || soname.starts_with("ld-linux")
+        || soname.starts_with("libnss_")
+}
+
+/// Loads one soname from a distribution directory.
+///
+/// A missing dependency of the object itself is resolved first, recursively,
+/// because `libaudit` may name `libcap-ng` in the same way `libpam` names
+/// `libaudit`.  A glibc soname is never loaded from the host: the process
+/// already has one, and mixing two would be worse than a locked screen.
+fn load_host_soname(soname: &str, depth: u32) -> bool {
+    if soname.is_empty() || soname.contains('/') || depth > 4 {
+        return false;
+    }
+
+    if is_glibc_soname(soname) {
+        return true;
+    }
+
+    // Already loaded (by this process or an earlier candidate)?  Then the
+    // soname is satisfied and no host copy is needed.
+    if let Ok(name) = CString::new(soname) {
+        let loaded = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_NOLOAD) };
+
+        if !loaded.is_null() {
+            unsafe { libc::dlclose(loaded) };
+
+            return true;
+        }
+    }
+
+    for directory in HOST_LIBRARY_DIRS {
+        let path = Path::new(directory).join(soname);
+
+        if path.is_file() && open_host_object(&path, depth + 1, true).is_some() {
+            return true;
+        }
+    }
+
+    // Debian multiarch: /usr/lib/x86_64-linux-gnu and friends.
+    for root in ["/usr/lib", "/lib"] {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+
+            if !name.to_string_lossy().ends_with("-linux-gnu") {
+                continue;
+            }
+
+            let path = entry.path().join(soname);
+
+            if path.is_file() && open_host_object(&path, depth + 1, true).is_some() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// `dlopen`, but when the loader names a missing host object, load that object
+/// from a distribution directory and retry.  The retry count is bounded: an
+/// object graph deeper than this is not one whelk can reason about.
+fn open_host_object(path: &Path, depth: u32, global: bool) -> Option<*mut c_void> {
+    let Ok(path) = CString::new(path.as_os_str().as_encoded_bytes()) else {
+        return None;
+    };
+    let flags = libc::RTLD_NOW
+        | if global {
+            libc::RTLD_GLOBAL
+        } else {
+            libc::RTLD_LOCAL
+        };
+    let mut handle = unsafe { libc::dlopen(path.as_ptr(), flags) };
+    let mut attempt = 0;
+
+    while handle.is_null() && attempt < 8 {
+        attempt += 1;
+
+        let error = unsafe { libc::dlerror() };
+
+        if error.is_null() {
+            break;
+        }
+
+        let message = unsafe { CStr::from_ptr(error) }.to_string_lossy();
+        let Some((soname, _)) = message.split_once(": cannot open shared object file") else {
+            break;
+        };
+
+        if !load_host_soname(soname, depth + 1) {
+            break;
+        }
+
+        handle = unsafe { libc::dlopen(path.as_ptr(), flags) };
+    }
+
+    if handle.is_null() { None } else { Some(handle) }
 }
 
 /// The library paths to try, most host-specific first.
@@ -292,29 +422,36 @@ pub fn pam_path() -> Option<String> {
     pam().map(|pam| pam.path.clone())
 }
 
-/// TRUE when the loaded library is a package manager's copy (a Nix or Guix
-/// store path) *and* the host has its own libpam.
+/// TRUE when the helper fallback may run: no administrator's service file
+/// (`whelk-lock` or `login`) owns the answer, a trustworthy helper exists, and
+/// strict mode is off.
 ///
-/// That combination means the library cannot see the host's `pam.d` or module
-/// directory, so its answers say more about the build than about the password:
-/// `pam_start("login")` reads the store's `etc/pam.d`, which has no such
-/// service.  The lock screen treats an "unavailable" answer from it as the
-/// build's fault and verifies through the host's helper instead.
-pub fn missing_host_policy() -> bool {
-    let Some(path) = pam_path() else {
-        return false;
-    };
+/// This is the whole bypass policy in one place, so a reader does not have to
+/// reconstruct it from the call sites.
+pub fn fallback_allowed(admin_policy: bool, helper_available: bool, strict: bool) -> bool {
+    !admin_policy && helper_available && !strict
+}
 
-    if !(path.starts_with("/nix/store/") || path.starts_with("/gnu/store/")) {
-        return false;
+/// The documented spellings of `WHELK_LOCK_STRICT`, exposed for the test that
+/// pins them.
+pub fn strict_from_value(value: Option<&str>) -> bool {
+    match value.map(str::trim) {
+        Some(value) if !value.is_empty() => {
+            value == "1"
+                || value.eq_ignore_ascii_case("true")
+                || value.eq_ignore_ascii_case("yes")
+                || value.eq_ignore_ascii_case("on")
+        }
+        _ => false,
     }
+}
 
-    // A machine whose PAM lives entirely in the store (NixOS, Guix System) has
-    // no host policy to miss; only a distribution host does.
-    candidates().iter().any(|candidate| {
-        (candidate.starts_with("/usr/") || candidate.starts_with("/lib"))
-            && Path::new(candidate).is_file()
-    })
+/// TRUE when `WHELK_LOCK_STRICT` asks for a fail-closed lock screen: PAM or
+/// nothing, never the host's helper.
+pub fn strict_mode() -> bool {
+    let value = std::env::var("WHELK_LOCK_STRICT").ok();
+
+    strict_from_value(value.as_deref())
 }
 
 // ---------------------------------------------------------------------------
@@ -502,22 +639,17 @@ pub fn stack_plan() -> Stack {
 /// Verifies the password for the session user.  `password` is wiped before the
 /// function returns, whatever the outcome.
 pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
+    let stack = stack_plan();
+    // An administrator's service file owns the answer; read this once, so both
+    // decisions below speak about the same policy.
+    let admin_policy = matches!(stack, Stack::Admin(_));
+    let strict = strict_mode();
+
     let Some(pam) = pam() else {
-        log("no PAM library; asking the host's unix_chkpwd instead");
+        log("no PAM library; the helper may answer only without an administrator policy");
 
-        return local_verify(password);
+        return local_fallback(password, admin_policy, strict);
     };
-
-    // A store-built library cannot see the host's pam.d or module directory.
-    // Its refusals are about the build, not about this password.
-    let build_locked = missing_host_policy();
-
-    if build_locked {
-        log(
-            "the loaded libpam is a store copy that cannot read the host's PAM policy; \
-             its answers will fall back to unix_chkpwd",
-        );
-    }
 
     let Ok(secret) = CString::new(&password[..]) else {
         log("the password contains a NUL byte; refusing to send it to PAM");
@@ -542,7 +674,7 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
     let mut handle: *mut c_void = std::ptr::null_mut();
     let mut private_stack = false;
 
-    let status = match stack_plan() {
+    let status = match stack {
         Stack::Admin(service) => {
             log(&format!("authenticating with PAM service {service}"));
 
@@ -556,11 +688,12 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
         Stack::Private(directory) => {
             let Some(start_confdir) = pam.start_confdir else {
                 log(
-                    "this libpam predates pam_start_confdir; asking the host's unix_chkpwd instead",
+                    "this libpam predates pam_start_confdir; the helper may answer only \
+                     without an administrator policy",
                 );
                 wipe_cstring(&secret);
 
-                return local_verify(password);
+                return local_fallback(password, admin_policy, strict);
             };
 
             let Ok(directory) = CString::new(directory.as_os_str().as_encoded_bytes()) else {
@@ -592,7 +725,7 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
 
             wipe_cstring(&secret);
 
-            return local_verify(password);
+            return local_fallback(password, admin_policy, strict);
         }
     };
 
@@ -605,11 +738,7 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
 
         wipe_cstring(&secret);
 
-        return if build_locked || private_stack {
-            local_verify(password)
-        } else {
-            AuthOutcome::Unavailable
-        };
+        return local_fallback(password, admin_policy, strict);
     }
 
     let mut status = unsafe { (pam.authenticate)(handle, PAM_SILENT | PAM_DISALLOW_NULL_AUTHTOK) };
@@ -650,18 +779,34 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
 
     // Only whelk's own pam_unix stack falls through: an administrator's service
     // file that refuses is authoritative, and pam_faillock or a locked account
-    // must not be talked around.  A store-built library is the second
-    // exception: it never read that policy at all, so none was bypassed -- and
-    // every answer it gives, a refusal included, is about the build.
-    if (outcome == AuthOutcome::Unavailable && private_stack)
-        || (outcome != AuthOutcome::Ok && build_locked)
-    {
+    // must not be talked around.
+    if outcome == AuthOutcome::Unavailable && private_stack {
         log("the loaded libpam cannot reach the credential store; asking the host's unix_chkpwd");
 
-        return local_verify(password);
+        return local_fallback(password, admin_policy, strict);
     }
 
     outcome
+}
+
+/// The one place the helper may be reached.  An administrator's service file
+/// owns the answer: PAM's refusal is final, even when the library could not
+/// read that file.  `WHELK_LOCK_STRICT` makes even the remaining no-policy case
+/// fail closed.
+fn local_fallback(password: &[u8], admin_policy: bool, strict: bool) -> AuthOutcome {
+    if !fallback_allowed(admin_policy, local_helper().is_some(), strict) {
+        if admin_policy {
+            log("an administrator's PAM service is authoritative; not asking unix_chkpwd");
+        } else if strict {
+            log("strict lock mode; not asking unix_chkpwd");
+        } else {
+            log("no trustworthy unix_chkpwd; the screen stays locked");
+        }
+
+        return AuthOutcome::Unavailable;
+    }
+
+    local_verify(password)
 }
 
 // ---------------------------------------------------------------------------

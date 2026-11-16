@@ -86,14 +86,20 @@ char *whelk_lock_pam_confdir(const char *runtime_dir);
  * returns PAM_AUTHINFO_UNAVAIL -- the lock screen's "Authentication is
  * unavailable".
  *
- * The host does install one helper that answers the local password question
- * from any process: `unix_chkpwd', setuid root and owned by shadow.  It is
- * what the host's own pam_unix execs, so asking it directly uses the same
- * credential check without loading a foreign libpam.  It is only consulted
- * after PAM has failed in a way that means "this library cannot reach the
- * store", and only when the stack that refused is whelk's own pam_unix
- * service: an administrator's `whelk-lock' or `login' policy is never
- * bypassed.
+ * The lock screen does not accept that as final.  The host's libpam names a few
+ * objects the store process does not have (`libaudit.so.1', `libeconf.so.0'),
+ * and loading those by absolute host path with RTLD_GLOBAL is enough for the
+ * host's library to answer with the host's module directory and configuration.
+ * whelk tries that before giving up, so a store build consults the same policy
+ * a distribution build would.
+ *
+ * The host's setuid `unix_chkpwd' remains a last resort for the one case where
+ * no administrator policy exists at all: a machine with only the `common-*'
+ * fragments, where whelk wrote its own minimal pam_unix service.  It is never
+ * consulted when a `whelk-lock' or `login' service file exists -- those are an
+ * administrator's policy, and PAM's answer for them is final.  Set
+ * WHELK_LOCK_STRICT=1 to refuse the helper even then and keep the screen
+ * strictly fail-closed.
  */
 
 typedef enum {
@@ -115,14 +121,22 @@ char *whelk_lock_local_helper(void);
  * that cannot verify stays locked. */
 WhelkLocalResult whelk_lock_local_verify(const char *password);
 
-/* TRUE when the library whelk loaded is a package manager's copy (a Nix or
- * Guix store path) *and* the host has its own libpam.  That combination means
- * the library cannot see the host's configuration or module directory, so
- * every answer it gives says more about the build than about the password:
- * `pam_start("login")' reads the store's `etc/pam.d', which has no such
- * service.  The locker treats an "unavailable" answer from that combination
- * as the build's fault and verifies through the host's helper instead. */
-gboolean whelk_lock_pam_missing_host_policy(void);
+/* TRUE when the helper fallback may run: no administrator's service file
+ * (`whelk-lock' or `login') owns the answer, a trustworthy helper exists, and
+ * strict mode is off.  This is the whole bypass policy in one place, so a
+ * reader does not have to reconstruct it from the call sites. */
+gboolean whelk_lock_fallback_allowed(gboolean admin_policy,
+                                     gboolean helper_available,
+                                     gboolean strict);
+
+/* The value parser behind whelk_lock_strict_mode(), exposed for the test that
+ * pins the documented spellings. */
+gboolean whelk_lock_strict_value(const char *value);
+
+/* TRUE when WHELK_LOCK_STRICT asks for a fail-closed lock screen: PAM or
+ * nothing, never the host's helper.  Any spelling of "1", "true", "yes" or
+ * "on" (case-insensitive) enables it; anything else leaves the default. */
+gboolean whelk_lock_strict_mode(void);
 
 G_END_DECLS
 

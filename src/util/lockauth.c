@@ -145,8 +145,137 @@ static void pam_api_reset(WhelkPam *api) {
   memset(api, 0, sizeof *api);
 }
 
+/* =========================================================================
+ * THE HOST LIBRARY'S OWN DEPENDENCIES
+ * =========================================================================
+ * A distribution's libpam names libaudit and libeconf.  A store-built whelk
+ * links a store C library, so its loader does not search /lib64 and dlopen of
+ * the host's libpam fails before PAM is ever asked.  Loading the missing
+ * objects by absolute host path with RTLD_GLOBAL is enough: the host library
+ * then loads, and with it the host's module directory and pam.d.
+ *
+ * Only fixed distribution directories are searched, never LD_LIBRARY_PATH or
+ * a path from the environment, and a glibc soname is never loaded from the
+ * host: the process already has one, and mixing two would be worse than a
+ * locked screen. */
+
+static const char *const host_library_dirs[] = {
+    "/lib64",
+    "/usr/lib64",
+    "/lib",
+    "/usr/lib",
+    NULL,
+};
+
+static gboolean is_glibc_soname(const char *soname) {
+  return g_str_equal(soname, "libc.so.6") ||
+         g_str_equal(soname, "libm.so.6") ||
+         g_str_equal(soname, "libmvec.so.1") ||
+         g_str_equal(soname, "libpthread.so.0") ||
+         g_str_equal(soname, "libdl.so.2") ||
+         g_str_equal(soname, "librt.so.1") ||
+         g_str_equal(soname, "libresolv.so.2") ||
+         g_str_equal(soname, "libutil.so.1") ||
+         g_str_equal(soname, "libanl.so.1") ||
+         g_str_has_prefix(soname, "ld-linux") ||
+         g_str_has_prefix(soname, "libnss_");
+}
+
+static void *dlopen_host_object(const char *path, guint depth, int flags);
+
+/* Loads one soname from a distribution directory.  A missing dependency of the
+ * object itself is resolved first, recursively, because libaudit may name
+ * libcap-ng in the same way libpam names libaudit. */
+static gboolean load_host_soname(const char *soname, guint depth) {
+  if (!soname || !*soname || strchr(soname, '/') || depth > 4)
+    return FALSE;
+
+  if (is_glibc_soname(soname))
+    return TRUE;
+
+  /* Already loaded (by this process or by an earlier candidate)?  Then the
+   * soname is satisfied and no host copy is needed. */
+  void *loaded = dlopen(soname, RTLD_NOW | RTLD_NOLOAD);
+
+  if (loaded) {
+    dlclose(loaded);
+    return TRUE;
+  }
+
+  for (guint i = 0; host_library_dirs[i]; i++) {
+    g_autofree char *path = g_build_filename(host_library_dirs[i], soname, NULL);
+
+    if (!g_file_test(path, G_FILE_TEST_IS_REGULAR))
+      continue;
+
+    if (dlopen_host_object(path, depth, RTLD_NOW | RTLD_GLOBAL))
+      return TRUE;
+  }
+
+  /* Debian multiarch: /usr/lib/x86_64-linux-gnu and friends. */
+  for (guint r = 0; r < 2; r++) {
+    const char *root = r == 0 ? "/usr/lib" : "/lib";
+    GDir *dir = g_dir_open(root, 0, NULL);
+
+    if (!dir)
+      continue;
+
+    const char *name;
+
+    while ((name = g_dir_read_name(dir))) {
+      if (!g_str_has_suffix(name, "-linux-gnu"))
+        continue;
+
+      g_autofree char *path = g_build_filename(root, name, soname, NULL);
+
+      if (g_file_test(path, G_FILE_TEST_IS_REGULAR) &&
+          dlopen_host_object(path, depth, RTLD_NOW | RTLD_GLOBAL)) {
+        g_dir_close(dir);
+        return TRUE;
+      }
+    }
+
+    g_dir_close(dir);
+  }
+
+  return FALSE;
+}
+
+/* dlopen, but when the loader names a missing host object, load that object
+ * from a distribution directory and retry.  The retry count is bounded: an
+ * object graph deeper than this is not one whelk can reason about. */
+static void *dlopen_host_object(const char *path, guint depth, int flags) {
+  void *handle = dlopen(path, flags);
+
+  for (guint attempt = 0; !handle && attempt < 8; attempt++) {
+    const char *error = dlerror();
+
+    if (!error)
+      break;
+
+    const char *marker = strstr(error, ": cannot open shared object file");
+
+    if (!marker)
+      break;
+
+    g_autofree char *missing = g_strndup(error, (gsize)(marker - error));
+
+    if (!load_host_soname(missing, depth + 1))
+      break;
+
+    handle = dlopen(path, flags);
+  }
+
+  return handle;
+}
+
 static gboolean pam_api_resolve(WhelkPam *api, const char *path) {
-  void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  /* A host candidate gets the dependency shim; a store candidate is reached
+   * through the build's own rpath and loads as it always has. */
+  const gboolean host = g_str_has_prefix(path, "/usr/") ||
+                        g_str_has_prefix(path, "/lib");
+  void *handle = host ? dlopen_host_object(path, 0, RTLD_NOW | RTLD_LOCAL)
+                      : dlopen(path, RTLD_NOW | RTLD_LOCAL);
 
   if (!handle)
     return FALSE;
@@ -200,36 +329,36 @@ const WhelkPam *whelk_lock_pam_open(void) {
 
 const char *whelk_lock_pam_path(void) { return pam_api_path; }
 
-gboolean whelk_lock_pam_missing_host_policy(void) {
-  if (!pam_api_path)
+gboolean whelk_lock_fallback_allowed(gboolean admin_policy,
+                                     gboolean helper_available,
+                                     gboolean strict) {
+  return !admin_policy && helper_available && !strict;
+}
+
+gboolean whelk_lock_strict_value(const char *value) {
+  if (!value)
     return FALSE;
 
-  const gboolean store_built = g_str_has_prefix(pam_api_path, "/nix/store/") ||
-                               g_str_has_prefix(pam_api_path, "/gnu/store/");
+  g_autofree char *trimmed = g_strdup(value);
 
-  if (!store_built)
-    return FALSE;
+  g_strstrip(trimmed);
 
-  /* A machine whose PAM lives entirely in the store (NixOS, Guix System) has
-   * no host policy to miss; only a distribution host does. */
-  g_auto(GStrv) candidates = whelk_lock_pam_library_candidates();
+  return g_str_equal(trimmed, "1") ||
+         g_ascii_strcasecmp(trimmed, "true") == 0 ||
+         g_ascii_strcasecmp(trimmed, "yes") == 0 ||
+         g_ascii_strcasecmp(trimmed, "on") == 0;
+}
 
-  for (guint i = 0; candidates[i]; i++) {
-    if ((g_str_has_prefix(candidates[i], "/usr/") ||
-         g_str_has_prefix(candidates[i], "/lib")) &&
-        g_file_test(candidates[i], G_FILE_TEST_IS_REGULAR))
-      return TRUE;
-  }
-
-  return FALSE;
+gboolean whelk_lock_strict_mode(void) {
+  return whelk_lock_strict_value(g_getenv("WHELK_LOCK_STRICT"));
 }
 
 /* =========================================================================
  * THE HOST'S PASSWORD HELPER
  * =========================================================================
- * See the header for why a store-built whelk cannot use the libpam it loaded.
  * The helper is the host's own setuid `unix_chkpwd'; asking it is the same
- * check pam_unix makes, without needing the host's PAM library. */
+ * check pam_unix makes.  It is only reached when no administrator service file
+ * owns the answer, and never in strict mode.  See the header. */
 
 static const char *const local_helper_paths[] = {
     "/usr/sbin/unix_chkpwd",
