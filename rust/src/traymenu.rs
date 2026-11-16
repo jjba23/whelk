@@ -62,6 +62,62 @@ pub fn parse_layout(
     parse_children(&children, service, path, style, 0)
 }
 
+/// Reads a menubar from a `GetLayout` reply.
+///
+/// Unlike a tray context menu, whose root children are rows, a menubar's root
+/// children are the top-level menus (`File`, `Edit`, …); each of those has the
+/// rows.  Returning labels and owned rows keeps the global-menu module free of
+/// `GVariant` pointers and lets it use the same node reader as the tray.
+pub fn parse_menubar(
+    reply: &glib::Variant,
+    service: &str,
+    path: &str,
+    style: ChordStyle,
+) -> Vec<(String, Vec<TrayMenuEntry>)> {
+    let Some(layout) = layout_node(reply) else {
+        return Vec::new();
+    };
+    let Some((_, _, children)) = node_parts(&layout) else {
+        return Vec::new();
+    };
+
+    if children.type_().as_str() != "av" {
+        return Vec::new();
+    }
+
+    let mut menus = Vec::new();
+
+    for index in 0..children.n_children() {
+        let Some(boxed) = children.try_child_value(index) else {
+            continue;
+        };
+        let Some(node) = boxed.as_variant() else {
+            continue;
+        };
+        let Some((_, props, rows)) = node_parts(&node) else {
+            continue;
+        };
+        let Some(dict) = properties(&props) else {
+            continue;
+        };
+        let label = dict
+            .lookup::<String>("label")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        if label.is_empty() {
+            continue;
+        }
+
+        let entries = parse_children(&rows, service, path, style, 0);
+
+        menus.push((label, entries));
+    }
+
+    menus
+}
+
 fn layout_node(reply: &glib::Variant) -> Option<glib::Variant> {
     match reply.type_().as_str() {
         "(u(ia{sv}av))" if reply.n_children() == 2 => reply.try_child_value(1),

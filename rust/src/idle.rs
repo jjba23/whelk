@@ -26,6 +26,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::fd::OwnedFd;
 use std::process::Command;
 use std::rc::{Rc, Weak};
 
@@ -65,7 +66,10 @@ struct State {
 
     inhibited: bool,
     inhibit_reason: String,
-    inhibit_fd: i32,
+    /// The logind inhibitor handle.  `OwnedFd` closes it when this field is
+    /// replaced or cleared, which is exactly how the logind API releases an
+    /// fd-based inhibitor; no manual `close` call is needed.
+    inhibit_fd: Option<OwnedFd>,
 
     dnd: bool,
     last_decision: String,
@@ -98,7 +102,7 @@ impl Idle {
                 lock_requested: false,
                 inhibited: false,
                 inhibit_reason: String::new(),
-                inhibit_fd: -1,
+                inhibit_fd: None,
                 dnd: false,
                 last_decision: String::new(),
                 lock_action: None,
@@ -216,11 +220,7 @@ impl Idle {
         state.session_path = None;
         state.bus = None;
 
-        if state.inhibit_fd >= 0 {
-            unsafe { libc::close(state.inhibit_fd) };
-            state.inhibit_fd = -1;
-        }
-
+        state.inhibit_fd = None;
         state.inhibited = false;
         state.inhibit_froze_idle = false;
         state.inhibit_reason.clear();
@@ -302,9 +302,9 @@ impl Idle {
             let fd = match reply {
                 Ok((reply, Some(fd_list))) => match reply.get::<(i32,)>() {
                     Some((handle,)) => unix_fd_from_list(&fd_list, handle),
-                    None => -1,
+                    None => None,
                 },
-                Ok((_reply, None)) => -1,
+                Ok((_reply, None)) => None,
                 Err(error) => {
                     log_warn(&format!(
                         "could not take the logind idle inhibitor: {error}"
@@ -313,19 +313,18 @@ impl Idle {
                     return false;
                 }
             };
-
-            if fd < 0 {
+            let Some(fd) = fd else {
                 log_warn("logind returned no inhibitor handle");
 
                 return false;
-            }
+            };
 
             {
                 let mut state = self.state.borrow_mut();
 
                 state.inhibit_frozen_us = idle_elapsed_us(&state);
                 state.inhibit_froze_idle = state.idle;
-                state.inhibit_fd = fd;
+                state.inhibit_fd = Some(fd);
                 state.inhibited = true;
                 state.inhibit_reason = why.to_owned();
             }
@@ -335,11 +334,7 @@ impl Idle {
             {
                 let mut state = self.state.borrow_mut();
 
-                if state.inhibit_fd >= 0 {
-                    unsafe { libc::close(state.inhibit_fd) };
-                    state.inhibit_fd = -1;
-                }
-
+                state.inhibit_fd = None;
                 state.inhibited = false;
                 state.inhibit_reason.clear();
 
@@ -748,18 +743,16 @@ fn on_lock_timer(state: &Weak<RefCell<State>>) {
     }
 }
 
-fn unix_fd_from_list(list: &gio::UnixFDList, handle: i32) -> i32 {
-    use glib::translate::ToGlibPtr;
+fn unix_fd_from_list(list: &gio::UnixFDList, handle: i32) -> Option<OwnedFd> {
+    match list.get(handle) {
+        Ok(fd) => Some(fd),
+        Err(error) => {
+            log_warn(&format!(
+                "logind returned an inhibitor fd that could not be duplicated: {error}"
+            ));
 
-    let mut error = std::ptr::null_mut();
-    let fd = unsafe { gio::ffi::g_unix_fd_list_get(list.to_glib_none().0, handle, &mut error) };
-
-    if error.is_null() {
-        fd
-    } else {
-        unsafe { glib::ffi::g_error_free(error) };
-
-        -1
+            None
+        }
     }
 }
 

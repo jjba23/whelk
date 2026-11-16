@@ -241,6 +241,17 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/menuprobe.rs` — the global menu's ordered fallback chain: exact X11 GTK
   paths before conventional paths, the registrar only when a window id exists,
   and DBusMenu paths with the registrar's answer moved to the front.
+- `src/menubar.rs` — the global menu as owned data: the configured
+  `Menu<TAB>Item<TAB>Chord<TAB>Command` protocol with `>` submenus, the
+  `org.gtk.Menus` `a(uuaa{sv})` reader with sections, accelerators, targets and
+  cycle guards, the DBusMenu menubar reader shared with the tray, and the
+  synthesized File/Edit/View/Window fallback.  Every actionable row has an
+  owned `MenuAction`; no widget holds a `GVariant` pointer.
+- `src/globalmenu.rs` — the `menu` bar module: focused-window polling, the
+  script/GTK/DBusMenu producer chain, application-name and top-level popovers,
+  keyboard navigation, hover switching, `org.gtk.Actions.Activate`, DBusMenu
+  `Event` and command activation.  Asynchronous answers carry a generation so
+  a slow application cannot overwrite the application in front.
 - `src/tray.rs` — the tray's display-free rules: watcher entries as service and
   path, `#:hide` word fragments, exact network/Bluetooth applet suppression,
   the item limit and overflow decision, and validated ARGB32-to-RGBA pixmap
@@ -366,6 +377,68 @@ click, like their C counterparts; an explicit `#:on-click` still wins.  The
 while an explicit `#:on-click` still wins; its bare right click is the C DND
 toggle, and `dnd` is a working toggle without the centre.
 
+## The global menu
+
+`menu` is the focused application's menu bar, in the same order a desktop menu
+bar uses: the application name (when `#:app-name?` is on), then the application's
+File/Edit/View menus.  The first producer that answers wins:
+
+1. `#:menu-command` — a program that prints
+   `Menu<TAB>Item<TAB>Chord<TAB>Command` lines.  `File>Export` nests a submenu,
+   `-` in the item column is a separator, and an empty command is a disabled
+   row.  It runs asynchronously with the module's `#:command-timeout` deadline
+   (five seconds by default); its answer replaces the fallback only when it
+   produced at least one row.
+2. `org.gtk.Menus.Start` on the focused bus name, trying the exact X11 GTK
+   paths first and then the conventional application paths.  Sections are
+   flattened into the bar, a top-level item without a submenu becomes a
+   one-row menu, and `action`, `target`, `accel` and `enabled` are preserved.
+3. `com.canonical.dbusmenu.GetLayout`, after the X11
+   `com.canonical.AppMenu.Registrar` has had a chance to name the exact bus and
+   object path.  Choosing a row sends `Event(id, "clicked", 0, 0)` to the
+   publisher; the id is never treated as a command.
+4. The synthesized fallback: File with Close Window, shared Edit and View rows
+   when `#:shortcuts?` is on and a typing tool exists, and Window with the
+   compositor's maximize, float, move and full-screen verbs.
+
+```scheme
+(menu-module #:shortcuts? #t
+             #:app-name? #f
+             #:accelerator-style 'cua
+             #:shortcut-tool "wtype"
+             #:menu-command "my-menus --for-focused-window")
+```
+
+The module accepts the shared click options and `#:css-class` from the host, but
+its own buttons are a menubar: a click opens a menu, so `#:on-click` is not a
+second action on the application name.  `#:accelerator-style` accepts `'cua`
+(the default) or `'emacs`; `#:shortcut-tool` is used only when shared shortcut
+rows are offered, and is resolved on `PATH`.  `#:shortcuts?` and `#:app-name?`
+also accept the older spellings without the question mark.
+
+A focus change, or a change to the X11 bus/object paths published by the same
+window, rebuilds the tree.  Every asynchronous answer carries a generation
+token; an answer for the previous application is ignored, and removing a widget
+cancels its popover and command.  The menu row hides itself when it has no
+buttons rather than leaving a blank stripe in the bar.
+
+### Current Rust boundaries
+
+The core visible behavior is ported, but this is not yet the C module in every
+detail.  These are deliberate gaps, not silent fallbacks:
+
+- `org.gtk.Menus.Changed`, DBusMenu `LayoutUpdated`/
+  `ItemsPropertiesUpdated` and AT-SPI menu walking are not ported.  A menu that
+  changes while it is open is refreshed when focus changes or the shell reloads,
+  not live.
+- The fallback uses the shared Edit/View table and compositor verbs.  Whelk's
+  application dictionary, the Orbit corpus and desktop-entry actions are still
+  C-only, so an application that publishes no menu receives fewer
+  application-specific rows here than it does in the C shell.
+- The application name is resolved through `gio::AppInfo::all()` and falls back
+  to the last segment of the app id when no desktop entry matches.  It does not
+  read the C bridge's dictionary name.
+
 ## Monitors, hotplug and reload
 
 Each configured bar is placed independently by its `#:monitor`, `#:monitors`
@@ -484,7 +557,7 @@ The tests are split by what they can prove without a session:
 | `tests/networkpanel.rs` | Wi-Fi radio/active/access-point parsing, escaped SSIDs, dedupe and signal order; Bluetooth paired/connected sections, malformed rows and both status/empty readings |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
-| unit tests | Scheme literal escaping, `--config` parsing |
+| unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, fallback menus and global-menu app paths |
 
 The Guile test deliberately stays in one test function: Guile is process-global
 and thread-affine, and Cargo's test harness runs tests on multiple threads.
@@ -508,6 +581,31 @@ The bridge is safe by construction at its boundary, not by convention:
 `(whelk-rust-version)` is the one callback from Scheme into Rust. It allocates a
 Scheme string from a compile-time constant, so it cannot panic across the C ABI.
 
+## Unsafe surface
+
+The Rust shell keeps `unsafe` at the boundaries where a C library has no safe
+Rust API, and keeps it out of the application logic.  The inventory is small
+enough to review:
+
+- `src/guile/sys.rs` and `src/guile.rs` — the libguile FFI, protected `SCM`
+  roots, `scm_internal_catch` trampolines and the one callback from Scheme into
+  Rust.  All of it is in the Guile ownership rules above.
+- `src/lockauth.rs` — `libpam` loaded with `dlopen`/`dlsym`, the PAM
+  conversation callback, and the allocation of PAM's response array.  The
+  password is zeroed with `write_volatile` before its buffer is released.
+- `src/locker.rs` — the GTK session-lock C API that gtk4-rs does not yet bind;
+  the wrapper owns the returned `GObject` and releases it at the same point the
+  protocol lock is released.
+- `tests/guile.rs` — one call into the same Guile boundary for the integration
+  test.
+
+Everything else — the bar and its modules, the global menu, tray, launcher,
+panels, notifications, wallpaper, clipboard, session parsing and command
+runner — is safe Rust.  The idle manager's logind inhibitor used to keep a raw
+`i32` fd and call `libc::close`; it now stores `std::os::fd::OwnedFd` and reads
+the handle with `gio::UnixFDListExtManual::get`, so replacing or clearing the
+field closes it and `src/idle.rs` contains no `unsafe` at all.
+
 ## Wallpaper rendering notes
 
 The Rust surface is deliberately a first slice, not a feature-for-feature copy
@@ -530,8 +628,8 @@ its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
 module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
 `memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications`,
-`dnd` and `tray` modules are now ported and wired into the Rust bar, and so is
-the lock screen:
+`dnd`, `tray` and the core of the global `menu` are now ported and wired into
+the Rust bar, and so is the lock screen:
 its policy, PAM boundary, surfaces and logind triggers are Rust.  The start
 menu (`start`), its drawn mark, popover and About window are Rust too; only its
 settings-window action remains a C surface.  The idle
@@ -545,8 +643,9 @@ menu are wired; the clipboard history, its bar module, picker mode and the
 `--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
-locker's per-monitor rebuild while the protocol lock is up is still in C, as are
-the remaining module kinds (the global `menu` and the Scheme `scheme` module),
-the settings window, and session management.  The next slices should
-move those surface-owning modules onto the Rust host, then make the Rust binary
-the installed `whelk` once the C and Rust suites both cover the same behavior.
+locker's per-monitor rebuild while the protocol lock is up is still in C, as
+are the Scheme `scheme` module, the global menu's live Changed/LayoutUpdated/
+AT-SPI watches, its dictionary/Orbit/desktop-action fallbacks, the settings
+window and session management.  The next slices should finish those menu
+producers and the Scheme widget bridge, then make the Rust binary the installed
+`whelk` once the C and Rust suites both cover the same behavior.

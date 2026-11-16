@@ -311,6 +311,34 @@ What this does not change: choosing a row closes the menu, a click outside
 closes it, and a focus change to another application closes it and builds that
 application's menus.
 
+** The Rust bootstrap's menu
+:PROPERTIES:
+:CUSTOM_ID: menu-rust
+:END:
+
+=whelk-rs= has its own =menu= module.  It is the same menubar in the same
+place, built from owned Rust data rather than widgets assembled in C:
+=src/menubar.rs= reads the script protocol, =org.gtk.Menus= and DBusMenu, and
+=src/globalmenu.rs= owns the focused-window poll, the producer chain, the
+popovers and keyboard navigation.  =#:menu-command=, =#:shortcuts?=,
+=#:app-name?=, =#:accelerator-style= and =#:shortcut-tool= keep their meanings.
+
+This slice is deliberately smaller than the C producer chain described above,
+and the differences are visible:
+
+- It builds the fallback from the shared Edit/View table and the compositor's
+  window verbs.  The application dictionary, the Orbit corpus, desktop-entry
+  actions and the C bridge's application name are not read yet, so an
+  application that publishes no menu gets fewer application-specific rows.
+- The menu is read when focus changes, not watched.  =org.gtk.Menus.Changed=,
+  DBusMenu =LayoutUpdated= and AT-SPI are next; until then a menu that grows
+  while it is open is refreshed by the next focus change or reload, and an
+  application that publishes only through AT-SPI gets the fallback.
+- It still uses the exact X11 paths, the conventional paths and the registrar,
+  and it still sends =Event(id, clicked)= for a DBusMenu row and
+  =org.gtk.Actions.Activate= for a GTK action.  A malformed or cyclic tree is
+  truncated or refused instead of panicking.
+
 ** What the menus do not do yet
 :PROPERTIES:
 :CUSTOM_ID: menu-limits

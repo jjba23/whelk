@@ -413,7 +413,7 @@ impl Session {
             "wtype"
         };
 
-        find_program(wanted)
+        program_in_path(wanted)
     }
 
     /// Understands niri's focused-window JSON, sway's window tree, the
@@ -717,7 +717,11 @@ fn parse_u64_base0(text: &str) -> Option<u64> {
     }
 }
 
-fn find_program(name: &str) -> Option<String> {
+/// The first executable named `name` on `PATH`, as an owned absolute path.
+/// A menu's shortcut tool and an explicitly configured `#:shortcut-tool` both
+/// use this check, so a missing tool becomes an absent row rather than a click
+/// that does nothing.
+pub fn program_in_path(name: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
 
     std::env::split_paths(&path)

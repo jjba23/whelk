@@ -170,6 +170,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "keyboard",
         "language",
         "memory",
+        "menu",
         "notifications",
         "power-profile",
         "start",

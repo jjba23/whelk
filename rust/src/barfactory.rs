@@ -26,6 +26,7 @@ use crate::clockbar;
 use crate::cpubar;
 use crate::custombar;
 use crate::dndbar;
+use crate::globalmenu;
 use crate::inhibitbar;
 use crate::keyboardbar;
 use crate::languagebar;
@@ -80,6 +81,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("keyboard", keyboardbar::module),
     ("language", languagebar::module),
     ("memory", memorybar::module),
+    ("menu", globalmenu::module),
     ("notifications", notificationsbar::module),
     ("power-profile", powerprofilebar::module),
     ("start", startbar::module),
