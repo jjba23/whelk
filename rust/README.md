@@ -45,6 +45,21 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   refusals, and the `%.10g` printer the C answer is read through.
 - `src/launcher.rs` — the launcher's display-free geometry: scroll value that
   follows the selected row, click-outside hit test, and the card's zoom bounds.
+- `src/launcherkeys.rs` — the launcher's mode prefixes as data: the built-in
+  map, overrides that can replace or disable a prefix, and the longest-prefix
+  rule.
+- `src/filesearch.rs` — the launcher's file mode: case-insensitive ranking that
+  puts a basename match before a parent-directory match, shallower paths before
+  deeper ones, files before directories, and the `find` command that prunes the
+  caches nobody wants searched.
+- `src/barmonitors.rs` — a bar's monitor rule: the output-count condition,
+  connector lists, `all`/`default`, and the rule that a missing named screen
+  draws nothing rather than moving to another panel.
+- `src/format.rs` — the text helpers every module renders with: `{key}`
+  substitution, Pango escaping, icon markup with its font family, UTF-8-safe
+  truncation, first-line extraction and binary sizes.
+- `src/level.rs` — the change detector behind a volume or backlight HUD: the
+  first reading is not a change, and a mute toggle at the same number is.
 - `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
   retry delay with its 30-second cap and the one authoritative
   "may this attempt be submitted" guard.

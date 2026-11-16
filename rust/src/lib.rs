@@ -12,15 +12,20 @@
 //! callers over without rewriting the logic again.
 
 pub mod bar;
+pub mod barmonitors;
 pub mod calc;
 pub mod chord;
 pub mod collection;
+pub mod filesearch;
+pub mod format;
 pub mod fuzzy;
 pub mod guile;
 pub mod idle;
 pub mod idlepolicy;
 pub mod inhibitors;
 pub mod launcher;
+pub mod launcherkeys;
+pub mod level;
 pub mod lockauth;
 pub mod locker;
 pub mod lockpolicy;
