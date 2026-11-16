@@ -23,6 +23,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::slice;
 
+use crate::bar::BarSettings;
 use crate::settings::{SchemeValue, WallpaperSettings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,38 +175,53 @@ impl Guile {
         self.eval_string("(version)")
     }
 
-    pub fn load_wallpaper(&self, config_path: &Path) -> Result<WallpaperSettings, GuileError> {
+    pub fn load_bars(&self, config_path: &Path) -> Result<Vec<BarSettings>, GuileError> {
+        self.load_config(config_path)?;
+
         let path_text = config_path.to_str().ok_or_else(|| {
             GuileError::Evaluation(format!(
                 "settings path is not valid UTF-8: {}",
                 config_path.display()
             ))
         })?;
-
-        if !config_path.is_file() {
-            return Err(GuileError::Evaluation(format!(
-                "no settings file at {}",
-                config_path.display()
-            )));
-        }
-
         let path = self.scheme_string(path_text)?;
         let _path_root = Root::new(path);
 
-        let loaded = self.catch(|| {
-            let module = CString::new("whelk core").expect("static module name");
-            let name = CString::new("load-shell-config!").expect("static procedure name");
+        let alist = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("shell-bars->alists").expect("static procedure name");
             let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
 
             Ok(unsafe { sys::scm_call_1(procedure, path) })
         })?;
 
-        if !self.is_true(loaded) {
-            return Err(GuileError::Evaluation(format!(
-                "settings file was rejected: {}",
+        let _alist_root = Root::new(alist);
+        let value = self.scheme_value(alist)?;
+
+        let SchemeValue::List(values) = value else {
+            return Ok(Vec::new());
+        };
+
+        Ok(values
+            .into_iter()
+            .filter_map(|value| match value {
+                SchemeValue::Alist(entries) => Some(BarSettings::from_alist(&entries)),
+                _ => None,
+            })
+            .collect())
+    }
+
+    pub fn load_wallpaper(&self, config_path: &Path) -> Result<WallpaperSettings, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
                 config_path.display()
-            )));
-        }
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
@@ -219,6 +235,41 @@ impl Guile {
         let values = self.alist(alist)?;
 
         Ok(WallpaperSettings::from_alist(&values))
+    }
+
+    fn load_config(&self, config_path: &Path) -> Result<(), GuileError> {
+        if !config_path.is_file() {
+            return Err(GuileError::Evaluation(format!(
+                "no settings file at {}",
+                config_path.display()
+            )));
+        }
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let loaded = self.catch(|| {
+            let module = CString::new("whelk core").expect("static module name");
+            let name = CString::new("load-shell-config!").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+
+        if self.is_true(loaded) {
+            Ok(())
+        } else {
+            Err(GuileError::Evaluation(format!(
+                "settings file was rejected: {}",
+                config_path.display()
+            )))
+        }
     }
 
     fn register_rust_version(&self) -> Result<(), GuileError> {
@@ -317,6 +368,13 @@ impl Guile {
         value != self.false_value
     }
 
+    fn is_symbol(&self, value: sys::Scm) -> Result<bool, GuileError> {
+        let result =
+            self.catch(|| Ok(unsafe { sys::scm_call_1(self.symbol_predicate.value, value) }))?;
+
+        Ok(self.is_true(result))
+    }
+
     fn scheme_string(&self, text: &str) -> Result<sys::Scm, GuileError> {
         let text = CString::new(text)
             .map_err(|_| GuileError::Evaluation("text contains a NUL byte".to_owned()))?;
@@ -362,8 +420,12 @@ impl Guile {
                 return Ok(SchemeValue::Bool(self.is_true(value)));
             }
 
-            if sys::scm_is_integer(value) != 0 {
+            if sys::scm_is_exact_integer(value) != 0 {
                 return Ok(SchemeValue::Integer(sys::scm_to_int64(value)));
+            }
+
+            if sys::scm_is_number(value) != 0 {
+                return Ok(SchemeValue::Number(sys::scm_to_double(value)));
             }
 
             if sys::scm_is_string(value) != 0 {
@@ -379,6 +441,21 @@ impl Guile {
         }
 
         if unsafe { sys::scm_is_pair(value) } != 0 {
+            let first = unsafe { sys::scm_car(value) };
+            let first_is_pair = unsafe { sys::scm_is_pair(first) } != 0;
+            let first_is_symbol = if first_is_pair {
+                self.is_symbol(unsafe { sys::scm_car(first) })?
+            } else {
+                false
+            };
+
+            // A list whose first element is a keyed pair is an alist.  A list
+            // of alists (the bar's modules) does not start this way, so the
+            // two shapes stay distinguishable without a separate marker.
+            if first_is_symbol {
+                return self.alist(value).map(SchemeValue::Alist);
+            }
+
             let mut items = Vec::new();
             let mut cursor = value;
             let mut seen = 0usize;

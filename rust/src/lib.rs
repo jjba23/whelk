@@ -11,10 +11,12 @@
 //! Rust surface.  Each layer has a stable Rust API so a later commit can move
 //! callers over without rewriting the logic again.
 
+pub mod bar;
 pub mod collection;
 pub mod guile;
 pub mod rotation;
 pub mod settings;
+pub mod style;
 pub mod ui;
 pub mod wallpaper;
 pub mod wallpaper_surface;

@@ -30,11 +30,20 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   animated GIF/WebP frames through `GdkPixbufAnimation`, starts a layer-shell
   background on Wayland and a normal window on Broadway/X11, and drives rotation
   from the collection/playlist.
+- `src/bar.rs` — the typed view of `(shell-bars->alists)`, ported from
+  `bar_from_alist`: edge, layer, monitor rules, geometry, material, launcher
+  defaults and ordered module specs with typed options.
+- `src/style.rs` — the C surface skin generator: CSS-safe widget ids, colour
+  alpha handling, material backgrounds, effects, shadows, accent rules and the
+  configuration's free-form CSS.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
-  `(whelk core)`/`(whelk state)` modules and reads the wallpaper alist.
-- `src/ui.rs` — a GTK4 top bar with the wallpaper summary and a clock. It uses
+  `(whelk core)`/`(whelk state)` modules and reads both the wallpaper and bar
+  alists. Nested alists and exact/inexact numbers survive the typed conversion.
+- `src/ui.rs` — a GTK4 top bar whose edge, layer, margins, thickness, clock
+  format and generated skin come from the Scheme bar. It still renders the
+  bootstrap labels; its configured module list is not instantiated yet. It uses
   `gtk4-layer-shell` when the compositor supports it and falls back to a normal
   window on Broadway/X11 test displays.
 - `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--help`.
@@ -92,7 +101,9 @@ The tests are split by what they can prove without a session:
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
-| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real settings file, repeated loads, caught exceptions |
+| `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
+| `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |
+| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | unit tests | Scheme literal escaping, `--config` parsing |
 
@@ -135,8 +146,9 @@ of the C engine:
 
 ## Scope and next steps
 
-This is a bootstrap, not a replacement of the bar yet. The C surface, module
-system, launcher, notifications and session management remain in place. The next
-slices should move the bar model and module protocol behind the Rust process,
-then make the Rust binary the installed `whelk` once the C and Rust suites both
-cover the same behavior.
+This is still a bootstrap, not a replacement of the whole shell. The bar model
+and its generated skin are now ported, but the module factories, launcher,
+notifications, panels, locker, idle/night-light policies and session management
+remain in C. The next slices should move the module protocol and one real module
+family behind the Rust process, then make the Rust binary the installed `whelk`
+once the C and Rust suites both cover the same behavior.

@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use whelk_rs::bar::BarSettings;
 use whelk_rs::collection::collect;
 use whelk_rs::guile::Guile;
 use whelk_rs::rotation::Playlist;
@@ -59,12 +60,13 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
-    let settings = load_settings(&config_path)?;
+    let (settings, bar) = load_settings(&config_path)?;
 
     if options.check_config {
         println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
         println!("config: {}", config_path.display());
         println!("{}", settings.summary());
+        println!("{}", bar.summary());
 
         // Exercise the same walk the wallpaper engine will use.  A file the
         // walker cannot see is a configuration problem worth reporting here,
@@ -88,20 +90,27 @@ fn run() -> Result<ExitCode, String> {
         format!("{} (missing; using defaults)", config_path.display())
     };
 
-    Ok(ui::run(settings, label).into())
+    Ok(ui::run(settings, bar, label).into())
 }
 
-fn load_settings(path: &Path) -> Result<WallpaperSettings, String> {
+fn load_settings(path: &Path) -> Result<(WallpaperSettings, BarSettings), String> {
     if !path.is_file() {
-        return Ok(WallpaperSettings::default());
+        return Ok((WallpaperSettings::default(), BarSettings::default()));
     }
 
     let guile = Guile::init(&scheme_paths())
-        .map_err(|error| format!("wallpaper settings could not be loaded: {error}"))?;
-
-    guile
+        .map_err(|error| format!("shell settings could not be loaded: {error}"))?;
+    let wallpaper = guile
         .load_wallpaper(path)
-        .map_err(|error| format!("wallpaper settings could not be loaded: {error}"))
+        .map_err(|error| format!("wallpaper settings could not be loaded: {error}"))?;
+    let bar = guile
+        .load_bars(path)
+        .map_err(|error| format!("bar settings could not be loaded: {error}"))?
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+
+    Ok((wallpaper, bar))
 }
 
 fn scheme_paths() -> Vec<PathBuf> {

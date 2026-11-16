@@ -47,9 +47,23 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
               #:current "/walls/start.avif"
               #:picker-width 1200
               #:picker-height 700
-              #:picker-columns 5))
+              #:picker-columns 5)
+ #:bars (list (bar #:name 'rust-test
+                    #:height 40
+                    #:background "rgba(10, 20, 30, 0.5)"
+                    #:opacity 0.8
+                    #:left (list (custom-module #:exec "printf hi" #:interval 0))
+                    #:right (list (clock-module #:format "%H:%M")))))
 "#,
     );
+
+    // The preference file is keyed by the settings file's stem.  Keep the
+    // test's "settings.scm" from reading the developer's real overrides.
+    unsafe {
+        // The test owns the process and no other test enters Guile, so this
+        // cannot race with a concurrent environment read.
+        std::env::set_var("XDG_STATE_HOME", directory.path());
+    }
 
     let guile = Guile::init(&[scheme_dir()]).expect("initialize Guile");
     let version = guile.version().expect("read Guile version");
@@ -77,6 +91,15 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
     assert_eq!(settings.picker_width, 1200);
     assert_eq!(settings.picker_height, 700);
     assert_eq!(settings.picker_columns, 5);
+
+    let bars = guile.load_bars(&config_path).expect("load bar settings");
+    assert_eq!(bars.len(), 1);
+    assert_eq!(bars[0].name, "rust-test");
+    assert_eq!(bars[0].height, 40);
+    assert_eq!(bars[0].opacity, 0.8);
+    assert_eq!(bars[0].left[0].kind, "custom");
+    assert_eq!(bars[0].left[0].integer("interval"), Some(0));
+    assert_eq!(bars[0].clock_format().as_deref(), Some("%H:%M"));
 
     let rust_version = guile
         .eval_string("(begin (use-modules (whelk core)) (whelk-rust-version))")

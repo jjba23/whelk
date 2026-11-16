@@ -14,13 +14,15 @@ use std::path::{Path, PathBuf};
 use crate::wallpaper::{Animation, Fit};
 
 /// A Scheme value crossing the bridge.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SchemeValue {
     Bool(bool),
     Integer(i64),
+    Number(f64),
     Text(String),
     Symbol(String),
     List(Vec<SchemeValue>),
+    Alist(Vec<(String, SchemeValue)>),
     Other,
 }
 

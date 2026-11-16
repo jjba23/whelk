@@ -37,8 +37,10 @@ unsafe extern "C" {
     pub fn scm_to_utf8_stringn(text: Scm, length: *mut size_t) -> *mut c_char;
     pub fn scm_symbol_to_string(symbol: Scm) -> Scm;
     pub fn scm_to_int64(value: Scm) -> i64;
+    pub fn scm_to_double(value: Scm) -> f64;
     pub fn scm_is_bool(value: Scm) -> c_int;
-    pub fn scm_is_integer(value: Scm) -> c_int;
+    pub fn scm_is_exact_integer(value: Scm) -> c_int;
+    pub fn scm_is_number(value: Scm) -> c_int;
     pub fn scm_is_pair(value: Scm) -> c_int;
     pub fn scm_is_string(value: Scm) -> c_int;
     pub fn scm_car(pair: Scm) -> Scm;
