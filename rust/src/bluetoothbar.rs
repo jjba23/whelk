@@ -6,13 +6,16 @@
 //! The Bluetooth adapter reading, ported from `modules/bluetooth.c`.
 //!
 //! The adapter's power state and the number of connected devices come from
-//! bluetoothctl; connecting a device belongs to the network panel.
+//! bluetoothctl; a bare primary click opens the network panel's Bluetooth page,
+//! where devices are connected and disconnected.
 
+use gtk::prelude::*;
 use gtk4 as gtk;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
+use crate::networkpanel::NetworkPanel;
 
 pub const COMMAND: &str = "printf 'powered:%s\\n' \"$(bluetoothctl show 2>/dev/null | \
      sed -n 's/^[[:space:]]*Powered: //p')\"; \
@@ -54,7 +57,20 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     host.add_label();
     host.start(move |host| update(&module, host));
 
+    if host.settings().actions.primary.is_none() {
+        attach_panel(&root);
+    }
+
     Some(root)
+}
+
+fn attach_panel(root: &gtk::Box) {
+    let gesture = gtk::GestureClick::new();
+
+    gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
+    gesture.connect_pressed(|_, _, _, _| NetworkPanel::show_current("bluetooth"));
+    root.add_controller(gesture);
+    root.set_cursor_from_name(Some("pointer"));
 }
 
 fn update(module: &ModuleSpec, host: &ModuleHost) {

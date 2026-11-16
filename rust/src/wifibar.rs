@@ -5,15 +5,16 @@
 
 //! The Wi-Fi reading, ported from `modules/wifi.c`.
 //!
-//! The radio's state and the active access point are nmcli's answer; the
-//! network panel that chooses a network is a separate surface and not part of
-//! this reading.
+//! The radio's state and the active access point are nmcli's answer; a bare
+//! primary click opens the Rust network panel on its Wi-Fi page.
 
+use gtk::prelude::*;
 use gtk4 as gtk;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
+use crate::networkpanel::NetworkPanel;
 use crate::nmcli;
 
 pub const COMMAND: &str = "printf 'radio:%s\\n' \"$(nmcli radio wifi 2>/dev/null)\"; \
@@ -69,7 +70,20 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     host.add_label();
     host.start(move |host| update(&module, host));
 
+    if host.settings().actions.primary.is_none() {
+        attach_panel(&root);
+    }
+
     Some(root)
+}
+
+fn attach_panel(root: &gtk::Box) {
+    let gesture = gtk::GestureClick::new();
+
+    gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
+    gesture.connect_pressed(|_, _, _, _| NetworkPanel::show_current("wifi"));
+    root.add_controller(gesture);
+    root.set_cursor_from_name(Some("pointer"));
 }
 
 fn update(module: &ModuleSpec, host: &ModuleHost) {

@@ -50,6 +50,7 @@ pub mod lockpolicy;
 pub mod logind;
 pub mod memorybar;
 pub mod menuprobe;
+pub mod networkpanel;
 pub mod nightlight;
 pub mod nmcli;
 pub mod notificationcenter;

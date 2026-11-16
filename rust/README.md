@@ -109,6 +109,14 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   service.  The corner shows at most five toasts, replaces duplicates, opens
   the panel from a toast click, and expires transient notices on their own
   timers.  It restyles both surfaces when the configuration reloads.
+- `src/networkpanel.rs` — the C network panel as Rust layer-shell surfaces:
+  the Wi-Fi page reads nmcli's radio, active SSID and terse access-point list,
+  dedupes and sorts it, and connects through a saved profile or a passphrase.
+  Typed keys travel on stdin through `nmcli --ask`/`connection edit`, never in a
+  command line.  The Bluetooth page lists paired devices, marks the connected
+  ones from bluetoothctl, and connects or disconnects them.  Both pages have a
+  power switch, rescan, status/empty readings and the C refresh delays, and the
+  panel takes keyboard focus on demand for the passphrase entry.
 - `src/notificationsbar.rs` and `src/dndbar.rs` — the `notifications` and `dnd`
   bar modules.  They read the service's count and DND flag, repaint from a weak
   listener when either changes, and keep their configured format/icon/tooltip
@@ -149,10 +157,11 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   format/icon rules.
 - `src/wifibar.rs` — the `wifi` module: nmcli's radio state and active terse
   row, `{ssid}`/`{signal}`/`{state}`, the SSID-hiding default, the off and
-  disconnected readings, and `off`/`connected` classes.
+  disconnected readings, and `off`/`connected` classes.  A bare primary click
+  opens the network panel's Wi-Fi page.
 - `src/bluetoothbar.rs` — the `bluetooth` module: bluetoothctl's adapter power
   and connected-device count, `{count}`/`{state}`, the off reading, and
-  `off`/`connected` classes.
+  `off`/`connected` classes.  A bare primary click opens the Bluetooth page.
 - `src/backlightbar.rs` — the `backlight` module: the first panel under
   `/sys/class/backlight` (or `#:device`), rounded/clamped 0–100 percentages,
   `{percent}`, and hiding when the machine has no panel.
@@ -290,12 +299,11 @@ seconds for the module's command, defaulting to 5; a timed-out or cancelled
 command leaves the last good reading in place.  Set it to 0 only for a command
 that is known to finish.
 
-The C Wi-Fi and Bluetooth modules open the network panel on a primary click.
-The Rust shell does not have that panel yet, so its modules only run an
-explicit `#:on-click`; without one they are readouts.  The `notifications`
-module's bare left click now toggles the Rust notification centre, while an
-explicit `#:on-click` still wins; its bare right click is the C DND toggle, and
-`dnd` is a working toggle without the centre.
+The Wi-Fi and Bluetooth modules open the Rust network panel on a bare primary
+click, like their C counterparts; an explicit `#:on-click` still wins.  The
+`notifications` module's bare left click toggles the Rust notification centre,
+while an explicit `#:on-click` still wins; its bare right click is the C DND
+toggle, and `dnd` is a working toggle without the centre.
 
 ## Monitors, hotplug and reload
 
@@ -391,6 +399,7 @@ The tests are split by what they can prove without a session:
 | `tests/osd.rs` | HUD placement above a bottom bar, progress clamping and the percentage label |
 | `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND, changed/posted/closed events and listener notifications |
 | `tests/notificationcenter.rs` | App grouping and newest-first cards, empty summaries, toast queue limit/replacement, toast margins, body-markup validation and local time labels |
+| `tests/networkpanel.rs` | Wi-Fi radio/active/access-point parsing, escaped SSIDs, dedupe and signal order; Bluetooth paired/connected sections, malformed rows and both status/empty readings |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
 | unit tests | Scheme literal escaping, `--config` parsing |
@@ -443,11 +452,12 @@ module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 its policy, PAM boundary, surfaces and logind triggers are Rust.  The idle
 manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too.  The
 notification service owns the session-bus methods and the store, and the Rust
-notification centre owns the panel and toast surfaces.  The night light's
-arithmetic and schedule are Rust; its wlr-gamma-control and RandR backends are
-still C.  The volume/brightness HUD is a Rust surface.  The locker's
-per-monitor rebuild while the protocol lock is up is still in C, as are the
-remaining module kinds (clipboard, tray, menu/start and the rest), the network
-panel, launcher and session management.  The next slices should move those
-surface-owning modules onto the Rust host, then make the Rust binary the
+notification centre owns the panel and toast surfaces.  The Wi-Fi/Bluetooth
+network panel, including saved-profile keys and device connect/disconnect, is a
+Rust surface.  The night light's arithmetic and schedule are Rust; its
+wlr-gamma-control and RandR backends are still C.  The volume/brightness HUD is
+a Rust surface.  The locker's per-monitor rebuild while the protocol lock is up
+is still in C, as are the remaining module kinds (clipboard, tray, menu/start
+and the rest), launcher and session management.  The next slices should move
+those surface-owning modules onto the Rust host, then make the Rust binary the
 installed `whelk` once the C and Rust suites both cover the same behavior.
