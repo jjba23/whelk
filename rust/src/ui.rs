@@ -28,6 +28,7 @@ use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::launcherpanel::Launcher;
 use crate::locker;
+use crate::menuapps::MenuSources;
 use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
@@ -282,6 +283,7 @@ impl Shell {
                 &self.config_label,
                 &self.loaded.wallpaper,
                 &self.loaded.menu,
+                &self.loaded.menu_sources,
                 self.session,
             ));
             built += 1;
@@ -417,6 +419,7 @@ impl Drop for BarWindow {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_bar_window(
     application: &gtk::Application,
     bar_settings: &BarSettings,
@@ -424,6 +427,7 @@ fn build_bar_window(
     config_label: &str,
     wallpaper_settings: &WallpaperSettings,
     shell_menu: &[MenuEntry],
+    menu_sources: &Rc<MenuSources>,
     session: Session,
 ) -> BarWindow {
     let widget_id = style::widget_id(&bar_settings.name);
@@ -461,6 +465,7 @@ fn build_bar_window(
     let mut context = ModuleContext::from_bar(bar_settings, session);
 
     context.shell_menu = Rc::new(shell_menu.to_vec());
+    context.menu_sources = Rc::clone(menu_sources);
 
     append_modules(&start, &bar_settings.left, &context);
     append_modules(&center, &bar_settings.center, &context);

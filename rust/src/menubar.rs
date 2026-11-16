@@ -60,6 +60,24 @@ pub enum MenuAction {
         name: String,
         target: Option<String>,
     },
+    /// An `org.gtk.Actions` name whose service and object path are resolved
+    /// against the focused window when it is chosen.  The Orbit corpus names
+    /// actions this way; it has no bus connection to resolve them at read time.
+    GtkActionName(String),
+    /// An action in a desktop entry, launched by its `Exec` line.  The desktop
+    /// file and action id are kept for the log and for a future GIO launch.
+    DesktopAction {
+        desktop_file: String,
+        action: String,
+        command: String,
+    },
+    /// `org.a11y.atspi.Action.DoAction` on an accessibility-bus object.  The
+    /// object lives on the accessibility bus, not the session bus.
+    Atspi {
+        service: String,
+        path: String,
+        action: i32,
+    },
 }
 
 /// One row or submenu in a menu.
@@ -629,6 +647,31 @@ pub fn application_menu(actions: &WindowActions) -> Menu {
     }
 
     Menu::with_entries("Application", entries)
+}
+
+/// The arranging verbs for the focused window.  Kept public so the desktop
+/// fallback can put the same rows under its own Window menu.
+pub fn window_entries(actions: &WindowActions) -> Vec<MenuEntry> {
+    window_menu(actions)
+}
+
+/// The shared Edit and View menus.  A caller that has an application menu of
+/// its own does not use these; the dictionary and Orbit producers replace them.
+pub fn shared_menus(tool: &str, style: ChordStyle) -> Vec<Menu> {
+    let mut menus = Vec::new();
+    let edit = shared_edit_menu(tool, style);
+
+    if MenuEntry::has_items(&edit) {
+        menus.push(Menu::with_entries("Edit", edit));
+    }
+
+    let view = shared_view_menu(tool, style);
+
+    if MenuEntry::has_items(&view) {
+        menus.push(Menu::with_entries("View", view));
+    }
+
+    menus
 }
 
 fn window_menu(actions: &WindowActions) -> Vec<MenuEntry> {

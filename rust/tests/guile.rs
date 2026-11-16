@@ -150,6 +150,49 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
         } if marker == "shell:recent-items"
     ));
 
+    let menu_sources = guile
+        .load_menu_sources(&config_path)
+        .expect("load application menu sources");
+    let firefox = menu_sources
+        .dictionary_for("org.mozilla.firefox")
+        .expect("the dictionary knows Firefox");
+
+    assert_eq!(firefox.name, "Firefox");
+
+    let firefox_file = firefox
+        .menus
+        .iter()
+        .find(|menu| menu.label == "File")
+        .expect("Firefox has a File menu");
+
+    assert!(firefox_file.items.iter().any(|item| {
+        item.label == "New Tab"
+            && item
+                .sequence
+                .as_ref()
+                .and_then(|sequence| sequence.format(whelk_rs::chord::ChordStyle::Cua))
+                .as_deref()
+                == Some("Ctrl+T")
+    }));
+
+    let orbit = menu_sources
+        .orbit_for("org.kde.akregator")
+        .expect("the Orbit corpus knows Akregator");
+
+    assert_eq!(orbit.name, "Akregator");
+    assert!(orbit.menus.len() >= 8);
+
+    let orbit_file = orbit
+        .menus
+        .iter()
+        .find(|menu| menu.label == "File")
+        .expect("Akregator has a File menu");
+
+    assert!(orbit_file.entries.iter().any(|entry| {
+        matches!(entry, whelk_rs::menuapps::OrbitEntry::Item { label, shortcut, .. }
+            if label == "Print…" && shortcut.as_deref() == Some("<Ctrl>P"))
+    }));
+
     let bars = guile.load_bars(&config_path).expect("load bar settings");
     assert_eq!(bars.len(), 1);
     assert_eq!(bars[0].name, "rust-test");

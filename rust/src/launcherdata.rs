@@ -144,7 +144,7 @@ fn desktop_bool(value: Option<&String>) -> bool {
 
 /// Unescape the escapes a GKeyFile knows in a desktop-entry string.  A desktop
 /// file is not a shell script: only the documented escapes are interpreted.
-fn desktop_unescape(value: &str) -> String {
+pub(crate) fn desktop_unescape(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut characters = value.chars();
 

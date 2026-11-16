@@ -11,23 +11,19 @@
 //! 1. `#:menu-command`, a configuration's own `Menu<TAB>Item<TAB>…` program;
 //! 2. `org.gtk.Menus` on the application's bus name;
 //! 3. `com.canonical.dbusmenu`, including the X11 registrar's exact object path;
-//! 4. a synthesized menubar built from the compositor's window verbs and the
-//!    shortcuts every application shares.
+//! 4. the application's accessibility tree, read through AT-SPI;
+//! 5. the curated application dictionary, Orbit corpus, desktop-entry actions
+//!    and the shared shortcut/window fallback.
 //!
 //! Every row is owned Rust data ([`crate::menubar`]); the GTK layer only turns a
 //! row into a button and switches between the top-level menus.  The D-Bus calls
 //! are asynchronous and carry a generation token, so an answer for the previous
-//! application can never replace the current application's menu.
+//! application can never replace the current application's menu.  AT-SPI runs
+//! on its own worker thread and follows accessibility object events.
 //!
-//! ## What is deliberately not here yet
-//!
-//! The C module also follows `org.gtk.Menus.Changed`, DBusMenu's
-//! `LayoutUpdated`, and the AT-SPI accessibility tree while the menu is open.
-//! Those live watchers are a later slice; this module rereads when the focused
-//! application (or its published X11 object graph) changes.  The fallback menus
-//! use the shared shortcut table and the compositor verbs, not whelk's
-//! application dictionary or the Orbit corpus, so an application that publishes
-//! no menus gets fewer application-specific rows than the C shell.
+//! The live `org.gtk.Menus.Changed` and DBusMenu `LayoutUpdated` watches remain
+//! a later slice; those producers are re-read when focus or the X11 object graph
+//! changes.  AT-SPI changes are followed live.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -39,11 +35,13 @@ use gtk::glib::prelude::*;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
+use crate::atspi;
 use crate::bar::{BarSettings, ModuleSpec};
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
 use crate::chord::ChordStyle;
 use crate::command;
+use crate::menuapps::{self, MenuSources};
 use crate::menubar::{self, Menu, MenuAction, MenuEntry};
 use crate::menuprobe;
 use crate::session::{self, FocusedPaths, Session, WindowActions};
@@ -72,10 +70,12 @@ struct MenuState {
     style: ChordStyle,
     shortcut_tool: Option<String>,
     menu_command: Option<String>,
+    sources: Rc<MenuSources>,
     command_timeout: Duration,
     bus: Option<gio::DBusConnection>,
     app_id: String,
     paths: FocusedPaths,
+    pid: i32,
     app_name: String,
     actions: WindowActions,
     menus: Vec<Menu>,
@@ -83,6 +83,9 @@ struct MenuState {
     /// The `#:menu-command` child.  Keeping the handle is what makes the
     /// deadline real: dropping a `CommandHandle` cancels its child.
     script: RefCell<Option<command::CommandHandle>>,
+    /// The accessibility producer, when the protocol producers found nothing.
+    /// Dropping the watch stops its worker.
+    atspi: Option<atspi::Watch>,
     generation: u64,
     initialized: bool,
 }
@@ -151,15 +154,18 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         style: chord_style,
         shortcut_tool,
         menu_command,
+        sources: Rc::clone(&context.menu_sources),
         command_timeout,
         bus,
         app_id: String::new(),
         paths: FocusedPaths::default(),
+        pid: 0,
         app_name: String::new(),
         actions: WindowActions::default(),
         menus: Vec::new(),
         buttons: Vec::new(),
         script: RefCell::new(None),
+        atspi: None,
         generation: 0,
         initialized: false,
     }));
@@ -212,15 +218,17 @@ fn on_focused_window(state: &Rc<RefCell<MenuState>>, text: &str) {
         return;
     };
     let paths = session.parse_focused_paths(text);
+    let pid = session.focused_pid(text);
 
     if state.borrow().initialized
         && state.borrow().app_id == window.app_id
         && state.borrow().paths == paths
+        && state.borrow().pid == pid
     {
         return;
     }
 
-    rebuild(state, &window.app_id, paths);
+    rebuild(state, &window.app_id, paths, pid);
 }
 
 fn build_empty_if_needed(state: &Rc<RefCell<MenuState>>) {
@@ -231,27 +239,36 @@ fn build_empty_if_needed(state: &Rc<RefCell<MenuState>>) {
     };
 
     if needs_rebuild {
-        rebuild(state, "", FocusedPaths::default());
+        rebuild(state, "", FocusedPaths::default(), 0);
     }
 }
 
-fn rebuild(state: &Rc<RefCell<MenuState>>, app_id: &str, paths: FocusedPaths) {
+fn rebuild(state: &Rc<RefCell<MenuState>>, app_id: &str, paths: FocusedPaths, pid: i32) {
     let (generation, menu_command) = {
         let mut state = state.borrow_mut();
 
         state.invalidate();
         state.initialized = true;
         state.script.take();
+        state.atspi.take();
         state.app_id = app_id.to_owned();
         state.paths = paths;
-        state.app_name = app_name_for(app_id);
+        state.pid = pid;
         state.actions = state.session.window_actions();
-        state.menus = menubar::fallback_menus(
+
+        let desktop = menuapps::desktop_entry_for_app_id(app_id);
+        let built = menuapps::build_menus(
+            &state.sources,
+            app_id,
+            desktop.as_ref(),
             &state.actions,
             state.shortcut_tool.as_deref(),
             state.show_shortcuts,
             state.style,
         );
+
+        state.app_name = built.app_name;
+        state.menus = built.menus;
         (state.generation, state.menu_command.clone())
     };
 
@@ -490,34 +507,83 @@ fn activate_action(state: &Rc<RefCell<MenuState>>, action: &MenuAction) {
             name,
             target,
         } => {
-            let Some(bus) = state.borrow().bus.clone() else {
+            activate_gtk_action(state, service, path, name, target.as_deref());
+        }
+        MenuAction::GtkActionName(action) => {
+            let Some((service, app_path)) = focused_action_target(state) else {
                 return;
             };
-            let targets = target
-                .as_ref()
-                .map(|target| vec![target.to_variant()])
-                .unwrap_or_default();
-            let parameters = (
-                name.as_str(),
-                targets,
-                std::collections::HashMap::<String, glib::Variant>::new(),
-            )
-                .to_variant();
+            let (prefix, name) = action
+                .split_once('.')
+                .filter(|(_, name)| !name.is_empty())
+                .unwrap_or((action, action));
+            let path = if prefix == "win" {
+                format!("{app_path}/windows/0")
+            } else {
+                app_path
+            };
 
-            bus.call(
-                Some(service),
-                path,
-                "org.gtk.Actions",
-                "Activate",
-                Some(&parameters),
-                None,
-                gio::DBusCallFlags::NONE,
-                -1,
-                None::<&gio::Cancellable>,
-                |_| {},
-            );
+            activate_gtk_action(state, &service, &path, name, None);
         }
+        MenuAction::DesktopAction { command, .. } => command::spawn(command),
+        MenuAction::Atspi {
+            service,
+            path,
+            action,
+        } => atspi::activate(service, path, *action),
     }
+}
+
+fn activate_gtk_action(
+    state: &Rc<RefCell<MenuState>>,
+    service: &str,
+    path: &str,
+    name: &str,
+    target: Option<&str>,
+) {
+    let Some(bus) = state.borrow().bus.clone() else {
+        return;
+    };
+    let targets = target
+        .map(|target| vec![target.to_variant()])
+        .unwrap_or_default();
+    let parameters = (
+        name,
+        targets,
+        std::collections::HashMap::<String, glib::Variant>::new(),
+    )
+        .to_variant();
+
+    bus.call(
+        Some(service),
+        path,
+        "org.gtk.Actions",
+        "Activate",
+        Some(&parameters),
+        None,
+        gio::DBusCallFlags::NONE,
+        -1,
+        None::<&gio::Cancellable>,
+        |_| {},
+    );
+}
+
+fn focused_action_target(state: &Rc<RefCell<MenuState>>) -> Option<(String, String)> {
+    let state = state.borrow();
+    let service = state
+        .paths
+        .bus_name
+        .clone()
+        .filter(|name| gio::dbus_is_name(name))
+        .or_else(|| gio::dbus_is_name(&state.app_id).then(|| state.app_id.clone()))?;
+    let path = state
+        .paths
+        .app_path
+        .clone()
+        .filter(|path| glib::Variant::is_object_path(path))
+        .or_else(|| app_path_for(&state.app_id))?;
+
+    Some((service, path))
 }
 
 // ---------------------------------------------------------------------------
@@ -594,6 +660,12 @@ fn probe_gtk(state: &Rc<RefCell<MenuState>>, generation: u64) {
     let valid_bus = service.as_deref().is_some_and(gio::dbus_is_name);
 
     if !valid_bus && paths.window_id == 0 {
+        // A Wayland application whose id is not a bus name ("Alacritty",
+        // "Freebuff") has no protocol menus, but it may still publish one to
+        // AT-SPI.  Start the accessibility producer instead of giving up on
+        // application menus before the fallback table.
+        start_atspi(state, generation);
+
         return;
     }
 
@@ -783,36 +855,49 @@ fn probe_registrar(probe: Rc<RefCell<Probe>>) {
 }
 
 fn probe_dbus_next(probe: Rc<RefCell<Probe>>) {
-    let (state, generation, path, service, bus) = {
+    let (exhausted, service, state, generation, path, bus) = {
         let mut probe = probe.borrow_mut();
 
         if probe.dbus_index >= probe.dbus_paths.len() {
-            return;
+            (
+                true,
+                String::new(),
+                probe.state.clone(),
+                probe.generation,
+                String::new(),
+                probe.bus.clone(),
+            )
+        } else {
+            let service = probe
+                .registrar_service
+                .clone()
+                .or_else(|| (!probe.service.is_empty()).then(|| probe.service.clone()))
+                .unwrap_or_default();
+            let path = probe.dbus_paths[probe.dbus_index].clone();
+
+            probe.dbus_index += 1;
+            (
+                false,
+                service,
+                probe.state.clone(),
+                probe.generation,
+                path,
+                probe.bus.clone(),
+            )
         }
-
-        let Some(service) = probe
-            .registrar_service
-            .clone()
-            .or_else(|| (!probe.service.is_empty()).then(|| probe.service.clone()))
-        else {
-            return;
-        };
-
-        if !gio::dbus_is_name(&service) {
-            return;
-        }
-
-        let path = probe.dbus_paths[probe.dbus_index].clone();
-
-        probe.dbus_index += 1;
-        (
-            probe.state.clone(),
-            probe.generation,
-            path,
-            service,
-            probe.bus.clone(),
-        )
     };
+
+    if exhausted {
+        start_atspi_probe(&probe);
+
+        return;
+    }
+
+    if !gio::dbus_is_name(&service) {
+        start_atspi_probe(&probe);
+
+        return;
+    }
     let Some(state) = state.upgrade() else {
         return;
     };
@@ -868,6 +953,60 @@ fn probe_dbus_next(probe: Rc<RefCell<Probe>>) {
     );
 }
 
+fn start_atspi_probe(probe: &Rc<RefCell<Probe>>) {
+    let (state, generation) = {
+        let probe = probe.borrow();
+
+        (probe.state.clone(), probe.generation)
+    };
+
+    let Some(state) = state.upgrade() else {
+        return;
+    };
+
+    if !state.borrow().current_generation(generation) {
+        return;
+    }
+
+    start_atspi(&state, generation);
+}
+
+fn start_atspi(state: &Rc<RefCell<MenuState>>, generation: u64) {
+    let (app_name, pid, style) = {
+        let state = state.borrow();
+
+        if state.atspi.is_some() {
+            return;
+        }
+
+        (state.app_name.clone(), state.pid, state.style)
+    };
+    let weak = Rc::downgrade(state);
+    let Some(watch) = atspi::Watch::start(app_name, pid, style, move |menus| {
+        if menus.is_empty() {
+            return;
+        }
+
+        let Some(state) = weak.upgrade() else {
+            return;
+        };
+
+        if !state.borrow().current_generation(generation) {
+            return;
+        }
+
+        replace_menus(&state, menus);
+    }) else {
+        return;
+    };
+
+    let mut state = state.borrow_mut();
+
+    if state.current_generation(generation) && state.atspi.is_none() {
+        state.atspi = Some(watch);
+    }
+}
+
 fn state_window_id(probe: &Probe) -> u32 {
     let state = probe.state.upgrade();
 
@@ -887,33 +1026,6 @@ fn app_path_for(app_id: &str) -> Option<String> {
     };
 
     glib::Variant::is_object_path(&path).then_some(path)
-}
-
-fn app_name_for(app_id: &str) -> String {
-    if app_id.is_empty() {
-        return "whelk".to_owned();
-    }
-
-    for app in gio::AppInfo::all() {
-        let Some(id) = app.id() else {
-            continue;
-        };
-
-        if id == app_id || id.trim_end_matches(".desktop") == app_id {
-            let name = app.display_name().to_string();
-
-            if !name.is_empty() {
-                return name;
-            }
-        }
-    }
-
-    app_id
-        .rsplit('.')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(app_id)
-        .to_owned()
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ use crate::inhibitbar;
 use crate::keyboardbar;
 use crate::languagebar;
 use crate::memorybar;
+use crate::menuapps::MenuSources;
 use crate::notificationsbar;
 use crate::powerprofilebar;
 use crate::session::Session;
@@ -51,6 +52,9 @@ pub struct ModuleContext {
     pub icon_font: Option<String>,
     pub bar: BarSettings,
     pub shell_menu: Rc<Vec<MenuEntry>>,
+    /// The dictionary and Orbit corpus the global menu reads.  It is shared,
+    /// immutable data, not a second configuration authority.
+    pub menu_sources: Rc<MenuSources>,
 }
 
 impl ModuleContext {
@@ -61,6 +65,7 @@ impl ModuleContext {
             icon_font: bar.icon_font.clone(),
             bar: bar.clone(),
             shell_menu: Rc::new(Vec::new()),
+            menu_sources: Rc::new(MenuSources::default()),
         }
     }
 }

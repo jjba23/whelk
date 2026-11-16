@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use crate::bar::BarSettings;
+use crate::menuapps::{self, MenuSources};
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 use crate::startmenu::MenuEntry;
 
@@ -376,6 +377,38 @@ impl Guile {
         }
 
         Ok(None)
+    }
+
+    /// Read the curated menu dictionary and the Orbit corpus once.  Both are
+    /// Scheme-owned data; after this call the menu bar only holds owned Rust
+    /// strings, so a focus change never enters Guile.
+    pub fn load_menu_sources(&self, config_path: &Path) -> Result<MenuSources, GuileError> {
+        self.load_config(config_path)?;
+
+        let dictionary =
+            self.eval_value("(begin (use-modules (whelk menudict)) (menudict->alists))")?;
+        let orbit = self.eval_value("(begin (use-modules (whelk orbit)) orbit-apps)")?;
+
+        Ok(MenuSources {
+            dictionary: menuapps::dictionary_from_scheme(&dictionary),
+            orbit: menuapps::orbit_from_scheme(&orbit),
+        })
+    }
+
+    /// Evaluate Scheme and walk the value before it can be collected.  This is
+    /// the value-returning counterpart of `eval_string`, which displays its
+    /// result instead.
+    fn eval_value(&self, code: &str) -> Result<SchemeValue, GuileError> {
+        let value = self.catch(|| {
+            let code = CString::new(code).map_err(|_| {
+                GuileError::Evaluation("Scheme source contains a NUL byte".to_owned())
+            })?;
+
+            Ok(unsafe { sys::scm_c_eval_string(code.as_ptr()) })
+        })?;
+        let _root = Root::new(value);
+
+        self.scheme_value(value)
     }
 
     pub fn load_wallpaper(&self, config_path: &Path) -> Result<WallpaperSettings, GuileError> {

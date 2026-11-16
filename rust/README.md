@@ -245,13 +245,24 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   `Menu<TAB>Item<TAB>Chord<TAB>Command` protocol with `>` submenus, the
   `org.gtk.Menus` `a(uuaa{sv})` reader with sections, accelerators, targets and
   cycle guards, the DBusMenu menubar reader shared with the tray, and the
-  synthesized File/Edit/View/Window fallback.  Every actionable row has an
-  owned `MenuAction`; no widget holds a `GVariant` pointer.
+  shared Edit/View table.  Every actionable row has an owned `MenuAction`; no
+  widget holds a `GVariant` pointer.
+- `src/menuapps.rs` — the application-specific fallbacks: the curated Scheme
+  dictionary, the Orbit corpus, desktop-entry actions and `Exec` commands, the
+  case-insensitive id rules, and the File/Edit/View/Window merge.  It also owns
+  the data model for a dictionary item's short Emacs form and long
+  accelerator/modifier/key form.
+- `src/atspi.rs` — the accessibility producer: a bounded, display-free tree
+  walk (roles, names, children, state and key bindings) plus the live
+  accessibility-bus watch.  The tests cover an owned fake tree and a fake
+  application on a private D-Bus, including object-path child references and a
+  live `ChildrenChanged` refresh.
 - `src/globalmenu.rs` — the `menu` bar module: focused-window polling, the
-  script/GTK/DBusMenu producer chain, application-name and top-level popovers,
-  keyboard navigation, hover switching, `org.gtk.Actions.Activate`, DBusMenu
-  `Event` and command activation.  Asynchronous answers carry a generation so
-  a slow application cannot overwrite the application in front.
+  script/GTK/DBusMenu/AT-SPI producer chain, application-name and top-level
+  popovers, keyboard navigation, hover switching, `org.gtk.Actions.Activate`,
+  DBusMenu `Event`, desktop-action commands and accessibility activation.
+  Asynchronous answers carry a generation so a slow application cannot
+  overwrite the application in front.
 - `src/tray.rs` — the tray's display-free rules: watcher entries as service and
   path, `#:hide` word fragments, exact network/Bluetooth applet suppression,
   the item limit and overflow decision, and validated ARGB32-to-RGBA pixmap
@@ -397,9 +408,20 @@ File/Edit/View menus.  The first producer that answers wins:
    `com.canonical.AppMenu.Registrar` has had a chance to name the exact bus and
    object path.  Choosing a row sends `Event(id, "clicked", 0, 0)` to the
    publisher; the id is never treated as a command.
-4. The synthesized fallback: File with Close Window, shared Edit and View rows
-   when `#:shortcuts?` is on and a typing tool exists, and Window with the
-   compositor's maximize, float, move and full-screen verbs.
+4. AT-SPI, when neither protocol answered.  The accessibility worker walks the
+   focused application's menu bar and returns the application's own labels,
+   accelerators, enabled state and submenus.  It follows
+   `org.a11y.atspi.Event.Object` changes after a short debounce, so a menu that
+   grows while it is open is read again.  Choosing a row calls
+   `org.a11y.atspi.Action.DoAction` on the accessibility bus.
+5. The application fallbacks.  A matching curated dictionary entry comes
+   first: its File menu is filled with the application's desktop actions, New
+   Window from its desktop `Exec`, and Close Window before Quit; its other
+   menus follow.  When the dictionary does not know the application, the
+   shipped Orbit corpus is used, replacing the shared Edit/View rows it
+   describes while keeping Window.  The last resort is the shared Edit/View
+   table (only when `#:shortcuts?` is on and a typing tool exists), Close
+   Window, and the compositor's maximize, float, move and full-screen verbs.
 
 ```scheme
 (menu-module #:shortcuts? #t
@@ -419,25 +441,29 @@ also accept the older spellings without the question mark.
 A focus change, or a change to the X11 bus/object paths published by the same
 window, rebuilds the tree.  Every asynchronous answer carries a generation
 token; an answer for the previous application is ignored, and removing a widget
-cancels its popover and command.  The menu row hides itself when it has no
-buttons rather than leaving a blank stripe in the bar.
+cancels its popover, command and accessibility watch.  The menu row hides
+itself when it has no buttons rather than leaving a blank stripe in the bar.
+
+A dictionary or Orbit row types the chord its author documented; the helper
+receives the focused window's keys through `#:shortcut-tool`.  Desktop actions
+are launched from their action `Exec`; a `new-window` action is not repeated
+when the entry's ordinary `Exec` already provides New Window.  AT-SPI entries
+are activated through the accessibility bus instead of being typed, so they
+work even when the application publishes no accelerator.
 
 ### Current Rust boundaries
 
-The core visible behavior is ported, but this is not yet the C module in every
-detail.  These are deliberate gaps, not silent fallbacks:
+The main producers are ported, with these deliberate gaps:
 
-- `org.gtk.Menus.Changed`, DBusMenu `LayoutUpdated`/
-  `ItemsPropertiesUpdated` and AT-SPI menu walking are not ported.  A menu that
-  changes while it is open is refreshed when focus changes or the shell reloads,
-  not live.
-- The fallback uses the shared Edit/View table and compositor verbs.  Whelk's
-  application dictionary, the Orbit corpus and desktop-entry actions are still
-  C-only, so an application that publishes no menu receives fewer
-  application-specific rows here than it does in the C shell.
-- The application name is resolved through `gio::AppInfo::all()` and falls back
-  to the last segment of the app id when no desktop entry matches.  It does not
-  read the C bridge's dictionary name.
+- `org.gtk.Menus.Changed` and DBusMenu `LayoutUpdated`/
+  `ItemsPropertiesUpdated` are not followed live.  A focus change or shell
+  reload re-reads those producers; AT-SPI changes are followed live.
+- User-installed Orbit JSON maps (`WHELK_SHORTCUT_MAPS` and the
+  `global-menu/shortcuts/apps` directories) are still C-only.  The shipped
+  Scheme corpus is ported and is the fallback used here.
+- The application name comes from the dictionary, then the desktop entry's
+  `Name`, then the id's last component.  A dictionary name still wins over the
+  desktop entry, matching the C order.
 
 ## Monitors, hotplug and reload
 
@@ -544,7 +570,8 @@ The tests are split by what they can prove without a session:
 | `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
 | `tests/launcherdata.rs` | Desktop-entry shadowing, hidden/non-application entries, PATH executable scanning, niri windows, SSH patterns, file rows, menu protocols, ranking and the session menu |
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
-| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, repeated loads, caught exceptions |
+| `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, the real menu dictionary and Orbit corpus, repeated loads, caught exceptions |
+| `tests/atspi_dbus.rs` | A fake AT-SPI application on a private D-Bus: object-path children, role/state/name/key-binding reads, process-id matching, unknown applications and live `ChildrenChanged` delivery |
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
@@ -557,7 +584,7 @@ The tests are split by what they can prove without a session:
 | `tests/networkpanel.rs` | Wi-Fi radio/active/access-point parsing, escaped SSIDs, dedupe and signal order; Bluetooth paired/connected sections, malformed rows and both status/empty readings |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
 | `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
-| unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, fallback menus and global-menu app paths |
+| unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, the dictionary/Orbit/desktop fallbacks and their id rules, the AT-SPI tree walk over a fake accessibility tree, fallback menus and global-menu app paths |
 
 The Guile test deliberately stays in one test function: Guile is process-global
 and thread-affine, and Cargo's test harness runs tests on multiple threads.
@@ -628,8 +655,9 @@ its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
 module host/factory, the configured overflow row, and the `workspaces`, `clock`,
 `window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
 `memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications`,
-`dnd`, `tray` and the core of the global `menu` are now ported and wired into
-the Rust bar, and so is the lock screen:
+`dnd`, `tray` and the global `menu` (protocols, dictionary, Orbit, desktop
+actions and AT-SPI) are now ported and wired into the Rust bar, and so is the
+lock screen:
 its policy, PAM boundary, surfaces and logind triggers are Rust.  The start
 menu (`start`), its drawn mark, popover and About window are Rust too; only its
 settings-window action remains a C surface.  The idle
@@ -644,8 +672,8 @@ menu are wired; the clipboard history, its bar module, picker mode and the
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
 locker's per-monitor rebuild while the protocol lock is up is still in C, as
-are the Scheme `scheme` module, the global menu's live Changed/LayoutUpdated/
-AT-SPI watches, its dictionary/Orbit/desktop-action fallbacks, the settings
-window and session management.  The next slices should finish those menu
-producers and the Scheme widget bridge, then make the Rust binary the installed
-`whelk` once the C and Rust suites both cover the same behavior.
+are the Scheme `scheme` module, the global menu's live GTK/DBusMenu watchers
+and user-installed Orbit JSON maps, the settings window and session management.
+The next slices should finish those protocol watches and the Scheme widget
+bridge, then make the Rust binary the installed `whelk` once the C and Rust
+suites both cover the same behavior.

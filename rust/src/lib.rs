@@ -13,6 +13,7 @@
 
 pub mod about;
 pub mod applets;
+pub mod atspi;
 pub mod audiobar;
 pub mod backlightbar;
 pub mod bar;
@@ -55,6 +56,7 @@ pub mod locker;
 pub mod lockpolicy;
 pub mod logind;
 pub mod memorybar;
+pub mod menuapps;
 pub mod menubar;
 pub mod menuprobe;
 pub mod networkpanel;

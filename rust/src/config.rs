@@ -11,9 +11,11 @@
 //! created while the shell was running.
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::bar::BarSettings;
 use crate::guile::Guile;
+use crate::menuapps::MenuSources;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
 use crate::startmenu::MenuEntry;
 
@@ -24,6 +26,9 @@ pub struct LoadedConfig {
     pub idle_lock_after: i32,
     pub clipboard: ClipboardSettings,
     pub menu: Vec<MenuEntry>,
+    /// The curated dictionary and Orbit corpus, loaded once per configuration.
+    /// Every bar shares the same immutable copy.
+    pub menu_sources: Rc<MenuSources>,
 }
 
 impl LoadedConfig {
@@ -35,6 +40,7 @@ impl LoadedConfig {
             idle_lock_after: 0,
             clipboard: ClipboardSettings::default(),
             menu: MenuEntry::default_menu(),
+            menu_sources: Rc::new(MenuSources::default()),
         }
     }
 }
@@ -99,6 +105,16 @@ impl ConfigLoader {
 
             MenuEntry::default_menu()
         });
+        // The dictionary and Orbit corpus are fallbacks, not a reason to
+        // refuse an otherwise valid configuration.  A missing or broken
+        // module leaves the shared Edit/View and window verbs in place.
+        let menu_sources = guile.load_menu_sources(&self.path).unwrap_or_else(|error| {
+            eprintln!(
+                "whelk-rs: application menu sources could not be loaded: {error}; using shared menus only"
+            );
+
+            MenuSources::default()
+        });
 
         Ok(LoadedConfig {
             wallpaper,
@@ -106,6 +122,7 @@ impl ConfigLoader {
             idle_lock_after,
             clipboard,
             menu,
+            menu_sources: Rc::new(menu_sources),
         })
     }
 
