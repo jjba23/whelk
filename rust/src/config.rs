@@ -14,13 +14,14 @@ use std::path::{Path, PathBuf};
 
 use crate::bar::BarSettings;
 use crate::guile::Guile;
-use crate::settings::WallpaperSettings;
+use crate::settings::{ClipboardSettings, WallpaperSettings};
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
     pub wallpaper: WallpaperSettings,
     pub bars: Vec<BarSettings>,
     pub idle_lock_after: i32,
+    pub clipboard: ClipboardSettings,
 }
 
 impl LoadedConfig {
@@ -30,6 +31,7 @@ impl LoadedConfig {
             wallpaper: WallpaperSettings::default(),
             bars: vec![BarSettings::default()],
             idle_lock_after: 0,
+            clipboard: ClipboardSettings::default(),
         }
     }
 }
@@ -83,11 +85,15 @@ impl ConfigLoader {
         let idle_lock_after = guile
             .load_idle_lock_after(&self.path)
             .map_err(|error| format!("idle settings could not be loaded: {error}"))?;
+        let clipboard = guile
+            .load_clipboard(&self.path)
+            .map_err(|error| format!("clipboard settings could not be loaded: {error}"))?;
 
         Ok(LoadedConfig {
             wallpaper,
             bars,
             idle_lock_after,
+            clipboard,
         })
     }
 

@@ -22,6 +22,8 @@ pub mod batterybar;
 pub mod bluetoothbar;
 pub mod calc;
 pub mod chord;
+pub mod clipboard;
+pub mod clipboardbar;
 pub mod clockbar;
 pub mod collection;
 pub mod command;

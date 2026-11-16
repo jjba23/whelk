@@ -26,6 +26,7 @@ fn a_missing_file_loads_the_builtin_bar_and_a_clear_label() {
     assert_eq!(loaded.bars.len(), 1);
     assert_eq!(loaded.bars[0].name, "main");
     assert_eq!(loaded.idle_lock_after, 0);
+    assert_eq!(loaded.clipboard, Default::default());
     assert_eq!(
         loader.label(),
         format!("{} (missing; using defaults)", path.display())

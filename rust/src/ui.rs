@@ -23,6 +23,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer, ModuleSpec};
 use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
+use crate::clipboard::Clipboard;
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::idle::Idle;
 use crate::launcherpanel::Launcher;
@@ -147,6 +148,7 @@ struct Shell {
     reload_source: Option<gtk::glib::SourceId>,
     monitor_rebuild_pending: bool,
     notifications: Option<NotificationService>,
+    clipboard: Option<Clipboard>,
     center: Option<NotificationCenter>,
     network: Option<NetworkPanel>,
     launcher: Option<Launcher>,
@@ -177,10 +179,17 @@ impl Shell {
         notifications.start();
         NotificationService::install(Some(notifications.clone()));
 
+        // The clipboard starts before the first bar so its module and the
+        // launcher see the same live history from the beginning.
+        let clipboard = Clipboard::new(loaded.clipboard.clone());
+
+        clipboard.start();
+        Clipboard::install(Some(clipboard.clone()));
+
         let osd_style = loaded.bars.first().cloned().unwrap_or_default();
         let center = NotificationCenter::new(application, &notifications, &osd_style);
         let network = NetworkPanel::new(application, &osd_style);
-        let launcher = Launcher::new(application, &osd_style);
+        let launcher = Launcher::new(application, &osd_style, Some(clipboard.clone()));
         let osd = Osd::new(application, &osd_style);
 
         NotificationCenter::install(Some(center.clone()));
@@ -200,6 +209,7 @@ impl Shell {
             reload_source: None,
             monitor_rebuild_pending: false,
             notifications: Some(notifications),
+            clipboard: Some(clipboard),
             center: Some(center),
             network: Some(network),
             launcher: Some(launcher),
@@ -284,6 +294,10 @@ impl Shell {
                     network.set_style(&style);
                 }
 
+                if let Some(clipboard) = self.clipboard.as_ref() {
+                    clipboard.apply_settings(&self.loaded.clipboard);
+                }
+
                 if let Some(launcher) = self.launcher.as_ref() {
                     launcher.set_style(&style);
                 }
@@ -307,6 +321,7 @@ impl Shell {
         Launcher::install(None);
         NetworkPanel::install(None);
         NotificationCenter::install(None);
+        Clipboard::install(None);
         NotificationService::install(None);
 
         self.launcher.take();
@@ -334,6 +349,12 @@ impl Shell {
         // then destroys the window.  Destroying the window shuts down every
         // ModuleHost beneath it, cancelling timers and commands.
         self.bars.clear();
+
+        // The history flushes synchronously when the service's last reference
+        // goes away, after the bar and launcher listeners are gone.
+        if let Some(clipboard) = self.clipboard.take() {
+            clipboard.shutdown();
+        }
     }
 }
 

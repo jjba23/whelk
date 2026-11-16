@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-//! The wallpaper policy as the Scheme bridge presents it.
+//! The wallpaper and clipboard policies as the Scheme bridge presents them.
 //!
-//! The C shell and this crate read the same alist from
-//! `(shell-wallpaper->alist)`.  Keeping the conversion here, rather than in the
-//! FFI layer, makes every default and clamp testable without starting Guile.
+//! The C shell and this crate read the same alists from
+//! `(shell-wallpaper->alist)` and `(shell-clipboard->alist)`.  Keeping the
+//! conversion here, rather than in the FFI layer, makes every default and
+//! clamp testable without starting Guile.
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,111 @@ pub enum SchemeValue {
     List(Vec<SchemeValue>),
     Alist(Vec<(String, SchemeValue)>),
     Other,
+}
+
+/// The clipboard policy from `(clipboard-settings)`.  Zero limits mean "keep
+/// the module's own default", matching the C bridge's `0`-is-unset rule.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClipboardSettings {
+    pub configured: bool,
+    pub persist: Option<String>,
+    pub persist_only_pinned: bool,
+    pub clear_on_lock: bool,
+    pub max_entries: u32,
+    pub max_entry_bytes: u32,
+    pub max_total_bytes: u32,
+    pub ttl_seconds: u32,
+}
+
+impl ClipboardSettings {
+    pub fn from_alist(alist: &[(String, SchemeValue)]) -> Self {
+        let mut settings = Self::default();
+
+        if alist.is_empty() {
+            return settings;
+        }
+
+        settings.configured = bool_at(alist, "configured?").unwrap_or(true);
+        settings.persist = match value_at(alist, "persist") {
+            Some(SchemeValue::Bool(false)) => None,
+            Some(SchemeValue::Bool(true)) => Some("auto".to_owned()),
+            Some(SchemeValue::Text(value) | SchemeValue::Symbol(value))
+                if !value.is_empty() && value != "#f" =>
+            {
+                Some(value.clone())
+            }
+            _ => None,
+        };
+        settings.persist_only_pinned = bool_at(alist, "persist-only-pinned?").unwrap_or(false);
+        settings.clear_on_lock = bool_at(alist, "clear-on-lock?").unwrap_or(false);
+        settings.max_entries = positive_integer(integer_at(alist, "max-entries"));
+        settings.max_entry_bytes = positive_integer(integer_at(alist, "max-entry-bytes"));
+        settings.max_total_bytes = positive_integer(integer_at(alist, "max-total-bytes"));
+        settings.ttl_seconds = positive_integer(integer_at(alist, "ttl-seconds"));
+
+        settings
+    }
+
+    /// Resolve the configured persistence spelling the way the C shell does:
+    /// a value containing `/` is a path, `auto`/`1`/`#t` (or any other word)
+    /// selects the state-directory file, and no value means memory only.
+    ///
+    /// `state_home` and `home` are arguments so the rule is testable without
+    /// moving the process's environment.
+    pub fn persistence_path(
+        &self,
+        state_home: Option<&str>,
+        home: Option<&str>,
+    ) -> Option<PathBuf> {
+        let persist = self
+            .persist
+            .as_deref()
+            .filter(|value| !value.is_empty() && *value != "#f" && *value != "0");
+        let persist = persist?;
+
+        if persist.contains('/') {
+            return Some(PathBuf::from(persist));
+        }
+
+        let base = state_home
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| home.map(|value| Path::new(value).join(".local/state")))
+            .unwrap_or_else(|| PathBuf::from(".local/state"));
+
+        Some(base.join("whelk").join("clipboard.variant"))
+    }
+
+    pub fn summary(&self) -> String {
+        let policy = if self.persist.is_some() {
+            "persisted"
+        } else {
+            "memory only"
+        };
+        let limits = format!(
+            "{} entries · {} MiB total · ttl {}s",
+            if self.max_entries == 0 {
+                50
+            } else {
+                self.max_entries
+            },
+            if self.max_total_bytes == 0 {
+                128
+            } else {
+                self.max_total_bytes / (1024 * 1024)
+            },
+            self.ttl_seconds
+        );
+
+        format!("clipboard: {policy} · {limits}")
+    }
+}
+
+fn positive_integer(value: Option<i64>) -> u32 {
+    value
+        .filter(|value| *value > 0)
+        .map(|value| value.min(i64::from(u32::MAX)) as u32)
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

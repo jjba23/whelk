@@ -14,8 +14,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/wallpaper.rs` — the C wallpaper engine's policy, ported without GTK:
   extension classification, animation names and arithmetic, fit geometry, easing
   and the sequential/shuffled rotation.
-- `src/settings.rs` — the typed view of `(shell-wallpaper->alist)`: defaults,
-  numeric clamps, `~/` expansion, and the XDG config path.
+- `src/settings.rs` — the typed view of `(shell-wallpaper->alist)` and
+  `(shell-clipboard->alist)`: defaults, numeric clamps, `~/` expansion, the XDG
+  config path, and the clipboard persistence-path rule.
 - `src/collection.rs` — the C collection walk: recursive roots, hidden-entry
   skipping, file/directory symlink rules, video filtering, dedupe, sorting and
   the explicit current file.
@@ -56,8 +57,19 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   full-output layer surface with a debounced search entry, ranked list,
   keyboard selection/completion, outside-click dismissal, icon/text zoom and a
   resize grip.  Application, window, run, calc, file, web, menu, SSH, quit and
-  session modes are wired; clipboard history and live application menu items
-  remain C-backed for now.
+  session modes are wired; clipboard history is Rust and live application
+  menu items remain C-backed for now.
+- `src/clipboard.rs` — the clipboard history and service, ported from
+  `src/clipboard.c`: stable SHA-1 content ids, duplicate promotion, pinning,
+  separate count/byte budgets, TTL expiry, single-removal undo, v1/v2 GVariant
+  persistence, secret-manager refusal, MIME preference, the binary-safe
+  `WHELK1` helper framing, the `wl-paste --watch` listener, GTK selection
+  providers with `wl-copy` fallback, and the logind lock watch.  The service is
+  installed once by `ui` and shared by the launcher and bar; its data half has
+  no GTK dependency and is tested without a display.
+- `src/clipboardbar.rs` — the `clipboard` bar module: the live count, status
+  classes, picker click, and the right-click menu for pause/resume, clear
+  unpinned, clear-all confirmation, restart and opening the picker.
 - `src/filesearch.rs` — the launcher's file mode: case-insensitive ranking that
   puts a basename match before a parent-directory match, shallower paths before
   deeper ones, files before directories, and the `find` command that prunes the
@@ -261,11 +273,13 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   opens behind its chevron.  It watches the settings directory with a 250 ms debounce,
   watches the GDK monitor model for hotplug, and rebuilds by destroying the old
   windows (and their module hosts/CSS/clock timers) before building the new
-  plan.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
+  plan.  It also owns the one clipboard service: starts it before the first
+  bar, applies a reloaded policy, and flushes it during teardown.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
   on Broadway/X11 test displays.
 - `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--launcher`,
-  `--launcher-mode MODE`, `--help`, plus the lock screen's `--lock` and
-  `--check-lock`.
+  `--launcher-mode MODE`, `--clipboard`, `--help`, plus the lock screen's
+  `--lock` and `--check-lock`.  `--clipboard-store` is the internal helper
+  entry point `wl-paste --watch` runs against this same binary.
 
 ## Bar modules
 
@@ -301,8 +315,10 @@ bluetoothctl.  `backlight`, `cpu` and `memory` read sysfs/proc directly;
 `power-profile`, `language` and `inhibit` run powerprofilesctl, niri and
 systemd-inhibit; `keyboard` reads the Caps Lock LED.  `notifications` and `dnd`
 read the in-process notification service, which shares the idle manager's DND
-flag.  The configured `#:overflow` list is built too and expands from the
-chevron at the end of the right group.
+flag.  `clipboard` reads the shell's own history and opens the same picker as
+`whelk-rs --clipboard`; its right-click menu pauses, restarts, clears or opens
+that picker.  The configured `#:overflow` list is built too and expands from
+the chevron at the end of the right group.
 
 Every module built by the host accepts the shared mouse options
 (`#:on-click`, `#:on-click-right`, `#:on-click-middle`, `#:on-scroll-up`,
@@ -362,6 +378,7 @@ cargo run -- --check-lock
 cargo run -- --lock
 cargo run -- --launcher
 cargo run -- --launcher --launcher-mode=window
+cargo run -- --clipboard
 ```
 
 `--check-lock` is the lock screen's diagnosis without a password: the library
@@ -378,6 +395,14 @@ Guile rejects exits non-zero with the reason.
 `--launcher` opens the Rust launcher after the shell has started.  A second
 mode can be selected with `--launcher-mode`; the built-in mode prefixes still
 work while typing (`>`, `=`, `/`, `?`, `@`, `%`, `!`, `;`, `:`).
+
+`--clipboard` is the shortcut for `--launcher --launcher-mode=clipboard`.  The
+clipboard service follows the same policy as the C shell: `(clipboard-settings)`
+sets the limits, TTL, persistence file and lock clearing; an unconfigured file
+still honours `WHELK_CLIPBOARD_PERSIST` (`1`/`auto` for the state-directory
+file, or an absolute path).  Pinned copies are never evicted by the count,
+byte or TTL rules.  In the picker, `Ctrl+P` pins or unpins the selected copy,
+`Ctrl+Delete` removes it, and `Ctrl+Z` restores the last removal.
 
 With a valid configuration, `whelk-rs` presents the Rust bar and a Rust
 background surface. On Wayland it uses `zwlr_layer_shell_v1`'s background
@@ -410,6 +435,7 @@ The tests are split by what they can prove without a session:
 | `tests/chord.rs` | Both notations, named keys and refusals, GTK accelerators, formatting and display, sequences, and the typed commands |
 | `tests/launcher.rs` | Search scoring and ordering, calculator evaluation/refusals/formatting, and the card's scroll, hit-test and bounds |
 | `tests/launcherdata.rs` | Desktop-entry shadowing, hidden/non-application entries, PATH executable scanning, niri windows, SSH patterns, file rows, menu protocols, ranking and the session menu |
+| `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, repeated loads, caught exceptions |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
@@ -475,11 +501,12 @@ notification centre owns the panel and toast surfaces.  The Wi-Fi/Bluetooth
 network panel, including saved-profile keys and device connect/disconnect, is a
 Rust surface.  The launcher overlay is Rust: applications, windows, commands,
 calculator, files, web, generic menus, SSH hosts, force-quit and the session
-menu are wired, while clipboard history and live menu items remain C-backed.
+menu are wired; the clipboard history, its bar module, picker mode and the
+`--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
 RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
 locker's per-monitor rebuild while the protocol lock is up is still in C, as are
-the remaining module kinds (clipboard, tray, menu/start and the rest) and
-session management.  The next slices should move those surface-owning modules
+the remaining module kinds (tray, menu/start and the rest) and session
+management.  The next slices should move those surface-owning modules
 onto the Rust host, then make the Rust binary the installed `whelk` once the C
 and Rust suites both cover the same behavior.

@@ -35,6 +35,7 @@ pub enum ItemKind {
     Script,
     Ssh,
     Quit,
+    Clipboard,
     Session,
 }
 
@@ -48,6 +49,10 @@ pub struct LauncherItem {
     pub search: String,
     /// A desktop path, window id, command, path, query or script label.
     pub action: String,
+    /// The stable clipboard entry id for a clipboard row.
+    pub clipboard_id: Option<String>,
+    /// A pre-scaled PNG thumbnail for an image clipboard row.
+    pub preview: Option<Vec<u8>>,
     pub disabled: bool,
 }
 
@@ -62,6 +67,8 @@ impl LauncherItem {
             detail: detail.into(),
             icon: None,
             action: String::new(),
+            clipboard_id: None,
+            preview: None,
             disabled: false,
         }
     }
@@ -74,6 +81,18 @@ impl LauncherItem {
 
     pub fn with_icon(mut self, icon: Option<&str>) -> Self {
         self.icon = icon.filter(|icon| !icon.is_empty()).map(str::to_owned);
+
+        self
+    }
+
+    pub fn with_clipboard_id(mut self, id: impl Into<String>) -> Self {
+        self.clipboard_id = Some(id.into());
+
+        self
+    }
+
+    pub fn with_preview(mut self, preview: Option<Vec<u8>>) -> Self {
+        self.preview = preview;
 
         self
     }

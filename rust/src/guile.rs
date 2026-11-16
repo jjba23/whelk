@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use crate::bar::BarSettings;
-use crate::settings::{SchemeValue, WallpaperSettings};
+use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuileError {
@@ -235,6 +235,32 @@ impl Guile {
         let values = self.alist(alist)?;
 
         Ok(WallpaperSettings::from_alist(&values))
+    }
+
+    pub fn load_clipboard(&self, config_path: &Path) -> Result<ClipboardSettings, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let alist = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("shell-clipboard->alist").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+
+        let _alist_root = Root::new(alist);
+        let values = self.alist(alist)?;
+
+        Ok(ClipboardSettings::from_alist(&values))
     }
 
     /// Reads `(idle-settings #:lock-after ...)`, clamped the way the C bridge

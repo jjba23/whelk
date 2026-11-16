@@ -8,8 +8,8 @@
 //! One full-output layer surface, one search entry and one ranked list.  The
 //! databases and their parsing live in [`crate::launcherdata`]; this half owns
 //! the widgets, the debounce, the selection and the action a chosen row runs.
-//! The clipboard and live menu-item modes still belong to the C shell and say
-//! so instead of pretending to be empty.
+//! The live menu-item mode still belongs to the C shell and says so instead
+//! of pretending to be empty.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,6 +20,9 @@ use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::bar::BarSettings;
+use crate::clipboard::{
+    Clipboard, ClipboardSubscription, Status, entry_detail, entry_label, thumbnail_png,
+};
 use crate::command;
 use crate::filesearch;
 use crate::launcher as launcher_geometry;
@@ -73,6 +76,8 @@ struct State {
     keys: LauncherKeys,
     mode: String,
     menu_command: Option<String>,
+    clipboard: Option<Clipboard>,
+    clipboard_subscription: Option<ClipboardSubscription>,
 
     width: i32,
     height: i32,
@@ -91,7 +96,11 @@ struct State {
 }
 
 impl Launcher {
-    pub fn new(application: &gtk::Application, style: &BarSettings) -> Self {
+    pub fn new(
+        application: &gtk::Application,
+        style: &BarSettings,
+        clipboard: Option<Clipboard>,
+    ) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
             .title("whelk-rs launcher")
@@ -256,6 +265,8 @@ impl Launcher {
             keys: LauncherKeys::new(),
             mode: "app".to_owned(),
             menu_command: None,
+            clipboard,
+            clipboard_subscription: None,
             width,
             height,
             icon_size,
@@ -277,7 +288,27 @@ impl Launcher {
         launcher.apply_geometry();
         launcher.update_zoom_labels();
         launcher.connect_controls();
+        launcher.connect_clipboard();
         launcher
+    }
+
+    fn connect_clipboard(&self) {
+        let Some(clipboard) = self.inner.borrow().clipboard.clone() else {
+            return;
+        };
+        let weak = Rc::downgrade(&self.inner);
+        let subscription = clipboard.on_changed(move || {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            let launcher = Launcher { inner };
+
+            if launcher.showing("clipboard") {
+                launcher.refresh_results();
+            }
+        });
+
+        self.inner.borrow_mut().clipboard_subscription = Some(subscription);
     }
 
     pub fn current() -> Option<Self> {
@@ -569,8 +600,46 @@ impl Launcher {
     fn key_pressed(
         &self,
         keyval: gtk::gdk::Key,
-        _modifiers: gtk::gdk::ModifierType,
+        modifiers: gtk::gdk::ModifierType,
     ) -> gtk::glib::Propagation {
+        if modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK)
+            && self.inner.borrow().mode == "clipboard"
+        {
+            let clipboard = self.inner.borrow().clipboard.clone();
+            let id = self.selected_item().and_then(|item| item.clipboard_id);
+
+            match keyval {
+                gtk::gdk::Key::p | gtk::gdk::Key::P => {
+                    if let (Some(clipboard), Some(id)) = (clipboard, id.as_deref()) {
+                        clipboard.toggle_pin(id);
+                        self.refresh_results();
+
+                        return gtk::glib::Propagation::Stop;
+                    }
+
+                    return gtk::glib::Propagation::Proceed;
+                }
+                gtk::gdk::Key::Delete => {
+                    if let (Some(clipboard), Some(id)) = (clipboard, id.as_deref()) {
+                        clipboard.remove(id);
+                        self.refresh_results();
+
+                        return gtk::glib::Propagation::Stop;
+                    }
+
+                    return gtk::glib::Propagation::Proceed;
+                }
+                gtk::gdk::Key::z | gtk::gdk::Key::Z => {
+                    if clipboard.is_some_and(|clipboard| clipboard.undo_remove()) {
+                        self.refresh_results();
+                    }
+
+                    return gtk::glib::Propagation::Stop;
+                }
+                _ => {}
+            }
+        }
+
         match keyval {
             gtk::gdk::Key::Escape => {
                 self.hide();
@@ -671,10 +740,7 @@ impl Launcher {
 
                 ranked(&state.menu, &query)
             }
-            "clipboard" => vec![unsupported(
-                "Clipboard history",
-                "The clipboard mode is still served by the C shell",
-            )],
+            "clipboard" => self.clipboard_results(&query),
             "menuitem" => vec![unsupported(
                 "Application menu items",
                 "The live menu-item mode is still served by the C shell",
@@ -695,6 +761,10 @@ impl Launcher {
     }
 
     fn paint_results(&self, mode: &str, results: Vec<LauncherItem>) {
+        let selected_clipboard_id = (mode == "clipboard")
+            .then(|| self.selected_item())
+            .flatten()
+            .and_then(|item| item.clipboard_id);
         let (list, scroller, empty, mode_label, icon_size) = {
             let state = self.inner.borrow();
 
@@ -725,13 +795,67 @@ impl Launcher {
         scroller.set_visible(count > 0);
         empty.set_visible(count == 0);
 
+        let selected_index = selected_clipboard_id
+            .as_deref()
+            .and_then(|id| {
+                results
+                    .iter()
+                    .position(|item| item.clipboard_id.as_deref() == Some(id))
+            })
+            .unwrap_or(0);
+
         self.inner.borrow_mut().results = results;
 
-        if let Some(first) = list.row_at_index(0) {
-            list.select_row(Some(&first));
+        if let Some(row) = list.row_at_index(selected_index as i32) {
+            list.select_row(Some(&row));
         }
 
         self.scroll_selected_into_view();
+    }
+
+    fn clipboard_results(&self, query: &str) -> Vec<LauncherItem> {
+        let Some(clipboard) = self.inner.borrow().clipboard.clone() else {
+            return vec![unsupported(
+                "Clipboard unavailable",
+                "This shell did not install a clipboard service",
+            )];
+        };
+        let entries = clipboard.entries();
+        let mut items = Vec::new();
+
+        // Pinned copies are the first section; each section keeps the
+        // history's newest-first order.
+        for pinned in [true, false] {
+            for entry in entries.iter().filter(|entry| entry.pinned == pinned) {
+                let icon = if entry.pinned {
+                    Some("view-pin-symbolic")
+                } else {
+                    None
+                };
+                let item =
+                    LauncherItem::new(ItemKind::Clipboard, entry_label(entry), entry_detail(entry))
+                        .with_clipboard_id(entry.id.clone())
+                        .with_preview(thumbnail_png(entry))
+                        .with_icon(icon);
+
+                items.push(item);
+            }
+        }
+
+        if items.is_empty() {
+            let status = clipboard.status();
+            let (title, detail) = match status {
+                Status::Ready => (
+                    "No clipboard history",
+                    "Copy something and it will appear here",
+                ),
+                Status::Paused | Status::Unavailable => (status.text(), status.hint()),
+            };
+
+            return vec![unsupported(title, detail)];
+        }
+
+        ranked(&items, query)
     }
 
     fn ensure_apps(&self) {
@@ -976,7 +1100,19 @@ impl Launcher {
                 command::spawn(&format!("xdg-open {}", quote(&url)));
             }
             ItemKind::Calc => {
-                command::spawn(&format!("printf '%s' {} | wl-copy", quote(&item.action)));
+                if let Some(clipboard) = self.inner.borrow().clipboard.as_ref() {
+                    clipboard.copy(&item.action);
+                } else {
+                    command::spawn(&format!("printf '%s' {} | wl-copy", quote(&item.action)));
+                }
+            }
+            ItemKind::Clipboard => {
+                if let (Some(clipboard), Some(id)) = (
+                    self.inner.borrow().clipboard.as_ref(),
+                    item.clipboard_id.as_deref(),
+                ) {
+                    clipboard.restore(id);
+                }
             }
             ItemKind::Session => {
                 let action = if item.name == "Lock Screen" {
@@ -1284,10 +1420,20 @@ fn build_row(item: &LauncherItem, icon_size: i32) -> gtk::ListBoxRow {
     let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let name = gtk::Label::new(Some(&item.name));
     let detail = gtk::Label::new(Some(&item.detail));
-    let icon = match item.icon.as_deref() {
-        Some(icon) if icon.starts_with('/') => gtk::Image::from_file(icon),
-        Some(icon) => gtk::Image::from_icon_name(icon),
-        None => gtk::Image::from_icon_name("application-x-executable-symbolic"),
+    let icon = if let Some(preview) = item.preview.as_deref() {
+        let bytes = gtk::glib::Bytes::from(preview);
+        let stream = gtk::gio::MemoryInputStream::from_bytes(&bytes);
+
+        match gdk_pixbuf::Pixbuf::from_stream(&stream, None::<&gtk::gio::Cancellable>) {
+            Ok(pixbuf) => gtk::Image::from_paintable(Some(&gtk::gdk::Texture::for_pixbuf(&pixbuf))),
+            Err(_) => gtk::Image::from_icon_name("image-x-generic-symbolic"),
+        }
+    } else {
+        match item.icon.as_deref() {
+            Some(icon) if icon.starts_with('/') => gtk::Image::from_file(icon),
+            Some(icon) => gtk::Image::from_icon_name(icon),
+            None => gtk::Image::from_icon_name("application-x-executable-symbolic"),
+        }
     };
 
     content.add_css_class("whelk-launcher-row");

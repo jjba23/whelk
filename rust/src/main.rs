@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use whelk_rs::clipboard;
 use whelk_rs::collection::collect;
 use whelk_rs::config::ConfigLoader;
 use whelk_rs::lockauth::{self, Stack};
@@ -27,6 +28,7 @@ Options:
   --launcher        Open the launcher after the shell starts
   --launcher-mode M Open the launcher in M (app, window, run, calc, file, web,
                     menu, ssh, quit, clipboard, menuitem or session)
+  --clipboard       Open the clipboard picker after the shell starts
   --version, -V     Print the Rust bootstrap version and exit
   -h, --help        Print this help and exit
 
@@ -42,11 +44,16 @@ struct Options {
     check_lock: bool,
     launcher: bool,
     launcher_mode: Option<String>,
+    clipboard: bool,
     version: bool,
     help: bool,
 }
 
 fn main() -> ExitCode {
+    if std::env::args().any(|argument| argument == "--clipboard-store") {
+        return ExitCode::from(clipboard::helper().clamp(0, 255) as u8);
+    }
+
     match run() {
         Ok(code) => code,
         Err(message) => {
@@ -93,6 +100,7 @@ fn run() -> Result<ExitCode, String> {
         }
 
         println!("idle lock-after: {} s", loaded.idle_lock_after);
+        println!("{}", loaded.clipboard.summary());
 
         // Exercise the same walk the wallpaper engine will use.  A file the
         // walker cannot see is a configuration problem worth reporting here,
@@ -115,9 +123,13 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let label = loader.label();
-    let launcher = options
+    let mut launcher = options
         .launcher
         .then(|| options.launcher_mode.unwrap_or_default());
+
+    if options.clipboard {
+        launcher = Some("clipboard".to_owned());
+    }
 
     Ok(ui::run(loader, loaded, label, launcher).into())
 }
@@ -163,6 +175,7 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
             "--lock" => options.lock = true,
             "--check-lock" => options.check_lock = true,
             "--launcher" | "-l" => options.launcher = true,
+            "--clipboard" => options.clipboard = true,
             "--launcher-mode" => {
                 let value = arguments
                     .next()
@@ -290,6 +303,14 @@ mod tests {
         assert!(short.launcher);
         assert_eq!(split.launcher_mode.as_deref(), Some("window"));
         assert_eq!(joined.launcher_mode.as_deref(), Some("window"));
+    }
+
+    #[test]
+    fn clipboard_is_its_own_launcher_mode() {
+        let options = parse_args(["--clipboard".to_owned()].into_iter()).expect("clipboard");
+
+        assert!(options.clipboard);
+        assert!(!options.launcher);
     }
 
     #[test]

@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use whelk_rs::settings::{SchemeValue, WallpaperSettings, config_path_from, expand_home};
+use whelk_rs::settings::{
+    ClipboardSettings, SchemeValue, WallpaperSettings, config_path_from, expand_home,
+};
 use whelk_rs::wallpaper::{Animation, Fit};
 
 fn alist(entries: &[(&str, SchemeValue)]) -> Vec<(String, SchemeValue)> {
@@ -220,5 +222,49 @@ fn config_path_follows_xdg_and_home_rules() {
     assert_eq!(
         config_path_from(Some("relative/config"), Some("/home/joe")),
         std::path::PathBuf::from("/home/joe/.config/whelk/settings.scm")
+    );
+}
+
+#[test]
+fn clipboard_settings_keep_the_scheme_policy_and_resolve_auto_paths() {
+    let values = alist(&[
+        ("configured?", SchemeValue::Bool(true)),
+        ("persist", SchemeValue::Text("auto".into())),
+        ("persist-only-pinned?", SchemeValue::Bool(true)),
+        ("clear-on-lock?", SchemeValue::Bool(true)),
+        ("max-entries", SchemeValue::Integer(25)),
+        ("max-entry-bytes", SchemeValue::Integer(1024)),
+        ("max-total-bytes", SchemeValue::Integer(4096)),
+        ("ttl-seconds", SchemeValue::Integer(120)),
+    ]);
+    let settings = ClipboardSettings::from_alist(&values);
+
+    assert!(settings.configured);
+    assert_eq!(settings.persist.as_deref(), Some("auto"));
+    assert!(settings.persist_only_pinned);
+    assert!(settings.clear_on_lock);
+    assert_eq!(settings.max_entries, 25);
+    assert_eq!(settings.max_entry_bytes, 1024);
+    assert_eq!(settings.max_total_bytes, 4096);
+    assert_eq!(settings.ttl_seconds, 120);
+    assert_eq!(
+        settings.persistence_path(None, Some("/home/joe")),
+        Some(std::path::PathBuf::from(
+            "/home/joe/.local/state/whelk/clipboard.variant"
+        ))
+    );
+
+    let explicit = ClipboardSettings {
+        persist: Some("/tmp/history.variant".into()),
+        ..ClipboardSettings::default()
+    };
+
+    assert_eq!(
+        explicit.persistence_path(Some("/ignored"), Some("/home/joe")),
+        Some(std::path::PathBuf::from("/tmp/history.variant"))
+    );
+    assert_eq!(
+        ClipboardSettings::default().persistence_path(None, None),
+        None
     );
 }
