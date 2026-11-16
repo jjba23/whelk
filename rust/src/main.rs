@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use whelk_rs::collection::collect;
 use whelk_rs::guile::Guile;
+use whelk_rs::rotation::Playlist;
 use whelk_rs::settings::{WallpaperSettings, default_config_path};
 use whelk_rs::ui;
 
@@ -63,6 +65,20 @@ fn run() -> Result<ExitCode, String> {
         println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
         println!("config: {}", config_path.display());
         println!("{}", settings.summary());
+
+        // Exercise the same walk the wallpaper engine will use.  A file the
+        // walker cannot see is a configuration problem worth reporting here,
+        // before the shell starts.
+        let wallpapers = collect(&settings.paths, settings.current.as_deref(), settings.video);
+        println!("wallpapers: {}", wallpapers.len());
+
+        let mut playlist = Playlist::new(wallpapers, settings.video, 0x9e37_79b9_7f4a_7c15);
+        playlist.resolve(settings.current.as_deref());
+
+        if let Some(current) = playlist.selected() {
+            println!("current: {}", current.display());
+        }
+
         return Ok(ExitCode::SUCCESS);
     }
 

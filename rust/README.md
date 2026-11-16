@@ -16,6 +16,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   and the sequential/shuffled rotation.
 - `src/settings.rs` — the typed view of `(shell-wallpaper->alist)`: defaults,
   numeric clamps, `~/` expansion, and the XDG config path.
+- `src/collection.rs` — the C collection walk: recursive roots, hidden-entry
+  skipping, file/directory symlink rules, video filtering, dedupe, sorting and
+  the explicit current file.
+- `src/rotation.rs` — the C engine's current-selection resolution and rotation
+  clock as a pure `Playlist`: resolved fallbacks, sequential wrapping,
+  reproducible shuffled rotation and the "can rotate" guard.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
@@ -49,9 +55,10 @@ cargo run -- --check-config
 cargo run -- --config /path/to/settings.scm
 ```
 
-`--check-config` loads the real settings file through Guile and prints the
-wallpaper policy. A missing file is the C shell's "no configuration" case and
-uses defaults; a file that Guile rejects exits non-zero with the reason.
+`--check-config` loads the real settings file through Guile, prints the
+wallpaper policy, walks the collection and resolves the current file. A missing
+file is the C shell's "no configuration" case and uses defaults; a file that
+Guile rejects exits non-zero with the reason.
 
 When running from `rust/`, the binary finds `../scheme` automatically. From
 another directory set `WHELK_SCHEME_DIR` to the checkout's `scheme/` directory or
@@ -67,6 +74,8 @@ The tests are split by what they can prove without a session:
 | --- | --- |
 | `tests/policy.rs` | C parity for extensions, transitions, fit math, easing and rotation |
 | `tests/settings.rs` | Defaults, clamps, unknown values, HOME expansion, XDG path rules |
+| `tests/collection.rs` | Recursive walk, hidden entries, symlinks, depth limit, video filter, dedupe and sorting |
+| `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real settings file, repeated loads, caught exceptions |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | unit tests | Scheme literal escaping, `--config` parsing |

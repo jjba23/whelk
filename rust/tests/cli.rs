@@ -68,6 +68,40 @@ fn check_config_reads_scheme_and_reports_the_policy() {
 }
 
 #[test]
+fn check_config_walks_the_configured_wallpaper_collection() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let walls = directory.path().join("walls");
+    std::fs::create_dir_all(&walls).expect("create walls");
+    std::fs::write(walls.join("one.png"), b"test").expect("write image");
+    std::fs::write(walls.join("movie.mp4"), b"test").expect("write video");
+
+    let config = directory.path().join("settings.scm");
+    std::fs::write(
+        &config,
+        format!(
+            r#"
+(configure-shell!
+ #:wallpaper (wallpaper-settings #:enabled? #t
+                                #:paths (list "{}")
+                                #:video? #f))
+"#,
+            walls.display()
+        ),
+    )
+    .expect("write settings");
+
+    let output = run(&["--check-config"], Some(&config));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("wallpapers: 1"), "stdout: {stdout}");
+    assert!(
+        stdout.contains(&format!("current: {}", walls.join("one.png").display())),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn a_missing_config_still_reports_the_default_policy() {
     let directory = tempfile::tempdir().expect("tempdir");
     let config = directory.path().join("missing.scm");
