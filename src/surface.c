@@ -34,6 +34,7 @@ struct _WhelkSurface {
   int margin_bottom;
   int margin_left;
   gboolean exclusive;
+  int exclusive_zone; /* -2 means derive it from exclusive and thickness */
   gboolean explicit_anchors;
   gboolean anchor_top;
   gboolean anchor_right;
@@ -91,6 +92,7 @@ static void whelk_surface_init(WhelkSurface *self) {
   self->keyboard_mode = GTK_LAYER_SHELL_KEYBOARD_MODE_NONE;
   self->thickness = 32;
   self->exclusive = TRUE;
+  self->exclusive_zone = -2;
   self->namespace_name = g_strdup("whelk");
 }
 
@@ -187,6 +189,13 @@ void whelk_surface_set_exclusive(WhelkSurface *surface, gboolean exclusive) {
     return;
 
   surface->exclusive = exclusive;
+}
+
+void whelk_surface_set_exclusive_zone(WhelkSurface *surface, int zone) {
+  if (!surface)
+    return;
+
+  surface->exclusive_zone = zone;
 }
 
 void whelk_surface_set_monitor(WhelkSurface *surface, GdkMonitor *monitor) {
@@ -569,8 +578,10 @@ void whelk_surface_present(WhelkSurface *surface) {
 
   /* The exclusive zone is the bar's thickness: the compositor reserves exactly
    * that much, which is what stops a maximised window from hiding under it. */
-  gtk_layer_set_exclusive_zone(window,
-                               surface->exclusive ? surface->thickness : 0);
+  gtk_layer_set_exclusive_zone(
+      window, surface->exclusive_zone >= -1
+                  ? surface->exclusive_zone
+                  : (surface->exclusive ? surface->thickness : 0));
 
   LOG_C_DEBUG("Surface", "presenting '%s' on the %s edge", surface->name,
               whelk_edge_name(surface->edge));

@@ -9,7 +9,18 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
-Nothing yet.
+** Added
+
+- *Wallpaper engine.*  A =(wallpaper-settings ...)= policy makes whelk draw the
+  desktop background itself, one =wlr-layer-shell= background surface per
+  monitor, with PNG, JPEG, WebP, AVIF, GIF, animated GIF/WebP and GStreamer-
+  backed video, a rotation interval, optional shuffle and Ken Burns motion, and
+  crossfade, fade, four slide directions or zoom transitions.  The engine is
+  opt-in and reserves no exclusive zone.
+- *Wallpaper picker.*  =whelk --wallpaper-picker= opens a keyboard-grabbing
+  overlay with a centred thumbnail card; *F11*/*Ctrl+F* expands it to the
+  monitor, arrow keys and *Enter* apply a tile, *Esc* or an outside click
+  dismisses.  The choice is saved as a GUI preference and survives a restart.
 
 *[Released]
 

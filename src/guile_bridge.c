@@ -1122,6 +1122,51 @@ WhelkNightLightConfig *whelk_bridge_night_light(const char *path) {
   return config;
 }
 
+WhelkWallpaperConfig *whelk_bridge_wallpaper(const char *path) {
+  WhelkWallpaperConfig *config = whelk_wallpaper_config_new();
+  SCM alist = call_with_path("whelk state", "shell-wallpaper->alist", path);
+
+  if (!scm_is_pair(alist))
+    return config;
+
+  config->configured = alist_bool(alist, "configured?", TRUE);
+  config->enabled = alist_bool(alist, "enabled?", FALSE);
+  config->interval_seconds = alist_int(alist, "interval", 900);
+  config->shuffle = alist_bool(alist, "shuffle?", TRUE);
+  config->animation_ms = alist_int(alist, "animation-duration", 1200);
+  config->ken_burns = alist_bool(alist, "ken-burns?", FALSE);
+  config->video = alist_bool(alist, "video?", TRUE);
+  config->mute_video = alist_bool(alist, "mute-video?", TRUE);
+  config->picker_width = alist_int(alist, "picker-width", 960);
+  config->picker_height = alist_int(alist, "picker-height", 640);
+  config->picker_columns = alist_int(alist, "picker-columns", 4);
+  config->current = alist_optional_text(alist, "current");
+
+  SCM paths = alist_get(alist, "paths");
+
+  for (SCM cursor = paths; scm_is_pair(cursor); cursor = SCM_CDR(cursor)) {
+    char *path_text = scm_text(SCM_CAR(cursor));
+
+    if (path_text && *path_text != '\0')
+      g_ptr_array_add(config->paths, path_text);
+    else
+      g_free(path_text);
+  }
+
+  g_autofree char *animation = alist_text(alist, "animation", "crossfade");
+  g_autofree char *fit = alist_text(alist, "fit", "cover");
+
+  if (!whelk_wallpaper_animation_parse(animation, &config->animation))
+    config->animation = WHELK_WALLPAPER_ANIMATION_CROSSFADE;
+
+  if (!whelk_wallpaper_fit_parse(fit, &config->fit))
+    config->fit = WHELK_WALLPAPER_FIT_COVER;
+
+  whelk_wallpaper_config_normalize(config);
+
+  return config;
+}
+
 int whelk_bridge_toggle_night_light(const char *path) {
   if (!path || *path == '\0')
     return -1;

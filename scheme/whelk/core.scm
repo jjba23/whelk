@@ -133,6 +133,7 @@
                clipboard-settings
                idle-settings
                night-light
+               wallpaper-settings
                themes
                theme-palette
                theme-exists?
@@ -144,6 +145,7 @@
                get-shell-clipboard
                get-shell-idle
                get-shell-night-light
+               get-shell-wallpaper
                get-shell-enable-repl?
                get-shell-repl-socket-path
                get-config-path

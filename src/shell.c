@@ -23,6 +23,8 @@
 #include "style.h"
 #include "util/barmonitors.h"
 #include "util/menusearch.h"
+#include "wallpaper.h"
+#include "wallpaper_picker.h"
 #include "widgets.h"
 
 /* =========================================================================
@@ -56,6 +58,8 @@ struct _WhelkShell {
   WhelkNetworkPanel *network;
   WhelkOsd *osd;
   WhelkWidgets *widgets;
+  WhelkWallpaperEngine *wallpaper;
+  WhelkWallpaperPicker *wallpaper_picker;
 };
 
 static void build_bars(WhelkShell *shell);
@@ -155,6 +159,24 @@ static void build_bars(WhelkShell *shell) {
   whelk_widgets_build(shell->widgets, widget_configs, shell->style);
   whelk_config_free_widgets(widget_configs);
 
+  /* The wallpaper is part of the shell's look, not of a bar, so a save hands
+   * it the new policy too.  The picker's saved choice is a GUI override and
+   * wins over the file's #:current on every load. */
+  if (shell->wallpaper) {
+    g_autoptr(WhelkWallpaperConfig) wallpaper =
+        whelk_bridge_wallpaper(shell->config_path);
+
+    whelk_wallpaper_engine_set_config_path(shell->wallpaper,
+                                           shell->config_path);
+    whelk_wallpaper_engine_set_config(shell->wallpaper, wallpaper);
+
+    g_autofree char *selected = whelk_bridge_preference_text(
+        shell->config_path, "wallpaper-selected");
+
+    if (selected && *selected)
+      whelk_wallpaper_engine_apply(shell->wallpaper, selected, FALSE);
+  }
+
   /* The panels are long-lived surfaces: a reload must re-skin them instead of
    * asking the user to restart the shell. */
   if (shell->idle)
@@ -181,6 +203,8 @@ static void build_bars(WhelkShell *shell) {
     whelk_network_panel_set_style(shell->network, shell->style);
   if (shell->osd)
     whelk_osd_set_style(shell->osd, shell->style);
+  if (shell->wallpaper_picker)
+    whelk_wallpaper_picker_set_style(shell->wallpaper_picker, shell->style);
 
   LOG_C_INFO("Shell", "%u bar(s) up", shell->bars->len);
   shell->building = FALSE;
@@ -388,6 +412,12 @@ void whelk_shell_start(WhelkShell *shell) {
 
   shell->widgets = whelk_widgets_new(shell->app, shell->config_path);
 
+  /* The engine exists before the bars so the first build already has its
+   * policy; the picker needs a palette, so it is created after build_bars. */
+  shell->wallpaper = whelk_wallpaper_engine_new(shell->app);
+  whelk_wallpaper_engine_set_config_path(shell->wallpaper,
+                                         shell->config_path);
+
   build_bars(shell);
 
   if (!shell->style) {
@@ -403,6 +433,8 @@ void whelk_shell_start(WhelkShell *shell) {
   whelk_launcher_set_config_path(shell->launcher, shell->config_path);
   shell->network = whelk_network_panel_new(shell->app, shell->style);
   shell->osd = whelk_osd_new(shell->app, shell->style);
+  shell->wallpaper_picker = whelk_wallpaper_picker_new(
+      shell->app, shell->wallpaper, shell->config_path, shell->style);
 
   /* Watch the configuration directory, and make it first: a shell that only
    * watches a directory the user already made cannot see the file that creates
@@ -493,6 +525,8 @@ void whelk_shell_free(WhelkShell *shell) {
   g_clear_object(&shell->launcher);
   g_clear_object(&shell->network);
   g_clear_object(&shell->osd);
+  g_clear_object(&shell->wallpaper_picker);
+  g_clear_pointer(&shell->wallpaper, whelk_wallpaper_engine_free);
   g_clear_pointer(&shell->widgets, whelk_widgets_free);
   g_clear_object(&shell->notifications);
   g_clear_object(&shell->idle);
@@ -541,6 +575,8 @@ void whelk_shell_lock(WhelkShell *shell) {
     whelk_network_panel_hide(shell->network);
   if (shell->osd)
     whelk_osd_hide(shell->osd);
+  if (shell->wallpaper_picker)
+    whelk_wallpaper_picker_hide(shell->wallpaper_picker);
 
   if (shell->clipboard &&
       whelk_clipboard_clear_on_lock(shell->clipboard))
@@ -568,6 +604,18 @@ void whelk_shell_show_session_menu(WhelkShell *shell) {
 void whelk_shell_toggle_notifications(WhelkShell *shell) {
   if (shell && shell->center && !whelk_locker_is_locked())
     whelk_notification_center_toggle(shell->center);
+}
+
+void whelk_shell_show_wallpaper_picker(WhelkShell *shell) {
+  if (shell && shell->wallpaper_picker && !whelk_locker_is_locked())
+    whelk_wallpaper_picker_show(shell->wallpaper_picker);
+}
+
+gboolean whelk_shell_set_wallpaper(WhelkShell *shell, const char *path) {
+  if (!shell || !shell->wallpaper || !path)
+    return FALSE;
+
+  return whelk_wallpaper_engine_apply(shell->wallpaper, path, TRUE);
 }
 
 void whelk_shell_toggle_dnd(WhelkShell *shell) {

@@ -80,9 +80,11 @@
             clipboard-settings
             idle-settings
             night-light
+            wallpaper-settings
             get-shell-clipboard
             get-shell-idle
             get-shell-night-light
+            get-shell-wallpaper
             configure-shell!
             normalize-edge
             normalize-layer
@@ -97,7 +99,8 @@
             get-shell-repl-socket-path
             bar->alist
             shell-bars->alists
-            shell-clipboard->alist))
+            shell-clipboard->alist
+            shell-wallpaper->alist))
 
 ;; =============================================================================
 ;; The bar record
@@ -257,7 +260,7 @@ rather than written back into this file."
 ;; The shell menu is the popover behind the mark at the far left of the bar:
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
-  (make-shell-config bars widgets shell-menu clipboard idle night-light
+  (make-shell-config bars widgets shell-menu clipboard idle night-light wallpaper
                      enable-repl? repl-socket-path)
   shell-config?
   (bars shell-config-bars)
@@ -266,11 +269,12 @@ rather than written back into this file."
   (clipboard shell-config-clipboard)
   (idle shell-config-idle)
   (night-light shell-config-night-light)
+  (wallpaper shell-config-wallpaper)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() '() #f '() '() '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() '() #f '() '() '() '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -622,6 +626,141 @@ do-not-disturb is a separate flag and never pauses this timer."
                               (inexact->exact (round lock-after))
                               0))))
 
+;; =============================================================================
+;; The wallpaper
+;; =============================================================================
+;; A wallpaper is a file, a collection of files, a clock and a transition.  The
+;; constructor below normalises all four into plain values: paths are expanded
+;; (`~/Pictures' is how a person writes a home directory), the animation and
+;; the fit are symbols from a known list, and the numbers are clamped to what
+;; the C side can use.  The engine treats an unknown symbol as the documented
+;; default rather than as a broken shell.
+
+(define (expand-home-path value)
+  "Return VALUE as a path with a leading ~/ expanded, or #f."
+  (let ((path (cond ((string? value) value)
+                    ((symbol? value) (symbol->string value))
+                    (else #f)))
+        (home (getenv "HOME")))
+    (cond ((not path) #f)
+          ((and home
+                (not (string-null? home))
+                (>= (string-length path) 2)
+                (string=? (substring path 0 2) "~/"))
+           (string-append home (substring path 1)))
+          (else path))))
+
+(define (wallpaper-path-list paths)
+  "Return PATHS as a list of non-empty, home-expanded file names."
+  (define (keep value)
+    (let ((path (expand-home-path value)))
+      (and path (not (string-null? path)) path)))
+  (cond ((list? paths) (filter-map keep paths))
+        ((or (string? paths) (symbol? paths))
+         (let ((path (keep paths)))
+           (if path (list path) '())))
+        (else '())))
+
+(define (wallpaper-integer value fallback minimum maximum)
+  (max minimum (min maximum (as-int value fallback))))
+
+(define %wallpaper-animations
+  '(none crossfade fade slide-left slide-right slide-up slide-down zoom))
+
+(define (wallpaper-animation value)
+  "Return VALUE as a known transition symbol, warning when it is not one."
+  (let ((animation (cond ((symbol? value) value)
+                         ((string? value) (string->symbol value))
+                         (else #f))))
+    (if (memq animation %wallpaper-animations)
+        animation
+        (begin
+          (log-warn "State"
+                    "Unknown wallpaper animation ~s: using 'crossfade" value)
+          'crossfade))))
+
+(define (wallpaper-fit value)
+  "Return VALUE as 'cover, 'contain or 'fill, warning otherwise."
+  (let ((fit (cond ((symbol? value) value)
+                   ((string? value) (string->symbol value))
+                   (else #f))))
+    (if (memq fit '(cover contain fill))
+        fit
+        (begin
+          (log-warn "State" "Unknown wallpaper fit ~s: using 'cover" value)
+          'cover))))
+
+(define* (wallpaper-settings #:key
+                             (enabled? #f)
+                             (paths '())
+                             (interval 900)
+                             (shuffle? #t)
+                             (animation 'crossfade)
+                             (animation-duration 1200)
+                             (fit 'cover)
+                             (ken-burns? #f)
+                             (video? #t)
+                             (mute-video? #t)
+                             (current #f)
+                             (picker-width 960)
+                             (picker-height 640)
+                             (picker-columns 4))
+  "Describe whelk's own wallpaper engine.
+
+ENABLED? lets whelk draw the background.  PATHS is a directory, a file, or a
+list of them: directories are walked (skipping hidden entries and directory
+symlinks), and a file is taken as it is.  Supported images are PNG, JPEG,
+WebP, AVIF, GIF, BMP, TIFF and SVG; supported videos are MP4, WebM, Matroska,
+MOV, M4V, Ogg, AVI and MPEG, played through GTK's media backend.  A `~/' at
+the start of a path is your home directory.
+
+INTERVAL is the seconds between automatic changes; 900 is fifteen minutes, and
+0 stops the clock.  SHUFFLE? visits the collection in a random order instead of
+its sorted one.  A manual choice through the picker resets the countdown.
+
+ANIMATION is the transition between two pictures: 'none, 'crossfade (the
+default), 'fade (through black), 'slide-left, 'slide-right, 'slide-up,
+'slide-down or 'zoom.  ANIMATION-DURATION is its length in milliseconds.
+FIT is 'cover (fill the output and crop), 'contain (show the whole picture
+with black bars) or 'fill (stretch).  KEN-BURNS? slowly zooms a still picture.
+VIDEO? includes movies in the collection; MUTE-VIDEO? keeps their sound off.
+
+CURRENT is the file to start on.  The picker saves the picture you choose as a
+GUI preference, and that choice wins over CURRENT on the next start.
+
+PICKER-WIDTH, PICKER-HEIGHT and PICKER-COLUMNS are the picker card's compact
+size and its thumbnails per row; the card expands to the output from there.
+
+#+begin_src scheme
+  (wallpaper-settings #:enabled? #t
+                      #:paths (list \"~/Pictures/Wallpapers\"
+                                    \"~/Videos/walls\")
+                      #:interval 900
+                      #:animation 'crossfade
+                      #:animation-duration 1600
+                      #:fit 'cover)
+#+end_src"
+  (let ((start (and current (expand-home-path current))))
+    (list (cons 'configured? #t)
+          (cons 'enabled? (if enabled? #t #f))
+          (cons 'paths (wallpaper-path-list paths))
+          (cons 'interval (wallpaper-integer interval 900 0 604800))
+          (cons 'shuffle? (if shuffle? #t #f))
+          (cons 'animation (wallpaper-animation animation))
+          (cons 'animation-duration
+                (wallpaper-integer animation-duration 1200 0 10000))
+          (cons 'fit (wallpaper-fit fit))
+          (cons 'ken-burns? (if ken-burns? #t #f))
+          (cons 'video? (if video? #t #f))
+          (cons 'mute-video? (if mute-video? #t #f))
+          (cons 'current (and start (not (string-null? start)) start))
+          (cons 'picker-width
+                (wallpaper-integer picker-width 960 320 3840))
+          (cons 'picker-height
+                (wallpaper-integer picker-height 640 240 2160))
+          (cons 'picker-columns
+                (wallpaper-integer picker-columns 4 1 12)))))
+
 (define* (configure-shell! #:key
                            (config-path 'default)
                            (bars '())
@@ -630,6 +769,7 @@ do-not-disturb is a separate flag and never pauses this timer."
                            (clipboard '())
                            (idle '())
                            (night-light '())
+                           (wallpaper '())
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
@@ -658,6 +798,11 @@ the clock window that applies it and the fade at each end.  The empty default
 is an off filter with 3400 K from 19:00 to 07:00, so a configuration that never
 mentions it leaves the screen alone.
 
+WALLPAPER is `(wallpaper-settings)' or an alist with the same keys: whelk's
+own background, its collection, rotation and transition.  The empty default
+leaves the desktop's wallpaper alone; the picker still opens and lists what the
+configuration names.
+
 ENABLE-REPL? starts a Guile REPL on a Unix socket when the shell is up, which is
 how a configuration is changed without restarting the compositor:
 `echo '(load-shell-config! ...)' | socat - UNIX-CONNECT:/tmp/whelk-repl.sock'."
@@ -668,6 +813,7 @@ how a configuration is changed without restarting the compositor:
                                  (if (list? clipboard) clipboard '())
                                  (if (list? idle) idle '())
                                  (if (list? night-light) night-light '())
+                                 (if (list? wallpaper) wallpaper '())
                                  enable-repl?
                                  repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
@@ -761,6 +907,10 @@ than layering on top of the previous run."
   "Return the night-light alist, or '() when it was not configured."
   (shell-config-night-light (apply get-shell-config args)))
 
+(define (get-shell-wallpaper . args)
+  "Return the wallpaper-settings alist, or '() when it was not configured."
+  (shell-config-wallpaper (apply get-shell-config args)))
+
 (define (shell-menu->units . args)
   "Return the shell menu as the C runtime reads it: a list of menu units.
 
@@ -839,6 +989,11 @@ because a settings file may want to read the menu it configured."
 (define (shell-clipboard->alist . args)
   "Return the clipboard settings as an alist, or '() when unconfigured."
   (let ((settings (apply get-shell-clipboard args)))
+    (if (list? settings) settings '())))
+
+(define (shell-wallpaper->alist . args)
+  "Return the wallpaper settings as an alist, or '() when unconfigured."
+  (let ((settings (apply get-shell-wallpaper args)))
     (if (list? settings) settings '())))
 
 (define (widget->alist w)

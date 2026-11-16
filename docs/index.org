@@ -24,6 +24,7 @@ flowchart TD
     CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
     CONFIG --> THEMES["themes.org<br/>twelve palettes"]
     CONFIG --> MENUS["menus.org<br/>the shell menu and the global menu"]
+    CONFIG --> WALL["wallpaper.org<br/>engine, picker, rotation"]
 
     USAGE --> LOCK["lock-screen.org"]
     USAGE --> IDLE["idle.org<br/>idle timer, inhibitors, do not disturb"]
@@ -51,6 +52,7 @@ flowchart TD
 | [[file:widgets.org][Desktop widgets]]            | the Golden Gate cards, placement, dragging, the state file               |
 | [[file:themes.org][Themes]]                     | the twelve palettes and what each one sets                               |
 | [[file:menus.org][Menus]]                      | the shell menu and the focused application's File/Edit/View               |
+| [[file:wallpaper.org][Wallpaper]]                  | the background engine, its Scheme policy, transitions and the picker      |
 | [[file:launcher.org][The launcher]]               | the eleven modes, the card's geometry, the menu script protocol           |
 | [[file:clipboard.org][The clipboard]]              | what is stored, how it comes back, memory, persistence, locking           |
 | [[file:notifications.org][Notifications]]              | the daemon, toasts, the grouped centre, actions, do-not-disturb           |

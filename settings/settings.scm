@@ -260,6 +260,27 @@ Click: brighter · Right-click: full · Scroll: adjust"
                            #:end "07:00"
                            #:transition 30)
 
+ ;; Wallpaper engine.  A path can be a directory (walked recursively) or a
+ ;; single file, and ~ is expanded.  The engine draws behind the bar on every
+ ;; monitor, rotates through the collection every 900 seconds and crossfades
+ ;; between pictures.  PNG, JPEG, WebP, AVIF, GIF and SVG stills are decoded
+ ;; by gdk-pixbuf; GIF/WebP animations and videos loop too.  Set #:enabled? to
+ ;; #f to leave the compositor's own background alone.  The picker is
+ ;; `whelk --wallpaper-picker`; bind that command in the compositor.
+ #:wallpaper (wallpaper-settings #:enabled? #t
+                                #:paths (list "~/Pictures/Wallpapers")
+                                #:interval 900
+                                #:shuffle? #t
+                                #:animation 'crossfade
+                                #:animation-duration 1200
+                                #:fit 'cover
+                                #:ken-burns? #f
+                                #:video? #t
+                                #:mute-video? #t
+                                #:picker-width 960
+                                #:picker-height 640
+                                #:picker-columns 4)
+
  ;; The standard macOS Golden Gate desktop-widget collection: Clock,
  ;; Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
  ;; Each is a (desktop-widget ...) record, so remove, move or resize them here.

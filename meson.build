@@ -254,6 +254,9 @@ whelk_sources = files(
   'src/shell.c',
   'src/style.c',
   'src/surface.c',
+  'src/wallpaper.c',
+  'src/wallpaper_picker.c',
+  'src/wallpaper_view.c',
   'src/modules/audio.c',
   'src/modules/backlight.c',
   'src/modules/battery.c',
@@ -309,7 +312,9 @@ whelk_sources = files(
   'src/util/nmcli.c',
   'src/util/riverstatus.c',
   'src/util/sysfs.c',
+  'src/util/texture.c',
   'src/util/trayicon.c',
+  'src/util/wallpaper.c',
   'src/util/widgetstate.c',
   'src/util/workspaces.c',
   'src/widgets.c',
@@ -435,6 +440,21 @@ unit_tests = [
     'sources': [
       'src/guile_bridge.c',
       'src/config.c',
+      'src/util/nightlight.c',
+      'src/util/format.c',
+      'src/util/menudict.c',
+      'src/util/chord.c',
+      'src/util/menutree.c',
+    ],
+  },
+  # The wallpaper policy crosses the same bridge: the collection, clock,
+  # transition, fit, movie switches and picker geometry become plain fields.
+  {
+    'id': 'wallpaperconfig',
+    'sources': [
+      'src/guile_bridge.c',
+      'src/config.c',
+      'src/util/wallpaper.c',
       'src/util/nightlight.c',
       'src/util/format.c',
       'src/util/menudict.c',
@@ -630,6 +650,13 @@ unit_tests = [
     'id': 'widgetstate',
     'sources': ['src/util/widgetstate.c'],
   },
+  # The wallpaper engine's rules without a display: the formats it accepts,
+  # what each transition looks like half way through, the cover/contain/fill
+  # geometry, and the order a rotation visits.
+  {
+    'id': 'wallpaper',
+    'sources': ['src/util/wallpaper.c'],
+  },
   # The night light's colour curve, schedule and gamma ramp.  The display
   # server backends need a session; the arithmetic that decides what they send
   # is what this covers.
@@ -812,6 +839,19 @@ if guile.found()
       '--no-auto-compile',
       '-L', join_paths(meson.project_source_root(), 'scheme'),
       join_paths(meson.project_source_root(), 'tests', 'test_prefs.scm'),
+    ],
+    env: test_env,
+  )
+
+  # The wallpaper constructor: home-relative paths, the known transitions and
+  # fits, the clamps, the bridge view, and the GUI save that must not drop it.
+  test(
+    'wallpaper_settings_unit_tests',
+    guile,
+    args: [
+      '--no-auto-compile',
+      '-L', join_paths(meson.project_source_root(), 'scheme'),
+      join_paths(meson.project_source_root(), 'tests', 'test_wallpaper.scm'),
     ],
     env: test_env,
   )

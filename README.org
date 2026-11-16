@@ -88,6 +88,13 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   controls on the settings window's *Night light* page.  =whelk --night-light=
   flips the switch from a compositor keybinding.  No overlay, and no per-window
   tint.
+- *Its own wallpaper engine and picker.*  =(wallpaper-settings ...)= points at
+  directories or files, chooses a transition (=crossfade=, =fade=, four
+  slides, =zoom= or none), a fit, optional Ken Burns motion, video and a
+  rotation interval in seconds.  One background layer-shell surface per
+  monitor draws PNG, JPEG, WebP, AVIF, GIF, animated GIF/WebP and video, and
+  =whelk --wallpaper-picker= opens a centred thumbnail overlay that expands to
+  the monitor.  See [[file:docs/wallpaper.org][Wallpaper]].
 - *Desktop widgets, also data.*  The standard macOS Golden Gate cards -- Clock,
   Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks -- are
   floating GTK4 surfaces described by =(desktop-widget ...)= records.  Weather

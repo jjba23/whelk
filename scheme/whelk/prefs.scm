@@ -121,6 +121,7 @@ file cannot leave the shell with a half-applied look."
     tray-max-items clock-format
     night-light-enabled? night-light-mode night-light-temperature
     night-light-start night-light-end night-light-transition
+    wallpaper-selected
     launcher-default-mode
     launcher-key-window launcher-key-run launcher-key-calc launcher-key-file
     launcher-key-web launcher-key-ssh launcher-key-quit
@@ -522,6 +523,9 @@ the settings window's reload callback, so the two paths cannot drift apart."
            #:idle (get-shell-idle config-path)
            #:night-light (apply-night-light-preferences
                           prefs (get-shell-night-light config-path))
+           ;; The wallpaper engine is not a bar option, but it lives in the
+           ;; same shell record: a GUI save must not drop it.
+           #:wallpaper (get-shell-wallpaper config-path)
            #:enable-repl? (get-shell-enable-repl? config-path)
            #:repl-socket-path (get-shell-repl-socket-path config-path))
           updated))))

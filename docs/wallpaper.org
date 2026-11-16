@@ -1,0 +1,176 @@
+#+title: Wallpaper
+#+subtitle: a background the shell owns, and a picker for it
+#+author: Josep Jesus Bigorra Algaba
+#+options: toc:nil num:nil
+
+whelk can draw the desktop background itself: one =wlr-layer-shell= surface at
+the background layer per monitor, with a picture or a looping video, a
+transition when the picture changes, optional slow Ken Burns motion, and a
+timer that walks a directory every so many minutes.  The same collection is
+browsed by an overlay picker, =whelk --wallpaper-picker=, that starts as a
+compact card in the centre of the screen and expands to nearly the whole
+monitor.
+
+The engine is off unless a configuration turns it on, so a shell that never
+mentions it leaves the compositor's own background alone.
+
+* The settings
+
+#+begin_src scheme
+  (configure-shell!
+   #:wallpaper
+   (wallpaper-settings #:enabled? #t
+                       #:paths (list "~/Pictures/Wallpapers" "/srv/walls")
+                       #:interval 900
+                       #:shuffle? #t
+                       #:animation 'crossfade
+                       #:animation-duration 1200
+                       #:fit 'cover
+                       #:ken-burns? #f
+                       #:video? #t
+                       #:mute-video? #t
+                       #:current "~/Pictures/Wallpapers/ridge.avif"
+                       #:picker-width 960
+                       #:picker-height 640
+                       #:picker-columns 4))
+#+end_src
+
+Every key is optional; the values above are the defaults, except
+=#:enabled?= (the default is =#f=) and =#:current= (the default is no explicit
+starting picture).
+
+| Key                    | Meaning                                                             |
+|------------------------+---------------------------------------------------------------------|
+| =#:enabled?=           | Draw the background at all.  Default =#f=.                          |
+| =#:paths=              | Directories walked recursively, or single files; =~= expands.       |
+| =#:interval=           | Seconds between pictures.  =0= stops rotation; the minimum is =5=.  |
+| =#:shuffle?=           | Random order instead of the sorted path order.  Default =#t=.       |
+| =#:animation=          | ='none=, ='crossfade=, ='fade=, ='slide-left=, ='slide-right=,     |
+|                        | ='slide-up=, ='slide-down= or ='zoom=.  Default ='crossfade=.       |
+| =#:animation-duration= | Milliseconds the transition takes, clamped to =0= to =10000=.       |
+| =#:fit=                | ='cover= (fill, cropping), ='contain= (letterbox) or ='fill=      |
+|                        | (stretch).  Default ='cover=.                                       |
+| =#:ken-burns?=         | A slow zoom over the life of a still picture.  Default =#f=.        |
+| =#:video?=             | Include video files in the collection.  Default =#t=.               |
+| =#:mute-video?=        | Videos play without sound.  Default =#t=.                           |
+| =#:current=            | The picture selected when the shell starts; =~= expands.            |
+| =#:picker-width=       | Compact picker width in pixels, clamped to =320= to =3840=.          |
+| =#:picker-height=      | Compact picker height in pixels, clamped to =240= to =2160=.         |
+| =#:picker-columns=     | Thumbnails per row when compact, clamped to =1= to =12=.            |
+
+A path that does not exist, a file with an unknown suffix and an unreadable
+directory are skipped rather than treated as errors.  The collection is sorted
+by absolute path before rotation, so two runs with the same files see the same
+order; =#:shuffle?= uses the shell's own pseudorandom source.
+
+* What can be a background
+
+Still pictures are decoded by =gdk-pixbuf=: PNG, JPEG, WebP, AVIF, GIF, BMP,
+TIFF and SVG.  Animated GIF and animated WebP are played with the animation
+loader and loop at their own frame delays.  Video files are opened through
+=GtkMediaFile=, which uses GTK's GStreamer backend; anything the installed
+plugins can decode works, typically MP4/H.264, WebM/VP9 and Matroska.  Video is
+muted by default and loops.
+
+=#:video? #f= removes video files both from rotation and from the picker.  The
+fit policy is applied to every frame with the monitor's aspect ratio: =cover=
+crops the overflow, =contain= fills the uncovered area with black, and =fill=
+stretches the picture to the output.
+
+* Transitions
+
+=#:animation= names one of:
+
+| Value          | The new picture                                              |
+|----------------+--------------------------------------------------------------|
+| ='none=        | replaces the old one on the next frame                       |
+| ='crossfade=   | fades in over the old one                                    |
+| ='fade=        | fades the old one to black, then the new one up from black   |
+| ='slide-left=  | pushes the old one out to the left                           |
+| ='slide-right= | pushes the old one out to the right                          |
+| ='slide-up=    | pushes the old one out upwards                               |
+| ='slide-down=  | pushes the old one out downwards                             |
+| ='zoom=        | the new one settles from 112% scale while the old one fades  |
+
+The duration is =#:animation-duration= milliseconds.  A transition also covers
+a change made from the picker, not only a timed rotation.  The first picture
+after startup appears without one: there is nothing to transition from.
+
+* The picker
+
+#+begin_src sh
+  whelk --wallpaper-picker
+#+end_src
+
+The command opens a layer-shell =overlay= surface on the focused output.  It
+covers the output but is transparent outside the card, takes the keyboard while
+it is open, and centres the card -- 960 by 640 pixels by default -- with a
+thumbnail for every picture in the collection, the current one outlined, the
+file name beneath it and a small badge for videos.
+
+- *Click* a tile to use it.  The picker closes and the engine transitions to it.
+- *Arrow keys* move through the grid; *Enter* applies the focused tile.
+- *F11* or *Ctrl+F* expands the card to the monitor minus a 48-pixel margin;
+  pressing either again restores the compact size.  The button in the header
+  does the same.
+- *Esc*, a click outside the card, or the close button dismisses it without
+  changing anything.
+
+The configured =#:picker-width=, =#:picker-height= and =#:picker-columns= size
+the compact card.  A card larger than the monitor is clamped to it.  Thumbnails
+are decoded one at a time on an idle callback, so opening a directory of large
+AVIF files does not block the card from appearing.
+
+Bind it in the compositor the same way as any other whelk command:
+
+#+begin_src sh
+  # niri
+  binds {
+      Mod+Shift+W { spawn "whelk" "--wallpaper-picker"; }
+  }
+
+  # sway
+  bindsym $mod+Shift+w exec whelk --wallpaper-picker
+
+  # Hyprland
+  bind = SUPER SHIFT, W, exec, whelk --wallpaper-picker
+#+end_src
+
+* Selection, rotation and preferences
+
+A click in the picker, and every timed rotation, saves the chosen absolute path
+as the GUI preference =wallpaper-selected= beside the other overrides.  On the
+next start the engine prefers that path if it is still in the collection; if it
+has disappeared it falls back to =#:current=, then to the first picture.
+*Reset GUI settings* forgets the choice and returns to the configured one.
+
+A new picture resets the rotation timer, so switching from the picker gives the
+new picture its full interval.  Changing an unrelated setting -- a bar colour,
+the clock format -- reloads the shell without restarting a video or
+re-transitioning the current picture.
+
+* How it reaches the screen {#how-it-reaches-the-screen}
+
+The engine creates one =GtkWindow= with a =gtk4-layer-shell= surface per
+monitor, anchored to all four edges, on the =background= layer, with the
+exclusive zone set to =-1=: a background reserves no space, so the bar keeps
+its own.  The window's content is a custom =GtkWidget= that paints black, then
+the outgoing and incoming pictures with the transition's alpha, offset and
+scale.  Monitors that are plugged in or removed are picked up from
+=GdkDisplay='s monitor list and rebuild the surfaces.
+
+Without =wlr-layer-shell= -- GNOME Shell, KDE Plasma, or an X11 session -- the
+engine cannot place a background surface and logs that fact; the picker still
+opens as an ordinary centred window, and the settings remain valid for the next
+Wayland session.
+
+The engine does not shell out to =swaybg=, =feh= or a video player, and it does
+not draw a full-screen window over other windows.  One process owns the
+background and the shell's other surfaces.
+
+* See also
+
+- [[file:configuration.org][Configuration]] for =configure-shell!= and the settings file.
+- [[file:architecture.org][Architecture]] for where the engine sits among the surfaces.
+- [[file:known-limits.org][Known limits]] for compositors without layer-shell and for video codecs
+  that the installed GStreamer plugins do not provide.

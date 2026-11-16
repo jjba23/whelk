@@ -521,6 +521,9 @@ static int on_command_line(GApplication *application,
   if (clipboard && option_flag(command_line, "clipboard-restart"))
     whelk_clipboard_restart(clipboard);
 
+  if (option_flag(command_line, "wallpaper-picker"))
+    whelk_shell_show_wallpaper_picker(g_shell);
+
   if (option_flag(command_line, "notifications"))
     whelk_shell_toggle_notifications(g_shell);
 
@@ -596,6 +599,9 @@ static void add_options(GtkApplication *app) {
   g_application_add_main_option(G_APPLICATION(app), "settings", 0,
                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
                                 "Open the whelk settings window", NULL);
+  g_application_add_main_option(
+      G_APPLICATION(app), "wallpaper-picker", 0, G_OPTION_FLAG_NONE,
+      G_OPTION_ARG_NONE, "Show the wallpaper picker", NULL);
   g_application_add_main_option(
       G_APPLICATION(app), "notifications", 'n', G_OPTION_FLAG_NONE,
       G_OPTION_ARG_NONE, "Open or close the notification centre", NULL);

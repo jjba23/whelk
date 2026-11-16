@@ -361,6 +361,54 @@ own events, and a mode change re-applies the table.  GNOME Shell and KDE Plasma
 keep gamma inside the compositor and do not implement that protocol, so whelk
 logs the fact there instead of drawing an overlay and calling it a night light.
 
+* Wallpaper
+:PROPERTIES:
+:CUSTOM_ID: wallpaper
+:END:
+
+whelk can own the desktop background: one layer-shell surface per monitor, a
+picture or looping video, a transition between pictures, optional Ken Burns
+motion and a rotation timer.  It is opt-in, because a configuration that never
+mentions it should leave the compositor's background alone.
+
+#+begin_src scheme
+  (configure-shell!
+   #:wallpaper (wallpaper-settings #:enabled? #t
+                                   #:paths (list "~/Pictures/Wallpapers")
+                                   #:interval 900
+                                   #:shuffle? #t
+                                   #:animation 'crossfade
+                                   #:fit 'cover))
+#+end_src
+
+- =#:enabled?= draws the background.  The default is =#f=.
+- =#:paths= names directories (walked recursively) or single files; =~= is
+  expanded.  PNG, JPEG, WebP, AVIF, GIF, BMP, TIFF and SVG stills, animated
+  GIF/WebP, and videos through GTK's GStreamer backend are supported.
+- =#:interval= is the rotation period in seconds; =0= stops the clock and the
+  minimum is =5=.  =#:shuffle?= picks a random order instead of sorted paths.
+- =#:animation= is one of ='none=, ='crossfade=, ='fade=, ='slide-left=,
+  ='slide-right=, ='slide-up=, ='slide-down= or ='zoom=, and
+  =#:animation-duration= is its length in milliseconds (0 to 10000).
+- =#:fit= is ='cover=, ='contain= or ='fill=; =#:ken-burns?= adds a slow zoom
+  to still pictures; =#:video?= includes video files and =#:mute-video?= keeps
+  them silent.
+- =#:current= is the starting picture.  =#:picker-width=, =#:picker-height=
+  and =#:picker-columns= size the compact picker card.
+
+=whelk --wallpaper-picker= opens the overlay: a centred card of thumbnails that
+*F11* or *Ctrl+F* expands to the monitor, arrow keys and *Enter* navigate,
+*Esc* or a click outside dismisses.  The chosen path is saved as the
+=wallpaper-selected= GUI preference; *Reset GUI settings* returns to
+=#:current= or the first picture.  Bind it from the compositor:
+
+#+begin_src sh
+  bindsym $mod+Shift+w exec whelk --wallpaper-picker   # sway
+#+end_src
+
+The full policy, the transition table and the layer-shell details are in
+[[file:wallpaper.org][Wallpaper]].
+
 * Hot reload and the REPL
 :PROPERTIES:
 :CUSTOM_ID: repl

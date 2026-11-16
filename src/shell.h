@@ -79,6 +79,14 @@ void whelk_shell_show_session_menu(WhelkShell *shell);
 /* Opens or closes the notification centre. */
 void whelk_shell_toggle_notifications(WhelkShell *shell);
 
+/* The wallpaper picker: a card in the middle of the output, expandable to the
+ * whole screen.  `whelk --wallpaper-picker' is its keybinding surface. */
+void whelk_shell_show_wallpaper_picker(WhelkShell *shell);
+
+/* Shows PATH as the wallpaper and saves the choice as a GUI preference.
+ * Returns FALSE when the file is missing or not a picture whelk can read. */
+gboolean whelk_shell_set_wallpaper(WhelkShell *shell, const char *path);
+
 /* Turns do-not-disturb on or off.  The idle manager owns the flag. */
 void whelk_shell_toggle_dnd(WhelkShell *shell);
 

@@ -60,6 +60,12 @@ void whelk_surface_set_margins(WhelkSurface *surface, int top, int right,
 void whelk_surface_set_position(WhelkSurface *surface, int x, int y);
 void whelk_surface_set_exclusive(WhelkSurface *surface, gboolean exclusive);
 
+/* Overrides the exclusive zone derived from @exclusive and the thickness.
+ * -1 means "do not reserve anything and do not take part in the allocation",
+ * which is what a background wallpaper surface needs: it covers the output
+ * without claiming the whole screen as a panel would. */
+void whelk_surface_set_exclusive_zone(WhelkSurface *surface, int zone);
+
 /* The monitor to pin to, or NULL for the compositor's default. */
 void whelk_surface_set_monitor(WhelkSurface *surface, GdkMonitor *monitor);
 

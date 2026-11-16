@@ -7,6 +7,7 @@
 #define WHELK_GUILE_BRIDGE_H
 
 #include "config.h"
+#include "wallpaper.h"
 #include "util/chord.h"
 #include "util/menudict.h"
 #include "util/nightlight.h"
@@ -151,6 +152,20 @@ int whelk_bridge_idle_lock_after(const char *path);
  * Returns: (transfer full): the resolved policy; never NULL.
  */
 WhelkNightLightConfig *whelk_bridge_night_light(const char *path);
+
+/**
+ * whelk_bridge_wallpaper:
+ * @path: the settings file whose wallpaper policy is wanted (may be NULL).
+ *
+ * Reads `(wallpaper-settings ...)' from CONFIG_PATH: the collection, the
+ * rotation interval and order, the transition, the fit, Ken Burns, whether
+ * movies belong in the collection, and the picker's compact geometry.  A
+ * settings file that never mentioned it answers a disabled policy that leaves
+ * the compositor's own background alone.
+ *
+ * Returns: (transfer full): the resolved policy; never NULL.
+ */
+WhelkWallpaperConfig *whelk_bridge_wallpaper(const char *path);
 
 /**
  * whelk_bridge_toggle_night_light:

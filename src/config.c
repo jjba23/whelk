@@ -4,6 +4,7 @@
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #include "config.h"
+#include "wallpaper.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -378,6 +379,90 @@ GPtrArray *whelk_config_default_bars(void) {
 
   g_ptr_array_add(bars, bar);
   return bars;
+}
+
+/* =========================================================================
+ * THE WALLPAPER POLICY
+ * =========================================================================
+ * The wallpaper's configuration lives beside the bar's for the same reason:
+ * it is plain data the bridge can fill, the engine can copy, and a test can
+ * read without a display.  The engine's own file is the part that draws.
+ */
+
+WhelkWallpaperConfig *whelk_wallpaper_config_new(void) {
+  WhelkWallpaperConfig *config = g_new0(WhelkWallpaperConfig, 1);
+
+  config->configured = FALSE;
+  config->enabled = FALSE;
+  config->paths = g_ptr_array_new_with_free_func(g_free);
+  config->interval_seconds = 900;
+  config->shuffle = TRUE;
+  config->animation = WHELK_WALLPAPER_ANIMATION_CROSSFADE;
+  config->animation_ms = 1200;
+  config->fit = WHELK_WALLPAPER_FIT_COVER;
+  config->ken_burns = FALSE;
+  config->video = TRUE;
+  config->mute_video = TRUE;
+  config->current = NULL;
+  config->picker_width = 960;
+  config->picker_height = 640;
+  config->picker_columns = 4;
+
+  return config;
+}
+
+WhelkWallpaperConfig *whelk_wallpaper_config_copy(
+    const WhelkWallpaperConfig *config) {
+  if (!config)
+    return whelk_wallpaper_config_new();
+
+  WhelkWallpaperConfig *copy = whelk_wallpaper_config_new();
+
+  copy->configured = config->configured;
+  copy->enabled = config->enabled;
+  copy->interval_seconds = config->interval_seconds;
+  copy->shuffle = config->shuffle;
+  copy->animation = config->animation;
+  copy->animation_ms = config->animation_ms;
+  copy->fit = config->fit;
+  copy->ken_burns = config->ken_burns;
+  copy->video = config->video;
+  copy->mute_video = config->mute_video;
+  copy->current = g_strdup(config->current);
+  copy->picker_width = config->picker_width;
+  copy->picker_height = config->picker_height;
+  copy->picker_columns = config->picker_columns;
+
+  for (guint i = 0; config->paths && i < config->paths->len; i++)
+    g_ptr_array_add(copy->paths,
+                    g_strdup(g_ptr_array_index(config->paths, i)));
+
+  return copy;
+}
+
+void whelk_wallpaper_config_free(WhelkWallpaperConfig *config) {
+  if (!config)
+    return;
+
+  g_clear_pointer(&config->paths, g_ptr_array_unref);
+  g_free(config->current);
+  g_free(config);
+}
+
+void whelk_wallpaper_config_normalize(WhelkWallpaperConfig *config) {
+  if (!config)
+    return;
+
+  if (config->interval_seconds < 0)
+    config->interval_seconds = 0;
+  else if (config->interval_seconds > 0)
+    config->interval_seconds = MAX(5, config->interval_seconds);
+
+  config->interval_seconds = MIN(config->interval_seconds, 7 * 24 * 60 * 60);
+  config->animation_ms = CLAMP(config->animation_ms, 0, 10000);
+  config->picker_width = CLAMP(config->picker_width, 320, 3840);
+  config->picker_height = CLAMP(config->picker_height, 240, 2160);
+  config->picker_columns = CLAMP(config->picker_columns, 1, 12);
 }
 
 WhelkClipboardConfig *whelk_clipboard_config_new(void) {
