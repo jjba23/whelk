@@ -22,6 +22,14 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/rotation.rs` — the C engine's current-selection resolution and rotation
   clock as a pure `Playlist`: resolved fallbacks, sequential wrapping,
   reproducible shuffled rotation and the "can rotate" guard.
+- `src/wallpaper_view.rs` — the C view's GTK snapshot widget: two paintables,
+  eased transitions, fade/slide/zoom, fit and the 60-second Ken Burns breath.
+  Its timing helpers are pure and tested without a display.
+- `src/wallpaper_surface.rs` — one Rust background surface per output. It loads
+  still images through `GdkTexture`, videos through `GtkMediaFile`, drives
+  animated GIF/WebP frames through `GdkPixbufAnimation`, starts a layer-shell
+  background on Wayland and a normal window on Broadway/X11, and drives rotation
+  from the collection/playlist.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
@@ -60,6 +68,12 @@ wallpaper policy, walks the collection and resolves the current file. A missing
 file is the C shell's "no configuration" case and uses defaults; a file that
 Guile rejects exits non-zero with the reason.
 
+With a valid configuration, `whelk-rs` presents the Rust bar and a Rust
+background surface. On Wayland it uses `zwlr_layer_shell_v1`'s background
+layer; on Broadway or X11 it falls back to an ordinary window for development
+and smoke tests. The C `whelk` binary remains the installed shell and keeps its
+own application id, namespace and background engine.
+
 When running from `rust/`, the binary finds `../scheme` automatically. From
 another directory set `WHELK_SCHEME_DIR` to the checkout's `scheme/` directory or
 install the modules where Guile can find them. The C app id is not used, but if
@@ -76,6 +90,8 @@ The tests are split by what they can prove without a session:
 | `tests/settings.rs` | Defaults, clamps, unknown values, HOME expansion, XDG path rules |
 | `tests/collection.rs` | Recursive walk, hidden entries, symlinks, depth limit, video filter, dedupe and sorting |
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
+| `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
+| `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real settings file, repeated loads, caught exceptions |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | unit tests | Scheme literal escaping, `--config` parsing |
@@ -101,6 +117,21 @@ The bridge is safe by construction at its boundary, not by convention:
 
 `(whelk-rust-version)` is the one callback from Scheme into Rust. It allocates a
 Scheme string from a compile-time constant, so it cannot panic across the C ABI.
+
+## Wallpaper rendering notes
+
+The Rust surface is deliberately a first slice, not a feature-for-feature copy
+of the C engine:
+
+- It creates one background surface per monitor, all showing the same current
+  item. Per-monitor media cleanup and the C picker are not ported yet.
+- Still images use `GdkTexture`; animated GIF/WebP images use
+  `GdkPixbufAnimation` with the C engine's 100 ms zero-delay fallback. Videos
+  use `GtkMediaFile`, loop, and respect `mute-video?`.
+- A transition uses the same eased progress, offsets, opacity and zoom math as
+  the C view. Ken Burns runs at 60 seconds per breath and 6% zoom.
+- The normal-window fallback is for development only; it is not a desktop
+  background on Broadway/X11.
 
 ## Scope and next steps
 

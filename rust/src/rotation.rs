@@ -98,14 +98,10 @@ impl Playlist {
     }
 
     /// The C engine's `restart_rotation()` guard: an enabled engine, a positive
-    /// interval, at least two files and a current selection.
+    /// interval, at least two files and a current selection.  The selected file
+    /// does not have to still exist: a deletion must not stop the clock, because
+    /// the next tick advances to the next collected item.
     pub fn should_rotate(&self, enabled: bool, interval_seconds: u32) -> bool {
-        enabled
-            && interval_seconds > 0
-            && self.items.len() >= 2
-            && self
-                .selected
-                .as_deref()
-                .is_some_and(|path| is_usable(path, self.include_video))
+        enabled && interval_seconds > 0 && self.items.len() >= 2 && self.selected.is_some()
     }
 }

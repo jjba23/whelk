@@ -17,3 +17,5 @@ pub mod rotation;
 pub mod settings;
 pub mod ui;
 pub mod wallpaper;
+pub mod wallpaper_surface;
+pub mod wallpaper_view;

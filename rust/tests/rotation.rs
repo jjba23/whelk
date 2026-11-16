@@ -119,7 +119,7 @@ fn rotation_needs_two_items_a_clock_and_a_selection() {
     let one = files(directory.path(), &["a.png"]);
     let two = files(directory.path(), &["a.png", "b.png"]);
 
-    let mut one = {
+    let one = {
         let mut playlist = Playlist::new(one, true, 1);
         playlist.resolve(None);
         playlist
@@ -135,9 +135,22 @@ fn rotation_needs_two_items_a_clock_and_a_selection() {
     assert!(!two.should_rotate(true, 0));
     assert!(two.should_rotate(true, 900));
     assert!(two.should_rotate(true, 1));
+}
 
-    one.select(&PathBuf::from("/nonexistent.png"));
-    assert!(!one.should_rotate(true, 900));
+#[test]
+fn a_deleted_current_file_does_not_stop_rotation() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let items = files(directory.path(), &["a.png", "b.png"]);
+    let mut playlist = Playlist::new(items.clone(), true, 7);
+
+    playlist.resolve(Some(&items[0].path));
+    fs::remove_file(&items[0].path).expect("delete current");
+
+    // The collection still contains the old item, as it does in C until the
+    // next rescan; the clock must advance rather than stop on the missing file.
+    assert!(playlist.should_rotate(true, 900));
+    assert_eq!(playlist.advance(false), Some(items[1].path.as_path()));
+    assert!(playlist.should_rotate(true, 900));
 }
 
 #[test]

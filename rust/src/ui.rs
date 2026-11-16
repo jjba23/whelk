@@ -108,9 +108,11 @@ fn present(application: &gtk::Application, settings: &WallpaperSettings, config_
     });
 
     window.present();
+
+    crate::wallpaper_surface::present(application, settings);
 }
 
-fn layer_shell_available() -> bool {
+pub(crate) fn layer_shell_available() -> bool {
     // gtk4-layer-shell is about the Wayland protocol, not merely the library.
     // On Broadway or X11, init_layer_shell() asserts; keep those backends on
     // the ordinary-window path.
@@ -142,6 +144,9 @@ fn install_css() {
         "
         .whelk-rs-bar-window {
             background-color: rgba(18, 18, 28, 0.94);
+        }
+        .whelk-rs-wallpaper-window {
+            background-color: #000000;
         }
         .whelk-rs-bar {
             padding: 0 14px;

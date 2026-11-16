@@ -51,9 +51,10 @@ pub fn is_supported(path: impl AsRef<Path>) -> bool {
     kind_for_path(path) != Kind::Unknown
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Animation {
     None,
+    #[default]
     Crossfade,
     Fade,
     SlideLeft,
@@ -176,7 +177,7 @@ impl Animation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Offsets {
     pub out_x: f64,
     pub out_y: f64,
@@ -184,8 +185,9 @@ pub struct Offsets {
     pub in_y: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Fit {
+    #[default]
     Cover,
     Contain,
     Fill,
