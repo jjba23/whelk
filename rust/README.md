@@ -64,9 +64,11 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   through: objects keep key order, arrays keep document order, escapes and
   surrogate pairs decode to UTF-8, and a malformed document reports its offset
   instead of yielding a partial tree.
-- `src/session.rs` — the session enum and its environment guess: niri, sway,
-  Hyprland and river socket variables, X11 from `XDG_SESSION_TYPE` or a
-  `DISPLAY` with no `WAYLAND_DISPLAY`, and Wayland otherwise.
+- `src/session.rs` — session detection, naming and probes: niri, sway,
+  Hyprland and river socket variables first, X11 from `XDG_SESSION_TYPE` or a
+  `DISPLAY` with no `WAYLAND_DISPLAY`, then a bounded probe of each compositor
+  when the environment names none. Detection is cached once and logged with
+  the evidence that decided it.
 - `src/workspaces.rs` — the two workspace answers through one shape: niri's
   `idx`/`is_active`/`active_window_id` and Hyprland's `id`/`windows` plus the
   active workspace on its monitors, with special workspaces left out and the
