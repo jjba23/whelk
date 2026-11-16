@@ -1,0 +1,487 @@
+// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+//
+// SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+//! A small, safe Guile runtime for loading whelk's real Scheme configuration.
+//!
+//! The boundary has three rules:
+//!
+//! 1. A `Guile` handle is created once, on the main thread, and never moved.
+//! 2. Every `SCM` that survives more than one C call is rooted with
+//!    `scm_gc_protect_object`; values are converted to Rust data immediately.
+//! 3. A Scheme exception is caught at the boundary and becomes a Rust
+//!    `Result`; it never unwinds through GTK or Rust frames.
+//!
+//! The FFI declarations live in `sys.rs`.  This module contains no raw C
+//! signatures, so the unsafe surface is easy to review.
+
+mod sys;
+
+use std::ffi::CString;
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use std::slice;
+
+use crate::settings::{SchemeValue, WallpaperSettings};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GuileError {
+    Initialization(String),
+    Evaluation(String),
+}
+
+impl std::fmt::Display for GuileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GuileError::Initialization(message) | GuileError::Evaluation(message) => {
+                f.write_str(message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for GuileError {}
+
+static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A protected Scheme object.  `scm_gc_protect_object` keeps it alive until
+/// this value is dropped, even if no Rust reference to it remains.
+struct Root {
+    value: sys::Scm,
+}
+
+impl Root {
+    fn new(value: sys::Scm) -> Self {
+        unsafe {
+            sys::scm_gc_protect_object(value);
+        }
+
+        Self { value }
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        unsafe {
+            sys::scm_gc_unprotect_object(self.value);
+        }
+    }
+}
+
+struct BodyContext<'a> {
+    body: &'a mut dyn FnMut() -> sys::Scm,
+}
+
+struct HandlerContext {
+    failed: bool,
+    false_value: sys::Scm,
+}
+
+unsafe extern "C" fn catch_body(data: *mut libc::c_void) -> sys::Scm {
+    let context = unsafe { &mut *(data as *mut BodyContext<'_>) };
+
+    (context.body)()
+}
+
+unsafe extern "C" fn catch_handler(
+    data: *mut libc::c_void,
+    _tag: sys::Scm,
+    _args: sys::Scm,
+) -> sys::Scm {
+    let context = unsafe { &mut *(data as *mut HandlerContext) };
+
+    context.failed = true;
+    context.false_value
+}
+
+/// The Guile runtime is global and thread-affine.  A handle is deliberately
+/// neither Send nor Sync; call it from the thread that initialized it.
+pub struct Guile {
+    true_value: sys::Scm,
+    false_value: sys::Scm,
+    symbol_predicate: Root,
+    display_procedure: Root,
+    _thread_bound: PhantomData<*mut ()>,
+}
+
+impl Guile {
+    pub fn init(scheme_paths: &[PathBuf]) -> Result<Self, GuileError> {
+        if INITIALIZED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(GuileError::Initialization(
+                "Guile was already initialized in this process".to_owned(),
+            ));
+        }
+
+        unsafe {
+            sys::scm_init_guile();
+        }
+
+        if !scheme_paths.is_empty() {
+            let literals: Vec<String> = scheme_paths
+                .iter()
+                .filter_map(|path| path.to_str())
+                .map(scheme_string_literal)
+                .collect();
+
+            if !literals.is_empty() {
+                let expression = format!(
+                    "(set! %load-path (append (list {}) %load-path))",
+                    literals.join(" ")
+                );
+
+                eval_raw(&expression)?;
+            }
+        }
+
+        let true_value = eval_raw("#t")?;
+        let false_value = eval_raw("#f")?;
+        let symbol_predicate = Root::new(eval_raw("(lambda (value) (symbol? value))")?);
+        let display_procedure = Root::new(eval_raw(
+            "(lambda (value) (with-output-to-string (lambda () (display value))))",
+        )?);
+
+        let runtime = Self {
+            true_value,
+            false_value,
+            symbol_predicate,
+            display_procedure,
+            _thread_bound: PhantomData,
+        };
+
+        runtime.register_rust_version()?;
+
+        Ok(runtime)
+    }
+
+    pub fn eval_string(&self, code: &str) -> Result<String, GuileError> {
+        let value = self.catch(|| {
+            let code = CString::new(code).map_err(|_| {
+                GuileError::Evaluation("Scheme source contains a NUL byte".to_owned())
+            })?;
+
+            Ok(unsafe { sys::scm_c_eval_string(code.as_ptr()) })
+        })?;
+
+        let _root = Root::new(value);
+        let displayed =
+            self.catch(|| Ok(unsafe { sys::scm_call_1(self.display_procedure.value, value) }))?;
+
+        self.text(displayed)
+    }
+
+    pub fn version(&self) -> Result<String, GuileError> {
+        self.eval_string("(version)")
+    }
+
+    pub fn load_wallpaper(&self, config_path: &Path) -> Result<WallpaperSettings, GuileError> {
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+
+        if !config_path.is_file() {
+            return Err(GuileError::Evaluation(format!(
+                "no settings file at {}",
+                config_path.display()
+            )));
+        }
+
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let loaded = self.catch(|| {
+            let module = CString::new("whelk core").expect("static module name");
+            let name = CString::new("load-shell-config!").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+
+        if !self.is_true(loaded) {
+            return Err(GuileError::Evaluation(format!(
+                "settings file was rejected: {}",
+                config_path.display()
+            )));
+        }
+
+        let alist = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("shell-wallpaper->alist").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+
+        let _alist_root = Root::new(alist);
+        let values = self.alist(alist)?;
+
+        Ok(WallpaperSettings::from_alist(&values))
+    }
+
+    fn register_rust_version(&self) -> Result<(), GuileError> {
+        let module = CString::new("whelk core").expect("static module name");
+        let name = CString::new("whelk-rust-version").expect("static primitive name");
+
+        let module = self.catch(|| Ok(unsafe { sys::scm_c_resolve_module(module.as_ptr()) }))?;
+
+        if !self.is_true(module) {
+            return Err(GuileError::Evaluation(
+                "could not resolve the (whelk core) module".to_owned(),
+            ));
+        }
+
+        let previous = unsafe { sys::scm_set_current_module(module) };
+
+        let result = self.catch(|| {
+            Ok(unsafe {
+                sys::scm_c_define_gsubr(
+                    name.as_ptr(),
+                    0,
+                    0,
+                    0,
+                    rust_version_primitive as sys::ScmSubr,
+                )
+            })
+        });
+
+        if result.is_ok() {
+            let export = self.catch(|| {
+                unsafe {
+                    sys::scm_c_export(name.as_ptr(), std::ptr::null::<libc::c_char>());
+                }
+
+                Ok(self.true_value)
+            });
+
+            if let Err(error) = export {
+                unsafe {
+                    sys::scm_set_current_module(previous);
+                }
+                return Err(error);
+            }
+        }
+
+        unsafe {
+            sys::scm_set_current_module(previous);
+        }
+
+        result.map(|_| ())
+    }
+
+    fn catch(
+        &self,
+        mut body: impl FnMut() -> Result<sys::Scm, GuileError>,
+    ) -> Result<sys::Scm, GuileError> {
+        let mut body_error = None;
+        let mut body_function = || match body() {
+            Ok(value) => value,
+            Err(error) => {
+                body_error = Some(error);
+                self.false_value
+            }
+        };
+        let mut body_context = BodyContext {
+            body: &mut body_function,
+        };
+        let mut handler_context = HandlerContext {
+            failed: false,
+            false_value: self.false_value,
+        };
+
+        let value = unsafe {
+            sys::scm_internal_catch(
+                self.true_value,
+                catch_body,
+                (&mut body_context as *mut BodyContext<'_>).cast(),
+                catch_handler,
+                (&mut handler_context as *mut HandlerContext).cast(),
+            )
+        };
+
+        if let Some(error) = body_error {
+            Err(error)
+        } else if handler_context.failed {
+            Err(GuileError::Evaluation(
+                "Scheme raised an exception".to_owned(),
+            ))
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// Scheme truth: every value except the unique `#f` object is true.
+    fn is_true(&self, value: sys::Scm) -> bool {
+        value != self.false_value
+    }
+
+    fn scheme_string(&self, text: &str) -> Result<sys::Scm, GuileError> {
+        let text = CString::new(text)
+            .map_err(|_| GuileError::Evaluation("text contains a NUL byte".to_owned()))?;
+
+        Ok(unsafe { sys::scm_from_utf8_string(text.as_ptr()) })
+    }
+
+    fn text(&self, value: sys::Scm) -> Result<String, GuileError> {
+        if unsafe { sys::scm_is_string(value) } == 0 {
+            return Err(GuileError::Evaluation(
+                "Scheme value is not a string".to_owned(),
+            ));
+        }
+
+        let mut length = 0usize;
+        let pointer = unsafe { sys::scm_to_utf8_stringn(value, &mut length) };
+
+        if pointer.is_null() {
+            return Err(GuileError::Evaluation(
+                "Scheme string could not be encoded as UTF-8".to_owned(),
+            ));
+        }
+
+        let bytes = unsafe { slice::from_raw_parts(pointer.cast::<u8>(), length) };
+        let result = String::from_utf8_lossy(bytes).into_owned();
+
+        unsafe {
+            libc::free(pointer.cast());
+        }
+
+        Ok(result)
+    }
+
+    fn symbol_text(&self, value: sys::Scm) -> Result<String, GuileError> {
+        let string = self.catch(|| Ok(unsafe { sys::scm_symbol_to_string(value) }))?;
+
+        self.text(string)
+    }
+
+    fn scheme_value(&self, value: sys::Scm) -> Result<SchemeValue, GuileError> {
+        unsafe {
+            if sys::scm_is_bool(value) != 0 {
+                return Ok(SchemeValue::Bool(self.is_true(value)));
+            }
+
+            if sys::scm_is_integer(value) != 0 {
+                return Ok(SchemeValue::Integer(sys::scm_to_int64(value)));
+            }
+
+            if sys::scm_is_string(value) != 0 {
+                return Ok(SchemeValue::Text(self.text(value)?));
+            }
+        }
+
+        let is_symbol =
+            self.catch(|| Ok(unsafe { sys::scm_call_1(self.symbol_predicate.value, value) }))?;
+
+        if self.is_true(is_symbol) {
+            return Ok(SchemeValue::Symbol(self.symbol_text(value)?));
+        }
+
+        if unsafe { sys::scm_is_pair(value) } != 0 {
+            let mut items = Vec::new();
+            let mut cursor = value;
+            let mut seen = 0usize;
+
+            while unsafe { sys::scm_is_pair(cursor) } != 0 {
+                items.push(self.scheme_value(unsafe { sys::scm_car(cursor) })?);
+                cursor = unsafe { sys::scm_cdr(cursor) };
+                seen += 1;
+
+                if seen > 4096 {
+                    return Err(GuileError::Evaluation(
+                        "Scheme list is longer than the bridge allows".to_owned(),
+                    ));
+                }
+            }
+
+            return Ok(SchemeValue::List(items));
+        }
+
+        Ok(SchemeValue::Other)
+    }
+
+    fn alist(&self, alist: sys::Scm) -> Result<Vec<(String, SchemeValue)>, GuileError> {
+        let mut values = Vec::new();
+        let mut cursor = alist;
+        let mut seen = 0usize;
+
+        while unsafe { sys::scm_is_pair(cursor) } != 0 {
+            let entry = unsafe { sys::scm_car(cursor) };
+
+            if unsafe { sys::scm_is_pair(entry) } != 0 {
+                let key = unsafe { sys::scm_car(entry) };
+                let value = unsafe { sys::scm_cdr(entry) };
+
+                values.push((self.symbol_text(key)?, self.scheme_value(value)?));
+            }
+
+            cursor = unsafe { sys::scm_cdr(cursor) };
+            seen += 1;
+
+            if seen > 4096 {
+                return Err(GuileError::Evaluation(
+                    "Scheme alist is longer than the bridge allows".to_owned(),
+                ));
+            }
+        }
+
+        Ok(values)
+    }
+}
+
+unsafe extern "C" fn rust_version_primitive() -> sys::Scm {
+    // The only allocation here is a Scheme string; the C caller has a live
+    // Guile stack and the runtime is initialized.  A panic must never cross
+    // this boundary, so the input is a compile-time constant.
+    let version = CString::new(env!("CARGO_PKG_VERSION")).expect("version has no NUL");
+
+    unsafe { sys::scm_from_utf8_string(version.as_ptr()) }
+}
+
+fn eval_raw(code: &str) -> Result<sys::Scm, GuileError> {
+    let code = CString::new(code)
+        .map_err(|_| GuileError::Evaluation("Scheme source contains a NUL byte".to_owned()))?;
+    let value = unsafe { sys::scm_c_eval_string(code.as_ptr()) };
+
+    if value.is_null() {
+        Err(GuileError::Evaluation(
+            "Scheme evaluator returned no value".to_owned(),
+        ))
+    } else {
+        Ok(value)
+    }
+}
+
+/// Escape a Rust string as a Scheme string literal.  This is used for load
+/// paths and the settings path, both of which may contain quotes or backslashes.
+pub fn scheme_string_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+
+    escaped.push('"');
+
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            other => escaped.push(other),
+        }
+    }
+
+    escaped.push('"');
+    escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scheme_string_literal;
+
+    #[test]
+    fn literals_are_escaped() {
+        assert_eq!(scheme_string_literal("a\"b"), "\"a\\\"b\"");
+        assert_eq!(scheme_string_literal("a\\b"), "\"a\\\\b\"");
+    }
+}
