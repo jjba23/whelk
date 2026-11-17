@@ -1,4 +1,17 @@
-whelk (0.35.0-1) unstable; urgency=medium
+whelk (0.36.0-1) unstable; urgency=medium
+
+  * The Rust bar folds trailing readings into a +N popover and opens the shell
+    menu on a right-click over the bar's own gaps.
+  * The Rust window title reads River's focused-view seat status, the launcher
+    reads live application menu bars, and the Rust settings window, wallpaper
+    picker, widget cards and night light are wired into the shell.
+  * `cargo xtask install' now stages the Rust desktop entry and the shared
+    hicolor icons as well as the binary and Scheme modules.
+  * The release script checks and updates the Cargo manifests and runs the
+    Rust formatting, clippy and workspace tests.
+  * The C shell and its Meson install remain the default.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Tue, 17 Nov 2026 09:00:00 +0100
 
   * The Rust shell preview now covers the bar and hardware readouts, launcher,
     clipboard, notifications, network panel, tray, global menu fallbacks,

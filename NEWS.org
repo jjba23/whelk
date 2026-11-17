@@ -13,6 +13,58 @@ Nothing yet.
 
 *[Released]
 
+** v0.36.0 (2026-11-17)
+
+*** Added
+
+- *Rust bar completion.*  The Rust bar now folds its trailing right-hand
+  readings into a `+N` popover after the first allocation and gives the bar's
+  own gaps a right-click menu with Edit settings and Reload settings.  Modules
+  keep their own right-click behaviour.
+- *River focused view.*  The Rust window title reads River's
+  =zriver_seat_status_v1= focused view over its own Wayland connection, joins
+  the seat status rather than polling it, and leaves the title blank when the
+  compositor publishes no app id.
+- *Cargo-owned desktop integration.*  =cargo xtask install= now also stages
+  the Rust shell's desktop entry and the shared hicolor icon tree, so the
+  Cargo install is a complete application next to the C shell.
+- *Launcher live menus.*  The Rust launcher's menu-item mode reads the focused
+  application's live menubar snapshot, so rows are found by what they say and
+  chosen without opening the menu.
+- *Settings and wallpaper picker.*  The Rust settings window owns its nine
+  pages and writes the same overrides as the C window; the Rust wallpaper
+  picker is a keyboard-driven overlay that saves the selected picture.
+- *Desktop widgets.*  The Rust Scheme widget bridge and the widget cards are
+  drawn and refreshed by Rust, keep the C shell's state file, and move with a
+  settings save or a monitor hotplug.
+- *Night light.*  Temperature, schedule, fade, the wlr-gamma-control and RandR
+  backends and their timer are Rust end to end.
+
+*** Changed
+
+- The repository root is the Cargo workspace; =rust/= and =xtask/= are its
+  members, the shared =target/= is at the root, and the release script checks
+  and bumps the Cargo manifests with the Meson, Nix and distribution ones.
+
+*** Fixed
+
+- Cleaning a wallpaper surface now stops its frame chain, so a rebuilt
+  background cannot keep presenting frames from the previous generation.
+- The locker follows the monitor model on hotplug, and the settings window is
+  built on first use instead of at every startup.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace --locked= pass, including the private
+  bus notifications and AT-SPI suites and the bar fold rules.
+- The C host suite passes 48 tests, 0 failed and 2 skipped (the X11
+  night-light integration and CLI tests need a display).
+- =cargo xtask install= stages =whelk-rs=, the Scheme modules, the Rust desktop
+  entry and the icons; the staged binary reports =whelk-rs 0.36.0=.
+- The GTK and Wayland surfaces were not visually exercised against a live
+  compositor in this release.
+
 ** v0.35.0 (2026-11-16)
 
 *** Added
