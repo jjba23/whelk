@@ -11,6 +11,84 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.41.1 (2026-11-17)
+
+*** Changed
+
+- *The launcher is the card, not the output.*  Its layer surface used to be
+  anchored to all four edges, so a compositor that blurs a surface -- niri's
+  =layer-rule { match namespace="^whelk-rust-launcher$"; background-effect {
+  blur true } }=, the arrangement =docs/materials.org= recommends -- blurred the
+  whole screen on every keystroke and every caret blink, which is what made the
+  launcher feel slow there.  The surface is now the card plus the room its own
+  shadow needs (792x752 for a 720x680 card on a 1880x1253 output, instead of the
+  whole output), positioned with layer-shell margins so the card keeps its
+  place, and it follows a card resize.  Closing is unchanged: =Esc=, the close
+  button, and handing the keyboard to another window all dismiss it.
+- *One settings file, one parse.*  Every group of settings -- bars, widgets, the
+  shell menu, the menu sources, the wallpaper, the night light, the clipboard,
+  the finish -- asked Guile to read and evaluate the same file, so one shell
+  load parsed the configuration eight times and every reload did it again.  The
+  handle now remembers the evaluation, stamped with the file's modification time
+  and size, and re-reads on a reload, a rewrite, or a GUI preference write.  A
+  load parses the file once.
+- *A save next door no longer rebuilds the shell.*  The configuration directory
+  is watched, and any event in it used to schedule a reload: a rotated log or an
+  editor's lock file re-evaluated the settings and rebuilt every bar.  Only the
+  settings file and =.scm= files in that directory are news now.
+
+*** Fixed
+
+- *The bar starts with the shell's own menu, not with a name.*  The left row
+  opened with a =whelk= label carrying the settings path in its tooltip; it is
+  gone, and the path moved to the bar's own hover text, so the start mark is the
+  first thing on the bar.
+- *A module switch written as =#f= now turns the switch off.*  The Scheme
+  constructor dropped every =#f= option value before the bridge saw it, so an
+  option whose default is on could never be turned off: =#:app-name? #f= on the
+  menu module still drew the application-name button, and =#:show-ssid? #f= or
+  =#:show-capacity-when-charging? #f= fell back to their defaults.  The option
+  readers already match on type, so a =#f= is still "no value" for a string, a
+  number or a symbol, and it is now the written "off" of a boolean.  The
+  built-in bar and =docs/menus.org= have always described the application name
+  as off; the ship now does what they say.
+- *Bar popovers stop fighting for the grab.*  A layer surface can have one
+  grabbing popup at a time, so opening the start menu on top of an open
+  application menu (or the =+N= shelf, or a tray menu) was refused by GDK --
+  =Tried to map a grabbing popup with a non-top most parent= -- and the click
+  did nothing at all.  The bar now keeps one registry of its popovers and each
+  item closes the others before it opens its own; the menu bar's hover-switch
+  does the same.
+- *Clicking a menu no longer replaces it with the shell's own.*  When the
+  compositor reports no focused window -- the desktop, the overview, or one of
+  whelk's own surfaces holding the keyboard while a menu is open -- the global
+  menu rebuilt its row as the shell's fallback =File/Edit/View/Window=, which
+  destroyed the popover that had just been clicked.  An empty answer now leaves
+  the application's menus alone; only the first answer, before any application
+  has been shown, builds the shell menu.
+- *A chosen row runs after its popover is down.*  A chord typed by the shortcut
+  tool, or a compositor verb such as Close Window, acts on whichever window
+  holds the keyboard; running it in the same turn as the click sent it to the
+  bar instead of the application the menu describes.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass, and so do the Guile suites
+  (=test_defaults.scm= among them: the example settings and the built-in bar
+  still describe the same bar).
+- The built shell was run beside a live niri session: the bar draws the mark,
+  then =File= and =Window=, with no name label and no application-name button;
+  menus open, replace each other and stay open; =Tried to map a grabbing popup=
+  no longer appears.
+- The launcher was measured the same way: its surface reports 792x752 for a
+  720x680 card on a 1880x1253 output (0.60 MP of compositor blur instead of the
+  output's 2.36 MP), the card keeps its place and its shadow, and the launcher
+  still dismisses when another window takes the keyboard.
+- A load of the example configuration logs one =Reading settings from=, and a
+  touched =.scm= beside it one more; a =.txt= in the same directory logs none.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.41.0 (2026-11-17)
 
 *** Added
