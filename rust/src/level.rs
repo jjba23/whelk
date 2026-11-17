@@ -19,22 +19,17 @@ pub struct Level {
 impl Level {
     /// Records the reading and returns `true` when it differs from a reading
     /// this level already had.  The first call only fills it in.
+    #[must_use]
     pub fn update(&mut self, percent: i32, muted: bool) -> bool {
-        if !self.known {
-            self.percent = percent;
-            self.muted = muted;
-            self.known = true;
+        let next = Self {
+            percent,
+            muted,
+            known: true,
+        };
+        let changed = self.known && *self != next;
 
-            return false;
-        }
+        *self = next;
 
-        if self.percent == percent && self.muted == muted {
-            return false;
-        }
-
-        self.percent = percent;
-        self.muted = muted;
-
-        true
+        changed
     }
 }

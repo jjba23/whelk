@@ -23,6 +23,8 @@ use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::posix::{TERMINATION_SIGNALS, install_signal_handler, process_id, signal_process};
+
 const MAX_RESTARTS: u32 = 5;
 const STABLE_RUN: Duration = Duration::from_secs(30);
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -37,33 +39,15 @@ extern "C" fn on_signal(signal: libc::c_int) {
     let child = CHILD.load(Ordering::SeqCst);
 
     if child > 0 {
-        // `kill` is async-signal-safe.  The child owns its own process group,
-        // so this reaches only the UI, never an application a module started.
-        let _ = unsafe { libc::kill(child, signal) };
+        // The child owns its own process group, so this reaches only the UI,
+        // never an application a module started.
+        signal_process(child, signal);
     }
 }
 
 fn install_signals() -> Result<(), String> {
-    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-
-    action.sa_sigaction = on_signal as *const () as usize;
-    action.sa_flags = 0; // no SA_RESTART: a wait must notice the signal
-
-    let empty = unsafe { libc::sigemptyset(&mut action.sa_mask) };
-
-    if empty != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-
-    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-        let result = unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) };
-
-        if result != 0 {
-            return Err(io::Error::last_os_error().to_string());
-        }
-    }
-
-    Ok(())
+    install_signal_handler(on_signal, &TERMINATION_SIGNALS)
+        .map_err(|error| format!("could not install termination handlers: {error}"))
 }
 
 fn disabled(environment: &OsString) -> bool {
@@ -80,6 +64,79 @@ pub fn wanted() -> bool {
     env::var_os("WHELK_SUPERVISED").is_none()
 }
 
+/// What one UI process did, independent of `std::process::ExitStatus`'s
+/// platform representation.  Keeping this small makes the restart policy pure
+/// and testable without spawning a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Success,
+    NotFound,
+    Failed {
+        signal: Option<i32>,
+        code: Option<i32>,
+    },
+}
+
+impl Outcome {
+    fn from_status(status: &ExitStatus) -> Self {
+        use std::os::unix::process::ExitStatusExt;
+
+        match (status.code(), status.signal()) {
+            (Some(0), _) => Self::Success,
+            (Some(127), _) => Self::NotFound,
+            (code, signal) => Self::Failed { signal, code },
+        }
+    }
+
+    fn describe(self) -> String {
+        match self {
+            Self::Success => "exited successfully".to_owned(),
+            Self::NotFound => "could not be executed".to_owned(),
+            Self::Failed {
+                signal: Some(signal),
+                ..
+            } => format!("was killed by signal {signal}"),
+            Self::Failed {
+                code: Some(code), ..
+            } => format!("stopped (status {code})"),
+            Self::Failed { .. } => "stopped without an exit status".to_owned(),
+        }
+    }
+}
+
+/// What the supervisor should do after one child exits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Decision {
+    Exit(i32),
+    Restart { failures: u32, delay: u64 },
+}
+
+/// The whole restart policy.  A successful child ends the supervisor; a
+/// missing executable is not retried; a rapid failure increments the incident
+/// count, while a run that lasted [`STABLE_RUN`] starts a fresh incident.
+fn decide(outcome: Outcome, elapsed: Duration, failures: u32) -> Decision {
+    match outcome {
+        Outcome::Success => Decision::Exit(0),
+        Outcome::NotFound => Decision::Exit(127),
+        Outcome::Failed { .. } => {
+            let failures = if elapsed > STABLE_RUN {
+                1
+            } else {
+                failures.saturating_add(1)
+            };
+
+            if failures >= MAX_RESTARTS {
+                Decision::Exit(1)
+            } else {
+                Decision::Restart {
+                    failures,
+                    delay: restart_delay(failures),
+                }
+            }
+        }
+    }
+}
+
 /// Run the supervisor if this process is the outer invocation.  `Ok(None)`
 /// means the caller should run the UI in this process; `Ok(Some(status))` is
 /// the supervisor's own exit status.
@@ -91,7 +148,7 @@ pub fn run() -> Result<Option<i32>, String> {
     let executable = env::current_exe()
         .map_err(|error| format!("could not find the whelk executable: {error}"))?;
     let arguments: Vec<OsString> = env::args_os().skip(1).collect();
-    let parent = unsafe { libc::getpid() };
+    let parent = process_id();
 
     install_signals()?;
 
@@ -144,9 +201,11 @@ pub fn run() -> Result<Option<i32>, String> {
 
         // A signal can arrive between spawn and publishing the child's pid.
         if STOP.load(Ordering::SeqCst) {
-            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+            signal_process(pid, libc::SIGTERM);
         }
 
+        // `pre_exec` sets the group in the child; doing it again here closes
+        // the race where a signal arrives before the child reaches that code.
         let _ = unsafe { libc::setpgid(pid, pid) };
 
         let status = loop {
@@ -182,56 +241,39 @@ pub fn run() -> Result<Option<i32>, String> {
             return Ok(Some(0));
         };
 
-        if status.success() {
-            return Ok(Some(0));
+        let outcome = Outcome::from_status(&status);
+
+        match decide(outcome, started.elapsed(), failures) {
+            Decision::Exit(code) => {
+                if code == 1 {
+                    eprintln!(
+                        "whelk: the UI stopped {MAX_RESTARTS} times; leaving it stopped so a broken \
+                         configuration is not restarted forever (WHELK_NO_SUPERVISE=1 runs without \
+                         the supervisor)"
+                    );
+                }
+
+                return Ok(Some(code));
+            }
+            Decision::Restart {
+                failures: next_failures,
+                delay,
+            } => {
+                failures = next_failures;
+                eprintln!(
+                    "whelk: the UI {}; restarting in {delay} s",
+                    outcome.describe()
+                );
+
+                sleep_unless_stopped(Duration::from_secs(delay));
+            }
         }
-
-        if status.code() == Some(127) {
-            return Ok(Some(127));
-        }
-
-        if started.elapsed() > STABLE_RUN {
-            failures = 0;
-        }
-
-        failures += 1;
-
-        if failures >= MAX_RESTARTS {
-            eprintln!(
-                "whelk: the UI stopped {failures} times; leaving it stopped so a broken \
-                 configuration is not restarted forever (WHELK_NO_SUPERVISE=1 runs without \
-                 the supervisor)"
-            );
-
-            return Ok(Some(1));
-        }
-
-        let delay = restart_delay(failures);
-
-        eprintln!(
-            "whelk: the UI {}; restarting in {delay} s",
-            describe(&status)
-        );
-
-        sleep_unless_stopped(Duration::from_secs(delay));
     }
 }
 
 /// The C shell's delay: one, two, then at most four seconds.
 fn restart_delay(failures: u32) -> u64 {
     1u64 << failures.saturating_sub(1).min(2)
-}
-
-fn describe(status: &ExitStatus) -> String {
-    use std::os::unix::process::ExitStatusExt;
-
-    if let Some(signal) = status.signal() {
-        format!("was killed by signal {signal}")
-    } else if let Some(code) = status.code() {
-        format!("stopped (status {code})")
-    } else {
-        "stopped without an exit status".to_owned()
-    }
 }
 
 fn sleep_unless_stopped(duration: Duration) {
@@ -268,6 +310,79 @@ fn wait_for_stop(child: &mut std::process::Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn failed(code: i32) -> Outcome {
+        Outcome::Failed {
+            signal: None,
+            code: Some(code),
+        }
+    }
+
+    #[test]
+    fn outcomes_distinguish_success_missing_and_crashes() {
+        use std::os::unix::process::ExitStatusExt;
+
+        assert_eq!(
+            Outcome::from_status(&ExitStatus::from_raw(0)),
+            Outcome::Success
+        );
+        assert_eq!(
+            Outcome::from_status(&ExitStatus::from_raw(127 << 8)),
+            Outcome::NotFound
+        );
+        assert_eq!(
+            Outcome::from_status(&ExitStatus::from_raw(9)),
+            Outcome::Failed {
+                signal: Some(9),
+                code: None,
+            }
+        );
+    }
+
+    #[test]
+    fn success_and_a_missing_executable_are_not_restarted() {
+        assert_eq!(
+            decide(Outcome::Success, Duration::ZERO, 0),
+            Decision::Exit(0)
+        );
+        assert_eq!(
+            decide(Outcome::NotFound, Duration::ZERO, 0),
+            Decision::Exit(127)
+        );
+    }
+
+    #[test]
+    fn rapid_failures_back_off_then_give_up() {
+        assert_eq!(
+            decide(failed(1), Duration::ZERO, 0),
+            Decision::Restart {
+                failures: 1,
+                delay: 1,
+            }
+        );
+        assert_eq!(
+            decide(failed(1), Duration::from_secs(1), 1),
+            Decision::Restart {
+                failures: 2,
+                delay: 2,
+            }
+        );
+        assert_eq!(
+            decide(failed(1), Duration::from_secs(1), 4),
+            Decision::Exit(1)
+        );
+    }
+
+    #[test]
+    fn a_long_run_starts_a_new_incident() {
+        assert_eq!(
+            decide(failed(1), STABLE_RUN + Duration::from_secs(1), 4),
+            Decision::Restart {
+                failures: 1,
+                delay: 1,
+            }
+        );
+    }
 
     #[test]
     fn the_restart_delay_matches_the_c_shell() {

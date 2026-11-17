@@ -8,12 +8,13 @@
 //! into `application.quit()`, so shutdown runs the ordinary path rather than
 //! dropping the process in the middle of a paint.
 
-use std::io;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
 use gtk4 as gtk;
 use gtk4::prelude::*;
+
+use crate::posix::{TERMINATION_SIGNALS, install_signal_handler};
 
 static PENDING: AtomicI32 = AtomicI32::new(0);
 
@@ -22,26 +23,8 @@ extern "C" fn record(signal: libc::c_int) {
 }
 
 pub fn install() -> Result<(), String> {
-    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-
-    action.sa_sigaction = record as *const () as usize;
-    action.sa_flags = 0;
-
-    let empty = unsafe { libc::sigemptyset(&mut action.sa_mask) };
-
-    if empty != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-
-    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-        let result = unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) };
-
-        if result != 0 {
-            return Err(io::Error::last_os_error().to_string());
-        }
-    }
-
-    Ok(())
+    install_signal_handler(record, &TERMINATION_SIGNALS)
+        .map_err(|error| format!("could not install termination handlers: {error}"))
 }
 
 fn take() -> Option<libc::c_int> {

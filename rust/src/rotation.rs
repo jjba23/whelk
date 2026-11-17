@@ -62,16 +62,10 @@ impl Playlist {
             return;
         }
 
-        self.selected = None;
-
-        if let Some(preferred) = preferred
-            && is_usable(preferred, self.include_video)
-        {
-            self.selected = Some(preferred.to_owned());
-            return;
-        }
-
-        self.selected = self.items.first().map(|item| item.path.clone());
+        self.selected = preferred
+            .filter(|path| is_usable(path, self.include_video))
+            .map(Path::to_owned)
+            .or_else(|| self.items.first().map(|item| item.path.clone()));
     }
 
     /// Move to the next item and return it.  If the selected file is outside
@@ -92,9 +86,11 @@ impl Playlist {
             .unwrap_or(0);
 
         let next = next_index(self.items.len(), current, shuffle, &mut self.shuffle_state);
+        let path = self.items.get(next)?.path.clone();
 
-        self.selected = Some(self.items[next].path.clone());
-        self.items.get(next).map(|item| item.path.as_path())
+        self.selected = Some(path);
+
+        self.selected.as_deref()
     }
 
     /// The C engine's `restart_rotation()` guard: an enabled engine, a positive

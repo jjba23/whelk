@@ -87,7 +87,10 @@ impl ConfigLoader {
             self.guile = Some(guile);
         }
 
-        let guile = self.guile.as_ref().expect("Guile was initialized");
+        let guile = self
+            .guile
+            .as_ref()
+            .ok_or_else(|| "Guile was initialized but its handle is missing".to_owned())?;
 
         let wallpaper = guile
             .load_wallpaper(&self.path)
@@ -183,7 +186,9 @@ impl ConfigLoader {
             self.guile = Some(guile);
         }
 
-        Ok(self.guile.as_ref().expect("Guile was initialized"))
+        self.guile
+            .as_ref()
+            .ok_or_else(|| "Guile could not be initialized".to_owned())
     }
 
     /// Save one settings-window change as a GUI override.

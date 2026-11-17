@@ -469,10 +469,15 @@ fn free_answers(answers: *mut PamResponse, count: c_int) {
         return;
     }
 
-    for index in 0..count as isize {
-        let response = unsafe { &mut *answers.offset(index) };
+    // SAFETY: PAM allocated `count` consecutive `PamResponse` values for this
+    // conversation.  A negative count is treated as empty, and the allocation
+    // is still released below.
+    let responses = unsafe { std::slice::from_raw_parts_mut(answers, count.max(0) as usize) };
 
+    for response in responses {
         if !response.resp.is_null() {
+            // SAFETY: PAM's response is a NUL-terminated allocation; its
+            // length is valid for the volatile wipe before `free`.
             unsafe {
                 wipe_bytes(std::slice::from_raw_parts_mut(
                     response.resp as *mut u8,
@@ -485,6 +490,7 @@ fn free_answers(answers: *mut PamResponse, count: c_int) {
         }
     }
 
+    // SAFETY: `answers` came from `calloc` and has not been freed.
     unsafe { libc::free(answers as *mut c_void) };
 }
 
@@ -498,7 +504,13 @@ unsafe extern "C" fn conversation(
         return PAM_CONV_ERR;
     }
 
+    // SAFETY: the caller checked that `data`, `messages` and `responses` are
+    // non-null and that `count` is between 1 and 16, so both arrays are valid
+    // for that many entries.  The conversation state outlives the PAM call.
     let state = unsafe { &mut *(data as *mut Conversation) };
+    let messages = unsafe { std::slice::from_raw_parts(messages, count as usize) };
+    // SAFETY: `calloc` returns either null (handled below) or `count` zeroed
+    // `PamResponse` values, which is exactly the slice created here.
     let answers = unsafe { libc::calloc(count as usize, std::mem::size_of::<PamResponse>()) }
         as *mut PamResponse;
 
@@ -506,20 +518,22 @@ unsafe extern "C" fn conversation(
         return PAM_CONV_ERR;
     }
 
-    for index in 0..count as isize {
-        let message = unsafe { *messages.offset(index) };
+    // SAFETY: the allocation above is this many entries and is not aliased
+    // while the callback fills it.
+    let answers = unsafe { std::slice::from_raw_parts_mut(answers, count as usize) };
+
+    for (message, answer) in messages.iter().zip(answers.iter_mut()) {
+        let message = *message;
 
         if message.is_null() {
-            free_answers(answers, count);
+            free_answers(answers.as_mut_ptr(), count);
             return PAM_CONV_ERR;
         }
-
-        let answer = unsafe { &mut *answers.offset(index) };
 
         match unsafe { (*message).msg_style } {
             PAM_PROMPT_ECHO_OFF => {
                 if state.supplied {
-                    free_answers(answers, count);
+                    free_answers(answers.as_mut_ptr(), count);
                     return PAM_CONV_ERR;
                 }
 
@@ -527,7 +541,7 @@ unsafe extern "C" fn conversation(
                 state.supplied = true;
 
                 if answer.resp.is_null() {
-                    free_answers(answers, count);
+                    free_answers(answers.as_mut_ptr(), count);
                     return PAM_CONV_ERR;
                 }
             }
@@ -535,19 +549,19 @@ unsafe extern "C" fn conversation(
                 answer.resp = unsafe { libc::strdup(state.username) };
 
                 if answer.resp.is_null() {
-                    free_answers(answers, count);
+                    free_answers(answers.as_mut_ptr(), count);
                     return PAM_CONV_ERR;
                 }
             }
             PAM_ERROR_MSG | PAM_TEXT_INFO => {}
             _ => {
-                free_answers(answers, count);
+                free_answers(answers.as_mut_ptr(), count);
                 return PAM_CONV_ERR;
             }
         }
     }
 
-    unsafe { *responses = answers };
+    unsafe { *responses = answers.as_mut_ptr() };
 
     PAM_SUCCESS
 }

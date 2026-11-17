@@ -21,7 +21,7 @@ fn the_first_reading_is_not_a_change() {
 fn the_same_reading_is_not_a_change() {
     let mut level = Level::default();
 
-    level.update(42, false);
+    assert!(!level.update(42, false));
     assert!(!level.update(42, false));
 }
 
@@ -29,7 +29,7 @@ fn the_same_reading_is_not_a_change() {
 fn a_different_number_is_a_change() {
     let mut level = Level::default();
 
-    level.update(42, false);
+    assert!(!level.update(42, false));
     assert!(level.update(55, false));
     assert_eq!(level.percent, 55);
     assert!(!level.update(55, false));
@@ -39,7 +39,7 @@ fn a_different_number_is_a_change() {
 fn muting_is_a_change_at_the_same_number() {
     let mut level = Level::default();
 
-    level.update(42, false);
+    assert!(!level.update(42, false));
     assert!(level.update(42, true));
     assert!(level.muted);
     assert!(!level.update(42, true));

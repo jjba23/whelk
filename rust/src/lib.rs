@@ -12,6 +12,8 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod posix;
+
 pub mod about;
 pub mod applets;
 pub mod atspi;
