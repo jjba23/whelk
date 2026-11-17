@@ -25,6 +25,7 @@ use crate::clipboard::{
 use crate::command;
 use crate::filesearch;
 use crate::launcher as launcher_geometry;
+use crate::launcher::SHADOW_ROOM;
 use crate::launcherdata::{self, ItemKind, LauncherItem, RESULT_LIMIT};
 use crate::launcherkeys::LauncherKeys;
 use crate::menusearch;
@@ -223,7 +224,13 @@ impl Launcher {
         card.append(&footer);
         card.set_halign(gtk::Align::Center);
         card.set_valign(gtk::Align::Start);
-        card.set_margin_top(CARD_TOP);
+        // The card keeps the surface's shadow room around it instead of the
+        // whole output: the layer surface is cut to the card, so a compositor
+        // that blurs the surface blurs the card and not the screen.
+        card.set_margin_top(SHADOW_ROOM);
+        card.set_margin_bottom(SHADOW_ROOM);
+        card.set_margin_start(SHADOW_ROOM);
+        card.set_margin_end(SHADOW_ROOM);
         card.set_hexpand(false);
 
         let holder = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -372,6 +379,10 @@ impl Launcher {
         entry.set_text("");
         self.cancel_query();
 
+        // Shown again after a card resize or a scale change: the surface is the
+        // card, so its margins and size follow it.
+        self.apply_surface_placement();
+
         if chosen == "window" || chosen == "quit" {
             self.refresh_windows();
         }
@@ -462,10 +473,11 @@ impl Launcher {
             window.init_layer_shell();
             window.set_namespace(Some("whelk-rust-launcher"));
             window.set_layer(Layer::Overlay);
+            // Top and left only: the surface is the card, so the compositor's
+            // blur (a layer rule's `background-effect`) covers the card instead
+            // of the whole output.  See `apply_surface_placement`.
             window.set_anchor(Edge::Top, true);
-            window.set_anchor(Edge::Bottom, true);
             window.set_anchor(Edge::Left, true);
-            window.set_anchor(Edge::Right, true);
             window.set_exclusive_zone(0);
             window.set_keyboard_mode(KeyboardMode::Exclusive);
             window.set_default_size(800, 800);
@@ -475,6 +487,8 @@ impl Launcher {
 
         window.present();
         window.set_visible(false);
+        drop(state);
+        self.apply_surface_placement();
     }
 
     fn connect_controls(&self) {
@@ -556,13 +570,22 @@ impl Launcher {
         resize.connect_drag_update(move |_, offset_x, offset_y| {
             if let Some(inner) = weak.upgrade() {
                 let panel = Launcher { inner };
-                let mut state = panel.inner.borrow_mut();
 
-                state.width =
-                    launcher_geometry::clamp_width(state.drag_width + 2 * offset_x.round() as i32);
-                state.height =
-                    launcher_geometry::clamp_height(state.drag_height + offset_y.round() as i32);
-                state.card.set_size_request(state.width, state.height);
+                {
+                    let mut state = panel.inner.borrow_mut();
+
+                    state.width = launcher_geometry::clamp_width(
+                        state.drag_width + 2 * offset_x.round() as i32,
+                    );
+                    state.height = launcher_geometry::clamp_height(
+                        state.drag_height + offset_y.round() as i32,
+                    );
+                    state.card.set_size_request(state.width, state.height);
+                }
+
+                // The surface is cut to the card, so a resize moves its margins
+                // with it.
+                panel.apply_surface_placement();
             }
         });
         grip.add_controller(resize);
@@ -1287,10 +1310,62 @@ impl Launcher {
     }
 
     fn apply_geometry(&self) {
-        let state = self.inner.borrow();
+        {
+            let state = self.inner.borrow();
 
-        state.card.set_size_request(state.width, state.height);
-        state.scroller.set_vexpand(true);
+            state.card.set_size_request(state.width, state.height);
+            state.scroller.set_vexpand(true);
+        }
+
+        self.apply_surface_placement();
+    }
+
+    /// Cut the layer surface down to the card, and put the card back where it
+    /// was on the output.
+    ///
+    /// The compositor blurs a layer surface's whole geometry when its layer
+    /// rule asks for a background effect, so a fullscreen launcher surface is a
+    /// fullscreen blur on every keystroke and every caret blink.  The surface is
+    /// the card plus the room its shadow needs, centred horizontally and hung
+    /// [`CARD_TOP`] below the output's top edge, which is where the fullscreen
+    /// surface used to place it with a margin.
+    fn apply_surface_placement(&self) {
+        if !crate::ui::layer_shell_available() {
+            return;
+        }
+
+        let (window, width, height) = {
+            let state = self.inner.borrow();
+
+            (state.window.clone(), state.width, state.height)
+        };
+        let Some(display) = gtk::gdk::Display::default() else {
+            return;
+        };
+        let monitor = window
+            .surface()
+            .and_then(|surface| display.monitor_at_surface(&surface))
+            .or_else(|| {
+                display
+                    .monitors()
+                    .item(0)
+                    .and_downcast::<gtk::gdk::Monitor>()
+            });
+        let Some(monitor) = monitor else {
+            return;
+        };
+        let geometry = monitor.geometry();
+        let placement = launcher_geometry::surface_placement(
+            geometry.width(),
+            geometry.height(),
+            width,
+            height,
+            CARD_TOP,
+        );
+
+        window.set_margin(Edge::Left, placement.left);
+        window.set_margin(Edge::Top, placement.top);
+        window.set_default_size(placement.width, placement.height);
     }
 
     fn update_zoom_labels(&self) {

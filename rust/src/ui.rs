@@ -1085,7 +1085,22 @@ fn watch_config(shell: &ShellRef) {
         }
     };
     let weak = Rc::downgrade(shell);
-    let handler = monitor.connect_changed(move |_, _, _, _| {
+    let watched = path.clone();
+    let handler = monitor.connect_changed(move |_, file, _, _| {
+        // The watch is on the directory, so an unrelated write -- a rotated log,
+        // an editor's lock file -- would otherwise re-evaluate the settings and
+        // rebuild every bar.  A `.scm` in this directory is configuration, and a
+        // render that renames a temporary file over the settings file is seen as
+        // the settings file itself.
+        if let Some(changed) = file.path()
+            && changed != watched
+            && !changed
+                .extension()
+                .is_some_and(|extension| extension == "scm")
+        {
+            return;
+        }
+
         if let Some(shell) = weak.upgrade() {
             schedule_reload(&shell);
         }

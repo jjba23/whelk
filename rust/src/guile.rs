@@ -19,6 +19,7 @@
 
 mod sys;
 
+use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
@@ -106,6 +107,15 @@ pub struct Guile {
     false_value: sys::Scm,
     symbol_predicate: Root,
     display_procedure: Root,
+    /// The settings file this handle has already evaluated, with the stamp it
+    /// had when it was read.
+    ///
+    /// Every `load_*` group reads its own part of the shell out of the same
+    /// file, so without this one shell load parses and evaluates the user's
+    /// configuration once per group -- eight times -- on every reload.  The
+    /// path is remembered instead, and `invalidate_config`, a file whose stamp
+    /// moved, or the shell's own reload is what makes it read again.
+    loaded_config: RefCell<Option<(PathBuf, std::time::SystemTime, u64)>>,
     _thread_bound: PhantomData<*mut ()>,
 }
 
@@ -148,6 +158,7 @@ impl Guile {
             false_value,
             symbol_predicate,
             display_procedure,
+            loaded_config: RefCell::new(None),
             _thread_bound: PhantomData,
         };
 
@@ -486,6 +497,10 @@ impl Guile {
         let answer = self.eval_string(&code)?;
 
         if answer.trim() == "#t" {
+            // The choice is an override the next load reads: forget the
+            // remembered evaluation so it is part of it.
+            self.invalidate_config();
+
             return Ok(());
         }
 
@@ -522,6 +537,9 @@ impl Guile {
         let answer = self.eval_string(&code)?;
 
         if answer.trim() == "#t" {
+            // The override is what the next load must see.
+            self.invalidate_config();
+
             return Ok(());
         }
 
@@ -541,6 +559,9 @@ impl Guile {
             "(begin (use-modules (whelk prefs)) (reset-preferences! {}))",
             scheme_string_literal(config)
         ))?;
+
+        // Whatever was remembered answered with the overrides still in it.
+        self.invalidate_config();
 
         Ok(answer.trim() == "#t")
     }
@@ -733,6 +754,17 @@ impl Guile {
             )));
         }
 
+        // One shell load asks the same file for its bars, its wallpaper, its
+        // widgets and the rest.  Evaluating it once and remembering it turns
+        // eight parses of the user's configuration into one; `invalidate_config`
+        // and a stamp that moved are the explicit re-read.
+        if let Some((loaded_path, time, len)) = self.loaded_config.borrow().clone()
+            && loaded_path == config_path
+            && config_stamp(config_path) == Some((time, len))
+        {
+            return Ok(());
+        }
+
         let path_text = config_path.to_str().ok_or_else(|| {
             GuileError::Evaluation(format!(
                 "settings path is not valid UTF-8: {}",
@@ -749,6 +781,10 @@ impl Guile {
         })?;
 
         if self.is_true(loaded) {
+            if let Some((time, len)) = config_stamp(config_path) {
+                *self.loaded_config.borrow_mut() = Some((config_path.to_owned(), time, len));
+            }
+
             Ok(())
         } else {
             Err(GuileError::Evaluation(format!(
@@ -756,6 +792,15 @@ impl Guile {
                 config_path.display()
             )))
         }
+    }
+
+    /// Make the next `load_*` evaluate the settings file again.
+    ///
+    /// A reload exists because the file or the GUI overrides changed, so the
+    /// remembered evaluation must not answer for it.  A writer that changes
+    /// what a load would produce calls this itself.
+    pub fn invalidate_config(&self) {
+        self.loaded_config.borrow_mut().take();
     }
 
     fn register_rust_version(&self) -> Result<(), GuileError> {
@@ -986,7 +1031,16 @@ fn eval_raw(code: &str) -> Result<sys::Scm, GuileError> {
 }
 
 /// Escape a Rust string as a Scheme string literal.  This is used for load
-/// paths and the settings path, both of which may contain quotes or backslashes.
+/// What a remembered evaluation was made from: the file's modification time and
+/// size.  A file that is rewritten moves at least one of them, and the shell's
+/// own reload invalidates explicitly, so a stale evaluation cannot answer for a
+/// configuration that changed.
+fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+
+    Some((metadata.modified().ok()?, metadata.len()))
+}
+
 /// The characters a preference symbol is made of.  A key is spliced into the
 /// Scheme source, so anything outside this set never reaches it.
 fn is_preference_key(key: &str) -> bool {
@@ -999,6 +1053,8 @@ fn is_preference_key(key: &str) -> bool {
         })
 }
 
+/// `value` as a double-quoted Scheme string literal: the one escape hatch used
+/// for paths, which may contain quotes or backslashes.
 pub fn scheme_string_literal(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 2);
 

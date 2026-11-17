@@ -10,10 +10,13 @@ One overlay, one entry, eleven modes: applications, windows, commands, arithmeti
 query's characters in order, a word start worth more than a match in the
 middle, a short name over a long one.  =Tab= completes the selection into the
 entry, =Enter= opens it, =Esc= or the close button dismisses it, and the arrows
-move the selection and scroll the list with it.  A click on the dimmed area
-outside the card closes it too.  The card has a brand header, a search field,
-icon tiles, a selected-row accent and an empty-state line, so it reads as one
-surface rather than a form dropped on the screen.  A prefix picks the mode.
+move the selection and scroll the list with it.  The overlay is the card and the
+room its shadow needs, not the whole output: that keeps a compositor's blur
+(a layer rule's =background-effect=) to the card, and a click on another window
+closes the launcher the moment the keyboard moves there.  The card has a brand
+header, a search field, icon tiles, a selected-row accent and an empty-state
+line, so it reads as one surface rather than a form dropped on the screen.  A
+prefix picks the mode.
 
 | Mode     | What it searches                                  | Prefix   |
 |----------+---------------------------------------------------+----------|

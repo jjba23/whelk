@@ -96,6 +96,10 @@ impl ConfigLoader {
             .as_ref()
             .ok_or_else(|| "Guile was initialized but its handle is missing".to_owned())?;
 
+        // Every group below reads its part of the same file; the handle
+        // evaluates it once and this is what makes a reload read it again.
+        guile.invalidate_config();
+
         let wallpaper = guile
             .load_wallpaper(&self.path)
             .map_err(|error| format!("wallpaper settings could not be loaded: {error}"))?;
