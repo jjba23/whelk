@@ -11,6 +11,32 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.39.2 (2026-11-17)
+
+*** Changed
+
+- *The POSIX boundary is one audited module.*  =posix.rs= now owns signal
+  installation, process signalling and =getpid=; the UI and the supervisor no
+  longer repeat their own =sigaction= setup.
+- *The supervisor's restart policy is a pure function.*  An =Outcome= is
+  classified once and =decide= returns an =Exit= or =Restart= decision, which is
+  tested without spawning a child.
+- *The pure modules use composition instead of manual state.*  Fuzzy scoring is
+  a =try_fold= over the query, =best= uses a maximum key, playlist resolution
+  uses =Option= combinators, and a level update assigns one new value instead of
+  repeating field writes.
+- *The PAM conversation uses slices.*  Raw response arrays are no longer walked
+  with =offset=, and the configuration loader propagates a missing Guile handle
+  instead of panicking on an invariant.
+
+*** Verified
+
+- =cargo fmt --all --check= and =cargo clippy --workspace --all-targets -- -D
+  warnings= pass.
+- =cargo test --workspace --locked --offline= passes: 502 tests, including the
+  8 new safety/policy cases, plus the Guile harness.
+- The pinned Guix build and the Nix package build the same source.
+
 ** v0.39.1 (2026-11-17)
 
 *** Changed
