@@ -429,7 +429,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   by the fallback.  The configured overflow row is built with the bar and
   opens behind its chevron; the right row folds its trailing readings into a
   `+N` popover after the first allocation, keeping the modules alive so their
-  timers and clicks still work.  It watches the settings directory with a 250 ms debounce,
+  timers and clicks still work.  A right-click on the bar's own gaps opens the
+  shell menu: Edit settings and Reload settings; a module's right-click stays
+  the module's.  It watches the settings directory with a 250 ms debounce,
   watches the GDK monitor model for hotplug, and rebuilds by destroying the old
   windows (and their module hosts/CSS/clock timers) before building the new
   plan.  It also owns the one clipboard service: starts it before the first
@@ -632,6 +634,7 @@ cargo run -p whelk-rs -- --clipboard
 cargo run -p whelk-rs -- --wallpaper-picker
 cargo run -p whelk-rs -- --settings
 cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
+# stages whelk-rs, the Scheme modules, the Rust desktop entry and the shared icons
 cargo xtask dist --output /tmp
 ```
 

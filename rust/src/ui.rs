@@ -666,6 +666,7 @@ fn build_bar_window(
     bar.set_center_widget(Some(&center));
     bar.set_end_widget(Some(&end));
     window.set_child(Some(&bar));
+    build_bar_context_menu(application, &bar, &start, &center, &end);
 
     let css = install_css(bar_settings);
 
@@ -1249,6 +1250,92 @@ fn collapse_end(state: &FoldState) {
     state.more.button.set_visible(folded > 0);
 }
 
+/// The C bar's own right-click menu: a way into the settings window and a
+/// reload without remembering a socket command.  Modules keep their own right
+/// clicks; only the bar's gaps, padding and three groups open this menu.
+fn build_bar_context_menu(
+    application: &gtk::Application,
+    bar: &gtk::CenterBox,
+    start: &gtk::Box,
+    center: &gtk::Box,
+    end: &gtk::Box,
+) {
+    let popover = gtk::Popover::new();
+
+    popover.set_autohide(true);
+    popover.set_has_arrow(false);
+    popover.set_parent(bar);
+
+    let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
+
+    menu.add_css_class("whelk-bar-menu");
+
+    let heading = gtk::Label::new(Some("whelk"));
+
+    heading.add_css_class("whelk-bar-menu-heading");
+    heading.set_xalign(0.0);
+    heading.set_margin_start(8);
+    heading.set_margin_end(8);
+    heading.set_margin_top(4);
+    heading.set_margin_bottom(4);
+
+    let edit = gtk::Button::with_label("Edit settings…");
+
+    edit.add_css_class("flat");
+    edit.set_halign(gtk::Align::Start);
+
+    let reload = gtk::Button::with_label("Reload settings");
+
+    reload.add_css_class("flat");
+    reload.set_halign(gtk::Align::Start);
+
+    menu.append(&heading);
+    menu.append(&edit);
+    menu.append(&reload);
+    popover.set_child(Some(&menu));
+
+    let application_for_edit = application.clone();
+    let popover_for_edit = popover.clone();
+
+    edit.connect_clicked(move |_| {
+        application_for_edit.activate_action("settings", None);
+        popover_for_edit.popdown();
+    });
+
+    let application_for_reload = application.clone();
+    let popover_for_reload = popover.clone();
+
+    reload.connect_clicked(move |_| {
+        application_for_reload.activate_action("reload", None);
+        popover_for_reload.popdown();
+    });
+
+    let gesture = gtk::GestureClick::new();
+
+    gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
+
+    let bar_for_pick = bar.clone();
+    let start = start.clone().upcast::<gtk::Widget>();
+    let center = center.clone().upcast::<gtk::Widget>();
+    let end = end.clone().upcast::<gtk::Widget>();
+
+    gesture.connect_pressed(move |_, _, x, y| {
+        let root = bar_for_pick.clone().upcast::<gtk::Widget>();
+        let target = bar_for_pick.pick(x, y, gtk::PickFlags::DEFAULT);
+        let structural = target.as_ref().is_some_and(|target| {
+            target == &root || target == &start || target == &center || target == &end
+        });
+
+        if !structural {
+            return;
+        }
+
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+    });
+    bar.add_controller(gesture);
+}
+
 fn update_clock(label: &gtk::Label, format: &str) {
     let text = gtk::glib::DateTime::now_local()
         .and_then(|now| now.format(format))
@@ -1279,6 +1366,13 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-overflow-more {
             padding: 0 4px;
+        }
+        .whelk-bar-menu {
+            padding: 4px;
+        }
+        .whelk-bar-menu-heading {
+            font-weight: 700;
+            opacity: 0.7;
         }
         .whelk-overflow-box {
             padding: 6px;

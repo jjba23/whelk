@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 const BINARY: &str = "whelk-rs";
+const APP_ID: &str = "org.jointhefreeworld.whelk.rust";
 
 fn main() -> ExitCode {
     match run() {
@@ -136,6 +137,14 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
         &root.join("share/doc/whelk-rs/README.md"),
         0o644,
     )?;
+    install_text(
+        &root
+            .join("share/applications")
+            .join(format!("{APP_ID}.desktop")),
+        &desktop_entry(),
+        0o644,
+    )?;
+    copy_directory(&workspace.join("data/icons"), &root.join("share/icons"))?;
 
     println!(
         "installed {} to {}",
@@ -145,6 +154,12 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
     println!(
         "installed Scheme modules to {}",
         root.join("share/guile/site/3.0/whelk").display()
+    );
+    println!(
+        "installed the Rust desktop entry to {}",
+        root.join("share/applications")
+            .join(format!("{APP_ID}.desktop"))
+            .display()
     );
     println!(
         "the C `whelk` binary was not touched; run `whelk-rs` beside it, and set \
@@ -232,6 +247,37 @@ fn dist(arguments: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+/// The Rust shell's own desktop entry.  It shares the C shell's icon so a
+/// desktop that has both installed shows one whelk mark, but its executable and
+/// startup class are the Rust ones.
+fn desktop_entry() -> String {
+    format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Whelk (Rust)\n\
+         GenericName=Wayland Shell\n\
+         Comment=A Wayland shell -- status bar, launcher and desktop widgets, configured in Guile Scheme\n\
+         Exec={BINARY}\n\
+         Icon=org.jointhefreeworld.whelk\n\
+         Terminal=false\n\
+         Categories=System;Utility;\n\
+         Keywords=bar;panel;status;shell;wayland;guile;scheme;\n\
+         StartupNotify=false\n\
+         StartupWMClass={APP_ID}\n"
+    )
+}
+
+fn install_text(destination: &Path, contents: &str, mode: u32) -> Result<(), String> {
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+    }
+
+    fs::write(destination, contents)
+        .map_err(|error| format!("could not write {}: {error}", destination.display()))?;
+    set_mode(destination, mode)
+}
+
 fn install_root(prefix: &Path, destdir: Option<&Path>) -> PathBuf {
     match destdir {
         Some(destdir) => {
@@ -256,16 +302,16 @@ fn install_file(source: &Path, destination: &Path, mode: u32) -> Result<(), Stri
         )
     })?;
 
+    set_mode(destination, mode)
+}
+
+fn set_mode(path: &Path, mode: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
 
-        fs::set_permissions(destination, fs::Permissions::from_mode(mode)).map_err(|error| {
-            format!(
-                "could not set permissions on {}: {error}",
-                destination.display()
-            )
-        })?;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            .map_err(|error| format!("could not set permissions on {}: {error}", path.display()))?;
     }
 
     #[cfg(not(unix))]
@@ -295,4 +341,20 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cargo_install_ships_a_desktop_entry_for_the_rust_binary() {
+        let entry = desktop_entry();
+
+        assert!(entry.ends_with('\n'));
+        assert!(entry.contains("Exec=whelk-rs\n"));
+        assert!(entry.contains("Icon=org.jointhefreeworld.whelk\n"));
+        assert!(entry.contains("Name=Whelk (Rust)\n"));
+        assert!(entry.contains("StartupWMClass=org.jointhefreeworld.whelk.rust\n"));
+    }
 }

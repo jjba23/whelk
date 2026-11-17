@@ -41,6 +41,14 @@ meson_version() {
   sed -n "s/^  version: '\([^']*\)',/\1/p" meson.build | head -n 1
 }
 
+cargo_version() {
+  sed -n 's/^version = "\([^"]*\)"/\1/p' rust/Cargo.toml | head -n 1
+}
+
+xtask_version() {
+  sed -n 's/^version = "\([^"]*\)"/\1/p' xtask/Cargo.toml | head -n 1
+}
+
 nix_version() {
   sed -n 's/^  version = "\([^"]*\)";/\1/p' default.nix | head -n 1
 }
@@ -66,8 +74,8 @@ check_version() {
 
   local name
   local value
-  for name in meson_version nix_version arch_version debian_version \
-              spec_version; do
+  for name in meson_version cargo_version xtask_version nix_version \
+              arch_version debian_version spec_version; do
     value=$("$name")
     [[ "$value" == "$expected" ]] ||
       die "$name is '$value', expected '$expected'"
@@ -110,6 +118,8 @@ update_version() {
   local version="$1"
 
   sed -i "s/^  version: '[^']*',/  version: '${version}',/" meson.build
+  sed -i "0,/^version = \"[^\"]*\"/s//version = \"${version}\"/" rust/Cargo.toml
+  sed -i "0,/^version = \"[^\"]*\"/s//version = \"${version}\"/" xtask/Cargo.toml
   sed -i "s/^  version = \"[^\"]*\";/  version = \"${version}\";/" default.nix
   sed -i "s/^pkgver=.*/pkgver=${version}/" packaging/arch/PKGBUILD
   sed -i "1s/^whelk ([^-)]*-[0-9][0-9]*)/whelk (${version}-1)/" \
@@ -123,8 +133,13 @@ verify() {
   version=$(current_version)
   check_version "$version"
 
+  command -v cargo >/dev/null 2>&1 || die "cargo is not installed"
   command -v meson >/dev/null 2>&1 || die "meson is not installed"
   command -v ninja >/dev/null 2>&1 || die "ninja is not installed"
+
+  cargo fmt --all --check
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace --locked
 
   if [[ ! -d build-host ]]; then
     meson setup build-host

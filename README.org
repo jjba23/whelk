@@ -14,11 +14,11 @@
 
 #+begin_quote
 An ordinary status bar is a compiled artefact with a settings file in front of
-it.  whelk is a shell written in C, and the bar on screen is the value of a Guile
-program you can rewrite while it runs.
+it.  whelk is a shell written in C and Rust, and the bar on screen is the value
+of a Guile program you can rewrite while it runs.
 #+end_quote
 
-whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, notification centre, floating desktop widgets and more.  It is written in C with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
+whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, notification centre, floating desktop widgets and more.  It is written in C and Rust with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
 in S-expressions, rather than in JSON plus a CSS file.
 
 It's a programmable flexible shell you can *program*: modules are values, a bar is a list, the settings file is
@@ -28,7 +28,7 @@ environment the configuration lives in.
 - 🐚 *Read the source, file an issue, send a PR:*
   [[https://github.com/jjba23/whelk][github.com/jjba23/whelk]]
 - 📦 *Install it:* from the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld Guix channel]], with Nix, with
-  Meson, or from the =packaging/= recipes
+  Meson or Cargo, or from the =packaging/= recipes
 - 📚 *Hack on it:* [[file:docs/development.org][the development guide]] for the conventions, the tests and the house rules
 - 📰 *Follow what changed:* [[file:NEWS.org][the news]]
 - 🤖 *Know the rules of the road:* [[file:AI_POLICY.md][the AI policy]]
@@ -232,7 +232,7 @@ click, and the command line a keybinding uses to open a surface.
 | the jointhefreeworld channel | =guix install whelk=, from [[https://github.com/jjba23/guix-jointhefreeworld][the channel]]                        |
 | Nix                      | =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'= |
 | from source (C shell)    | =meson setup build && ninja -C build && meson test -C build=           |
-| from source (Rust shell) | =cargo build -p whelk-rs --release=                                    |
+| from source (Rust shell) | =cargo build -p whelk-rs --release=, then =cargo xtask install=       |
 | a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build=                   |
 
 [[file:docs/installation.org][Installation]] has the requirements, what the binary links (and why PAM is not on
