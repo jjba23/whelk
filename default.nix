@@ -27,7 +27,7 @@
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "whelk";
-  version = "0.41.2";
+  version = "0.41.3";
 
   src = lib.cleanSourceWith {
     src = ./.;

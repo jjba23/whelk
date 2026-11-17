@@ -11,6 +11,48 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.41.3 (2026-11-17)
+
+*** Added
+
+- *A wallpaper menu, opened where the user asks for it.*  A right click on an
+  empty desktop, or a click on the bar's new =(wallpaper-module)=, opens a card
+  of thumbnails: the current picture outlined, the count in the header, and a
+  click on a picture applies it through the same =wallpaper-selected= preference
+  the picker writes.  The card opens at the pointer (flipped when it would hang
+  off the output) or under the reading (above it for a bar at the bottom).
+  *Esc*, the close button and any click back on the desktop dismiss it, and a
+  collection of more than twelve pictures keeps the rest behind *Browse all…*,
+  which opens the picker.
+- *A background that answers clicks.*  whelk now keeps one transparent
+  =background=-layer surface per monitor, so the clicks nothing else wants land
+  on the shell.  It reserves no space, cannot take a click from a window, and
+  exists even when the engine is not drawing a background.
+- The menu is its own layer surface cut to the card -- so a compositor that
+  blurs a surface blurs the menu instead of the output, the same rule the
+  launcher follows -- and its thumbnails arrive one per idle callback, through
+  the picker's own queue.
+
+*** Changed
+
+- *The bar never prints the wallpaper's details.*  The "wallpaper: enabled ·
+  5400s · crossfade · cover · 3 paths" reading is gone from the centre of the
+  bar; the pictures are one click away in the menu instead.
+- The example settings, the built-in default bar and the heks-linux render use
+  =(wallpaper-module)= where they used a =custom-module= that ran
+  =heks-toon walls=: nothing about the wallpapers leaves whelk now.
+
+*** Verified
+
+- The menu was opened in a live niri session against the operator's own three
+  wallpapers: the card landed on the requested point (626, 246 with the measure
+  of the card, 380x173), the thumbnails decoded, and the "not drawing a
+  background" line appeared with the engine off.
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass, including the new menu tests
+  (capacity and the two placements), and so do the Guile suites.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.41.2 (2026-11-17)
 
 *** Fixed

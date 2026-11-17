@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-version = "0.41.2"
+version = "0.41.3"
 edition = "2024"
 publish = false
 description = "Build and staged-install helper for whelk"
