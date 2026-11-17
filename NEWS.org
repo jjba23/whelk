@@ -11,6 +11,33 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.39.3 (2026-11-17)
+
+*** Changed
+
+- *The Guile bridge uses static C strings.*  Module and procedure names are
+  `c"..."` literals passed straight to the checked `&CStr` boundary, so loading
+  the configuration no longer allocates or panics on an impossible NUL.  The
+  Rust-version primitive reads a compile-time NUL-terminated byte string.
+- *The network panel's pages are concrete types.*  Wi-Fi controls are required
+  fields of `WifiPage` rather than nine `Option`s followed by five `expect`s;
+  Bluetooth has its own page type, and both share a common builder that keeps
+  the original widget order.
+- *Menu paths descend without an unreachable branch.*  A recursive walk returns
+  the final submenu or `None`; a malformed path stops instead of panicking, and
+  the parser's mutable borrows stay local.
+- *Widget drag setup and the lock service name are panic-free.*  A card whose
+  child is not the expected box simply skips drag setup, and PAM receives a
+  static `c"whelk-lock"` service name.
+
+*** Verified
+
+- =cargo fmt --all --check= and =cargo clippy --workspace --all-targets -- -D
+  warnings= pass.
+- =cargo test --workspace --locked --offline= passes: 502 tests, including the
+  Guile harness.
+- The pinned Guix build and the Nix package build the same source.
+
 ** v0.39.2 (2026-11-17)
 
 *** Changed
