@@ -39,10 +39,10 @@ use crate::notifications::NotificationService;
 use crate::osd::Osd;
 use crate::preferences::{self, PreferenceValue, Preferences, ReadFn, ReloadFn, SaveFn, Snapshot};
 use crate::session::Session;
-use crate::settings::WallpaperSettings;
 use crate::sources;
 use crate::startmenu::MenuEntry;
 use crate::style;
+use crate::wallpapermenu::WallpaperMenu;
 use crate::wallpaperpicker::Picker;
 
 const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
@@ -417,6 +417,8 @@ struct Shell {
     launcher: Option<Launcher>,
     osd: Option<Osd>,
     picker: Option<Picker>,
+    wallpaper_menu: Option<WallpaperMenu>,
+    desktop: Vec<gtk::Window>,
     preferences: Option<Preferences>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
@@ -485,6 +487,8 @@ impl Shell {
             launcher: Some(launcher),
             osd: Some(osd),
             picker: None,
+            wallpaper_menu: None,
+            desktop: Vec::new(),
             preferences: None,
             _hold: hold,
         }));
@@ -522,9 +526,21 @@ impl Shell {
                     state.loaded.wallpaper.clone(),
                 )
             };
-            let picker = Picker::new(application, &style, &wallpaper, on_choose);
+            let picker = Picker::new(application, &style, &wallpaper, Rc::clone(&on_choose));
+            let browse_weak = Rc::downgrade(&shell);
+            let on_browse: Rc<dyn Fn()> = Rc::new(move || {
+                if let Some(shell) = browse_weak.upgrade() {
+                    shell.borrow().show_picker();
+                }
+            });
+            let menu = WallpaperMenu::new(application, &style, &wallpaper, on_choose, on_browse);
 
-            shell.borrow_mut().picker = Some(picker);
+            crate::wallpapermenu::install(Some(menu.clone()));
+
+            let mut state = shell.borrow_mut();
+
+            state.picker = Some(picker);
+            state.wallpaper_menu = Some(menu);
         }
 
         watch_config(&shell);
@@ -564,7 +580,6 @@ impl Shell {
                 bar_settings,
                 monitor,
                 &self.config_label,
-                &self.loaded.wallpaper,
                 &self.loaded.menu,
                 &self.loaded.menu_sources,
                 self.session,
@@ -575,6 +590,10 @@ impl Shell {
         if built == 0 {
             eprintln!("whelk: no bar matches the current monitor model; waiting for an output");
         }
+
+        // The background's input half: one transparent surface per output, so a
+        // right click on an empty desktop can offer the wallpapers.
+        self.desktop = crate::desktop::present(&application, &monitors);
 
         // The cards are placed around the bars, so they are rebuilt with them:
         // a settings save and a hotplug both land here, and the style they
@@ -640,6 +659,11 @@ impl Shell {
                     picker.set_style(&style);
                 }
 
+                if let Some(menu) = self.wallpaper_menu.as_ref() {
+                    menu.set_style(&style);
+                    menu.set_settings(&self.loaded.wallpaper);
+                }
+
                 self.rebuild();
 
                 crate::nightlight::update(self.loaded.night_light.clone());
@@ -702,6 +726,7 @@ impl Shell {
 
         Osd::install(None);
         Launcher::install(None);
+        crate::wallpapermenu::install(None);
         NetworkPanel::install(None);
         NotificationCenter::install(None);
         Clipboard::install(None);
@@ -709,6 +734,12 @@ impl Shell {
 
         self.preferences.take();
         self.picker.take();
+        self.wallpaper_menu.take();
+
+        for window in self.desktop.drain(..) {
+            window.set_visible(false);
+            window.destroy();
+        }
         self.launcher.take();
         self.network.take();
         self.center.take();
@@ -794,7 +825,6 @@ fn build_bar_window(
     bar_settings: &BarSettings,
     monitor: Option<&gtk::gdk::Monitor>,
     config_label: &str,
-    wallpaper_settings: &WallpaperSettings,
     shell_menu: &[MenuEntry],
     menu_sources: &Rc<MenuSources>,
     session: Session,
@@ -820,10 +850,6 @@ fn build_bar_window(
     // it named is still a hover away, on the bar's own gaps.
     bar.set_tooltip_text(Some(config_label));
 
-    let wallpaper = gtk::Label::new(Some(&wallpaper_settings.summary()));
-    wallpaper.add_css_class("whelk-status");
-    wallpaper.set_ellipsize(gtk::pango::EllipsizeMode::End);
-
     let start = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
     let center = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
     let end = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
@@ -840,10 +866,6 @@ fn build_bar_window(
     append_modules(&start, &bar_settings.left, &context);
     append_modules(&center, &bar_settings.center, &context);
     append_modules(&end, &bar_settings.right, &context);
-
-    if center.first_child().is_none() {
-        center.append(&wallpaper);
-    }
 
     // A clock module is itself one of the readings now.  Only a configuration
     // without one needs the bootstrap clock, so a configured clock is not
@@ -1670,9 +1692,6 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-bar {
             padding: 0;
-        }
-        .whelk-status {
-            opacity: 0.72;
         }
         .whelk-clock {
             font-weight: 700;

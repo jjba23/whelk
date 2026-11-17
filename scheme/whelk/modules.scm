@@ -68,7 +68,8 @@
             notifications-module
             tray-module
             start-module
-            menu-module))
+            menu-module
+            wallpaper-module))
 
 ;; =============================================================================
 ;; The record
@@ -358,6 +359,18 @@ While do-not-disturb is on, the reading wears #:dnd-icon (a slashed bell by
 default), #:dnd-format when it is set, and #:dnd-tooltip -- the one reading on
 the bar that has to say notifications will not arrive."
   (apply module 'notifications kv))
+
+(define* (wallpaper-module #:rest kv)
+  "The wallpapers as a reading, backed by whelk's own menu.  A left click opens
+a card of thumbnails beside the reading -- and a right click on an empty desktop
+opens the same card where the pointer is -- and clicking a picture applies it
+through the =wallpaper-selected= GUI preference, exactly as the picker does, so
+no other program is involved.  A collection too big for the card's four by three
+has a *Browse all* row that hands it to the full picker.  #:icon is the glyph (a
+picture frame by default), #:format uses {icon}, and a configuration that names
+#:on-click or #:on-click-right gets its commands instead of the card and the
+picker."
+  (apply module 'wallpaper kv))
 
 (define* (tray-module #:rest kv)
   "The StatusNotifierItem tray: other programs' status icons.  #:spacing is the

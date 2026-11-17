@@ -151,25 +151,27 @@ pub fn card_size(
 // Thumbnails
 // ---------------------------------------------------------------------------
 
-/// One thumbnail to decode.
-struct ThumbRequest {
-    picture: gtk::glib::WeakRef<gtk::Picture>,
-    path: PathBuf,
-    width: i32,
-    height: i32,
-    generation: u64,
+/// One thumbnail to decode.  Shared with the wallpaper menu, which shows the
+/// same pictures at its own size through the same one-per-idle queue.
+pub(crate) struct ThumbRequest {
+    pub(crate) picture: gtk::glib::WeakRef<gtk::Picture>,
+    pub(crate) path: PathBuf,
+    pub(crate) width: i32,
+    pub(crate) height: i32,
+    pub(crate) generation: u64,
 }
 
 /// The queue behind the grid.  One idle decodes one picture; the next idle is
-/// scheduled only once it is done, so the picker never blocks on a directory.
-struct Thumbs {
+/// scheduled only once it is done, so neither the picker nor the menu blocks on
+/// a directory of 4K files.
+pub(crate) struct Thumbs {
     queue: RefCell<VecDeque<ThumbRequest>>,
     scheduled: Cell<bool>,
     generation: Rc<Cell<u64>>,
 }
 
 impl Thumbs {
-    fn new() -> Rc<Self> {
+    pub(crate) fn new() -> Rc<Self> {
         Rc::new(Self {
             queue: RefCell::new(VecDeque::new()),
             scheduled: Cell::new(false),
@@ -177,9 +179,14 @@ impl Thumbs {
         })
     }
 
-    fn push(self: &Rc<Self>, request: ThumbRequest) {
+    pub(crate) fn push(self: &Rc<Self>, request: ThumbRequest) {
         self.queue.borrow_mut().push_back(request);
         self.pump_soon();
+    }
+
+    /// The generation a request must carry to still be wanted.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.get()
     }
 
     fn pump_soon(self: &Rc<Self>) {
@@ -205,13 +212,13 @@ impl Thumbs {
     }
 
     /// Drop what the previous grid asked for and start a new generation.
-    fn reset(&self) {
+    pub(crate) fn reset(&self) {
         self.generation.set(self.generation.get() + 1);
         self.queue.borrow_mut().clear();
     }
 }
 
-fn decode(request: &ThumbRequest, generation: u64) {
+pub(crate) fn decode(request: &ThumbRequest, generation: u64) {
     if request.generation != generation {
         return;
     }
@@ -240,7 +247,7 @@ fn decode(request: &ThumbRequest, generation: u64) {
     }
 }
 
-fn texture_from(pixbuf: &gdk_pixbuf::Pixbuf) -> gtk::gdk::Texture {
+pub(crate) fn texture_from(pixbuf: &gdk_pixbuf::Pixbuf) -> gtk::gdk::Texture {
     // `for_pixbuf` copies the pixels into a texture of the format they already
     // have, so a three-channel JPEG needs no alpha pass here.
     gtk::gdk::Texture::for_pixbuf(pixbuf)

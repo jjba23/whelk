@@ -1,18 +1,26 @@
 #+title: Wallpaper
-#+subtitle: a background the shell owns, and a picker for it
+#+subtitle: a background the shell owns, a menu for it and a picker
 #+author: Josep Jesus Bigorra Algaba
 #+options: toc:nil num:nil
 
 whelk can draw the desktop background itself: one =wlr-layer-shell= surface at
 the background layer per monitor, with a picture or a looping video, a
 transition when the picture changes, optional slow Ken Burns motion, and a
-timer that walks a directory every so many minutes.  The same collection is
-browsed by an overlay picker, =whelk --wallpaper-picker=, that starts as a
-compact card in the centre of the screen and expands to nearly the whole
-monitor.
+timer that walks a directory every so many minutes.
+
+The collection is reachable three ways, and none of them leaves whelk: a right
+click on an empty desktop opens a card of thumbnails where the pointer is, the
+bar's =(wallpaper-module)= opens the same card under the reading, and a click on
+a thumbnail applies it.  A collection too big for the card's four by three has a
+*Browse all* row that hands it to the overlay picker,
+=whelk --wallpaper-picker=, which starts as a compact card in the centre of the
+screen and expands to nearly the whole monitor.  The bar never prints the
+collection's details; the pictures are one click away instead.
 
 The engine is off unless a configuration turns it on, so a shell that never
-mentions it leaves the compositor's own background alone.
+mentions it leaves the compositor's own background alone.  The menu still works
+with the engine off -- it says so in the card -- because a background whelk is
+not drawing is still a background a click can land on.
 
 * The settings
 
@@ -96,6 +104,32 @@ The duration is =#:animation-duration= milliseconds.  A transition also covers
 a change made from the picker, not only a timed rotation.  The first picture
 after startup appears without one: there is nothing to transition from.
 
+* The menu
+
+Two gestures open it, and it is the same card either way:
+
+- *Right click on an empty desktop.*  whelk keeps one transparent surface at the
+  background layer per monitor, so the clicks nothing else wants land on whelk.
+  The card opens at the pointer, flipped to the other side when it would hang
+  off the output.
+- *Click the bar's wallpaper reading* -- =(wallpaper-module)= -- where the card
+  hangs under the reading, or above it for a bar at the bottom.
+
+The card shows a four by three grid of thumbnails with the current picture
+outlined, the count in the header, and a hint.  A click on a thumbnail applies
+that wallpaper through the same =wallpaper-selected= preference the picker
+writes, so the engine transitions to it and the next start begins on it.
+*Esc*, the close button, and any click back on the desktop dismiss it.  A
+collection with more than twelve pictures puts the rest behind *Browse all…*,
+which opens the picker described below.  The card is one layer surface cut to
+its own size, so a compositor that blurs surfaces blurs the card and not the
+output, and thumbnails arrive one per idle callback like the picker's.
+
+=wallpaper-module= takes =#:icon= (a picture frame by default), =#:format= with
+={icon}=, and the module's shared mouse keys: a configuration that names
+=#:on-click= or =#:on-click-right= gets its own commands instead of the card and
+the picker.
+
 * The picker
 
 #+begin_src sh
@@ -138,16 +172,17 @@ Bind it in the compositor the same way as any other whelk command:
 
 * Selection, rotation and preferences
 
-A click in the picker, and every timed rotation, saves the chosen absolute path
-as the GUI preference =wallpaper-selected= beside the other overrides.  On the
-next start the engine prefers that path if it is still in the collection; if it
-has disappeared it falls back to =#:current=, then to the first picture.
+A click in the menu or the picker, and every timed rotation, saves the chosen
+absolute path as the GUI preference =wallpaper-selected= beside the other
+overrides.  On the next start the engine prefers that path if it is still in the
+collection; if it has disappeared it falls back to =#:current=, then to the
+first picture.
 *Reset GUI settings* forgets the choice and returns to the configured one.
 
-A new picture resets the rotation timer, so switching from the picker gives the
-new picture its full interval.  Changing an unrelated setting -- a bar colour,
-the clock format -- reloads the shell without restarting a video or
-re-transitioning the current picture.
+A new picture resets the rotation timer, so switching from the menu or the
+picker gives the new picture its full interval.  Changing an unrelated setting
+-- a bar colour, the clock format -- reloads the shell without restarting a
+video or re-transitioning the current picture.
 
 * How it reaches the screen {#how-it-reaches-the-screen}
 

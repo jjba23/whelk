@@ -195,7 +195,7 @@
 ;; on the row's shelf instead of taking its width all day.
 (check "the reference shelf is the configured overflow"
        (equal? (kinds (bar-config-modules-overflow built-in))
-               '(cpu custom custom custom language backlight)))
+               '(cpu custom wallpaper custom language backlight)))
 
 (check "the overflow starts closed"
        (not (bar-config-overflow-expanded? built-in)))

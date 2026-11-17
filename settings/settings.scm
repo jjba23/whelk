@@ -212,14 +212,10 @@ Click: system monitor · Right-click: btop"
 Click: read · Right-click: the API reference"
                               #:on-click "heks-toon docs"
                               #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
-               (custom-module #:exec "printf '\\uf03e'"
-                              #:interval 0
-                              #:format "{icon}"
-                              #:icon "\uf03e"
-                              #:tooltip "Wallpaper: browse the collection
-Click: browse · Right-click: shuffle"
-                              #:on-click "heks-toon walls"
-                              #:on-click-right "heks-wallpaper random")
+               (wallpaper-module #:icon "\uf03e"
+                                 #:format "{icon}"
+                                 #:tooltip "Wallpaper: pick one
+Click: the wallpapers · Right-click: the full picker")
                (custom-module #:exec "printf '\\uf53f'"
                               #:interval 0
                               #:format "{icon}"

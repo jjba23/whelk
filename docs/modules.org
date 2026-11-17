@@ -47,6 +47,7 @@ leaving the configuration untouched.
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
 | =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
+| =wallpaper-module=     | the collection in =#:wallpaper=, as a menu        | =#:icon=, =#:format= (default ="{icon}"=; click: the wallpapers, right-click: the full picker) |
 | =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= (a readout only; the idle manager owns whelk's lock) | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
 | =start-module=         | the shell's own menu behind the whelk mark       | =#:label= (a glyph instead), =#:icon-size=, =#:tooltip= |
