@@ -11,6 +11,7 @@
              (gnu packages ninja)
              (gnu packages compression)
              (gnu packages pkg-config)
+             (gnu packages rust)
              (gnu packages linux)
              (gnu packages gtk)
              (gnu packages glib)
