@@ -2,15 +2,37 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-=maak=, the test layers, CI, and the house rules.
+How to build, test and change the Rust shell without guessing which layer owns
+the question.
+
+whelk is one Rust process.  The settings file is evaluated by Guile at the
+boundary, turned into owned Rust values, and then the rest of the shell never
+holds a Scheme object.  That split is the first thing to learn: most changes
+belong to Rust, and a Scheme change belongs in =scheme/whelk/= or in the reader
+that turns an alist into a typed struct.
+
+* The first ten minutes
+
+#+begin_src sh
+  git clone https://github.com/jjba23/whelk
+  cd whelk
+
+  # The pinned toolchain; this is what CI and the release gate use.
+  guix time-machine -C channels.scm -- shell -m manifest.scm
+
+  cargo fmt --all --check
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace --locked
+#+end_src
+
+=maak run= starts the shell inside the same pinned environment, and =maak test=
+runs the three commands above.  A direct Cargo build is fine when the host
+already has Rust 1.92 or newer, GTK 4.18 or newer, =gtk4-layer-shell=, Guile
+3.0 and Linux-PAM development files.
 
 * The maak tasks
-:PROPERTIES:
-:CUSTOM_ID: maak
-:END:
 
-=maak= runs the project's common operations; =maak= with no argument lists the
-tasks it finds.
+=maak= with no argument lists the tasks it finds.
 
 #+begin_src sh
   maak run          # run whelk inside the pinned Guix environment
@@ -22,80 +44,197 @@ tasks it finds.
   maak rpm-build    # RPM for openSUSE and Fedora, from packaging/opensuse
 #+end_src
 
-The Guix tasks read =channels.scm= and =manifest.scm=, so they run in the pinned
-toolchain.
+The Guix tasks read =channels.scm= and =manifest.scm=, so they deliberately use
+the same compiler and libraries as the release.  They are slower than a local
+=Cargo= command and are the right final check before a patch is proposed.
+
+* The code map
+
+#+begin_src text
+  rust/src/main.rs          CLI, config load, supervisor, UI entry
+  rust/src/posix.rs         the audited POSIX calls (signals, kill, getpid)
+  rust/src/supervisor.rs    child lifetime and the pure restart policy
+  rust/src/ui.rs            bar set, reload, hotplug, idle, shell actions
+  rust/src/config.rs        ConfigLoader and the Guile handle
+  rust/src/guile.rs         the only safe SCM interface
+  rust/src/guile/sys.rs     reviewed libguile declarations
+  rust/src/guile/widget.rs  the Scheme widget primitive bridge
+  rust/src/bar.rs           BarSettings and the typed bar
+  rust/src/barfactory.rs    kind name -> module constructor
+  rust/src/*bar.rs          one reading/widget per module kind
+  rust/src/*panel.rs        launcher, network, notifications and other surfaces
+  rust/src/*policy.rs       decisions that can be tested with plain values
+  scheme/whelk/*.scm        the configuration DSL, presets, defaults, themes
+#+end_src
+
+[[file:architecture.org][Architecture]] explains the boundaries in more detail,
+and [[file:lifecycle.org][Lifecycles]] follows a reload, a refresh, a lock and a
+shutdown through them.
 
 * The test suite
-:PROPERTIES:
-:CUSTOM_ID: testing
-:END:
+
+There are three useful layers, and a change should be tested at the lowest one
+that can answer its question.
+
+| Layer | Examples | What it proves |
+|-------+----------+----------------|
+| Pure Rust | =policy.rs=, =rotation.rs=, =level.rs=, =fuzzy.rs=, =format.rs= | parsing, clamping, state transitions, scoring and schedules |
+| Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs=, =widgets.rs= | readings, menu trees and panel data without a compositor |
+| Shell + Guile | =config.rs=, =scheme.rs= and the custom-harness test in =tests/guile.rs= | the real Scheme modules, one Guile handle and repeated loads |
+
+The full suite is 502 tests as of 0.39.3.  Most of it is ordinary Cargo:
 
 #+begin_src sh
-  cargo fmt --all --check
-  cargo clippy --workspace --all-targets -- -D warnings
-  cargo test --workspace --locked
+  cargo test --workspace --locked --offline
+  cargo test --workspace --locked --offline --test networkpanel
+  cargo test --workspace --locked --offline pure_module_name
 #+end_src
 
-The suite has three layers:
-
-#+name: test-layers
-#+caption: The suite climbs from pure decisions to the widget-backed data model; each layer exists because the one below it cannot answer that question.
-#+begin_src mermaid
-flowchart TD
-    P["pure Rust<br/>JSON, matchers, calculator,<br/>wallpaper, schedules, state"] --> W["widget-backed models<br/>bar modules, menus, notifications,<br/>lock screen rebuilds, preferences"]
-    W --> S["a real shell model<br/>one Guile handle, bar plans,<br/>surfaces and reload boundaries"]
-    G["the Guile suite<br/>themes, the built-in bar, overrides,<br/>the widget contract"] --> S
-#+end_src
-
-- =rust/tests/policy.rs=, =settings.rs=, =collection.rs=, =rotation.rs= --
-  wallpaper formats, fit and easing, clamps, HOME/XDG rules and rotation.
-- =rust/tests/bar.rs=, =barmonitors.rs=, =barmodules.rs= -- typed bar
-  defaults, monitor rules and every module's reading.
-- =rust/tests/launcher*.rs=, =clipboard.rs=, =notifications*.rs=,
-  =networkpanel.rs= -- the launcher databases, calculator, clipboard history,
-  notification store/service and network parsers.
-- =rust/tests/lockauth.rs=, =locker.rs=, =lockpolicy.rs=, =logind.rs=,
-  =idle*.rs= -- authentication policy, lock rebuilds and the idle manager.
-- =rust/tests/preferences.rs=, =widgets.rs=, =widgetstate.rs=,
-  =desktopwidgets.rs= -- the settings model, Golden Gate card data and the
-  placement file.
-- =rust/tests/config.rs=, =guile.rs=, =scheme.rs= -- the real Scheme modules,
-  a repeated load through one Guile handle, and the retained Guile test scripts
-  (=tests/test_*.scm=), run by Cargo when =guile= is installed.
+=--offline= works because =rust/vendor= contains the crate graph and
+=.cargo/config.toml= points Cargo at it.  Use the flag in this checkout rather
+than reaching for a network fetch.
 
 The tests that need a private session bus say so in their own file: the
-notification round trip and the AT-SPI menu test run under
-=dbus-run-session=.  A test that cannot get its bus skips rather than failing.
+notification round trip and the AT-SPI menu test run under =dbus-run-session=.
+A test that cannot get its bus skips rather than failing.  The GTK surfaces
+still need a real compositor for a visual check; the suite tests their data and
+geometry, not their pixels.
 
-The old C-only golden-image, Xvfb night-light and headless-Sway locker scripts
-were removed with the C shell.  The Rust equivalents are the policy and model
-tests above; the GTK surfaces still need a real compositor for a visual check.
+* The change recipe
 
-* CI
-:PROPERTIES:
-:CUSTOM_ID: ci
-:END:
+1. **Name the owner.**  Is this a reading, a policy, a Scheme reader, a surface
+   or an FFI call?  Put the change at that layer rather than teaching a widget
+   to parse text or a parser to touch GTK.
+2. **Write a failing test first.**  For a bug, reproduce the exact wrong value.
+   For a policy, make the decision a function of plain data and test both sides
+   of the boundary.  [[file:../AI_POLICY.md][AI_POLICY.md]] requires this for
+   every behaviour change.
+3. **Prefer a value to a flag.**  Return an enum or a small struct, not a tuple
+   of booleans.  A constructor that cannot represent an invalid state removes
+   the panic that would otherwise check it.
+4. **Keep the pure part pure.**  Parsing, scoring, clamping and decisions belong
+   in functions with no GTK or Guile in scope.  The UI half should be a thin
+   translation from that result to widgets.
+5. **Run the narrow test, then the full suite.**  A passing narrow test does not
+   excuse a clippy failure or a broken integration harness.
+6. **Update the matching document.**  A user-visible keyword, a command or a
+   failure message that is not in =docs/= is a documentation bug.  Add the
+   release note under the existing =NEWS.org= convention.
 
-=.github/workflows/ci.yml= calls Byggsteg with =tasks: maak-test=, so a green CI
-run and a green =maak test= are the same commands in the same environment as
-=guix shell -m manifest.scm=.
+* Rust house style
 
-The former ASan/UBSan workflow is gone with the C implementation.  Rust's
-memory safety is checked by the compiler, and =cargo test= is the gate for the
-Rust and Guile suites.
+**Errors are values, not panics**
 
-* House rules
-:PROPERTIES:
-:CUSTOM_ID: rules
-:END:
+Configuration, files, process launches and D-Bus replies are untrusted.  Return
+=Result= from their boundary and turn the failure into a message at the caller.
+=expect= is reserved for a compile-time invariant or test setup; if a value can
+come from a user, a file or a protocol, it needs an error path.  The refactors
+in 0.39.2 and 0.39.3 removed production panics from the PAM conversation, the
+config loader, menu paths and page construction for exactly this reason.
 
-The repository's own guides are short and worth reading before a patch:
+**Make invalid states unrepresentable**
 
-- The conventions, in [[file:architecture.org][Architecture]]: keep every =SCM= behind
-  =rust/src/guile.rs=, keep =unsafe= at the C-library boundary, and make a new
-  module a =*bar.rs= file plus a =barfactory.rs= row.
-- [[file:../AI_POLICY.md][AI_POLICY.md]] -- how AI-assisted contributions are handled, including the
-  test-first expectation.
+A Wi-Fi page has a rescan button and a password row by construction, so those
+are fields of =WifiPage=, not =Option= fields followed by five =expect=s.  A
+module reading is a typed struct, not a bag of strings.  When a `bool` would
+need a comment to explain its polarity, use an enum with named variants.
+
+**Write the functional core**
+
+Prefer iterator chains, =Option=/=Result= combinators and a pure state
+transition to mutable bookkeeping.  The supervisor is the model: =decide= takes
+an =Outcome=, elapsed time and failure count and returns an =Exit= or a
+=Restart= decision.  The process loop only performs the decision.  Fuzzy
+scoring is a =try_fold=, playlist resolution uses =Option= combinators, and
+restart/lock/idle policies are tested without spawning anything.
+
+This is not a demand to make every function point-free.  A clear loop is fine
+when it owns I/O or a widget tree.  The rule is that the part worth testing
+should not need the part that is hard to test.
+
+**Keep ownership boring**
+
+Rust values inside a surface may be cloned handles to GTK objects; they must
+not become a second source of truth.  Do not put =Rc<RefCell<...>>= around a
+model that a pure function could own.  A reload replaces the typed bar tree
+instead of mutating the old one, and a module token prevents a late command
+from writing into a module that was already freed.
+
+**Unsafe lives at named C boundaries**
+
+Unsafe blocks are allowed only where a C library requires them.  Today that
+means the audited modules =posix.rs=, =guile/sys.rs=, =guile/widget.rs=,
+=lockauth.rs=, =locker.rs=, =nightlight/= and the process setup in
+=supervisor.rs=.  Every block needs a =// SAFETY:= comment stating the
+invariant the caller must uphold.  Do not add a new =unsafe= block to a widget,
+a parser or a policy module to avoid a borrow check; redesign the ownership or
+add the operation to the audited boundary.
+
+Static C names are =c"..."= literals.  Dynamic strings become =CString= once at
+the edge and are passed as =&CStr=.  No =SCM= value, borrowed Guile pointer or
+C allocation escapes =guile.rs=.
+
+**Respect the thread rules**
+
+GTK and Guile are main-thread libraries.  The =Guile= handle is deliberately
+=!Send= and =!Sync=; widget-backed tests live on the thread that owns the
+context.  When work must cross a thread, send owned data and marshal the update
+back to the main loop; do not wrap a widget or an =Scm= in an =Arc=.
+
+* Adding a module kind
+
+The mechanical path is:
+
+1. Add the Rust reading or widget in =rust/src/<kind>bar.rs=.  Keep its parser
+   and its policy pure where possible; return a typed reading, not a formatted
+   string.
+2. Register the kind in =rust/src/barfactory.rs= and extend the module settings
+   reader in =bar.rs= if it takes new keywords.
+3. Add the Scheme constructor or default only if the DSL needs one; the module
+   table belongs in =scheme/whelk/modules.scm=, not in a second Rust copy.
+4. Add a focused test in =rust/tests/= and a row to
+   [[file:modules.org][Modules]] with an example settings snippet.
+5. Run =cargo fmt=, clippy and the suite; then check the real bar when the
+   change affects layout or painting.
+
+A new surface is different: use the shared surface helpers, give it its own
+module, and test its model and geometry before its pixels.
+
+* Debugging the shell
+
+#+begin_src sh
+  whelk --check-config          # load the config, print the bar/wallpaper policy
+  whelk --check-lock            # authentication candidates and fallback policy
+  whelk --idle-status           # why the idle timer will or will not lock
+  WHELK_NO_SUPERVISE=1 whelk    # run without the restart supervisor
+  G_MESSAGES_DEBUG=all whelk    # GTK/GLib diagnostics
+  whelk --launcher-mode app     # exercise one surface without a config edit
+#+end_src
+
+The first lines of the log say which session, protocol and capabilities were
+detected.  If a feature is quiet, check that line before changing the feature:
+whelk intentionally degrades when a compositor lacks an interface.  A settings
+file that fails to load is reported with its path; add temporary
+=(display ...)= or a REPL form to inspect a Scheme value without guessing.
+
+* CI and the release gate
+
+=.github/workflows/ci.yml= calls Byggsteg with =tasks: maak-test=, so green CI
+and a green =maak test= are the same commands in the same environment.  The
+release command adds the Guix and Nix builds and an install smoke test; see
+[[file:releasing.org][Releasing]].  Nothing in a release is tagged until all of
+those gates pass.
+
+* Review checklist
+
+- [ ] The change belongs to the layer that owns the question.
+- [ ] A test fails before the change and passes after it.
+- [ ] User input cannot reach a new =expect=, =unwrap= or =unreachable!=.
+- [ ] Unsafe, if any, is in a named boundary with a =SAFETY= comment.
+- [ ] No =SCM=, raw pointer or C allocation escaped the Guile boundary.
+- [ ] The public keyword, command or failure message is documented.
+- [ ] =NEWS.org= says what changed and which checks ran.
+- [ ] =cargo fmt --all --check=, clippy and the full suite are green.
 
 ------------------
 

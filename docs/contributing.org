@@ -2,35 +2,107 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-Bug reports, patches, modules, and the test-first expectation.
+Bug reports, patches, modules, documentation and the test-first expectation.
 
-Bug reports, patches and opinions are all welcome, and the small ones are the
-most useful: a module that reads the wrong value, a bar that lands two pixels
-off its edge, a message that is not worth printing.
+whelk is a Rust shell with a Guile-configured surface.  Contribution is not
+limited to the bar: a wrong log line, a missing settings example, a theme, a
+menu dictionary entry and a clearer failure message are all useful.  Small,
+specific changes are easier to review and easier to keep.
 
 * Ways to help
 
-- *Found a bug?*  [[https://github.com/jjba23/whelk/issues][Open an issue]] with what you ran, what you expected and
-  what happened; =whelk= logs to stderr, and the session lines at the top of the
-  log usually say whether the compositor was recognised.
+- *Found a bug?*  [[https://github.com/jjba23/whelk/issues][Open an issue]]
+  with the whelk version, the command you ran, the relevant log lines, and the
+  smallest =settings.scm= or configuration fragment that reproduces it.  Say
+  what you expected and what happened instead.  If the bug is visual, say which
+  compositor, monitor layout and scale were involved.
 - *Have a patch?*  Fork, branch, and open a
-  [[https://github.com/jjba23/whelk/pulls][pull request]]; =git format-patch= sent to
-  [[mailto:jjbigorra@gmail.com][jjbigorra@gmail.com]] is just as good.
-- *Adding a module?*  Three steps, described in [[file:architecture.org][Architecture]]: a =.c= file
-  with a factory, its prototype in =src/modules/modules.h=, and a row in
-  =module.c=.
-- *Keep the suite green.*  =maak test= rebuilds from scratch in the pinned
-  Guix environment and runs everything; the build is =-Werror= clean, and CI
-  runs the same task.
-- *Write the test first.*  [[file:../AI_POLICY.md][AI_POLICY.md]] asks for test-driven changes, and
-  the pure halves of the shell are arranged so that a test is possible without a
-  compositor.
-- *Read before you write.*  [[file:development.org][development]] has the conventions; the short
-  version is C and GObject idioms, no =scm_*= outside =src/guile_bridge.c=, and
-  brand-free theme names.
+  [[https://github.com/jjba23/whelk/pulls][pull request]].  =git format-patch=
+  sent to [[mailto:jjbigorra@gmail.com][jjbigorra@gmail.com]] is equally
+  welcome.  One topic per patch is more valuable than a large mixed branch.
+- *Adding a module?*  The recipe is in [[file:development.org][Development]]:
+  a =rust/src/<kind>bar.rs= reading, a =barfactory.rs= row, the typed reader in
+  =bar.rs=, a test and a row in [[file:modules.org][Modules]].  It is a local
+  Rust change, not a new subclass hierarchy.
+- *Improving the docs?*  A worked example, a corrected command, a diagram that
+  explains a real boundary, or a paragraph that names a failure mode is a
+  contribution.  The manual is part of the product, not release decoration.
+- *Menus and themes?*  A menu dictionary entry, a chord table or a palette is a
+  small, testable unit.  Follow the conventions in
+  [[file:menus.org][Menus]] and [[file:themes.org][Themes]].
+- *Packaging?*  The Debian, Arch, openSUSE and Nix recipes live in the tree;
+  Guix packaging lives in the jointhefreeworld channel.  A working package
+  update is a real contribution, especially when it comes with the command and
+  output that proved it.
+
+* The test-first expectation
+
+[[file:../AI_POLICY.md][AI_POLICY.md]] applies to human and AI-assisted work
+alike.  A behaviour change starts with a failing test.  Watch it fail for the
+right reason, write the smallest implementation that passes, then refactor.
+A bug fix starts with a test that reproduces the bug; a test that has never
+failed proves nothing.  A change that cannot be tested because it needs a
+compositor should still test its model, parser or geometry, and the pull request
+should say what was checked by hand.
+
+#+begin_src sh
+  cargo fmt --all --check
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace --locked --offline
+#+end_src
+
+Run the narrow test while working, then the full suite before opening the pull
+request.  =maak test= is the same gate inside the pinned Guix environment and is
+what CI runs.
+
+* What a patch is judged by
+
+- *Ownership.*  The change is in the layer that owns it: a parser does not touch
+  GTK, a widget does not learn a protocol, and a policy is a function of plain
+  data rather than a side effect hidden in a callback.
+- *Safety.*  User input does not reach a new =expect=, =unwrap=,
+  =unreachable!= or =panic!=.  Unsafe code, if unavoidable, belongs in an
+  audited unsafe boundary with a =// SAFETY:= comment.  The Guile and POSIX
+  boundaries are described in [[file:architecture.org][Architecture]] and
+  [[file:development.org][Development]].
+- *Restraint.*  The patch does what the issue asks and does not add an
+  unrelated framework, a new abstraction layer or a dependency without a
+  reason.  A smaller patch with one clear test is easier to accept.
+- *Evidence.*  The pull request says which commands ran and what they printed.
+  If a check could not run, say so rather than claiming it passed.
+- *Documentation.*  A user-visible keyword, command, default or failure message
+  is reflected in the matching =docs/= page.  A release-worthy change has a
+  =NEWS.org= entry in the established Added/Changed/Fixed/Verified shape.
+- *Tone.*  Be specific and kind.  Critique the code and the observable
+  behaviour, not the person who sent it.
+
+* House conventions in one paragraph
+
+Rust 2024, =rustfmt=, clippy with warnings denied, typed values over stringly
+state, pure functions for decisions, =Result= at untrusted boundaries and no
+panics for bad configuration.  Scheme is data and policy; =SCM= stays behind
+=rust/src/guile.rs= and =guile/sys.rs=.  The rest of the shell holds owned Rust
+values.  GTK and Guile are main-thread libraries.  Themes are named after
+materials and years rather than products.  The full version, including the
+module recipe and debugging commands, is [[file:development.org][Development]].
+
+* Commits and release notes
+
+Write the commit message for the person reading =git log= in a year: what
+changed, why, and what was verified.  Keep the subject imperative and specific.
+A release note is not a file list; say what a user can now do, or what failure
+is now prevented.  The release process is in [[file:releasing.org][Releasing]].
+
+* Questions and scope
+
+If you are unsure where a feature belongs, open an issue with the proposed
+surface and the layer you think owns it.  whelk deliberately stops at the shell
+layer: it is not a compositor, a display server or a desktop environment.  The
+scope and the current direction are in [[file:../VISION.md][VISION.md]] and
+[[file:roadmap.org][Status and roadmap]].
 
 There is no CLA and no contributor licence agreement: patches are accepted under
-the project's own licence, and your name stays on your work in the history.
+the project's own MIT licence, and your name stays on your work in the history.
 
 ------------------
 

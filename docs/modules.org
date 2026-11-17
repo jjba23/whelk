@@ -68,11 +68,11 @@ commented-out workspace switcher for the centre of the bar.
 * What a module is
 
 #+name: module-shape
-#+caption: A module is a value with a widget, a timer and a destroy function; the factory table is the only place that knows the kinds.
+#+caption: A module is a value with a widget, a timer and a destroy function; Rust owns the typed value and the factory table, Scheme owns the constructor.
 #+begin_src mermaid
 flowchart LR
-    K["(clock-module #:format ...)<br/>a Scheme record"] --> B["guile_bridge.c<br/>a WhelkModuleSpec"]
-    B --> F["module.c<br/>the factory table"]
+    K["(clock-module #:format ...)<br/>a Scheme record"] --> B["rust/src/guile.rs<br/>a typed module alist"]
+    B --> F["rust/src/barfactory.rs<br/>the factory table"]
     F --> W["a root widget<br/>on a bar row"]
     F --> T["a refresh timer<br/>#:interval seconds, 0 = once"]
     T --> U["update: read, then render"]
@@ -83,19 +83,21 @@ flowchart LR
 
 * Adding a module
 
-Three steps, and nothing else changes:
+A module is a small Rust change plus its settings surface:
 
-1. a =.c= file in =src/modules/= with a factory that returns a
-   =WhelkModule *=;
-2. its prototype in =src/modules/modules.h=;
-3. a row in the factory table in =src/module.c=.
+1. add =rust/src/<kind>bar.rs= with the typed reading, its options and the
+   widget builder.  Keep the parsing and policy functions testable without GTK.
+2. register the kind in =rust/src/barfactory.rs= and extend the options reader
+   in =rust/src/bar.rs= when the module takes a new keyword.
+3. add the constructor or default in =scheme/whelk/modules.scm= only if the DSL
+   should expose a named constructor; otherwise the generic record is enough.
+4. add a focused test in =rust/tests/= and a row to this page with a working
+   settings snippet.
 
-The Scheme side needs nothing: every constructor is the same shape, so a new
-kind is reachable from =settings.scm= as soon as the row exists.  The factory
-boundary is also the failure boundary -- an unknown kind is logged and left out,
-and a factory that returns nothing does not stop the rest of the bar from being
-built.  [[file:architecture.org][Architecture]] has the boundary rules and [[file:lifecycle.org][Lifecycles]] has the
-refresh path in detail.
+The factory boundary is also the failure boundary: an unknown kind is logged and
+left out, and a constructor that cannot build does not stop the rest of the bar.
+[[file:architecture.org][Architecture]] has the boundary rules, [[file:development.org][Development]] has the house
+style, and [[file:lifecycle.org][Lifecycles]] has the refresh path in detail.
 
 ------------------
 

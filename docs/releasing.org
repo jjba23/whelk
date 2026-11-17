@@ -2,34 +2,52 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-One release has to agree in six places: the version check, the verification gates, and what =publish= does.
+How a whelk tag is made, what is checked before it exists, and how the Guix and
+Nix channels follow it.
 
-* The six places the version lives
+A release is a claim that one source tree passed every gate.  The script keeps
+the version, the gate and the artifact in one path; the changelog is deliberately
+written by a person because a script cannot say what a release means.
 
-A release is not one number; it is one number in six files, and
-=scripts/release.sh check= refuses to let them disagree.
+* The seven checked places
+
+=scripts/release.sh check= refuses to let these disagree:
 
 | Where                              | What it is                                  |
 |------------------------------------+---------------------------------------------|
-| =rust/Cargo.toml=                    | =version = "0.32.0"=                          |
-| =default.nix=                        | =version = "0.32.0";=                         |
-| =packaging/arch/PKGBUILD=            | =pkgver=0.32.0=                               |
-| =packaging/debian/changelog=         | =whelk (0.32.0-1)=                            |
-| =packaging/opensuse/whelk.spec=      | =Version: 0.32.0=                             |
-| =NEWS.org=                           | a =** v0.32.0 (YYYY-MM-DD)= section            |
+| =rust/Cargo.toml=                    | =version = "0.39.3"=                          |
+| =xtask/Cargo.toml=                   | the installer crate, same version             |
+| =default.nix=                        | the Nix derivation's version                  |
+| =packaging/arch/PKGBUILD=            | =pkgver=                                      |
+| =packaging/debian/changelog=         | the first =whelk (X.Y.Z-1)= stanza            |
+| =packaging/opensuse/whelk.spec=      | =Version:=                                    |
+| =NEWS.org=                           | a =** vX.Y.Z (YYYY-MM-DD)= section            |
 
-=set-version= writes the first five and refuses unless the sixth already exists:
-the changelog section is the one part a script cannot write, because it is the
-part that says what the release means.
+=Cargo.lock= carries the two workspace package versions as well.  =set-version=
+writes the six manifests but does not invent the changelog entry: add the
+=NEWS.org= section first, then run it.  Refresh the lockfile and verify it is
+stable before committing:
+
+#+begin_src sh
+  scripts/release.sh check             # manifests + NEWS.org agree
+  scripts/release.sh set-version 0.39.3
+  cargo check --workspace --offline    # rewrites the package version in Cargo.lock
+  cargo check --workspace --locked --offline
+  scripts/release.sh check
+#+end_src
 
 * The commands
 
 #+begin_src sh
   scripts/release.sh check             # manifests + NEWS.org agree
-  scripts/release.sh set-version 0.32.0
+  scripts/release.sh set-version X.Y.Z # after the NEWS section exists
   scripts/release.sh verify            # host tests, Guix/Nix, smoke install
   scripts/release.sh publish           # tag, push, tarball, GitHub release
 #+end_src
+
+=publish= is intentionally separate from =verify=.  It pushes the current branch
+and the new tag, creates the release and uploads the tarball; that is an explicit
+release action, not a side effect of running the tests.
 
 * What publish does, in order
 
@@ -39,7 +57,7 @@ part that says what the release means.
 flowchart TD
     A["scripts/release.sh publish"] --> B{"worktree clean?"}
     B -->|no| Z["refuse: commit the release prep first"]
-    B -->|yes| C{"the six places agree?"}
+    B -->|yes| C{"all seven places agree?"}
     C -->|no| Z2["refuse: name the file that disagrees"]
     C -->|yes| D{"tag vX.Y.Z taken?"}
     D -->|yes| Z3["refuse: choose the next version"]
@@ -53,22 +71,21 @@ flowchart TD
     I --> J["the release workflow re-runs the suite<br/>and re-uploads the same two files"]
 #+end_src
 
-The order matters: the tag is created only after the gates pass, so a failed
-gate leaves a worktree and a remote with nothing new on them.
-
 =scripts/release-smoke.sh= builds, installs and checks =whelk --version= from
 the source tree or a published tarball; =publish= uses it as the final gate.
-=.github/workflows/release.yml= runs the Guix suite on a =v*= tag, then
-attaches =whelk-<version>.tar.gz= and its SHA-256 checksum to the GitHub
-release.  Publishing a tag is still an explicit authorization step: the
-workflow only publishes the artifact for the tag that was pushed.
+=.github/workflows/release.yml= runs the Guix suite on a =v*= tag, then attaches
+=whelk-<version>.tar.gz= and its SHA-256 checksum to the GitHub release.
+
+=WHELK_RELEASE_NOTES= can point at a Markdown file.  Without it, GitHub generates
+release notes from the commits; for a release whose story matters, write the
+file and pass the path.
 
 * Writing the changelog entry
 
 =NEWS.org= is organised by release and, inside each release, by what changed:
 
 #+begin_src org
-  ** v0.32.0 (2026-11-15)
+  ** v0.39.3 (2026-11-17)
 
   *** Added
   - *One sentence that says what a user gets.*  Then the detail: the keyword,
@@ -79,9 +96,68 @@ workflow only publishes the artifact for the tag that was pushed.
   *** Verified
 #+end_src
 
-*Verified* is not decoration: it is where the release says which suites ran and
-what they covered, which is what a reader of a tag wants to know before
-installing it.
+*Verified* is not decoration: it says which suites ran and what they covered,
+which is what a reader of a tag wants before installing it.  Counts belong there
+when they are stable enough to be useful; do not claim a check that did not run.
+
+* After the whelk tag: the Guix channel
+
+The channel is a separate repository, =~/Hacking/guix-jointhefreeworld=.  It
+pins whelk by tag and source hash, so the next channel release starts after the
+whelk tag is pushed.
+
+1. Compute the hash from the released tree, not from a dirty checkout:
+
+#+begin_src sh
+  rm -rf /tmp/whelk-hash && mkdir /tmp/whelk-hash
+  git -C ~/Hacking/whelk archive vX.Y.Z | tar -x -C /tmp/whelk-hash
+  guix hash -x -r /tmp/whelk-hash
+#+end_src
+
+2. Update the whelk =version= and =base32= in
+   =channel/jointhefreeworld/packages/misc.scm=, and the package table in
+   =README.org=.
+3. Build through the pinned channel before committing:
+
+#+begin_src sh
+  guix time-machine -C ~/Hacking/whelk/channels.scm -- \
+    build -L channel whelk
+  /gnu/store/...-whelk-X.Y.Z/bin/whelk --version
+  /gnu/store/...-whelk-X.Y.Z/bin/whelk --check-config
+#+end_src
+
+4. Commit with the =whelk: X.Y.Z= subject, tag the next channel version
+   (=v1.0.N=), push =trunk= and the tag, and create the GitHub release with the
+   build result and the selected verification.
+
+The channel is shared with other packaging work.  Re-read =git status=, the
+recent log and the tags immediately before committing; a concurrent lambdock
+release may already have consumed the tag number you expected.  Preserve that
+work and choose the next number rather than rewriting it.
+
+* After the whelk tag: the Nix flake
+
+The flake repository is =~/Hacking/nix-jointhefreeworld=.
+
+1. Change the whelk input to =refs/tags/vX.Y.Z= in =flake.nix=.
+2. Let the lock record the exact revision:
+
+#+begin_src sh
+  nix flake update whelk
+  nix build .#whelk -o /tmp/whelk-X.Y.Z
+  /tmp/whelk-X.Y.Z/bin/whelk --version
+  WHELK_SCHEME_DIR=/tmp/whelk-X.Y.Z/share/guile/site/3.0 \
+    /tmp/whelk-X.Y.Z/bin/whelk --check-config
+#+end_src
+
+3. Commit =flake.nix= and =flake.lock=, tag the next =v0.2.N=, push both, and
+   create the release with the version, check output and the 14 installed Scheme
+   modules.
+
+Both channel releases are independent: a Guix tag does not imply a Nix tag, and
+each must be verified from its own builder.  The whelk release is complete only
+when all three tags point at the intended trees and the channel binaries report
+the new version.
 
 ------------------
 

@@ -29,6 +29,7 @@ environment the configuration lives in.
   [[https://github.com/jjba23/whelk][github.com/jjba23/whelk]]
 - 📦 *Install it:* from the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld Guix channel]], with Nix, with
   Cargo, or from the =packaging/= recipes
+- 🧭 *Where it is going:* [[file:VISION.md][the vision]] -- the direction, the engineering principles and what whelk refuses to be
 - 📚 *Hack on it:* [[file:docs/development.org][the development guide]] for the conventions, the tests and the house rules
 - 📰 *Follow what changed:* [[file:NEWS.org][the news]]
 - 🤖 *Know the rules of the road:* [[file:AI_POLICY.md][the AI policy]]
@@ -243,11 +244,14 @@ that list), the run-time tools whelk asks for, and how to stop a running shell.
 :END:
 
 The manual lives in [[file:docs/index.org][docs/]], one document per subject.  The
-[[file:docs/index.org][index]] also has three reading paths -- using it, hacking on it, and something is
-wrong.
+[[file:docs/index.org][index]] also has reading paths -- using it, hacking on it, where it is going,
+and something is wrong.  [[file:VISION.md][VISION.md]] is the long view: what the project is
+trying to become, the principles a patch is measured against, and what it
+deliberately is not.
 
 | Document                                   | Answers                                                    |
 |--------------------------------------------+------------------------------------------------------------|
+| [[file:VISION.md][Vision]]                                  | direction, engineering principles, non-goals               |
 | [[file:docs/getting-started.org][Getting started]]                            | first bar, first clicks, talking to the running shell      |
 | [[file:docs/installation.org][Installation]]                               | requirements, linkage, Guix, Nix, packages, starting       |
 | [[file:docs/configuration.org][Configuration]]                              | =settings.scm=, bar keys, GUI overrides, presets, the REPL   |
@@ -266,8 +270,8 @@ wrong.
 | [[file:docs/parity.org][Parity with Waybar]]                        | the reference bar, module by module                        |
 | [[file:docs/architecture.org][Architecture]]                              | the source tree, the Scheme boundary, how a bar is drawn   |
 | [[file:docs/lifecycle.org][Lifecycles]]                                | startup, reload, refresh, lock, shutdown                   |
-| [[file:docs/development.org][Development]]                               | =maak=, tests, CI, house rules                               |
-| [[file:docs/releasing.org][Releasing]]                                 | version agreement and what =publish= does                    |
+| [[file:docs/development.org][Development]]                               | Rust conventions, test layers, unsafe policy, debugging      |
+| [[file:docs/releasing.org][Releasing]]                                 | verification gates, what =publish= does, channel handoff     |
 | [[file:docs/packaging.org][Packaging]]                                 | the three recipes and the installed layout                 |
 | [[file:docs/known-limits.org][Known limits]]                               | what whelk deliberately cannot do                          |
 | [[file:docs/roadmap.org][Status and roadmap]]                        | what works today and what comes next                       |

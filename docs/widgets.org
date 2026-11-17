@@ -125,32 +125,29 @@ flowchart TD
 :END:
 
 The Rust desktop-widget surfaces read and draw the same descriptions.
-=src/widgets.rs= is the data behind them: the nine kinds and their standard
+=rust/src/widgets.rs= is the data behind them: the nine kinds and their standard
 sizes, the position/size/monitor defaults and clamps, the mouse vocabulary and
 per-kind refresh cadence, the reminders model whose done flags are runtime
 state, world-clock city parsing, the Open-Meteo and Yahoo answer decoding, the
 calendar's Monday-first month grid, a note's file-or-text rule, and the
 drag/placement arithmetic (snap to the 8 px grid, clamp into the monitor, a
-saved position winning over the settings file).  =src/widgetstate.rs= is the
-same =widgets-<settings-stem>.ini= file the shell writes, so a drag recorded
-by either shell is where the other one puts the card, and =Guile::load_widgets=
-reads =shell-widgets->alists= into the same typed configs.  The =scheme= bar
-module is Rust as well: =src/schemebar.rs= calls =#:update= through
-=src/guile/widget.rs=, which registers the =whelk-widget-*= primitives in
+saved position winning over the settings file).  =rust/src/widgetstate.rs= is the
+=widgets-<settings-stem>.ini= file the shell writes and reads, so a drag is
+remembered across restarts; =Guile::load_widgets= reads
+=shell-widgets->alists= into the same typed configs.  The =scheme= bar
+module is Rust as well: =rust/src/schemebar.rs= calls =#:update= through
+=rust/src/guile/widget.rs=, which registers the =whelk-widget-*= primitives in
 =(whelk core)= and swaps the returned widget into the bar each refresh.
 
-The cards are drawn by =src/desktopwidgets.rs=: one bottom-layer surface per
+The cards are drawn by =rust/src/desktopwidgets.rs=: one bottom-layer surface per
 configured widget, anchored at its saved or configured place, skinned from the
 first bar's palette, moved by its grip (snapped to the grid and clamped into
 the monitor), with a timer per kind and one asynchronous request at a time for
 Weather and Stocks.  A card that goes away drops its timer, its skin and its
 surface, and an answer that arrives late paints nothing.  The manager is
 rebuilt with the bars, so a settings save or a monitor hotplug re-places every
-card; the same =widgets-<stem>.ini= means a drag in either shell is where the
-other one puts the card.
-
-Nothing in the Rust widget path is C: the data, the state file, the Scheme
-bridge, the =scheme= bar module and the surfaces are all Rust now.
+card; the same =widgets-<stem>.ini= means a drag survives a restart and is
+honoured when the settings describe the same card.
 
 ------------------
 

@@ -9,14 +9,15 @@ here, release by release.
 
 | Area                       | State                                                                    |
 |----------------------------+--------------------------------------------------------------------------|
-| Build system, Guile engine | working: Cargo, the Guile bridge, Scheme-primitive registration          |
+| Implementation             | working: Rust 2024, 502 tests, vendored crates, offline Guix/Nix builds   |
+| Build system, Guile engine | working: Cargo, the audited Guile bridge, Scheme-primitive registration   |
 | Configuration DSL          | working: bars, modules, hot reload, optional REPL                        |
 | Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu |
 | Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |
 | Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
 | Launcher                   | working: applications, windows, commands, calculator, files, web, menus   |
 | Right-side overflow        | working: trailing right modules fold behind a =+N= count; a configured shelf opens on a click |
-| Desktop widgets            | working: eight Golden Gate cards, Scheme placement, live Weather/Stocks |
+| Desktop widgets            | working: eight Golden Gate cards, drag with per-monitor placement, live Weather/Stocks |
 | Lock screen, idle manager  | working: the session lock where the compositor has it, a fail-closed fallback, one idle timer |
 | Menus                      | working: shell menu, GTK and DBusMenu and AT-SPI menubars, the dictionary and the Orbit corpus, tray context menus |
 | Sessions                   | working: niri, sway, Hyprland, river, X11; GNOME and KDE Wayland degrade to windows |
@@ -25,6 +26,12 @@ here, release by release.
 :PROPERTIES:
 :CUSTOM_ID: next
 :END:
+
+The direction behind this table is [[file:../VISION.md][Vision]]: a single
+programmable process, a functional core, an audited FFI edge and a shell that
+degrades instead of breaking.  The open work below is deliberately smaller than
+that statement.
+
 
 - *Editable notes*: Notes renders the value a settings file or a note file
   gives it.  Editing the prose from the card would write through a preference

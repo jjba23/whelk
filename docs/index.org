@@ -36,8 +36,10 @@ flowchart TD
     DEV --> REL["releasing.org"]
     DEV --> PACK["packaging.org"]
 
+    README --> VISION["../VISION.md<br/>direction, principles, non-goals"]
     README --> LIMITS["known-limits.org<br/>honest ceilings"]
     README --> ROAD["roadmap.org<br/>state and next pieces"]
+    VISION --> ROAD
     README --> CONTRIB["contributing.org"]
 #+end_src
 
@@ -45,6 +47,7 @@ flowchart TD
 
 | Document                     | Answers                                                                  |
 |------------------------------+--------------------------------------------------------------------------|
+| [[file:../VISION.md][Vision]]                     | where whelk is going, the engineering principles and what it refuses to be |
 | [[file:getting-started.org][Getting started]]            | install, first bar, what is on screen, the command line that talks to it |
 | [[file:installation.org][Installation]]               | what must exist before whelk starts, what the binary links, four install routes |
 | [[file:configuration.org][Configuration]]              | =settings.scm=, a bar from scratch, the bar keys, GUI overrides, presets, the REPL |
@@ -64,14 +67,21 @@ flowchart TD
 | [[file:parity.org][Parity with Waybar]]        | the reference bar, module by module                                      |
 | [[file:architecture.org][Architecture]]              | the source tree, the Scheme boundary, how a bar becomes pixels            |
 | [[file:lifecycle.org][Lifecycles]]                | supervision, startup, reload, module refresh, notifications, lock, shutdown |
-| [[file:development.org][Development]]               | =maak=, the three test layers, CI, house rules                             |
-| [[file:releasing.org][Releasing]]                 | version agreement, verification gates, what =publish= does                 |
+| [[file:development.org][Development]]               | Rust conventions, the test layers, unsafe policy, debugging, CI           |
+| [[file:releasing.org][Releasing]]                 | version agreement, verification gates, what =publish= does, channel handoff |
 | [[file:packaging.org][Packaging]]                 | Debian, Arch and RPM recipes, and the installed layout                    |
 | [[file:known-limits.org][Known limits]]               | what whelk deliberately cannot do                                        |
 | [[file:roadmap.org][Status and roadmap]]        | what works today and where the next pieces go                             |
 | [[file:contributing.org][Contributing]]              | bug reports, patches, new modules, the test-first expectation             |
 
-* Three reading paths
+* Reading paths
+
+** I want to know where it is going
+
+[[file:../VISION.md][Vision]] -> [[file:roadmap.org][Status and roadmap]] ->
+[[file:known-limits.org][Known limits]].  The first says what the project is
+trying to become and what it deliberately is not; the other two say what exists
+today and which ceilings are honest.
 
 ** I want to use it
 

@@ -30,6 +30,26 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   child is not the expected box simply skips drag setup, and PAM receives a
   static `c"whelk-lock"` service name.
 
+*** Documentation
+
+- *The vision now describes the project it became.*  =VISION.md= records the
+  Rust-only implementation, the six menu producers and eleven launcher modes,
+  the floating widgets as they actually place and drag, and adds the engineering
+  principles: pure decisions, audited unsafe boundaries and errors instead of
+  panics for malformed input.  Its milestones now run through 0.39.3, and the
+  remaining reserved work is stated without pretending it already exists.
+- *The hacking guides are rewritten around Rust.*  =docs/development.org= now
+  has the current code map, the =maak= and Cargo commands, the three test layers
+  including the Guile harness, a change recipe, the unsafe policy, a module
+  recipe, debugging commands and a review checklist.
+  =docs/contributing.org= states the same expectations for contributors:
+  test-first behaviour changes, ownership, evidence and release notes.
+- *Architecture, modules, releasing and the index follow.*  Architecture names
+  the three kinds of code and their rules; the module page documents the Rust
+  factory path instead of the retired C one; releasing lists all seven checked
+  places and the Guix/Nix channel handoff; the README and documentation index
+  link =VISION.md= and describe the current Rust tree.
+
 *** Verified
 
 - =cargo fmt --all --check= and =cargo clippy --workspace --all-targets -- -D

@@ -8,23 +8,31 @@ object, built by the same code, in the same language.
 
 This document is not a changelog and it is not a promise list. It is the
 direction the code is already leaning in, written down so that a contributor can
-tell which pull request is on the path and which one is a detour.
+tell which pull request is on the path and which one is a detour.  This revision
+is current at whelk 0.39.3 (November 2026).
 
 ## Where whelk is today
 
 The pieces that exist and work: twenty-two module kinds behind one
 keyword-driven shape; hot reload and a socket REPL; a notification daemon with
 toasts, a grouped centre, actions and do-not-disturb; a Wi-Fi and Bluetooth
-panel over `nmcli` and `bluetoothctl`; a launcher with nine modes and a menu
-protocol of its own; the focused application's `File`/`Edit`/`View` from
-five producers (`org.gtk.Menus`, `com.canonical.dbusmenu`, a configured command,
-a dictionary of ninety-five applications, and the compositor's own window
+panel over `nmcli` and `bluetoothctl`; a launcher with eleven modes and a menu
+protocol of its own; the focused application's `File`/`Edit`/`View` from six
+producers (`org.gtk.Menus`, `com.canonical.dbusmenu`, AT-SPI, a configured
+command, a dictionary of known applications, and the compositor's own window
 verbs); a StatusNotifierItem tray with real `dbusmenu` popovers; a clipboard
 history with pinning, expiry, a password-manager hint and lock-time clearing; a
 volume and brightness HUD; a right row that folds behind a `+N` count with an
 optional shelf; an About window that reports the machine; presets as Scheme
 modules, the shipped bar and an XP-shaped taskbar included; twelve themes; and a
 supervisor that restarts a crashed UI.
+
+The implementation is now Rust 2024 from the command line to the last panel.
+The C shell and the Meson tree are gone, the crate graph is vendored under
+`rust/vendor` for offline Guix and Nix builds, and the 0.39 line removed the
+remaining avoidable panics from configuration, PAM, menus and page
+construction.  A release is not only a set of features; it is also a smaller
+surface for the next contributor to audit.
 
 Three things in the code are load-bearing for everything that comes next:
 
@@ -37,11 +45,53 @@ Three things in the code are load-bearing for everything that comes next:
 - **The session is asked, not assumed.** niri, sway, Hyprland, river and X11
   are detected and probed for capabilities separately; what a session cannot do
   goes quiet with one line in the log.
+- **A decision is a value.** Restart policy, lock policy, idle policy and
+  workspace selection are pure transitions over small types. The process,
+  timer or compositor performs the decision; it does not contain the decision.
+- **Unsafe is a named boundary.** POSIX calls, libguile, PAM, the session-lock
+  ABI and gamma-table ioctls live in audited modules with documented invariants.
+  A widget or parser never adds an `unsafe` block to avoid a borrow check.
+- **Malformed input is an error, not a panic.** Configuration, files, PAM
+  responses, D-Bus replies and menu paths have an error path. A missing Guile
+  handle, an unexpected widget child or a malformed menu is handled and logged,
+  not turned into a crash that the supervisor has to restart.
 
-The architecture's reserved surface is now **floating desktop widgets**: a
-`WhelkSurface` with `#:exclusive? #f`, margins and a fixed card.  The Golden
-Gate collection uses it; dragging a card and remembering its position are the
-next step, not a missing foundation.
+**Floating desktop widgets** are now one of those surfaces: a `WhelkSurface`
+with `#:exclusive? #f`, margins and a fixed card.  The Golden Gate collection
+uses it; cards drag by a grip, snap to an eight-pixel grid, stay inside their
+monitor and remember a position per monitor.  The remaining work is refinement,
+not a missing foundation: better keyboard placement, multi-monitor handoff and
+a visual picker for the widget catalogue.
+
+## Engineering principles
+
+The user-facing vision has an implementation vision underneath it.  These are
+the rules that decide whether a change makes the shell easier or harder to
+trust.
+
+1. **Safe by construction before safe by review.** Prefer a type that cannot
+   hold an invalid value over a runtime check, and prefer an exhaustive enum
+   over a boolean with a comment.  A constructor should make the impossible
+   state impossible, not document it.
+2. **A functional core with imperative edges.** Parsing, scoring, geometry,
+   policy, scheduling and menu selection are plain functions over owned data.
+   GTK, Guile, D-Bus and process I/O are thin edges that translate a decision
+   into an effect.  This is why the restart policy, fuzzy search and playlist
+   selection can be tested without a display.
+3. **One audited FFI boundary per C library.** The `unsafe` block is where the
+   C contract is written down, not where a shortcut hides.  Static names are C
+   string literals; dynamic input is copied once; no `SCM` or borrowed C pointer
+   escapes into a widget.
+4. **Errors are user-facing facts.** A failed load, a refused lock, a missing
+   compositor interface or an unreadable file should produce a specific message
+   at the boundary and a safe degraded state.  A panic is a bug in the shell,
+   not an error report.
+5. **Test the decision, not the timer.** A policy takes data and time as input
+   and returns a decision; the timer only sleeps and calls it.  A parser takes
+   text and returns a typed reading; the widget only paints it.
+6. **Documentation is part of the contract.** A documented keyword, command,
+   default or failure message is a testable promise.  When the code and a page
+   disagree, the page is a bug report with instructions.
 
 ## The bar after the overflow shelf
 
@@ -129,11 +179,12 @@ foundation is already in place.  The order is an argument, not a promise.
     glancing, and a number without a trend is half the story; the module
     protocol already supplies the timer and the widget tree.  Effort: medium.
 
-## The preferences window after 0.31
+## The preferences window: next
 
-0.31 made the launcher's geometry and zoom editable and taught the module
-editor to keep a symbol a symbol and a number a number. What remains is not
-another page; it is making the override layer trustworthy. Ranked by value.
+The window now exposes the launcher geometry, zoom and mode keys, every
+module's options and visibility, and the rest of the GUI override layer.  What
+remains is not another page; it is making that override layer trustworthy.
+Ranked by value.
 
 1. **Overrides you can see and undo.** Mark every row whose value comes from
    the GUI, show the value `settings.scm` would supply, and put a per-row
@@ -188,7 +239,7 @@ another page; it is making the override layer trustworthy. Ranked by value.
 ## The vision
 
 A desktop where the shell is a single programmable process that knows its own
-state, instead of five programs that talk past each other. Concretely, four
+state, instead of five programs that talk past each other. Concretely, five
 statements that should be true in a few years and are not true yet:
 
 1. **Any surface is a widget.** Bars, panels, the launcher, toasts, the HUD and
@@ -207,38 +258,52 @@ statements that should be true in a few years and are not true yet:
 4. **The shell degrades, never breaks.** On a compositor without layer-shell,
    on a session without focus IPC, whelk still starts, still runs its launcher
    and notifications, and says in one log line what it could not do.
+5. **The implementation is boring to audit.** The FFI surface is small enough
+   to read in an afternoon, every decision worth testing is a pure function,
+   and no malformed file, menu or authentication reply can turn into a panic.
+   Safety is a property of the architecture, not a promise in a README.
 
-## Built since this file was written
+## Milestones since the first draft
 
-0.19 closed five gaps this file used to list: a deliberate bar per monitor with
-hotplug, menus read from AT-SPI, a Scheme module whose update is a Guile
-procedure returning a widget, golden-image tests on a headless compositor, and
-a fail-closed PAM screen locker. They are documented in `docs/` and covered
-by the test suite. 0.20 closes the locker's remaining gap: on a compositor that
-implements `ext-session-lock-v1` the lock is compositor-enforced, so another
-client cannot cover it and a dead shell cannot unlock it. The layer-shell
-overlay remains only as the documented fallback for compositors without the
-protocol.
+The first draft was written while the shell was still a C program with a Scheme
+front end.  The direction survived; the implementation changed underneath it.
+The milestones that mattered:
 
-0.24 made the right row's overflow a feature rather than an accident -- a
-configurable shelf, a `+N` fold that counts what it hides -- and taught the
-battery the difference between filling and merely plugged in.  The current line
-adds an About window that reports the machine and presets as Scheme modules,
-with a first XP-shaped taskbar.  0.29 completes the preferences window: every
-module's options and visibility, and the launcher's own mode keys and default
-mode, are edited there as reversible overrides, with the file escape hatch kept
-for what a window cannot express.  The idle and inhibit manager now owns the one
-idle timer, whelk's logind idle lock and the do-not-disturb flag, and
-`whelk --idle-status` answers why a session will or will not lock.
+- **0.19-0.20** made a deliberate bar per monitor with hotplug, read menus from
+  AT-SPI, allowed a Scheme module whose update is a Guile procedure returning a
+  widget, added golden-image tests, and landed a fail-closed PAM locker.  On a
+  compositor with `ext-session-lock-v1` the lock is compositor-enforced; the
+  layer-shell overlay remains only as the documented fallback.
+- **0.24-0.29** turned the right row's overflow into a configurable shelf and a
+  `+N` fold, added the About window and presets as Scheme modules, completed the
+  preferences window's reversible overrides, and gave the idle/inhibit manager
+  one timer for logind's idle lock and do-not-disturb.
+- **0.30-0.38** moved the whole implementation to Rust, retired the C shell and
+  Meson tree, added the Golden Gate desktop widgets with drag and per-monitor
+  placement, and made the crate graph vendored so Guix and Nix build offline.
+- **0.39.1-0.39.3** made the POSIX calls one audited module, turned the
+  supervisor restart policy into a pure decision, replaced optional Wi-Fi page
+  fields and their `expect`s with concrete types, passed static Guile names as
+  C string literals, and removed the last avoidable panics from the config,
+  menu and authentication paths.
 
-## Features that are in scope and not built yet
+## Reserved work that is still open
 
-These are the ones the code already anticipates.
+These are the gaps the code already anticipates.
 
-- **Widget dragging and placement memory.** Desktop widgets are placed by
-  `settings.scm` today. A drag would need to write back to a preference
-  override, remember a per-monitor position and fall back sanely when the
-  monitor geometry changes.
+- **Configured surfaces beyond bars and widgets.** A launcher or panel is still
+  built from Rust defaults and a CLI request.  The bar and widget records show
+  the pattern: a Scheme record, a typed reader, a surface factory, a reload
+  boundary.
+- **Per-monitor panels.** Bars follow `#:monitor`; the launcher, toasts and
+  panels still choose the first output.  A shared placement decision would fix
+  the whole family rather than one surface at a time.
+- **Keyboard placement for desktop widgets.** Dragging is complete and the
+  position is remembered; moving, resizing and choosing a widget without a
+  pointer is the accessibility-shaped remainder.
+- **A stable module API.** The module protocol is documented and typed, but a
+  third-party module still means changing Rust.  A versioned Scheme-side module
+  API is the long-run condition for an ecosystem.
 
 ## New features that would be worth having
 
@@ -262,8 +327,9 @@ In rough order of value per hour of work:
   is "whatever is on your dock". This is the single best first contribution.
 - **Themes.** A palette is a value and a theme is a file. Themes named after
   materials and years are the house style, not products.
-- **Packaging.** Nix and Guix exist; an Arch `PKGBUILD`, a Fedora spec or a
-  Debian source package would each be a real distribution.
+- **Packaging and distribution.** Nix, Guix, Debian, Arch and openSUSE recipes
+  exist; keeping them building, adding a Fedora/CI lane and getting whelk into a
+  distribution archive are the next real steps.
 - **Compositor integrations.** The session interface wants more implementations,
   and each one comes with tests that are easy to write: the parser for
   `hyprctl -j monitors`, the mapping from river's tags to workspaces.
@@ -280,7 +346,7 @@ In rough order of value per hour of work:
 | Project | What it is | Where whelk differs |
 | --- | --- | --- |
 | Waybar | C++ bar, JSON config plus CSS, modules compiled in | whelk's bar is data returned by Scheme, and the shell owns the panels, launcher and notifications that Waybar leaves to other programs |
-| eww / ags (Aylur's GTK shell) | widget systems configured in `yuck` or TypeScript, drawn as GTK layers | closer in spirit than anything else; whelk's modules are native C with a Scheme front end, so a bar costs no interpreter at runtime, at the price of a smaller widget vocabulary |
+| eww / ags (Aylur's GTK shell) | widget systems configured in `yuck` or TypeScript, drawn as GTK layers | closer in spirit than anything else; whelk's modules are native Rust with a Scheme front end, so a bar costs no interpreter at runtime, at the price of a smaller widget vocabulary |
 | Quickshell | QtQuick shell framework in QML | Quickshell has the richer widget toolkit and a real declarative language; whelk has the notification daemon, global menu and tray as first-class native parts rather than plugins |
 | sfwbar, nwg-panel | pinned, focused panel programs | comparable on the bar; whelk is broader by design -- one process for the session's surfaces |
 | polybar | the X11 answer to all of the above | whelk keeps an X11 dock path with EWMH struts so the same configuration works there |
@@ -288,7 +354,7 @@ In rough order of value per hour of work:
 | GNOME Shell, KDE Plasma | the reference integrated shells | the comparison that matters: whelk is not a desktop environment, it is the shell layer of one you already chose |
 
 What the others do that whelk could still add: Quickshell's depth of widget
-types (a bar with a chart, a slider, a carousel without writing C); AGS's
+types (a bar with a chart, a slider, a carousel without writing Rust); AGS's
 project structure for shipping a whole desktop as a package; Waybar's pure
 JSON-plus-CSS ease for people who do not want to learn Scheme; Plasma's
 configuration UI, which no shell in this list approaches; and `swaync`'s
@@ -301,7 +367,7 @@ willingness to say in the log exactly which capability is missing.
 
 ## In the long run
 
-- **A stable module protocol.** If packaging a module means patching C, the
+- **A stable module protocol.** If packaging a module means patching Rust, the
   ecosystem stays small. A documented, versioned Scheme-side module API -- a kind,
   an `update`, a widget tree, an options alist -- plus a way to load modules
   from a directory lets people share a bar the way they share an Emacs package.
@@ -321,7 +387,7 @@ willingness to say in the log exactly which capability is missing.
   the bar, the launcher and the notifications all came from one place and
   nothing had to be glued together.
 
-## How to help without writing C
+## How to help without writing a shell
 
 Read the source and file issues with a log line and a `settings.scm` that
 reproduces it. Send a menu dictionary entry. Send a theme. Send a paragraph

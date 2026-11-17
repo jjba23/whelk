@@ -66,12 +66,15 @@ flowchart TD
                           themes.scm    the palettes
                           logger.scm    diagnostics on stderr
        |
-  rust/src/guile.rs       the only file that speaks SCM: reads the alists and
+  rust/src/guile.rs       the only safe SCM interface: reads the alists and
                           hands Rust plain structs (config.rs)
+  rust/src/guile/sys.rs   the reviewed libguile declarations
        |
   rust/src/config.rs      the loaded configuration, reload boundary and
                           built-in no-configuration path
-  rust/src/main.rs        the command line, supervisor and Guile lifecycle
+  rust/src/main.rs        the command line and process entry
+  rust/src/supervisor.rs  child lifetime and the pure restart decision
+  rust/src/posix.rs       the audited signal, kill and getpid calls
   rust/src/ui.rs          one bar set, its reload and monitor model, the idle
                           manager, notifications and the shell actions
   rust/src/bar.rs         a bar = edge, layer, modules and generated skin
@@ -99,6 +102,30 @@ flowchart TD
 - *CSS is structure plus skin.*  =resources/css/whelk.css= is no longer a
   compiled resource; the Rust surfaces generate their structural and thematic
   CSS in =style.rs= and the per-surface modules, scoped to each window id.
+
+* Three kinds of code, three rules
+
+The tree is easier to change when a function declares which kind it is.
+
+| Kind              | Examples                                                        | Rule |
+|-------------------+-----------------------------------------------------------------+------|
+| Pure decision     | =supervisor::decide=, =lockpolicy=, =idlepolicy=, fuzzy scoring, playlist choice | no I/O; input and output are owned values; test every branch without a display |
+| Fallible edge     | =ConfigLoader=, Guile evaluation, PAM answers, file parsers     | return =Result= or =Option= with a specific error; no production =expect= for user input |
+| Unsafe boundary   | =posix.rs=, =guile/sys.rs=, =lockauth.rs=, =locker.rs=, =nightlight/= | =// SAFETY:= on every block, no pointer or =SCM= escapes, one C ABI per module |
+
+A pure decision is the preferred shape for anything the shell will later do:
+=Outcome= and =Decision= in =supervisor.rs= are a complete restart policy, and
+the loop that sleeps and spawns only performs the answer.  A fallible edge keeps
+the failure where the context exists: the config loader can name the settings
+path, and the locker can say whether PAM, the helper or strict mode refused.  An
+unsafe boundary is allowed to be unsafe inside, but its callers see a safe
+function and its comments state what must remain true.
+
+The 0.39 pass applied those rules in both directions: it moved repeated POSIX
+calls into =posix.rs=, and it removed panics from page construction and menu
+paths by making the data model express the invariant.  A new abstraction is
+worth adding when it moves a decision into the first row of this table, not when
+it merely hides a callback.
 
 * How a bar becomes pixels
 
@@ -136,6 +163,8 @@ direction -- a command that finishes after its module was freed writes nowhere
 | a menu producer                       | =menubar.rs=, =menuprobe.rs= and =globalmenu.rs=          |
 | a settings-window control             | =preferences.rs= and the page it belongs to             |
 | a configuration entry point           | =scheme/whelk/core.scm=, and it must still be a value    |
+| a policy decision                     | a pure module beside the surface, with a transition type and tests |
+| a C-library call                      | the matching audited boundary (=posix.rs=, =guile/sys.rs=, =lockauth.rs=, =locker.rs=) |
 
 ------------------
 

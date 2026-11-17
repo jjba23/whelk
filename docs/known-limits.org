@@ -42,7 +42,7 @@ Honest ceilings, so you know what you are adopting.
 - The launcher's file mode walks =$HOME= six levels deep for each new query,
   skipping caches, repositories and package trees (=\\.cache=, =\\.git=,
   =node_modules=, ...), and reuses that walk for thirty seconds so typing does
-  not cost one walk per key.  Matches are ranked in C -- the name first, then
+  not cost one walk per key.  Matches are ranked in Rust -- the name first, then
   the shallower path, files before folders of the same name -- rather than in the
   order =find= printed them.  The query is a plain substring, not a glob.
 - Bars follow =#:monitor=.  The panels, the toasts and the launcher open on the

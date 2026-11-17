@@ -21,7 +21,7 @@ writes another list -- =(window-module ...)= is still there for that.
 :END:
 
 =start-module= is the machine's own menu, and it is configuration rather than a
-C table: `(whelk menu)' units written with the settings file, or
+compiled table: `(whelk menu)' units written with the settings file, or
 =default-shell-menu= when the file writes none.  The default is the Apple menu's
 shape in this desktop's words -- =About This System=, =Control Panel=,
 =Software…=, a =Recent Items= submenu, =Force Quit…=, =Sleep=, =Restart…=,
@@ -161,8 +161,8 @@ flowchart TD
   9,800 shortcuts and 1,702 deliberately greyed placeholders.  That corpus is
   now =scheme/whelk/orbit.scm=, generated from Orbit's JSON and read by the
   same Guile bridge as the dictionary, so the common case needs no download.
-  The data keeps its own GPL-3.0-or-later header; the C bridge and the rest of
-  whelk stay MIT.  The curated dictionary still wins for an application it
+  The data keeps its own GPL-3.0-or-later header; the Guile bridge and the rest
+  of whelk stay MIT.  The curated dictionary still wins for an application it
   knows; Orbit fills the gap.  A user-installed JSON map under
   =WHELK_SHORTCUT_MAPS=, =$XDG_CONFIG_HOME/global-menu/shortcuts/apps= or
   =$XDG_DATA_HOME/global-menu/shortcuts/apps= still overrides the built-in
@@ -228,7 +228,7 @@ the built-in Orbit corpus.  The dictionary is Scheme, in
 =scheme/whelk/menudict.scm=:
 adding an application is one form -- its name, the ids it answers to, then its
 menus -- and nothing else.  The shell reads the table at startup and after every
-reload, so a settings change does not need a rebuild, let alone a C table.
+reload, so a settings change does not need a rebuild.
 
 =add-menu-app= appends an application the table does not know, and
 =replace-menu-app= puts yours in the place of the entry that answers to an id --
@@ -317,15 +317,15 @@ application's menus.
 :END:
 
 whelk has its own =menu= module.  It is the same menubar in the same
-place, built from owned Rust data rather than widgets assembled in C:
-=src/menubar.rs= reads the script protocol, =org.gtk.Menus= and DBusMenu;
-=src/menuapps.rs= owns the application dictionary, Orbit corpus and
-=desktop-entry= fallbacks; =src/atspi.rs= reads the accessibility tree; and
-=src/globalmenu.rs= owns the focused-window poll, the producer chain, the
+place, built from owned Rust data rather than widgets assembled by hand:
+=rust/src/menubar.rs= reads the script protocol, =org.gtk.Menus= and DBusMenu;
+=rust/src/menuapps.rs= owns the application dictionary, Orbit corpus and
+=desktop-entry= fallbacks; =rust/src/atspi.rs= reads the accessibility tree; and
+=rust/src/globalmenu.rs= owns the focused-window poll, the producer chain, the
 popovers and keyboard navigation.  =#:menu-command=, =#:shortcuts?=,
 =#:app-name?=, =#:accelerator-style= and =#:shortcut-tool= keep their meanings.
 
-The producer order matches the C module:
+The producer order is deliberate:
 
 1. =#:menu-command=;
 2. =org.gtk.Menus=, exact X11 paths first then the conventional ones;
@@ -343,17 +343,16 @@ New Window from their =Exec=, their named actions, and Close Window in File.
 Current boundaries are narrow, and stated rather than hidden:
 
 - =org.gtk.Menus.Changed= and DBusMenu =LayoutUpdated=/=ItemsPropertiesUpdated=
-  are followed live through =src/menuwatch.rs=: a burst costs one debounced
+  are followed live through =rust/src/menuwatch.rs=: a burst costs one debounced
   re-read (120 ms), a change during a read owes exactly one more, and a tree
   that says the same thing as the one on screen is not rebuilt.  A tree that
-  really changed is rebuilt and closes the open menu, where the C module
-  remembers the open path and puts it back; =LayoutUpdated= on its own closes
-  nothing.
+  really changed is rebuilt and closes the open menu; =LayoutUpdated= on its
+  own closes nothing.
 - User-installed Orbit JSON maps under =global-menu/shortcuts/apps= or
-  =WHELK_SHORTCUT_MAPS= are read by the Rust
-  producer indexes the sorted files with the configuration, reads the matching
-  file lazily, and places the map before the shipped Scheme corpus and after
-  the curated dictionary.
+  =WHELK_SHORTCUT_MAPS= are read by the Rust producer, which indexes the
+  sorted files with the configuration, reads the matching file lazily, and
+  places the map before the shipped Scheme corpus and after the curated
+  dictionary.
 - A malformed or cyclic D-Bus or accessibility tree is truncated or refused
   instead of panicking, and every asynchronous answer is checked against the
   generation of the application in front.
