@@ -19,7 +19,7 @@
 
 mod sys;
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
@@ -188,9 +188,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("shell-bars->alists").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"shell-bars->alists");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -227,9 +225,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("shell-widgets->alists").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"shell-widgets->alists");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -265,9 +261,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let units = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("shell-menu->units").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"shell-menu->units");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -283,9 +277,7 @@ impl Guile {
         self.eval_string("(use-modules (whelk defaults))")?;
 
         let default = self.catch(|| {
-            let module = CString::new("whelk defaults").expect("static module name");
-            let name = CString::new("default-shell-menu").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk defaults", c"default-shell-menu");
 
             Ok(sys::call_0(procedure))
         })?;
@@ -458,9 +450,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("shell-wallpaper->alist").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"shell-wallpaper->alist");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -662,9 +652,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("shell-clipboard->alist").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"shell-clipboard->alist");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -692,9 +680,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let alist = self.catch(|| {
-            let module = CString::new("whelk state").expect("static module name");
-            let name = CString::new("get-shell-idle").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk state", c"get-shell-idle");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -730,9 +716,7 @@ impl Guile {
         let _path_root = Root::new(path);
 
         let loaded = self.catch(|| {
-            let module = CString::new("whelk core").expect("static module name");
-            let name = CString::new("load-shell-config!").expect("static procedure name");
-            let procedure = sys::public_ref(&module, &name);
+            let procedure = sys::public_ref(c"whelk core", c"load-shell-config!");
 
             Ok(sys::call_1(procedure, path))
         })?;
@@ -748,10 +732,10 @@ impl Guile {
     }
 
     fn register_rust_version(&self) -> Result<(), GuileError> {
-        let module = CString::new("whelk core").expect("static module name");
-        let name = CString::new("whelk-rust-version").expect("static primitive name");
+        let module = c"whelk core";
+        let name = c"whelk-rust-version";
 
-        let module = self.catch(|| Ok(sys::resolve_module(&module)))?;
+        let module = self.catch(|| Ok(sys::resolve_module(module)))?;
 
         if !self.is_true(module) {
             return Err(GuileError::Evaluation(
@@ -763,7 +747,7 @@ impl Guile {
 
         let result = self.catch(|| {
             Ok(sys::define_gsubr(
-                name.as_c_str(),
+                name,
                 0,
                 0,
                 0,
@@ -773,7 +757,7 @@ impl Guile {
 
         if result.is_ok() {
             let export = self.catch(|| {
-                sys::export(name.as_c_str());
+                sys::export(name);
 
                 Ok(self.true_value)
             });
@@ -949,12 +933,15 @@ impl Guile {
 }
 
 unsafe extern "C" fn rust_version_primitive() -> sys::Scm {
-    // The only allocation here is a Scheme string; the C caller has a live
-    // Guile stack and the runtime is initialized.  A panic must never cross
-    // this boundary, so the input is a compile-time constant.
-    let version = CString::new(env!("CARGO_PKG_VERSION")).expect("version has no NUL");
+    // The version is a compile-time string with a trailing NUL, so the `CStr`
+    // view needs no allocation.  A panic must never cross this boundary; if the
+    // impossible malformed value ever appeared, answer a safe placeholder.
+    const VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 
-    sys::from_utf8_string(&version)
+    match CStr::from_bytes_with_nul(VERSION) {
+        Ok(version) => sys::from_utf8_string(version),
+        Err(_) => sys::from_utf8_string(c"0.0.0"),
+    }
 }
 
 fn eval_raw(code: &str) -> Result<sys::Scm, GuileError> {

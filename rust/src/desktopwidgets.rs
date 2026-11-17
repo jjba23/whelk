@@ -579,10 +579,9 @@ fn attach_drag(
     drag.set_button(gtk::gdk::BUTTON_PRIMARY);
 
     {
-        let card = window
-            .child()
-            .and_downcast::<gtk::Box>()
-            .expect("a widget card has its box as its child");
+        let Some(card) = window.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
         let handle = grip.clone();
         let origin = Rc::clone(&origin);
 
@@ -610,10 +609,9 @@ fn attach_drag(
     }
 
     {
-        let card = window
-            .child()
-            .and_downcast::<gtk::Box>()
-            .expect("a widget card has its box as its child");
+        let Some(card) = window.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
         let handle = grip.clone();
         let window = window.clone();
         let monitor = config.monitor.clone();

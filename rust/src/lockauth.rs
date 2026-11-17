@@ -722,7 +722,7 @@ pub fn authenticate(password: &mut [u8]) -> AuthOutcome {
                 directory.to_string_lossy()
             ));
 
-            let service = CString::new("whelk-lock").expect("a literal service name");
+            let service = c"whelk-lock";
 
             unsafe {
                 start_confdir(

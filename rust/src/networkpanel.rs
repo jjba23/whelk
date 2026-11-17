@@ -275,8 +275,8 @@ impl NetworkPanel {
         switcher.set_stack(Some(&stack));
         switcher.set_halign(gtk::Align::Start);
 
-        let wifi = build_page("Wi-Fi", "wifi", &stack);
-        let bluetooth = build_page("Bluetooth", "bluetooth", &stack);
+        let wifi = build_wifi_page("Wi-Fi", "wifi", &stack);
+        let bluetooth = build_bluetooth_page("Bluetooth", "bluetooth", &stack);
 
         header.append(&title);
         header.append(&close);
@@ -293,15 +293,11 @@ impl NetworkPanel {
             wifi_list: wifi.list,
             wifi_status: wifi.status,
             wifi_switch: wifi.switch,
-            rescan: wifi.rescan.expect("Wi-Fi page has a rescan button"),
-            password_row: wifi.password_row.expect("Wi-Fi page has a password row"),
-            password_label: wifi
-                .password_label
-                .expect("Wi-Fi page has a password label"),
-            password_entry: wifi
-                .password_entry
-                .expect("Wi-Fi page has a password entry"),
-            connect: wifi.connect.expect("Wi-Fi page has a connect button"),
+            rescan: wifi.rescan,
+            password_row: wifi.password_row,
+            password_label: wifi.password_label,
+            password_entry: wifi.password_entry,
+            connect: wifi.connect,
             pending_ssid: None,
             bt_list: bluetooth.list,
             bt_status: bluetooth.status,
@@ -955,18 +951,36 @@ enum StatusPage {
     Bluetooth,
 }
 
-struct Page {
+struct CommonPage {
+    page: gtk::Box,
     list: gtk::Box,
     status: gtk::Label,
     switch: gtk::Switch,
-    rescan: Option<gtk::Button>,
-    connect: Option<gtk::Button>,
-    password_row: Option<gtk::Box>,
-    password_label: Option<gtk::Label>,
-    password_entry: Option<gtk::Entry>,
+    scroller: gtk::ScrolledWindow,
 }
 
-fn build_page(title: &str, name: &str, stack: &gtk::Stack) -> Page {
+struct WifiPage {
+    list: gtk::Box,
+    status: gtk::Label,
+    switch: gtk::Switch,
+    rescan: gtk::Button,
+    connect: gtk::Button,
+    password_row: gtk::Box,
+    password_label: gtk::Label,
+    password_entry: gtk::Entry,
+}
+
+struct BluetoothPage {
+    list: gtk::Box,
+    status: gtk::Label,
+    switch: gtk::Switch,
+}
+
+/// The list, status line and radio switch shared by both pages.  The caller
+/// appends its own controls before `present_page`, so a page's widgets keep
+/// the order they are built in and no constructor has to unwrap an optional
+/// control later.
+fn build_common(title: &str) -> CommonPage {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let heading = gtk::Label::new(Some(title));
@@ -974,11 +988,6 @@ fn build_page(title: &str, name: &str, stack: &gtk::Stack) -> Page {
     let status = gtk::Label::new(None);
     let scroller = gtk::ScrolledWindow::new();
     let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    let mut rescan_button = None;
-    let mut connect_button = None;
-    let mut password_row = None;
-    let mut password_label = None;
-    let mut password_entry = None;
 
     heading.set_xalign(0.0);
     heading.set_hexpand(true);
@@ -999,49 +1008,86 @@ fn build_page(title: &str, name: &str, stack: &gtk::Stack) -> Page {
     page.append(&header);
     page.append(&status);
 
-    if name == "wifi" {
-        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let rescan = gtk::Button::with_label("Rescan");
-        let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        let label = gtk::Label::new(None);
-        let entry = gtk::Entry::new();
-        let connect = gtk::Button::with_label("Connect");
-
-        rescan.add_css_class("whelk-network-button");
-        actions.append(&rescan);
-        page.append(&actions);
-
-        label.set_xalign(0.0);
-        label.set_wrap(true);
-        label.add_css_class("whelk-network-hint");
-        entry.set_visibility(false);
-        entry.set_placeholder_text(Some("Network password"));
-        connect.add_css_class("accent");
-        row.append(&label);
-        row.append(&entry);
-        row.append(&connect);
-        row.set_visible(false);
-        page.append(&row);
-
-        rescan_button = Some(rescan);
-        connect_button = Some(connect);
-        password_row = Some(row);
-        password_label = Some(label);
-        password_entry = Some(entry);
-    }
-
-    page.append(&scroller);
-    stack.add_titled(&page, Some(name), title);
-
-    Page {
+    CommonPage {
+        page,
         list,
         status,
         switch,
-        rescan: rescan_button,
-        connect: connect_button,
-        password_row,
+        scroller,
+    }
+}
+
+fn present_page(
+    page: &gtk::Box,
+    scroller: &gtk::ScrolledWindow,
+    stack: &gtk::Stack,
+    name: &str,
+    title: &str,
+) {
+    page.append(scroller);
+    stack.add_titled(page, Some(name), title);
+}
+
+fn build_wifi_page(title: &str, name: &str, stack: &gtk::Stack) -> WifiPage {
+    let CommonPage {
+        page,
+        list,
+        status,
+        switch,
+        scroller,
+    } = build_common(title);
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let rescan = gtk::Button::with_label("Rescan");
+    let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let password_label = gtk::Label::new(None);
+    let password_entry = gtk::Entry::new();
+    let connect = gtk::Button::with_label("Connect");
+
+    rescan.add_css_class("whelk-network-button");
+    actions.append(&rescan);
+    page.append(&actions);
+
+    password_label.set_xalign(0.0);
+    password_label.set_wrap(true);
+    password_label.add_css_class("whelk-network-hint");
+    password_entry.set_visibility(false);
+    password_entry.set_placeholder_text(Some("Network password"));
+    connect.add_css_class("accent");
+    row.append(&password_label);
+    row.append(&password_entry);
+    row.append(&connect);
+    row.set_visible(false);
+    page.append(&row);
+
+    present_page(&page, &scroller, stack, name, title);
+
+    WifiPage {
+        list,
+        status,
+        switch,
+        rescan,
+        connect,
+        password_row: row,
         password_label,
         password_entry,
+    }
+}
+
+fn build_bluetooth_page(title: &str, name: &str, stack: &gtk::Stack) -> BluetoothPage {
+    let CommonPage {
+        page,
+        list,
+        status,
+        switch,
+        scroller,
+    } = build_common(title);
+
+    present_page(&page, &scroller, stack, name, title);
+
+    BluetoothPage {
+        list,
+        status,
+        switch,
     }
 }
 

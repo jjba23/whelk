@@ -167,7 +167,9 @@ pub fn from_text(text: &str, style: ChordStyle) -> Vec<Menu> {
             continue;
         }
 
-        let entries = text_menu_entries(&mut bar, fields[0]);
+        let Some(entries) = text_menu_entries(&mut bar, fields[0]) else {
+            continue;
+        };
 
         if fields[1] == "-" {
             entries.push(MenuEntry::Separator);
@@ -199,7 +201,7 @@ pub fn from_text(text: &str, style: ChordStyle) -> Vec<Menu> {
     bar
 }
 
-fn text_menu_entries<'a>(bar: &'a mut Vec<Menu>, path: &str) -> &'a mut Vec<MenuEntry> {
+fn text_menu_entries<'a>(bar: &'a mut Vec<Menu>, path: &str) -> Option<&'a mut Vec<MenuEntry>> {
     let mut segments = path.split('>').map(str::trim);
     let first = segments.next().unwrap_or_default();
     let position = bar
@@ -208,19 +210,34 @@ fn text_menu_entries<'a>(bar: &'a mut Vec<Menu>, path: &str) -> &'a mut Vec<Menu
         .unwrap_or_else(|| {
             bar.push(Menu::new(first));
 
-            bar.len() - 1
+            bar.len().saturating_sub(1)
         });
-    let mut entries = &mut bar[position].entries;
+    let entries = &mut bar.get_mut(position)?.entries;
+    let rest: Vec<&str> = segments.filter(|segment| !segment.is_empty()).collect();
 
-    for segment in segments.filter(|segment| !segment.is_empty()) {
-        entries = submenu_entries(entries, segment);
-    }
-
-    entries
+    descend_menu(entries, &rest)
 }
 
-fn submenu_entries<'a>(entries: &'a mut Vec<MenuEntry>, label: &str) -> &'a mut Vec<MenuEntry> {
-    let position = entries
+/// Walk the remaining path segments.  Recursing (rather than rebinding a
+/// mutable borrow in a loop) lets the final borrow be returned directly, and
+/// an unexpected shape returns `None` instead of panicking.
+fn descend_menu<'a>(
+    entries: &'a mut Vec<MenuEntry>,
+    segments: &[&str],
+) -> Option<&'a mut Vec<MenuEntry>> {
+    let Some((segment, rest)) = segments.split_first() else {
+        return Some(entries);
+    };
+    let position = ensure_submenu(entries, segment);
+    let Some(MenuEntry::Item { submenu, .. }) = entries.get_mut(position) else {
+        return None;
+    };
+
+    descend_menu(submenu, rest)
+}
+
+fn ensure_submenu(entries: &mut Vec<MenuEntry>, label: &str) -> usize {
+    entries
         .iter()
         .position(|entry| {
             matches!(
@@ -241,13 +258,8 @@ fn submenu_entries<'a>(entries: &'a mut Vec<MenuEntry>, label: &str) -> &'a mut 
                 submenu: Vec::new(),
             });
 
-            entries.len() - 1
-        });
-
-    match &mut entries[position] {
-        MenuEntry::Item { submenu, .. } => submenu,
-        MenuEntry::Separator => unreachable!("only an item can be a submenu"),
-    }
+            entries.len().saturating_sub(1)
+        })
 }
 
 // ---------------------------------------------------------------------------

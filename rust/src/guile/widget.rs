@@ -559,8 +559,8 @@ impl Guile {
     /// Idempotent in effect: a name defined twice is the same definition, and
     /// the C shell's bridge does the same after it has loaded the core module.
     pub(super) fn register_widget_primitives(&self) -> Result<(), GuileError> {
-        let module = CString::new("whelk core").expect("static module name");
-        let module = self.catch(|| Ok(sys::resolve_module(&module)))?;
+        let module = c"whelk core";
+        let module = self.catch(|| Ok(sys::resolve_module(module)))?;
 
         if !self.is_true(module) {
             return Err(GuileError::Evaluation(
