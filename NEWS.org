@@ -11,6 +11,41 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.41.4 (2026-11-17)
+
+*** Fixed
+
+- *The night light actually warms the screen on niri.*  The gamma table was
+  written into a memory descriptor and the descriptor was handed to the
+  compositor without rewinding it, so it arrived with the file offset at the end
+  of the table it had just written.  wlroots maps the descriptor from zero and
+  never noticed; niri reads it from the current offset, got nothing, and
+  answered `failed` -- so on niri the filter took the output, was refused, and
+  the screen stayed cool however the schedule was set.  The table is now
+  rewritten to offset zero before `set_gamma`, and a test reads it back through
+  the same descriptor to pin that down.
+- *One refused output no longer turns the whole filter off.*  A `failed` event
+  used to clear the colour the backend wanted, so a single output that another
+  gamma client held (or that had no table) stopped the write for every other
+  output as well.  It now drops only that output's control, with its
+  thirty-second backoff, and leaves the rest warm.
+- *A write that reached no output is reported as a failure*, so the engine keeps
+  the previous colour and tries again on the next tick instead of believing the
+  screen was changed.  Together with the backoff, a compositor that refuses
+  gamma gets one request per half minute, not one per fade step.
+
+*** Verified
+
+- Reproduced and then fixed against niri 26.04 on an AMD output: a control
+  answers `gamma size 4096`, and writing the table **without** rewinding the
+  descriptor gets `failed`, while the same table rewound is accepted.  whelk's
+  own binary went from `gamma FAILED for output 44` to no failure at all.
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (525 tests, the new
+  `the_gamma_table_reads_back_from_its_start` among them), and so do the Guile
+  suites.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.41.3 (2026-11-17)
 
 *** Added

@@ -1,6 +1,6 @@
 [package]
 name = "whelk-rs"
-version = "0.41.3"
+version = "0.41.4"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
