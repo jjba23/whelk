@@ -11,6 +11,41 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.41.2 (2026-11-17)
+
+*** Fixed
+
+- *The Nix package reaches the GPU instead of falling back to cairo.*  A
+  nix-built whelk links =libEGL= from libglvnd, whose compiled-in vendor
+  directory is inside the store; on a host that is not NixOS the drivers live
+  elsewhere, so EGL found no vendor at all.  Every surface then reported
+  =Gsk-WARNING: Failed to realize renderer 'GskGLRenderer' ... Failed to create
+  EGL display= and GTK painted with cairo -- which is why a frosted, blurred bar
+  felt slow there.  The wrapper now names the nix Mesa EGL vendor json, its DRI
+  directory and its GLX vendor with =--set-default=, so the driver that matches
+  the card (radeonsi, iris, llvmpipe ...) runs through the kernel's render node
+  and no library from the host is loaded into the process.  An environment that
+  already names its vendors wins, so a [[https://github.com/nix-community/nixGL][nixGL]]
+  setup and the proprietary NVIDIA path still decide, and =EGL_PLATFORM= stays
+  GTK's business.  =docs/installation.org= records the failure and the
+  override.
+
+*** Verified
+
+- On an AMD Phoenix host (openSUSE, so =/run/opengl-driver= does not exist),
+  =GSK_RENDERER=gl= on the packaged binary logged six =Failed to create EGL
+  display= warnings before the change and none after, and the running shell
+  holds =/dev/dri/renderD128= open: the GL renderer is on the GPU.
+- The same binary with =__EGL_VENDOR_LIBRARY_FILENAMES= already set kept that
+  value and failed as expected, which is what =--set-default= is for.
+- =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'=
+  builds the package, its tests and its wrapper; =cargo fmt --all --check=,
+  =cargo clippy --workspace --all-targets -- -D warnings= and =cargo test
+  --workspace= pass, and so do the Guile suites.
+- The Guix build already had working EGL on the same host and needed no
+  wrapper; its package only follows the version.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.41.1 (2026-11-17)
 
 *** Changed
