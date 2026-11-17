@@ -6,3 +6,13 @@
 # `cargo xtask install` / `cargo xtask dist`, as the README writes them.
 [alias]
 xtask = "run --package xtask --"
+
+# The dependencies are vendored under rust/vendor so a fresh checkout builds
+# with no network, which is what a Guix or Nix sandbox and `cargo --offline'
+# both require.  Regenerate with `cargo vendor rust/vendor` after changing a
+# Cargo.toml, and keep this replacement in the tree.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "rust/vendor"

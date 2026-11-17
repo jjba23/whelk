@@ -20,3 +20,7 @@ rust/target/
 
 # `nix-build' leaves this symlink in the tree.
 /result
+
+# Vendored crates ship fixtures in directories named target, and the rule
+# above is meant for this workspace only.
+!rust/vendor/**
