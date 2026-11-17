@@ -45,6 +45,7 @@ use crate::command;
 use crate::menuapps::{self, MenuSources};
 use crate::menubar::{self, Menu, MenuAction, MenuEntry};
 use crate::menuprobe;
+use crate::menusearch;
 use crate::menuwatch;
 use crate::session::{self, FocusedPaths, Session, WindowActions};
 use crate::style;
@@ -297,9 +298,30 @@ fn render(state: &Rc<RefCell<MenuState>>) {
         menu_state.close_menus();
         menu_state.clear_row();
 
+        let context = menusearch::ActionContext {
+            bus_name: menu_state
+                .paths
+                .bus_name
+                .clone()
+                .filter(|name| gio::dbus_is_name(name))
+                .or_else(|| {
+                    gio::dbus_is_name(&menu_state.app_id).then(|| menu_state.app_id.clone())
+                }),
+            app_path: menu_state
+                .paths
+                .app_path
+                .clone()
+                .filter(|path| glib::Variant::is_object_path(path))
+                .or_else(|| app_path_for(&menu_state.app_id)),
+        };
+        let menus = menu_state.menus.clone();
+        let app_name = menu_state.app_name.clone();
+
+        menusearch::publish(menusearch::flatten(&app_name, &context, &menus));
+
         (
-            menu_state.menus.clone(),
-            menu_state.app_name.clone(),
+            menus,
+            app_name,
             menu_state.actions.clone(),
             menu_state.show_app_name,
         )

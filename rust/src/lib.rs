@@ -60,6 +60,7 @@ pub mod memorybar;
 pub mod menuapps;
 pub mod menubar;
 pub mod menuprobe;
+pub mod menusearch;
 pub mod menuwatch;
 pub mod networkpanel;
 pub mod nightlight;

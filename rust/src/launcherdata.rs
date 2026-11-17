@@ -37,6 +37,8 @@ pub enum ItemKind {
     Quit,
     Clipboard,
     Session,
+    /// A row from the focused application's live menubar.
+    MenuItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +55,8 @@ pub struct LauncherItem {
     pub clipboard_id: Option<String>,
     /// A pre-scaled PNG thumbnail for an image clipboard row.
     pub preview: Option<Vec<u8>>,
+    /// The live menu entry a menu-item row runs, copied when the row was made.
+    pub menu_item: Option<crate::menusearch::SearchItem>,
     pub disabled: bool,
 }
 
@@ -69,6 +73,7 @@ impl LauncherItem {
             action: String::new(),
             clipboard_id: None,
             preview: None,
+            menu_item: None,
             disabled: false,
         }
     }
@@ -93,6 +98,12 @@ impl LauncherItem {
 
     pub fn with_preview(mut self, preview: Option<Vec<u8>>) -> Self {
         self.preview = preview;
+
+        self
+    }
+
+    pub fn with_menu_item(mut self, item: crate::menusearch::SearchItem) -> Self {
+        self.menu_item = Some(item);
 
         self
     }

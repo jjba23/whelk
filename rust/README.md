@@ -84,9 +84,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/launcherpanel.rs` — the C launcher overlay as a Rust surface: a
   full-output layer surface with a debounced search entry, ranked list,
   keyboard selection/completion, outside-click dismissal, icon/text zoom and a
-  resize grip.  Application, window, run, calc, file, web, menu, SSH, quit and
-  session modes are wired; clipboard history is Rust and live application
-  menu items remain C-backed for now.
+  resize grip.  Application, window, run, calc, file, web, menu, SSH, quit,
+  menu-item and session modes are wired; clipboard history and live
+  application menu items are Rust too.
 - `src/clipboard.rs` — the clipboard history and service, ported from
   `src/clipboard.c`: stable SHA-1 content ids, duplicate promotion, pinning,
   separate count/byte budgets, TTL expiry, single-removal undo, v1/v2 GVariant
@@ -283,6 +283,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   tree replaces the one on screen only when it differs.  An empty
   `org.gtk.Menus` answer withdraws the application's menus; an empty
   `GetLayout` is a failed read and keeps what is showing.
+- `src/menusearch.rs` — the focused application's live menus flattened for the
+  launcher: one row per reachable entry with its `View > Appearance > Dark`
+  path, chord and an owned action plus the bus context it was published with,
+  separators/disabled/unactionable rows left out, a shell-wide snapshot the
+  menu bar publishes on every rebuild, and the activation the launcher's
+  menu-item mode runs.
 - `src/menubar.rs` — the global menu as owned data: the configured
   `Menu<TAB>Item<TAB>Chord<TAB>Command` protocol with `>` submenus, the
   `org.gtk.Menus` `a(uuaa{sv})` reader with sections, accelerators, targets and
@@ -691,6 +697,7 @@ The tests are split by what they can prove without a session:
 | `tests/widgets.rs` | Kind catalogue and sizes, geometry clamps, option/mouse vocabulary, refresh cadence, reminders parsing/toggling/serialisation, world-clock cities, month-grid layout, weather and stock decoding, note/custom fallbacks, drag/placement arithmetic |
 | `tests/widgetstate.rs` | State path rules, 8 px snapping, clamping, monitor-aware position round trips and fallback, refused negative/malformed values, per-widget state removal |
 | `tests/menuwatch.rs` | Signal classification, the GTK restart and DBusMenu join debounce, the one owed follow-up read, and the replace rules for identical and empty trees |
+| `tests/menusearch.rs` | Live menu flattening: nested paths, chords and owned actions, the bus context carried to each row, and separators/disabled/empty/unactionable rows left out |
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
@@ -804,7 +811,10 @@ network panel, including saved-profile keys and device connect/disconnect, is a
 Rust surface.  The launcher overlay is Rust: applications, windows, commands,
 calculator, files, web, generic menus, SSH hosts, force-quit and the session
 menu are wired; the clipboard history, its bar module, picker mode and the
-`--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
+`--clipboard` shortcut are Rust as well.  The live menu-item mode reads a
+snapshot of the focused application's menubar that the global menu module
+publishes, so a menu can be found by what it says and chosen without opening
+it; each row carries its action and bus context.
 The night light is Rust end to end: arithmetic, schedule, controller, the
 wlr-gamma-control and RandR backends, and the GLib timer that drives them.  It
 opens its own display connection, so a compositor or X server without a gamma

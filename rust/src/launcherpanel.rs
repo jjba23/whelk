@@ -28,6 +28,7 @@ use crate::filesearch;
 use crate::launcher as launcher_geometry;
 use crate::launcherdata::{self, ItemKind, LauncherItem, RESULT_LIMIT};
 use crate::launcherkeys::LauncherKeys;
+use crate::menusearch;
 use crate::style;
 
 const DEBOUNCE: Duration = Duration::from_millis(120);
@@ -741,10 +742,7 @@ impl Launcher {
                 ranked(&state.menu, &query)
             }
             "clipboard" => self.clipboard_results(&query),
-            "menuitem" => vec![unsupported(
-                "Application menu items",
-                "The live menu-item mode is still served by the C shell",
-            )],
+            "menuitem" => self.menu_item_results(&query),
             _ => {
                 self.ensure_apps();
                 let state = self.inner.borrow();
@@ -785,13 +783,21 @@ impl Launcher {
 
         let count = results.len();
         let label = launcherdata::mode_label(mode);
+        let app = if mode == "menuitem" {
+            let app_name = menusearch::snapshot().app_name;
+
+            (!app_name.is_empty()).then(|| format!(" — {app_name}"))
+        } else {
+            None
+        };
+        let app = app.as_deref().unwrap_or("");
         let suffix = if mode == "clipboard" {
             " · Ctrl+P pins · Ctrl+Delete removes · Ctrl+Z undoes"
         } else {
             ""
         };
 
-        mode_label.set_text(&format!("{label} — {count}{suffix}"));
+        mode_label.set_text(&format!("{label}{app} — {count}{suffix}"));
         scroller.set_visible(count > 0);
         empty.set_visible(count == 0);
 
@@ -811,6 +817,39 @@ impl Launcher {
         }
 
         self.scroll_selected_into_view();
+    }
+
+    /// One row per entry of the focused application's menubar, whichever
+    /// producer made it.  The path is the row's detail and its searchable text,
+    /// so "export pdf" finds View > Export > PDF.
+    fn menu_item_results(&self, query: &str) -> Vec<LauncherItem> {
+        let snapshot = menusearch::snapshot();
+        let items: Vec<LauncherItem> = snapshot
+            .items
+            .iter()
+            .map(|entry| {
+                let detail = match entry.accel.as_deref() {
+                    Some(accel) => format!("{}   ·   {accel}", entry.path),
+                    None => entry.path.clone(),
+                };
+                let mut item = LauncherItem::new(ItemKind::MenuItem, &entry.label, detail)
+                    .with_icon(Some("view-list-symbolic"))
+                    .with_menu_item(entry.clone());
+
+                item.add_search(&entry.path);
+
+                item
+            })
+            .collect();
+
+        if items.is_empty() {
+            return vec![unsupported(
+                "No menu items",
+                "The focused application publishes no menus yet",
+            )];
+        }
+
+        ranked(&items, query)
     }
 
     fn clipboard_results(&self, query: &str) -> Vec<LauncherItem> {
@@ -1112,6 +1151,11 @@ impl Launcher {
                     item.clipboard_id.as_deref(),
                 ) {
                     clipboard.restore(id);
+                }
+            }
+            ItemKind::MenuItem => {
+                if let Some(entry) = item.menu_item.as_ref() {
+                    menusearch::activate(entry);
                 }
             }
             ItemKind::Session => {
