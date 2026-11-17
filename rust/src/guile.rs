@@ -548,6 +548,43 @@ impl Guile {
         )))
     }
 
+    /// Remember NAME as this configuration's preset, or forget the remembered
+    /// choice when NAME is `None`, so the settings file decides again.
+    ///
+    /// Nothing is applied here: the choice is a preference, and the next load
+    /// is what registers its bars.  A caller that wants the switch now asks for
+    /// a reload, which is also what makes the two paths agree.
+    pub fn choose_preset(
+        &self,
+        config_path: &Path,
+        name: Option<&str>,
+    ) -> Result<bool, GuileError> {
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let choice = match name {
+            None => "#f".to_owned(),
+            Some(name) if is_preset_name(name) => format!("'{name}"),
+            Some(name) => {
+                return Err(GuileError::Evaluation(format!(
+                    "'{name}' is not a preset name"
+                )));
+            }
+        };
+        let answer = self.eval_string(&format!(
+            "(begin (use-modules (whelk presets)) (choose-preset! {} {}))",
+            scheme_string_literal(config),
+            choice
+        ))?;
+
+        // The remembered evaluation was made before this choice existed.
+        self.invalidate_config();
+
+        Ok(answer.trim() == "#t")
+    }
+
     /// Delete the GUI overrides, leaving the settings file untouched.
     pub fn reset_preferences(&self, config_path: &Path) -> Result<bool, GuileError> {
         self.load_config(config_path)?;
@@ -1050,6 +1087,20 @@ fn is_preference_key(key: &str) -> bool {
                 || character.is_ascii_digit()
                 || character == '-'
                 || character == '?'
+        })
+}
+
+/// The characters a preset name is made of.  Like a preference key it is
+/// spliced into the Scheme source as a symbol, so a name from the command line
+/// is refused rather than escaped.
+fn is_preset_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '-'
+                || character == '_'
+                || character == '+'
         })
 }
 

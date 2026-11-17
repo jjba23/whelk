@@ -169,6 +169,11 @@ Called by the C runtime at startup and again whenever the configuration
 directory changes, so a bar can be edited and seen without restarting the
 compositor."
   (let ((loaded? (load-settings-file! file-path)))
+    ;; A preset asked for outside the file -- WHELK_PRESET, or the choice
+    ;; `whelk --preset NAME' remembered -- is the shell for this load, so it is
+    ;; applied after the file has registered its own bars and before the GUI
+    ;; overrides are layered on top of the preset's.
+    (apply-preset-choice! file-path)
     ;; The primary file has just registered its bars; the GUI's saved choices
     ;; are a second layer over them and have the last word.
     (bind-shell-config! file-path)

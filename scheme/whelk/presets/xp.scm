@@ -41,45 +41,49 @@
    (menu-item "Lock" "shell:lock")
    (menu-item "Shut Down…" "systemctl poweroff")))
 
-(define* (xp-bar #:key (name 'xp))
+(define* (xp-bar #:rest overrides)
   "Return the XP taskbar: one bottom bar in Luna blue.
 
-The centre is the focused window, so the bar follows the session on Wayland
-(niri and sway) and on X11 (xprop) without a second configuration."
-  (bar
-   #:name name
-   #:position 'bottom
-   #:height 32
-   #:margin 0
-   #:exclusive? #t
-   #:spacing 2
-   #:padding 0
-   #:font "Tahoma"
-   #:font-size "9pt"
-   #:icon-font icon-font
+OVERRIDES are `bar' keywords -- `(xp-bar #:height 40)' is this preset's taskbar
+one notch taller, and `(xp-bar #:name 'games)' is a second one beside it.  The
+defaults below are what a caller does not mention."
+  (apply bar
+         (with-options
+          (list
+           #:name 'xp
+           #:position 'bottom
+           #:height 32
+           #:margin 0
+           #:exclusive? #t
+           #:spacing 2
+           #:padding 0
+           #:font "Tahoma"
+           #:font-size "9pt"
+           #:icon-font icon-font
 
-   ;; Windows XP's Luna taskbar: a strong blue surface, white labels and
-   ;; square corners, with the theme's default highlight turned down.
-   #:background "#245edb"
-   #:foreground "#ffffff"
-   #:accent "#ffd45e"
-   #:border-color "#0b3fa8"
-   #:radius 0
-   #:opacity 1.0
-   #:blur 0
-   #:shine 0.35
-   #:reflection 0.0
-   #:flare 0.0
+           ;; Windows XP's Luna taskbar: a strong blue surface, white labels and
+           ;; square corners, with the theme's default highlight turned down.
+           #:background "#245edb"
+           #:foreground "#ffffff"
+           #:accent "#ffd45e"
+           #:border-color "#0b3fa8"
+           #:radius 0
+           #:opacity 1.0
+           #:blur 0
+           #:shine 0.35
+           #:reflection 0.0
+           #:flare 0.0
 
-   #:left (list (start-module #:tooltip "Start"))
-   #:center (list (tasks-module #:max-length 30
-                               #:priority 20))
-   #:right (list (tray-module #:max-items 4 #:spacing 2)
-                 (wifi-module #:format "{icon}")
-                 (battery-module #:format "{icon} {capacity}%")
-                 (audio-module)
-                 (clock-module #:format "%H:%M"
-                               #:tooltip "{calendar}"))))
+           #:left (list (start-module #:tooltip "Start"))
+           #:center (list (tasks-module #:max-length 30
+                                       #:priority 20))
+           #:right (list (tray-module #:max-items 4 #:spacing 2)
+                         (wifi-module #:format "{icon}")
+                         (battery-module #:format "{icon} {capacity}%")
+                         (audio-module)
+                         (clock-module #:format "%H:%M"
+                                       #:tooltip "{calendar}")))
+          overrides)))
 
 (define* (xp-preset #:key (name 'xp))
   "Return the Windows-XP-shaped preset: the Luna taskbar and its Start menu."

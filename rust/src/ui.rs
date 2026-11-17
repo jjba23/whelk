@@ -259,6 +259,7 @@ fn requests_from(command_line: &gtk::gio::ApplicationCommandLine) -> Requests {
         notifications: flag("notifications"),
         dnd: flag("dnd"),
         night_light: flag("night-light"),
+        preset: text("preset"),
         inhibit: flag("inhibit"),
         inhibit_reason: text("inhibit-reason"),
         idle_status: flag("idle-status"),
@@ -408,6 +409,33 @@ fn perform(
                     command_line,
                     "night light: unchanged (the override could not be saved)\n",
                 ),
+            }
+        }
+        Request::Preset(name) => {
+            // "forget" is the one word that means "no preset": it clears the
+            // remembered choice and lets the settings file decide again, which
+            // is the only way back out of a bundle without editing a file.
+            let forget = name
+                .as_deref()
+                .is_none_or(|name| name.eq_ignore_ascii_case("forget"));
+
+            if shell
+                .borrow_mut()
+                .switch_preset(if forget { None } else { name.as_deref() })
+            {
+                say(
+                    command_line,
+                    &match (forget, name.as_deref()) {
+                        (true, _) => "preset: following the settings file again\n".to_owned(),
+                        (false, Some(name)) => format!("preset: {name}\n"),
+                        (false, None) => "preset: unchanged\n".to_owned(),
+                    },
+                );
+            } else {
+                say(
+                    command_line,
+                    "preset: unchanged (unknown preset, or the choice could not be saved)\n",
+                );
             }
         }
         Request::Inhibit(reason) => toggle_inhibit(reason.as_deref()),
@@ -753,6 +781,28 @@ impl Shell {
         self.reload();
 
         Some(enabled)
+    }
+
+    /// Switch the shell to a preset by name, or forget the remembered choice
+    /// when NAME is `None`.
+    ///
+    /// The preset is applied by the loader, so the switch is a reload: the bars,
+    /// the widgets and the menu it brings arrive through the same path a
+    /// settings edit takes, and nothing has to know two ways to build a shell.
+    fn switch_preset(&mut self, name: Option<&str>) -> bool {
+        match self.loader.choose_preset(name) {
+            Ok(true) => {
+                self.reload();
+
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                eprintln!("whelk: could not switch preset: {error}");
+
+                false
+            }
+        }
     }
 
     /// Save the picture chosen in the picker as the configuration's GUI

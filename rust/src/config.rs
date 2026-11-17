@@ -216,6 +216,18 @@ impl ConfigLoader {
             .map_err(|error| error.to_string())
     }
 
+    /// Remember a preset by name, or forget the choice when NAME is `None`.
+    /// The choice is written where the next load reads it; the shell reloads
+    /// its own bars, exactly as it does after a settings-window change.
+    pub fn choose_preset(&mut self, name: Option<&str>) -> Result<bool, String> {
+        let path = self.path.clone();
+        let guile = self.guile_mut()?;
+
+        guile
+            .choose_preset(&path, name)
+            .map_err(|error| error.to_string())
+    }
+
     /// Delete the GUI overrides; the settings file is not touched.
     pub fn reset_preferences(&mut self) -> Result<bool, String> {
         let path = self.path.clone();

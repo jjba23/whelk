@@ -48,6 +48,8 @@ the first one.  That is how a keybinding opens a surface:
   whelk --notifications                  # open/close the centre
   whelk --dnd                            # do not disturb on/off
   whelk --night-light                    # night light on/off
+  whelk --preset xp                      # switch preset and remember it
+  whelk --preset forget                  # forget it; settings.scm decides
   whelk --inhibit                        # presentation inhibitor on/off
   whelk --inhibit-reason "Film"         # why it is held (with --inhibit)
   whelk --idle-status                   # why the screen will or will not lock

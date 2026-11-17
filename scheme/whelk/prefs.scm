@@ -30,6 +30,7 @@
             preferences-read
             preference-ref
             save-preference!
+            forget-preference!
             reset-preferences!
             toggle-night-light!
             apply-shell-preferences!))
@@ -107,8 +108,10 @@ file cannot leave the shell with a half-applied look."
             (log-warn "Prefs" "Could not read ~a: ~a ~s" path key args)
             '())))))
 
-;; Only the keys the settings window actually edits.  A typo in a widget key
-;; must not become a setting that the rest of whelk silently ignores.
+;; Only the keys a window or a switcher writes.  A typo in a widget key must not
+;; become a setting that the rest of whelk silently ignores.  `preset' is the
+;; one key no control edits: `whelk --preset NAME' saves it, and the preset it
+;; names is applied before the rest of these are layered on top.
 (define %preference-keys
   '(bar-height bar-spacing bar-padding bar-edge bar-layer bar-exclusive?
     bar-overflow-expanded?
@@ -123,6 +126,7 @@ file cannot leave the shell with a half-applied look."
     night-light-enabled? night-light-mode night-light-temperature
     night-light-start night-light-end night-light-transition
     wallpaper-selected
+    preset
     launcher-default-mode
     launcher-key-window launcher-key-run launcher-key-calc launcher-key-file
     launcher-key-web launcher-key-ssh launcher-key-quit
@@ -201,6 +205,35 @@ duplicate happens to win."
              #t))
          (lambda (key* . args)
            (log-error "Prefs" "Could not save ~a: ~a ~s" path key* args)
+           #f))))))
+
+(define (forget-preference! config-path key)
+  "Drop one GUI override, leaving the rest and the settings file alone.
+
+Deleting the whole file is the heavy reset; this is the one-key reset a switch
+needs -- forgetting the remembered preset hands the shell back to the settings
+file without losing every colour chosen in the window.  Returns #t when the
+override is gone."
+  (let ((path (preferences-path config-path)))
+    (cond
+      ((not path) #f)
+      ((not (file-exists? path)) #t)
+      (else
+       (catch #t
+         (lambda ()
+           (let* ((old (preferences-read config-path))
+                  (kept (filter (lambda (pair) (not (eq? (car pair) key))) old)))
+             (if (null? kept)
+                 (when (file-exists? path) (delete-file path))
+                 (call-with-output-file path
+                   (lambda (port)
+                     (display ";; whelk GUI preferences -- delete this file to reset.\n"
+                              port)
+                     (pretty-print kept port))))
+             #t))
+         (lambda (key* . args)
+           (log-warn "Prefs" "Could not forget ~a in ~a: ~a ~s"
+                     key path key* args)
            #f))))))
 
 (define (reset-preferences! config-path)

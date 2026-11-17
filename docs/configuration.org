@@ -220,11 +220,11 @@ two.
 - =current= is the bar this document describes and the Golden Gate widgets,
   exactly as =settings/settings.scm= describes them.
 - =xp= is a Windows-XP-shaped taskbar: a Luna-blue bar on the bottom edge,
-  Start at the left, the focused window's title in the centre, the notification
-  area, battery and a 24-hour clock at the right, and a Start menu with
-  Programs, My Computer and Control Panel.  The centre is =window-module=, so
-  it tracks the focused window on Wayland (niri, sway and Hyprland over IPC,
-  river over =river-status=) and on X11 (xprop) with the same preset.
+  Start at the left, a button per open window in the centre (grouped by
+  workspace: a click focuses, a middle click closes), the notification area,
+  battery and a 24-hour clock at the right, and a Start menu with Programs, My
+  Computer and Control Panel.  The task list comes from the session module, so
+  it follows niri, sway, Hyprland and X11 with the same preset.
 
 A settings file chooses one by name:
 
@@ -234,10 +234,19 @@ A settings file chooses one by name:
   (use-preset! 'xp)
 #+end_src
 
-=use-preset!= is =configure-shell!= with the bundle's parts filled in, so a
-preset can be overridden by calling =configure-shell!= yourself, and a settings
-file can mix the two.  Presets live in their own Scheme modules under
-=scheme/whelk/presets/=; a third is a new module that calls
+*Overriding a preset.*  =use-preset!= takes the same keyword arguments to
+replace any part of the bundle, so changing one colour does not mean forking the
+preset.  =#f= means "the preset's own", which is how ='()= says "no widgets":
+
+#+begin_src scheme
+  (use-preset! 'xp #:bars (list (xp-bar #:height 40 #:accent "#80ff80")))
+  (use-preset! 'current #:widgets '())
+#+end_src
+
+A preset's own bar constructor takes every =bar= key (=(xp-bar #:height 40)=),
+and =use-preset!= itself is =configure-shell!= with the bundle's parts filled
+in, so a settings file can mix the two.  Presets live in their own Scheme
+modules under =scheme/whelk/presets/=; a third is a new module that calls
 
 #+begin_src scheme
   (register-preset! (preset #:name 'mine
@@ -246,8 +255,26 @@ file can mix the two.  Presets live in their own Scheme modules under
 #+end_src
 
 and is added to the imports in =(whelk core)= so every settings file can name
-it.  The XP preset is an arrangement, not a finished imitation: listing every
-open window as a task button needs a module whelk does not have yet.
+it.
+
+*Switching without editing.*  The settings file is not the only way to choose a
+preset, which is what makes a bundle a theme rather than a template:
+
+#+begin_src sh
+  whelk --preset xp      # switch the running shell and remember the choice
+  whelk --preset current # back to the shipped bar
+  whelk --preset forget  # forget the choice; the settings file decides again
+  WHELK_PRESET=xp whelk  # one run only, nothing remembered
+#+end_src
+
+The choice is saved as the =preset= GUI preference, so it survives a restart
+and lives in the same override file as the settings window's own changes:
+deleting that file (*Reset* in the settings window, or removing
+=~/.local/state/whelk/preferences-settings.scm=) therefore also forgets it.  The
+order is: =WHELK_PRESET= for the run, then the remembered choice, then the
+settings file.  A preset chosen this way beats a =(use-preset! ...)= line in the
+file -- that is what makes the switcher work -- and the GUI overrides are
+layered on top of whichever bars win.
 
 * GUI settings
 :PROPERTIES:

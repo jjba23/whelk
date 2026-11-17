@@ -39,6 +39,9 @@ pub enum Request {
     Notifications,
     Dnd,
     NightLight,
+    /// Switch the shell to a preset and remember the choice; an empty name
+    /// forgets the remembered choice and follows the settings file again.
+    Preset(Option<String>),
     Inhibit(Option<String>),
     IdleStatus,
     Network(Option<String>),
@@ -66,6 +69,7 @@ pub struct Requests {
     pub notifications: bool,
     pub dnd: bool,
     pub night_light: bool,
+    pub preset: Option<String>,
     pub inhibit: bool,
     pub inhibit_reason: Option<String>,
     pub idle_status: bool,
@@ -144,6 +148,12 @@ impl Requests {
 
         if self.night_light {
             commands.push(Request::NightLight);
+        }
+
+        if let Some(preset) = self.preset.as_ref() {
+            commands.push(Request::Preset(
+                (!preset.is_empty()).then(|| preset.clone()),
+            ));
         }
 
         if self.inhibit {
@@ -274,6 +284,12 @@ pub const FORWARDED_OPTIONS: &[OptionSpec] = &[
         short: None,
         value: None,
         description: "Turn the night light on or off",
+    },
+    OptionSpec {
+        long: "preset",
+        short: None,
+        value: Some("NAME"),
+        description: "Switch to a preset (current, xp) and remember it; NAME forget follows the settings file again",
     },
     OptionSpec {
         long: "inhibit",
@@ -407,6 +423,7 @@ impl Options {
             "notifications" => self.requests.notifications = true,
             "dnd" => self.requests.dnd = true,
             "night-light" => self.requests.night_light = true,
+            "preset" => self.requests.preset = Some(value(joined, arguments, name)?),
             "inhibit" => self.requests.inhibit = true,
             "inhibit-reason" => {
                 self.requests.inhibit_reason = Some(value(joined, arguments, name)?);
@@ -554,6 +571,24 @@ mod tests {
         assert_eq!(
             requests.commands(),
             vec![Request::Launcher(Some("window".to_owned()))]
+        );
+    }
+
+    #[test]
+    fn a_preset_is_switched_remembered_or_forgotten_from_the_command_line() {
+        assert_eq!(
+            parse(&["--preset", "xp"]).requests.commands(),
+            vec![Request::Preset(Some("xp".to_owned()))]
+        );
+        assert_eq!(
+            parse(&["--preset=forget"]).requests.commands(),
+            vec![Request::Preset(Some("forget".to_owned()))]
+        );
+        // An empty name is "no preset": the running shell follows its settings
+        // file again instead of being asked to look up an empty symbol.
+        assert_eq!(
+            parse(&["--preset="]).requests.commands(),
+            vec![Request::Preset(None)]
         );
     }
 
