@@ -155,17 +155,14 @@ pub fn disk_summary_from(total: u64, free: u64) -> Option<String> {
 
 /// The kernel release and machine, e.g. `"7.3.3-1-default (x86_64)"`.
 pub fn kernel_release() -> Option<String> {
-    let mut name: libc::utsname = unsafe { std::mem::zeroed() };
+    let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+    let release = release.trim();
 
-    if unsafe { libc::uname(&mut name) } != 0 {
+    if release.is_empty() {
         return None;
     }
 
-    Some(format!(
-        "{} ({})",
-        c_array_string(&name.release),
-        c_array_string(&name.machine)
-    ))
+    Some(format!("{release} ({})", std::env::consts::ARCH))
 }
 
 /// `uptime` in seconds, as a sentence that leaves zero parts out.
@@ -412,13 +409,15 @@ fn parse_f64_prefix(text: &str) -> Option<f64> {
     text[..index].parse().ok()
 }
 
-/// A NUL-terminated C array as a string, without a pointer in sight.
-fn c_array_string(value: &[libc::c_char]) -> String {
-    let bytes: Vec<u8> = value
-        .iter()
-        .map(|character| *character as u8)
-        .take_while(|byte| *byte != 0)
-        .collect();
+#[cfg(test)]
+mod tests {
+    use super::kernel_release;
 
-    String::from_utf8_lossy(&bytes).into_owned()
+    #[test]
+    fn kernel_release_names_the_build_machine() {
+        let release = kernel_release().expect("/proc/sys/kernel/osrelease should be readable");
+
+        assert!(release.ends_with(&format!(" ({})", std::env::consts::ARCH)));
+        assert!(!release.starts_with(' '));
+    }
 }

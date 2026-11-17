@@ -71,7 +71,7 @@ impl Handles {
 fn insert(widget: gtk::Widget) -> sys::Scm {
     let handle = HANDLES.with(|handles| handles.borrow_mut().insert(widget));
 
-    unsafe { sys::scm_from_int64(handle) }
+    sys::from_int64(handle)
 }
 
 fn take(handle: i64) -> Option<gtk::Widget> {
@@ -81,11 +81,11 @@ fn take(handle: i64) -> Option<gtk::Widget> {
 fn false_value() -> sys::Scm {
     // `#f` is an immediate the runtime already owns; evaluating the literal
     // allocates nothing and cannot raise.
-    unsafe { sys::scm_c_eval_string(c"#f".as_ptr()) }
+    sys::eval(c"#f")
 }
 
 fn true_value() -> sys::Scm {
-    unsafe { sys::scm_c_eval_string(c"#t".as_ptr()) }
+    sys::eval(c"#t")
 }
 
 /// Run one primitive body with a panic guard: a Rust panic must never unwind
@@ -99,51 +99,34 @@ fn guarded(body: impl FnOnce() -> sys::Scm) -> sys::Scm {
 
 /// A Scheme string or symbol as Rust text.  `None` for anything else, which is
 /// also what an absent optional argument is (Guile passes its undefined value).
-unsafe fn scheme_text(value: sys::Scm) -> Option<String> {
-    let string = unsafe {
-        if sys::scm_is_string(value) != 0 {
-            value
-        } else if is_symbol(value) {
-            sys::scm_symbol_to_string(value)
-        } else {
-            return None;
-        }
-    };
-    let mut length = 0usize;
-    let pointer = unsafe { sys::scm_to_utf8_stringn(string, &mut length) };
-
-    if pointer.is_null() {
+fn scheme_text(value: sys::Scm) -> Option<String> {
+    let string = if sys::is_string(value) {
+        value
+    } else if is_symbol(value) {
+        sys::symbol_to_string(value)
+    } else {
         return None;
-    }
+    };
 
-    let bytes = unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), length) };
-    let text = String::from_utf8_lossy(bytes).into_owned();
-
-    unsafe {
-        libc::free(pointer.cast());
-    }
-
-    Some(text)
+    sys::text(string)
 }
 
 /// `symbol?` is a libguile macro, not an exported function, so the predicate
 /// the C bridge gets for free is asked of `(guile)` instead.  A primitive runs
 /// on the same thread Guile was initialized on and inside Guile's own stack,
 /// which is where a call like this belongs.
-unsafe fn is_symbol(value: sys::Scm) -> bool {
-    unsafe {
-        let procedure = sys::scm_c_public_ref(c"guile".as_ptr(), c"symbol?".as_ptr());
+fn is_symbol(value: sys::Scm) -> bool {
+    let procedure = sys::public_ref(c"guile", c"symbol?");
 
-        !procedure.is_null() && sys::scm_call_1(procedure, value) == true_value()
-    }
+    !procedure.is_null() && sys::call_1(procedure, value) == true_value()
 }
 
-unsafe fn scheme_number(value: sys::Scm) -> Option<f64> {
-    (unsafe { sys::scm_is_number(value) } != 0).then(|| unsafe { sys::scm_to_double(value) })
+fn scheme_number(value: sys::Scm) -> Option<f64> {
+    sys::is_number(value).then(|| sys::to_double(value))
 }
 
-unsafe fn scheme_integer(value: sys::Scm) -> Option<i64> {
-    (unsafe { sys::scm_is_exact_integer(value) } != 0).then(|| unsafe { sys::scm_to_int64(value) })
+fn scheme_integer(value: sys::Scm) -> Option<i64> {
+    sys::is_exact_integer(value).then(|| sys::to_int64(value))
 }
 
 /// The label every text-shaped primitive builds: left-aligned, vertically
@@ -285,15 +268,13 @@ struct ProtectedProcedure(sys::Scm);
 
 impl ProtectedProcedure {
     fn new(procedure: sys::Scm) -> Option<Self> {
-        let is_procedure = unsafe { sys::scm_procedure_p(procedure) } == true_value();
+        let is_procedure = sys::procedure_p(procedure) == true_value();
 
         if !is_procedure {
             return None;
         }
 
-        unsafe {
-            sys::scm_gc_protect_object(procedure);
-        }
+        sys::protect(procedure);
 
         Some(Self(procedure))
     }
@@ -306,7 +287,7 @@ impl ProtectedProcedure {
         unsafe extern "C" fn thunk(data: *mut libc::c_void) -> sys::Scm {
             let call = unsafe { &*(data as *const Call) };
 
-            unsafe { sys::scm_call_0(call.procedure) }
+            sys::call_0(call.procedure)
         }
 
         unsafe extern "C" fn handler(
@@ -321,8 +302,8 @@ impl ProtectedProcedure {
 
         // A procedure that raises leaves the button's click a no-op, the way
         // the C bridge logs the exception and carries on.
-        let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
-            sys::scm_internal_catch(
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            sys::internal_catch(
                 true_value(),
                 thunk,
                 (&mut call as *mut Call).cast(),
@@ -335,9 +316,7 @@ impl ProtectedProcedure {
 
 impl Drop for ProtectedProcedure {
     fn drop(&mut self) {
-        unsafe {
-            sys::scm_gc_unprotect_object(self.0);
-        }
+        sys::unprotect(self.0);
     }
 }
 
@@ -347,8 +326,8 @@ impl Drop for ProtectedProcedure {
 
 unsafe extern "C" fn widget_label_primitive(text: sys::Scm, css: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let text = unsafe { scheme_text(text) };
-        let css = unsafe { scheme_text(css) };
+        let text = scheme_text(text);
+        let css = scheme_text(css);
 
         insert(label(text.as_deref(), css.as_deref()))
     })
@@ -356,8 +335,8 @@ unsafe extern "C" fn widget_label_primitive(text: sys::Scm, css: sys::Scm) -> sy
 
 unsafe extern "C" fn widget_markup_primitive(markup: sys::Scm, css: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let markup = unsafe { scheme_text(markup) };
-        let css = unsafe { scheme_text(css) };
+        let markup = scheme_text(markup);
+        let css = scheme_text(css);
         let widget = label(None, css.as_deref());
 
         if let Some(label) = widget.downcast_ref::<gtk::Label>() {
@@ -370,7 +349,7 @@ unsafe extern "C" fn widget_markup_primitive(markup: sys::Scm, css: sys::Scm) ->
 
 unsafe extern "C" fn widget_progress_primitive(fraction: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let fraction = unsafe { scheme_number(fraction) }.unwrap_or(0.0);
+        let fraction = scheme_number(fraction).unwrap_or(0.0);
 
         insert(progress(fraction))
     })
@@ -378,7 +357,7 @@ unsafe extern "C" fn widget_progress_primitive(fraction: sys::Scm) -> sys::Scm {
 
 unsafe extern "C" fn widget_level_primitive(fraction: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let fraction = unsafe { scheme_number(fraction) }.unwrap_or(0.0);
+        let fraction = scheme_number(fraction).unwrap_or(0.0);
 
         insert(level(fraction))
     })
@@ -395,12 +374,12 @@ unsafe extern "C" fn widget_sparkline_primitive(
         let mut cursor = values;
         let mut seen = 0usize;
 
-        while unsafe { sys::scm_is_pair(cursor) } != 0 {
-            if let Some(value) = unsafe { scheme_number(sys::scm_car(cursor)) } {
+        while sys::is_pair(cursor) {
+            if let Some(value) = scheme_number(sys::car(cursor)) {
                 points.push(value);
             }
 
-            cursor = unsafe { sys::scm_cdr(cursor) };
+            cursor = sys::cdr(cursor);
             seen += 1;
 
             if seen > 4096 {
@@ -408,9 +387,9 @@ unsafe extern "C" fn widget_sparkline_primitive(
             }
         }
 
-        let width = unsafe { scheme_integer(width) }.unwrap_or(90);
-        let height = unsafe { scheme_integer(height) }.unwrap_or(22);
-        let color = unsafe { scheme_text(color) };
+        let width = scheme_integer(width).unwrap_or(90);
+        let height = scheme_integer(height).unwrap_or(22);
+        let color = scheme_text(color);
         let width = i32::try_from(width).unwrap_or(90);
         let height = i32::try_from(height).unwrap_or(22);
 
@@ -423,8 +402,8 @@ unsafe extern "C" fn widget_sparkline_primitive(
 
 unsafe extern "C" fn widget_image_primitive(name: sys::Scm, size: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let name = unsafe { scheme_text(name) }.unwrap_or_default();
-        let size = unsafe { scheme_integer(size) }.unwrap_or(16);
+        let name = scheme_text(name).unwrap_or_default();
+        let size = scheme_integer(size).unwrap_or(16);
 
         insert(image(&name, size))
     })
@@ -432,7 +411,7 @@ unsafe extern "C" fn widget_image_primitive(name: sys::Scm, size: sys::Scm) -> s
 
 unsafe extern "C" fn widget_box_primitive(orientation: sys::Scm, children: sys::Scm) -> sys::Scm {
     guarded(|| {
-        let vertical = unsafe { scheme_text(orientation) }.as_deref() == Some("vertical");
+        let vertical = scheme_text(orientation).as_deref() == Some("vertical");
         let box_ = gtk::Box::new(
             if vertical {
                 gtk::Orientation::Vertical
@@ -446,14 +425,14 @@ unsafe extern "C" fn widget_box_primitive(orientation: sys::Scm, children: sys::
 
         box_.set_valign(gtk::Align::Center);
 
-        while unsafe { sys::scm_is_pair(cursor) } != 0 {
-            if let Some(handle) = unsafe { scheme_integer(sys::scm_car(cursor)) }
+        while sys::is_pair(cursor) {
+            if let Some(handle) = scheme_integer(sys::car(cursor))
                 && let Some(child) = take(handle)
             {
                 box_.append(&child);
             }
 
-            cursor = unsafe { sys::scm_cdr(cursor) };
+            cursor = sys::cdr(cursor);
             seen += 1;
 
             if seen > 4096 {
@@ -470,7 +449,7 @@ unsafe extern "C" fn widget_button_primitive(text: sys::Scm, procedure: sys::Scm
         let Some(procedure) = ProtectedProcedure::new(procedure) else {
             return false_value();
         };
-        let text = unsafe { scheme_text(text) }.unwrap_or_default();
+        let text = scheme_text(text).unwrap_or_default();
         let button = gtk::Button::with_label(&text);
 
         button.connect_clicked(move |_| procedure.call());
@@ -481,8 +460,8 @@ unsafe extern "C" fn widget_button_primitive(text: sys::Scm, procedure: sys::Scm
 
 unsafe extern "C" fn widget_add_class_primitive(widget: sys::Scm, css: sys::Scm) -> sys::Scm {
     guarded(|| {
-        if let Some(handle) = unsafe { scheme_integer(widget) }
-            && let Some(css) = unsafe { scheme_text(css) }
+        if let Some(handle) = scheme_integer(widget)
+            && let Some(css) = scheme_text(css)
         {
             let _ = HANDLES.with(|handles| {
                 handles
@@ -581,7 +560,7 @@ impl Guile {
     /// the C shell's bridge does the same after it has loaded the core module.
     pub(super) fn register_widget_primitives(&self) -> Result<(), GuileError> {
         let module = CString::new("whelk core").expect("static module name");
-        let module = self.catch(|| Ok(unsafe { sys::scm_c_resolve_module(module.as_ptr()) }))?;
+        let module = self.catch(|| Ok(sys::resolve_module(&module)))?;
 
         if !self.is_true(module) {
             return Err(GuileError::Evaluation(
@@ -589,15 +568,12 @@ impl Guile {
             ));
         }
 
-        let previous = unsafe { sys::scm_set_current_module(module) };
+        let previous = sys::set_current_module(module);
         let mut failure = None;
 
         for (name, required, optional, rest, procedure) in primitives() {
-            let defined = self.catch(|| {
-                Ok(unsafe {
-                    sys::scm_c_define_gsubr(name.as_ptr(), required, optional, rest, procedure)
-                })
-            });
+            let defined =
+                self.catch(|| Ok(sys::define_gsubr(name, required, optional, rest, procedure)));
 
             if let Err(error) = defined {
                 failure = Some(error);
@@ -606,9 +582,7 @@ impl Guile {
             }
 
             let exported = self.catch(|| {
-                unsafe {
-                    sys::scm_c_export(name.as_ptr(), std::ptr::null::<libc::c_char>());
-                }
+                sys::export(name);
 
                 Ok(self.true_value)
             });
@@ -620,9 +594,7 @@ impl Guile {
             }
         }
 
-        unsafe {
-            sys::scm_set_current_module(previous);
-        }
+        sys::set_current_module(previous);
 
         match failure {
             Some(error) => Err(error),
@@ -645,13 +617,13 @@ struct Call<'a> {
 
 unsafe extern "C" fn call_thunk(data: *mut libc::c_void) -> sys::Scm {
     let call = unsafe { &*(data as *const Call<'_>) };
-    let procedure = unsafe { sys::scm_c_public_ref(call.module.as_ptr(), call.name.as_ptr()) };
+    let procedure = sys::public_ref(call.module, call.name);
 
-    if procedure.is_null() || unsafe { sys::scm_procedure_p(procedure) } != call.true_value {
+    if procedure.is_null() || sys::procedure_p(procedure) != call.true_value {
         return call.false_value;
     }
 
-    unsafe { sys::scm_call_1(procedure, sys::scm_from_utf8_string(call.argument.as_ptr())) }
+    sys::call_1(procedure, sys::from_utf8_string(call.argument))
 }
 
 unsafe extern "C" fn call_handler(
@@ -684,30 +656,26 @@ pub fn call_module_widget(token: &str) -> Option<gtk::Widget> {
         true_value: true_value(),
         false_value: false_value(),
     };
-    let result = unsafe {
-        sys::scm_internal_catch(
-            call.true_value,
-            call_thunk,
-            (&mut call as *mut Call<'_>).cast(),
-            call_handler,
-            (&mut call as *mut Call<'_>).cast(),
-        )
-    };
+    let result = sys::internal_catch(
+        call.true_value,
+        call_thunk,
+        (&mut call as *mut Call<'_>).cast(),
+        call_handler,
+        (&mut call as *mut Call<'_>).cast(),
+    );
 
     widget_from_value(result)
 }
 
 fn widget_from_value(value: sys::Scm) -> Option<gtk::Widget> {
-    unsafe {
-        if sys::scm_is_exact_integer(value) != 0 {
-            return take(sys::scm_to_int64(value));
-        }
+    if sys::is_exact_integer(value) {
+        return take(sys::to_int64(value));
+    }
 
-        if sys::scm_is_string(value) != 0 || sys::scm_is_number(value) != 0 || is_symbol(value) {
-            let text = scheme_text(value).unwrap_or_default();
+    if sys::is_string(value) || sys::is_number(value) || is_symbol(value) {
+        let text = scheme_text(value).unwrap_or_default();
 
-            return Some(label(Some(&text), None));
-        }
+        return Some(label(Some(&text), None));
     }
 
     None

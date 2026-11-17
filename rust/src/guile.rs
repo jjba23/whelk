@@ -13,15 +13,15 @@
 //! 3. A Scheme exception is caught at the boundary and becomes a Rust
 //!    `Result`; it never unwinds through GTK or Rust frames.
 //!
-//! The FFI declarations live in `sys.rs`.  This module contains no raw C
-//! signatures, so the unsafe surface is easy to review.
+//! The FFI declarations live in `sys.rs`, behind safe functions.  This module
+//! and `widget.rs` use no unsafe blocks except the two `extern "C"` callbacks
+//! Guile calls back into; the C ABI stays in one reviewable place.
 
 mod sys;
 
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use std::slice;
 
 use crate::bar::BarSettings;
 use crate::menuapps::{self, MenuSources};
@@ -58,9 +58,7 @@ struct Root {
 
 impl Root {
     fn new(value: sys::Scm) -> Self {
-        unsafe {
-            sys::scm_gc_protect_object(value);
-        }
+        sys::protect(value);
 
         Self { value }
     }
@@ -68,9 +66,7 @@ impl Root {
 
 impl Drop for Root {
     fn drop(&mut self) {
-        unsafe {
-            sys::scm_gc_unprotect_object(self.value);
-        }
+        sys::unprotect(self.value);
     }
 }
 
@@ -120,9 +116,7 @@ impl Guile {
             ));
         }
 
-        unsafe {
-            sys::scm_init_guile();
-        }
+        sys::init();
 
         if !scheme_paths.is_empty() {
             let literals: Vec<String> = scheme_paths
@@ -168,12 +162,11 @@ impl Guile {
                 GuileError::Evaluation("Scheme source contains a NUL byte".to_owned())
             })?;
 
-            Ok(unsafe { sys::scm_c_eval_string(code.as_ptr()) })
+            Ok(sys::eval(&code))
         })?;
 
         let _root = Root::new(value);
-        let displayed =
-            self.catch(|| Ok(unsafe { sys::scm_call_1(self.display_procedure.value, value) }))?;
+        let displayed = self.catch(|| Ok(sys::call_1(self.display_procedure.value, value)))?;
 
         self.text(displayed)
     }
@@ -197,9 +190,9 @@ impl Guile {
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("shell-bars->alists").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
 
         let _alist_root = Root::new(alist);
@@ -236,9 +229,9 @@ impl Guile {
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("shell-widgets->alists").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
         let _alist_root = Root::new(alist);
         let value = self.scheme_value(alist)?;
@@ -274,9 +267,9 @@ impl Guile {
         let units = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("shell-menu->units").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
         let _units_root = Root::new(units);
         let entries = self.menu_entries(units, 0)?;
@@ -292,9 +285,9 @@ impl Guile {
         let default = self.catch(|| {
             let module = CString::new("whelk defaults").expect("static module name");
             let name = CString::new("default-shell-menu").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_0(procedure) })
+            Ok(sys::call_0(procedure))
         })?;
         let _default_root = Root::new(default);
 
@@ -314,16 +307,16 @@ impl Guile {
         let mut cursor = units;
         let mut seen = 0usize;
 
-        while unsafe { sys::scm_is_pair(cursor) } != 0 {
-            let unit = unsafe { sys::scm_car(cursor) };
+        while sys::is_pair(cursor) {
+            let unit = sys::car(cursor);
 
-            if unsafe { sys::scm_is_pair(unit) } != 0
+            if sys::is_pair(unit)
                 && let Some(entry) = self.menu_entry(unit, depth)?
             {
                 entries.push(entry);
             }
 
-            cursor = unsafe { sys::scm_cdr(cursor) };
+            cursor = sys::cdr(cursor);
             seen += 1;
 
             if seen > 4096 {
@@ -337,8 +330,8 @@ impl Guile {
     }
 
     fn menu_entry(&self, unit: sys::Scm, depth: usize) -> Result<Option<MenuEntry>, GuileError> {
-        let tag = unsafe { sys::scm_car(unit) };
-        let rest = unsafe { sys::scm_cdr(unit) };
+        let tag = sys::car(unit);
+        let rest = sys::cdr(unit);
         let Some(tag) = self.value_text(tag)? else {
             return Ok(None);
         };
@@ -346,19 +339,19 @@ impl Guile {
         match tag.as_str() {
             "separator" => Ok(Some(MenuEntry::Separator)),
             "item" => {
-                if unsafe { sys::scm_is_pair(rest) } == 0 {
+                if !sys::is_pair(rest) {
                     return Ok(None);
                 }
 
                 let Some(label) = self
-                    .value_text(unsafe { sys::scm_car(rest) })?
+                    .value_text(sys::car(rest))?
                     .filter(|label| !label.is_empty())
                 else {
                     return Ok(None);
                 };
-                let action_rest = unsafe { sys::scm_cdr(rest) };
-                let action = if unsafe { sys::scm_is_pair(action_rest) } != 0 {
-                    self.value_text(unsafe { sys::scm_car(action_rest) })?
+                let action_rest = sys::cdr(rest);
+                let action = if sys::is_pair(action_rest) {
+                    self.value_text(sys::car(action_rest))?
                         .filter(|action| !action.is_empty())
                 } else {
                     None
@@ -371,21 +364,19 @@ impl Guile {
                 }))
             }
             "submenu" | "menu" => {
-                if unsafe { sys::scm_is_pair(rest) } == 0 {
+                if !sys::is_pair(rest) {
                     return Ok(None);
                 }
 
                 let Some(label) = self
-                    .value_text(unsafe { sys::scm_car(rest) })?
+                    .value_text(sys::car(rest))?
                     .filter(|label| !label.is_empty())
                 else {
                     return Ok(None);
                 };
-                let body = unsafe { sys::scm_cdr(rest) };
-                let marker = if unsafe { sys::scm_is_pair(body) } != 0
-                    && unsafe { sys::scm_is_pair(sys::scm_cdr(body)) } == 0
-                {
-                    self.value_text(unsafe { sys::scm_car(body) })?
+                let body = sys::cdr(rest);
+                let marker = if sys::is_pair(body) && !sys::is_pair(sys::cdr(body)) {
+                    self.value_text(sys::car(body))?
                         .filter(|marker| !marker.is_empty())
                 } else {
                     None
@@ -410,7 +401,7 @@ impl Guile {
     }
 
     fn value_text(&self, value: sys::Scm) -> Result<Option<String>, GuileError> {
-        if unsafe { sys::scm_is_string(value) } != 0 {
+        if sys::is_string(value) {
             return self.text(value).map(Some);
         }
 
@@ -447,7 +438,7 @@ impl Guile {
                 GuileError::Evaluation("Scheme source contains a NUL byte".to_owned())
             })?;
 
-            Ok(unsafe { sys::scm_c_eval_string(code.as_ptr()) })
+            Ok(sys::eval(&code))
         })?;
         let _root = Root::new(value);
 
@@ -469,9 +460,9 @@ impl Guile {
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("shell-wallpaper->alist").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
 
         let _alist_root = Root::new(alist);
@@ -673,9 +664,9 @@ impl Guile {
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("shell-clipboard->alist").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
 
         let _alist_root = Root::new(alist);
@@ -703,9 +694,9 @@ impl Guile {
         let alist = self.catch(|| {
             let module = CString::new("whelk state").expect("static module name");
             let name = CString::new("get-shell-idle").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
 
         let _alist_root = Root::new(alist);
@@ -741,9 +732,9 @@ impl Guile {
         let loaded = self.catch(|| {
             let module = CString::new("whelk core").expect("static module name");
             let name = CString::new("load-shell-config!").expect("static procedure name");
-            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+            let procedure = sys::public_ref(&module, &name);
 
-            Ok(unsafe { sys::scm_call_1(procedure, path) })
+            Ok(sys::call_1(procedure, path))
         })?;
 
         if self.is_true(loaded) {
@@ -760,7 +751,7 @@ impl Guile {
         let module = CString::new("whelk core").expect("static module name");
         let name = CString::new("whelk-rust-version").expect("static primitive name");
 
-        let module = self.catch(|| Ok(unsafe { sys::scm_c_resolve_module(module.as_ptr()) }))?;
+        let module = self.catch(|| Ok(sys::resolve_module(&module)))?;
 
         if !self.is_true(module) {
             return Err(GuileError::Evaluation(
@@ -768,40 +759,32 @@ impl Guile {
             ));
         }
 
-        let previous = unsafe { sys::scm_set_current_module(module) };
+        let previous = sys::set_current_module(module);
 
         let result = self.catch(|| {
-            Ok(unsafe {
-                sys::scm_c_define_gsubr(
-                    name.as_ptr(),
-                    0,
-                    0,
-                    0,
-                    rust_version_primitive as sys::ScmSubr,
-                )
-            })
+            Ok(sys::define_gsubr(
+                name.as_c_str(),
+                0,
+                0,
+                0,
+                rust_version_primitive as sys::ScmSubr,
+            ))
         });
 
         if result.is_ok() {
             let export = self.catch(|| {
-                unsafe {
-                    sys::scm_c_export(name.as_ptr(), std::ptr::null::<libc::c_char>());
-                }
+                sys::export(name.as_c_str());
 
                 Ok(self.true_value)
             });
 
             if let Err(error) = export {
-                unsafe {
-                    sys::scm_set_current_module(previous);
-                }
+                sys::set_current_module(previous);
                 return Err(error);
             }
         }
 
-        unsafe {
-            sys::scm_set_current_module(previous);
-        }
+        sys::set_current_module(previous);
 
         result.map(|_| ())
     }
@@ -826,15 +809,13 @@ impl Guile {
             false_value: self.false_value,
         };
 
-        let value = unsafe {
-            sys::scm_internal_catch(
-                self.true_value,
-                catch_body,
-                (&mut body_context as *mut BodyContext<'_>).cast(),
-                catch_handler,
-                (&mut handler_context as *mut HandlerContext).cast(),
-            )
-        };
+        let value = sys::internal_catch(
+            self.true_value,
+            catch_body,
+            (&mut body_context as *mut BodyContext<'_>).cast(),
+            catch_handler,
+            (&mut handler_context as *mut HandlerContext).cast(),
+        );
 
         if let Some(error) = body_error {
             Err(error)
@@ -853,8 +834,7 @@ impl Guile {
     }
 
     fn is_symbol(&self, value: sys::Scm) -> Result<bool, GuileError> {
-        let result =
-            self.catch(|| Ok(unsafe { sys::scm_call_1(self.symbol_predicate.value, value) }))?;
+        let result = self.catch(|| Ok(sys::call_1(self.symbol_predicate.value, value)))?;
 
         Ok(self.is_true(result))
     }
@@ -863,72 +843,49 @@ impl Guile {
         let text = CString::new(text)
             .map_err(|_| GuileError::Evaluation("text contains a NUL byte".to_owned()))?;
 
-        Ok(unsafe { sys::scm_from_utf8_string(text.as_ptr()) })
+        Ok(sys::from_utf8_string(&text))
     }
 
     fn text(&self, value: sys::Scm) -> Result<String, GuileError> {
-        if unsafe { sys::scm_is_string(value) } == 0 {
-            return Err(GuileError::Evaluation(
-                "Scheme value is not a string".to_owned(),
-            ));
-        }
-
-        let mut length = 0usize;
-        let pointer = unsafe { sys::scm_to_utf8_stringn(value, &mut length) };
-
-        if pointer.is_null() {
-            return Err(GuileError::Evaluation(
-                "Scheme string could not be encoded as UTF-8".to_owned(),
-            ));
-        }
-
-        let bytes = unsafe { slice::from_raw_parts(pointer.cast::<u8>(), length) };
-        let result = String::from_utf8_lossy(bytes).into_owned();
-
-        unsafe {
-            libc::free(pointer.cast());
-        }
-
-        Ok(result)
+        sys::text(value).ok_or_else(|| {
+            GuileError::Evaluation("Scheme string could not be encoded as UTF-8".to_owned())
+        })
     }
 
     fn symbol_text(&self, value: sys::Scm) -> Result<String, GuileError> {
-        let string = self.catch(|| Ok(unsafe { sys::scm_symbol_to_string(value) }))?;
+        let string = self.catch(|| Ok(sys::symbol_to_string(value)))?;
 
         self.text(string)
     }
 
     fn scheme_value(&self, value: sys::Scm) -> Result<SchemeValue, GuileError> {
-        unsafe {
-            if sys::scm_is_bool(value) != 0 {
-                return Ok(SchemeValue::Bool(self.is_true(value)));
-            }
-
-            if sys::scm_is_exact_integer(value) != 0 {
-                return Ok(SchemeValue::Integer(sys::scm_to_int64(value)));
-            }
-
-            if sys::scm_is_number(value) != 0 {
-                return Ok(SchemeValue::Number(sys::scm_to_double(value)));
-            }
-
-            if sys::scm_is_string(value) != 0 {
-                return Ok(SchemeValue::Text(self.text(value)?));
-            }
+        if sys::is_bool(value) {
+            return Ok(SchemeValue::Bool(self.is_true(value)));
         }
 
-        let is_symbol =
-            self.catch(|| Ok(unsafe { sys::scm_call_1(self.symbol_predicate.value, value) }))?;
+        if sys::is_exact_integer(value) {
+            return Ok(SchemeValue::Integer(sys::to_int64(value)));
+        }
+
+        if sys::is_number(value) {
+            return Ok(SchemeValue::Number(sys::to_double(value)));
+        }
+
+        if sys::is_string(value) {
+            return Ok(SchemeValue::Text(self.text(value)?));
+        }
+
+        let is_symbol = self.catch(|| Ok(sys::call_1(self.symbol_predicate.value, value)))?;
 
         if self.is_true(is_symbol) {
             return Ok(SchemeValue::Symbol(self.symbol_text(value)?));
         }
 
-        if unsafe { sys::scm_is_pair(value) } != 0 {
-            let first = unsafe { sys::scm_car(value) };
-            let first_is_pair = unsafe { sys::scm_is_pair(first) } != 0;
+        if sys::is_pair(value) {
+            let first = sys::car(value);
+            let first_is_pair = sys::is_pair(first);
             let first_is_symbol = if first_is_pair {
-                self.is_symbol(unsafe { sys::scm_car(first) })?
+                self.is_symbol(sys::car(first))?
             } else {
                 false
             };
@@ -944,9 +901,9 @@ impl Guile {
             let mut cursor = value;
             let mut seen = 0usize;
 
-            while unsafe { sys::scm_is_pair(cursor) } != 0 {
-                items.push(self.scheme_value(unsafe { sys::scm_car(cursor) })?);
-                cursor = unsafe { sys::scm_cdr(cursor) };
+            while sys::is_pair(cursor) {
+                items.push(self.scheme_value(sys::car(cursor))?);
+                cursor = sys::cdr(cursor);
                 seen += 1;
 
                 if seen > 4096 {
@@ -967,17 +924,17 @@ impl Guile {
         let mut cursor = alist;
         let mut seen = 0usize;
 
-        while unsafe { sys::scm_is_pair(cursor) } != 0 {
-            let entry = unsafe { sys::scm_car(cursor) };
+        while sys::is_pair(cursor) {
+            let entry = sys::car(cursor);
 
-            if unsafe { sys::scm_is_pair(entry) } != 0 {
-                let key = unsafe { sys::scm_car(entry) };
-                let value = unsafe { sys::scm_cdr(entry) };
+            if sys::is_pair(entry) {
+                let key = sys::car(entry);
+                let value = sys::cdr(entry);
 
                 values.push((self.symbol_text(key)?, self.scheme_value(value)?));
             }
 
-            cursor = unsafe { sys::scm_cdr(cursor) };
+            cursor = sys::cdr(cursor);
             seen += 1;
 
             if seen > 4096 {
@@ -997,13 +954,13 @@ unsafe extern "C" fn rust_version_primitive() -> sys::Scm {
     // this boundary, so the input is a compile-time constant.
     let version = CString::new(env!("CARGO_PKG_VERSION")).expect("version has no NUL");
 
-    unsafe { sys::scm_from_utf8_string(version.as_ptr()) }
+    sys::from_utf8_string(&version)
 }
 
 fn eval_raw(code: &str) -> Result<sys::Scm, GuileError> {
     let code = CString::new(code)
         .map_err(|_| GuileError::Evaluation("Scheme source contains a NUL byte".to_owned()))?;
-    let value = unsafe { sys::scm_c_eval_string(code.as_ptr()) };
+    let value = sys::eval(&code);
 
     if value.is_null() {
         Err(GuileError::Evaluation(
@@ -1050,11 +1007,22 @@ pub fn scheme_string_literal(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::scheme_string_literal;
+    use super::{is_preference_key, scheme_string_literal};
 
     #[test]
     fn literals_are_escaped() {
         assert_eq!(scheme_string_literal("a\"b"), "\"a\\\"b\"");
         assert_eq!(scheme_string_literal("a\\b"), "\"a\\\\b\"");
+    }
+
+    #[test]
+    fn preference_keys_cannot_escape_their_symbol() {
+        for key in ["theme", "bar-position", "clock-24h?", "x1"] {
+            assert!(is_preference_key(key), "{key}");
+        }
+
+        for key in ["", "Theme", "a b", "a)b", "a'b", "a\"b", "ä"] {
+            assert!(!is_preference_key(key), "{key}");
+        }
     }
 }

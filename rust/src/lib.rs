@@ -11,6 +11,8 @@
 //! Rust surface.  Each layer has a stable Rust API so a later commit can move
 //! callers over without rewriting the logic again.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 pub mod about;
 pub mod applets;
 pub mod atspi;

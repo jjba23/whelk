@@ -969,7 +969,7 @@ fn log(message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{PAM_AUTHINFO_UNAVAIL, candidates};
+    use super::{PAM_AUTHINFO_UNAVAIL, candidates, fallback_allowed, strict_from_value};
 
     #[test]
     fn candidates_are_ordered_unique_and_end_with_the_soname() {
@@ -992,5 +992,26 @@ mod tests {
     #[test]
     fn the_status_that_started_the_fallback_is_still_the_one_documented() {
         assert_eq!(PAM_AUTHINFO_UNAVAIL, 9);
+    }
+
+    #[test]
+    fn the_helper_fallback_never_overrides_an_administrator() {
+        assert!(!fallback_allowed(true, true, false));
+        assert!(!fallback_allowed(false, false, false));
+        assert!(!fallback_allowed(false, true, true));
+        assert!(fallback_allowed(false, true, false));
+    }
+
+    #[test]
+    fn strict_mode_accepts_only_the_documented_spellings() {
+        for value in ["1", "true", "TRUE", "yes", "on", " 1 "] {
+            assert!(strict_from_value(Some(value)), "{value}");
+        }
+
+        for value in ["", "0", "false", "no", "off", "2", "treu"] {
+            assert!(!strict_from_value(Some(value)), "{value}");
+        }
+
+        assert!(!strict_from_value(None));
     }
 }

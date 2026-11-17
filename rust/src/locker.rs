@@ -107,16 +107,60 @@ pub(crate) fn start_lock_screen() {
 mod sys {
     use std::ffi::c_void;
 
+    use gtk::glib;
+    use gtk::prelude::*;
+    use gtk4 as gtk;
+
     unsafe extern "C" {
-        pub fn gtk_session_lock_is_supported() -> i32;
-        pub fn gtk_session_lock_instance_new() -> *mut c_void;
-        pub fn gtk_session_lock_instance_lock(instance: *mut c_void) -> i32;
-        pub fn gtk_session_lock_instance_unlock(instance: *mut c_void);
-        pub fn gtk_session_lock_instance_assign_window_to_monitor(
+        fn gtk_session_lock_is_supported() -> i32;
+        fn gtk_session_lock_instance_new() -> *mut c_void;
+        fn gtk_session_lock_instance_lock(instance: *mut c_void) -> i32;
+        fn gtk_session_lock_instance_unlock(instance: *mut c_void);
+        fn gtk_session_lock_instance_assign_window_to_monitor(
             instance: *mut c_void,
             window: *mut c_void,
             monitor: *mut c_void,
         );
+    }
+
+    pub fn is_supported() -> bool {
+        unsafe { gtk_session_lock_is_supported() != 0 }
+    }
+
+    pub fn instance() -> Option<glib::Object> {
+        let pointer = unsafe { gtk_session_lock_instance_new() };
+
+        if pointer.is_null() {
+            return None;
+        }
+
+        Some(unsafe {
+            glib::translate::from_glib_full(pointer.cast::<glib::gobject_ffi::GObject>())
+        })
+    }
+
+    pub fn lock(instance: &glib::Object) -> bool {
+        unsafe { gtk_session_lock_instance_lock(instance.as_ptr().cast()) != 0 }
+    }
+
+    pub fn assign_window(
+        instance: &glib::Object,
+        window: &gtk::ApplicationWindow,
+        monitor: &gtk::gdk::Monitor,
+    ) {
+        unsafe {
+            gtk_session_lock_instance_assign_window_to_monitor(
+                instance.as_ptr().cast(),
+                window.as_ptr().cast(),
+                monitor.as_ptr().cast(),
+            );
+        }
+    }
+
+    pub fn unlock(instance: &glib::Object) {
+        unsafe {
+            gtk_session_lock_instance_unlock(instance.as_ptr().cast());
+        }
     }
 }
 
@@ -296,18 +340,13 @@ fn lock(application: &gtk::Application) {
 // ---------------------------------------------------------------------------
 
 fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
-    if unsafe { sys::gtk_session_lock_is_supported() } == 0 {
+    if !sys::is_supported() {
         return false;
     }
 
-    let pointer = unsafe { sys::gtk_session_lock_instance_new() };
-
-    if pointer.is_null() {
+    let Some(instance) = sys::instance() else {
         return false;
-    }
-
-    let instance: glib::Object =
-        unsafe { glib::translate::from_glib_full(pointer as *mut glib::gobject_ffi::GObject) };
+    };
 
     let weak = Rc::downgrade(state);
     instance.connect_local("monitor", false, move |values| {
@@ -352,9 +391,7 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
         None
     });
 
-    let acquired = unsafe {
-        sys::gtk_session_lock_instance_lock(instance.as_ptr().cast::<std::ffi::c_void>())
-    } != 0;
+    let acquired = sys::lock(&instance);
 
     if !acquired {
         // Another locker may already own the session.  A weaker layer surface
@@ -448,13 +485,7 @@ fn create_session_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monito
     let instance = state.borrow().session_lock.clone();
 
     if let Some(instance) = instance {
-        unsafe {
-            sys::gtk_session_lock_instance_assign_window_to_monitor(
-                instance.as_ptr().cast::<std::ffi::c_void>(),
-                window.as_ptr().cast::<std::ffi::c_void>(),
-                monitor.as_ptr().cast::<std::ffi::c_void>(),
-            );
-        }
+        sys::assign_window(&instance, &window, monitor);
     }
 
     if primary {
@@ -1002,9 +1033,7 @@ fn unlock(state: &Rc<RefCell<Locker>>) {
         Some(instance) => {
             // The compositor owns these windows; ask it to end the lock and
             // only drop the references.
-            unsafe {
-                sys::gtk_session_lock_instance_unlock(instance.as_ptr().cast::<std::ffi::c_void>())
-            };
+            sys::unlock(&instance);
 
             drop(windows);
         }

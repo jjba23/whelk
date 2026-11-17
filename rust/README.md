@@ -758,12 +758,18 @@ version primitive allocates a Scheme string from a compile-time constant.
 ## Unsafe surface
 
 The Rust shell keeps `unsafe` at the boundaries where a C library has no safe
-Rust API, and keeps it out of the application logic.  The inventory is small
-enough to review:
+Rust API, and keeps it out of the application logic.  Calls into Guile go
+through the safe functions in `src/guile/sys.rs`; `src/guile.rs` and
+`src/guile/widget.rs` have no unsafe blocks apart from the `extern "C"`
+callbacks Guile calls back into.  The crate exports no `#[no_mangle]` symbols:
+Scheme reaches Rust through `scm_c_define_gsubr`, not through a second C ABI.
+The inventory is small enough to review:
 
-- `src/guile/sys.rs` and `src/guile.rs` — the libguile FFI, protected `SCM`
-  roots, `scm_internal_catch` trampolines and the one callback from Scheme into
-  Rust.  All of it is in the Guile ownership rules above.
+- `src/guile/sys.rs` — the libguile declarations, protected `SCM` roots,
+  `scm_internal_catch` trampolines and the safe wrappers that own UTF-8 copies,
+  truth values and pointer checks.
+- `src/guile.rs` — the `scm_internal_catch` callbacks, whose contexts are kept
+  alive by the safe wrapper for the duration of the call.
 - `src/lockauth.rs` — `libpam` loaded with `dlopen`/`dlsym`, the PAM
   conversation callback, and the allocation of PAM's response array.  The
   password is zeroed with `write_volatile` before its buffer is released.
