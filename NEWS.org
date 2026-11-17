@@ -9,18 +9,59 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
-*** Fixed
-
-- *The Guix development manifest loads the Rust package.*  =manifest.scm= used
-  =rust= without importing =(gnu packages rust)=, so =maak test= stopped before
-  Cargo.  The task also passed one unquoted =sh -c= string, so its semicolons
-  ended the shell and Cargo ran on the host instead of inside the pinned Guix
-  environment.  The manifest now selects rust's =out=, =cargo= and =tools=
-  outputs, so the shell has the compiler, Cargo, rustfmt and clippy, and
-  =scripts/guix-test.sh= runs the gate inside the shell with the loader path
-  its build scripts need.
-
 *[Released]
+
+** v0.40.0 (2026-11-17)
+
+*** Security
+
+- *Scheme modules are loaded only from paths the user or installer chose.*
+  A packaged whelk no longer searches the working directory or the build-time
+  =CARGO_MANIFEST_DIR=, either of which could load a module from an
+  attacker-writable directory.  Development runs name the tree explicitly with
+  =WHELK_SCHEME_DIR=; staged installs resolve beside the binary and packaged
+  installs use =/usr/share/guile/site/3.0=.
+- *logind property signals use the standard properties interface.*  The locker,
+  idle manager and clipboard now subscribe to =PropertiesChanged= on
+  =org.freedesktop.DBus.Properties=, so a signal on the session interface
+  cannot impersonate a logind property change.
+- *Suspend waits for the lock screen to report readiness.*  Before
+  =PrepareForSleep(true)= the shell takes a logind sleep-delay inhibitor and
+  holds it until the lock process has acquired =ext-session-lock-v1= or built
+  its layer-shell fallback.  A lock that cannot start releases the delay
+  instead of suspending behind a screen that is not up.
+- *The lock screen fails closed.*  If the compositor implements session-lock
+  and refuses it, or if neither session-lock nor layer-shell is available, the
+  lock exits with failure rather than showing an ordinary or transparent
+  window that input can escape.  The remaining surfaces are opaque, and one
+  strong reference now owns the lock state while weak callbacks observe it.
+- *Notification bodies keep only emphasis markup.*  Pango =span= tags are
+  removed and their text escaped, so a notification from any session client
+  cannot spoof shell text or request extreme font metrics.  Unbalanced tags
+  remain plain text.
+- *Bluetooth addresses are validated before reaching a command line.*  The
+  network panel accepts exactly six colon-separated hexadecimal octets and
+  ignores malformed or forged BlueZ rows.
+- *Chord keys no longer slice through UTF-8.*  A pasted multi-byte key is kept
+  whole instead of panicking at a fixed byte offset.
+- *Menu expansion has a total node budget.*  Depth alone did not stop a wide
+  =org.gtk.Menus= graph that reused sections; the walk now stops after 4096
+  rows.
+- *Clipboard persistence resists symlinks and scope changes.*  Saves use a
+  randomly named =O_EXCL= temporary file in a directory that must be private
+  and owned by the user, and the watcher rechecks =CLIPBOARD_STATE= and the
+  offered types around every read.
+
+*** Changed
+
+- *The development gate matches the packaging repository.*  =maak test= now
+  cleans the target directory, uses the shell's own =cargo-clippy= through a
+  private =CARGO_HOME=, and runs the suite before clippy.  =maak clippy= is the
+  lint-only task; =manifest.scm= adds =rust-src= and =gdb=, and =maak run= and
+  =maak debug-run= set =WHELK_SCHEME_DIR= for the development tree.
+- *The Guix manifest loads the Rust package correctly.*  =manifest.scm= now
+  imports =(gnu packages rust)= and selects the =out=, =cargo= and =tools=
+  outputs, so the shell has the compiler, Cargo, rustfmt and clippy.
 
 ** v0.39.3 (2026-11-17)
 

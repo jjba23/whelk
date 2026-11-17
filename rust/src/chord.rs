@@ -251,8 +251,11 @@ fn canonical_key(written: &str) -> Option<String> {
     }
 
     // Numpad keys: "KP_1" is the keysym, "Numpad 1" what a menu says.
-    if trimmed.len() > 6 && trimmed[..6].eq_ignore_ascii_case("numpad") {
-        return Some(format!("KP_{}", &trimmed[6..]));
+    if let (Some(prefix), Some(suffix)) = (trimmed.get(..6), trimmed.get(6..))
+        && prefix.eq_ignore_ascii_case("numpad")
+        && !suffix.is_empty()
+    {
+        return Some(format!("KP_{suffix}"));
     }
 
     Some(trimmed.to_owned())

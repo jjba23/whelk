@@ -192,6 +192,12 @@ pub fn parse_bluetooth(text: &str) -> BluetoothState {
             continue;
         };
 
+        // BlueZ prints a 48-bit address.  Anything else is a malformed or
+        // forged row, and this field later reaches a command line.
+        if !is_bluetooth_address(mac) {
+            continue;
+        }
+
         if connected_section {
             connected.push(mac.to_owned());
         } else {
@@ -208,6 +214,19 @@ pub fn parse_bluetooth(text: &str) -> BluetoothState {
     }
 
     state
+}
+
+/// A Bluetooth device address as BlueZ prints it: six hexadecimal octets in
+/// colon-separated pairs.  The panel embeds this in `bluetoothctl` commands.
+pub fn is_bluetooth_address(value: &str) -> bool {
+    value.len() == 17
+        && value.as_bytes().iter().enumerate().all(|(index, byte)| {
+            if index % 3 == 2 {
+                *byte == b':'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
 }
 
 thread_local! {
@@ -672,6 +691,9 @@ impl NetworkPanel {
         let weak = Rc::downgrade(&self.inner);
 
         row.connect_clicked(move |_| {
+            if !is_bluetooth_address(&mac) {
+                return;
+            }
             let Some(inner) = weak.upgrade() else {
                 return;
             };

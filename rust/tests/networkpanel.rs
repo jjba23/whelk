@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use whelk_rs::networkpanel::{BluetoothState, parse_bluetooth, parse_wifi};
+use whelk_rs::networkpanel::{BluetoothState, is_bluetooth_address, parse_bluetooth, parse_wifi};
 
 #[test]
 fn wifi_parses_radio_active_and_sorted_access_points() {
@@ -98,6 +98,28 @@ fn bluetooth_off_and_no_paired_devices_have_distinct_statuses() {
     assert!(on.powered);
     assert_eq!(on.status(), "Bluetooth is on");
     assert_eq!(on.empty_message(), "No paired devices");
+}
+
+#[test]
+fn bluetooth_rejects_addresses_that_could_be_shell_syntax() {
+    assert!(is_bluetooth_address("AA:BB:CC:DD:EE:FF"));
+    assert!(!is_bluetooth_address("'; reboot; '"));
+    assert!(!is_bluetooth_address("AA:BB:CC:DD:EE"));
+    assert!(!is_bluetooth_address("AA:BB:CC:DD:EE:GG"));
+    assert!(!is_bluetooth_address("AA-BB-CC-DD-EE-FF"));
+
+    let state = parse_bluetooth(
+        "powered:yes\n\
+         --paired--\n\
+         Device AA:BB:CC:DD:EE:FF Keyboard\n\
+         Device ';reboot;' Fake\n\
+         Device AA:BB:CC:DD:EE:GG Bad\n\
+         --connected--\n\
+         Device AA:BB:CC:DD:EE:FF Keyboard\n",
+    );
+
+    assert_eq!(state.devices.len(), 1);
+    assert_eq!(state.devices[0].mac, "AA:BB:CC:DD:EE:FF");
 }
 
 #[test]

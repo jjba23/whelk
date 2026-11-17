@@ -689,10 +689,11 @@ With a valid configuration, `whelk` presents the bar and a background surface.
 On Wayland it uses `zwlr_layer_shell_v1`'s background layer; on Broadway or X11
 it falls back to an ordinary window for development and smoke tests.
 
-When running from `rust/`, the binary finds `../scheme` automatically. From
-another directory set `WHELK_SCHEME_DIR` to the checkout's `scheme/` directory or
-install the modules where Guile can find them. If another `whelk` is already
-running, use `dbus-run-session -- cargo run` for an isolated smoke test.
+A build that is not installed finds its modules through `WHELK_SCHEME_DIR`: set
+it to the checkout's `scheme/` directory. Installed builds resolve
+`PREFIX/share/guile/site/3.0` beside the binary and `/usr/share/guile/site/3.0`;
+the working directory is deliberately not searched. If another `whelk` is
+already running, use `dbus-run-session -- cargo run` for an isolated smoke test.
 
 ## One running shell
 

@@ -23,6 +23,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::fd::OwnedFd;
 use std::rc::Rc;
 
 use gtk::gio;
@@ -34,6 +35,9 @@ pub const LOGIND_NAME: &str = "org.freedesktop.login1";
 pub const MANAGER_PATH: &str = "/org/freedesktop/login1";
 pub const MANAGER_INTERFACE: &str = "org.freedesktop.login1.Manager";
 pub const SESSION_INTERFACE: &str = "org.freedesktop.login1.Session";
+/// `PropertiesChanged` is emitted by the standard properties interface, not by
+/// the session interface whose property changed.
+pub const PROPERTIES_INTERFACE: &str = "org.freedesktop.DBus.Properties";
 
 /// Why the session should be locked.  The variants exist so the log can say
 /// which trigger fired, and so a test can tell the sleep and VT cases apart.
@@ -65,7 +69,7 @@ pub fn trigger(
 
             sleeping.then_some(Trigger::Sleeping)
         }
-        (SESSION_INTERFACE, "PropertiesChanged") => {
+        (PROPERTIES_INTERFACE, "PropertiesChanged") => {
             let (changed_interface, changed, _invalidated) =
                 parameters.get::<(String, HashMap<String, glib::Variant>, Vec<String>)>()?;
 
@@ -88,8 +92,10 @@ pub fn trigger(
 /// trigger above.  The subscriptions live for the rest of the process; a
 /// failure to reach logind is logged once and leaves the caller running (the
 /// lock screen is still reachable by `--lock` and by an explicit keybinding).
-pub fn watch(on_lock: impl Fn() + 'static) {
-    let on_lock: Rc<dyn Fn()> = Rc::new(on_lock);
+type LockCallback = dyn Fn(Trigger, &gio::DBusConnection);
+
+pub fn watch(on_lock: impl Fn(Trigger, &gio::DBusConnection) + 'static) {
+    let on_lock: Rc<LockCallback> = Rc::new(on_lock);
 
     gio::bus_get(
         gio::BusType::System,
@@ -120,8 +126,9 @@ pub fn watch(on_lock: impl Fn() + 'static) {
                 {
                     let on_lock = Rc::clone(&on_lock);
                     let keep = Rc::clone(&subscriptions);
+                    let signal_connection = connection.clone();
 
-                    move |signal| dispatch(&keep, signal, &on_lock)
+                    move |signal| dispatch(&keep, signal, &on_lock, &signal_connection)
                 },
             );
             subscriptions.borrow_mut().push(manager_lock);
@@ -136,8 +143,9 @@ pub fn watch(on_lock: impl Fn() + 'static) {
                 {
                     let on_lock = Rc::clone(&on_lock);
                     let keep = Rc::clone(&subscriptions);
+                    let signal_connection = connection.clone();
 
-                    move |signal| dispatch(&keep, signal, &on_lock)
+                    move |signal| dispatch(&keep, signal, &on_lock, &signal_connection)
                 },
             );
             subscriptions.borrow_mut().push(prepare_for_sleep);
@@ -183,15 +191,16 @@ pub fn watch(on_lock: impl Fn() + 'static) {
                         {
                             let on_lock = Rc::clone(&on_lock);
                             let keep = Rc::clone(&subscriptions);
+                            let signal_connection = session_connection.clone();
 
-                            move |signal| dispatch(&keep, signal, &on_lock)
+                            move |signal| dispatch(&keep, signal, &on_lock, &signal_connection)
                         },
                     );
                     subscriptions.borrow_mut().push(session_lock);
 
                     let session_properties = session_connection.subscribe_to_signal(
                         Some(LOGIND_NAME),
-                        Some(SESSION_INTERFACE),
+                        Some(PROPERTIES_INTERFACE),
                         Some("PropertiesChanged"),
                         Some(&path),
                         None,
@@ -199,8 +208,9 @@ pub fn watch(on_lock: impl Fn() + 'static) {
                         {
                             let on_lock = Rc::clone(&on_lock);
                             let keep = Rc::clone(&subscriptions);
+                            let signal_connection = session_connection.clone();
 
-                            move |signal| dispatch(&keep, signal, &on_lock)
+                            move |signal| dispatch(&keep, signal, &on_lock, &signal_connection)
                         },
                     );
                     subscriptions.borrow_mut().push(session_properties);
@@ -213,12 +223,38 @@ pub fn watch(on_lock: impl Fn() + 'static) {
 fn dispatch(
     _keep_alive: &Rc<RefCell<Vec<gio::SignalSubscription>>>,
     signal: gio::DBusSignalRef,
-    on_lock: &Rc<dyn Fn()>,
+    on_lock: &Rc<LockCallback>,
+    connection: &gio::DBusConnection,
 ) {
     if let Some(reason) = trigger(signal.interface_name, signal.signal_name, signal.parameters) {
         log(&format!("logind asked to lock ({reason:?})"));
-        on_lock();
+        on_lock(reason, connection);
     }
+}
+
+/// Take a logind sleep-delay inhibitor for the caller.  The fd must stay open
+/// until the lock screen has acknowledged that it is up; dropping it releases
+/// the delay.  A `None` answer is logged by the caller and must not be treated
+/// as a successful lock.
+pub fn sleep_delay_inhibitor(connection: &gio::DBusConnection) -> Option<OwnedFd> {
+    let parameters = ("sleep", "whelk", "lock before sleep", "delay").to_variant();
+    let (reply, fd_list) = connection
+        .call_with_unix_fd_list_sync(
+            Some(LOGIND_NAME),
+            MANAGER_PATH,
+            MANAGER_INTERFACE,
+            "Inhibit",
+            Some(&parameters),
+            None,
+            gio::DBusCallFlags::NONE,
+            2_000,
+            gio::UnixFDList::NONE,
+            gio::Cancellable::NONE,
+        )
+        .ok()?;
+    let (handle,) = reply.get::<(i32,)>()?;
+
+    fd_list?.get(handle).ok()
 }
 
 fn log(message: &str) {

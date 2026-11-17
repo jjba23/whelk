@@ -12,6 +12,7 @@
              (gnu packages compression)
              (gnu packages pkg-config)
              (gnu packages rust)
+             (gnu packages gdb)
              (gnu packages linux)
              (gnu packages gtk)
              (gnu packages glib)
@@ -28,6 +29,10 @@
                           (list rust "out")
                           (list rust "cargo")
                           (list rust "tools")
+                          ;; rust-analyzer reads the standard library's
+                          ;; sources from the sysroot; without this it shows
+                          ;; inferred signatures and no documentation.
+                          (list rust "rust-src")
                           gcc-toolchain
                           pkg-config
                           wayland ; wayland-scanner, for the river-status protocol
@@ -58,6 +63,9 @@
                           ;; The shell's own scripts use dirname/mktemp; do
                           ;; not depend on the host PATH.
                           coreutils
+                          ;; `maak debug-run' launches whelk under gdb, so the
+                          ;; debugger comes from the pinned shell too.
+                          gdb
                           ;; Reading these is how the shell is debugged without
                           ;; a compositor (see docs/installation.org).
                           procps

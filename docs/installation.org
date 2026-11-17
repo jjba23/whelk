@@ -137,10 +137,11 @@ Whelk is a Cargo workspace at the repository root:
   ./target/release/whelk
 #+end_src
 
-Whelk must be started *from the project root* (or installed): the Guile engine
-resolves its modules through the checkout's =scheme/= directory as well as the
-installation path.  A build without an install finds =scheme/whelk/*.scm= from
-the current directory.
+Whelk finds its Scheme modules in =WHELK_SCHEME_DIR= (when set), in
+=PREFIX/share/guile/site/3.0= beside the installed binary, or in
+=/usr/share/guile/site/3.0=.  A build that is run without installing must set
+=WHELK_SCHEME_DIR= to the checkout's =scheme/= directory; the working directory
+is deliberately not searched.
 
 Install it with the project's staging task:
 

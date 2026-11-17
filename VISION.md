@@ -9,7 +9,7 @@ object, built by the same code, in the same language.
 This document is not a changelog and it is not a promise list. It is the
 direction the code is already leaning in, written down so that a contributor can
 tell which pull request is on the path and which one is a detour.  This revision
-is current at whelk 0.39.3 (November 2026).
+is current at whelk 0.40.0 (November 2026).
 
 ## Where whelk is today
 
@@ -273,7 +273,8 @@ The milestones that mattered:
   AT-SPI, allowed a Scheme module whose update is a Guile procedure returning a
   widget, added golden-image tests, and landed a fail-closed PAM locker.  On a
   compositor with `ext-session-lock-v1` the lock is compositor-enforced; the
-  layer-shell overlay remains only as the documented fallback.
+  layer-shell overlay remains only as a fallback, and the lock fails closed
+  when neither interface can provide a real input grab.
 - **0.24-0.29** turned the right row's overflow into a configurable shelf and a
   `+N` fold, added the About window and presets as Scheme modules, completed the
   preferences window's reversible overrides, and gave the idle/inhibit manager
@@ -286,6 +287,11 @@ The milestones that mattered:
   fields and their `expect`s with concrete types, passed static Guile names as
   C string literals, and removed the last avoidable panics from the config,
   menu and authentication paths.
+- **0.40.0** closed the CodeQL review: Scheme modules come only from explicit
+  install paths, logind properties use their real interface, suspend waits for
+  lock readiness, the lock fails closed, notification markup and Bluetooth
+  input are validated, menu expansion is bounded, and clipboard saves use
+  private atomic files.
 
 ## Reserved work that is still open
 

@@ -6,7 +6,9 @@
 //! The signal payloads logind sends, and what each one may do.
 
 use gtk4::glib;
-use whelk_rs::logind::{MANAGER_INTERFACE, SESSION_INTERFACE, Trigger, trigger};
+use whelk_rs::logind::{
+    MANAGER_INTERFACE, PROPERTIES_INTERFACE, SESSION_INTERFACE, Trigger, trigger,
+};
 
 fn variant(variant_type: &str, text: &str) -> glib::Variant {
     let variant_type = glib::VariantTy::new(variant_type).expect("known variant type");
@@ -68,7 +70,53 @@ fn a_vt_switch_locks_when_the_session_becomes_inactive() {
 
     assert_eq!(
         trigger(
-            SESSION_INTERFACE,
+            PROPERTIES_INTERFACE,
+            "PropertiesChanged",
+            &variant("(sa{sv}as)", &inactive)
+        ),
+        Some(Trigger::SessionInactive)
+    );
+    assert_eq!(
+        trigger(
+            PROPERTIES_INTERFACE,
+            "PropertiesChanged",
+            &variant("(sa{sv}as)", &active)
+        ),
+        None
+    );
+    assert_eq!(
+        trigger(
+            PROPERTIES_INTERFACE,
+            "PropertiesChanged",
+            &variant("(sa{sv}as)", other_interface)
+        ),
+        None
+    );
+    assert_eq!(
+        trigger(
+            PROPERTIES_INTERFACE,
+            "PropertiesChanged",
+            &variant("(sa{sv}as)", &no_active)
+        ),
+        None
+    );
+    assert_eq!(
+        trigger(
+            PROPERTIES_INTERFACE,
+            "PropertiesChanged",
+            &variant("(sa{sv}as)", &only_invalidated)
+        ),
+        None
+    );
+}
+
+#[test]
+fn properties_changed_is_only_accepted_from_the_properties_interface() {
+    let inactive = format!("('{SESSION_INTERFACE}', {{'Active': <false>}}, [])");
+
+    assert_eq!(
+        trigger(
+            PROPERTIES_INTERFACE,
             "PropertiesChanged",
             &variant("(sa{sv}as)", &inactive)
         ),
@@ -78,33 +126,10 @@ fn a_vt_switch_locks_when_the_session_becomes_inactive() {
         trigger(
             SESSION_INTERFACE,
             "PropertiesChanged",
-            &variant("(sa{sv}as)", &active)
+            &variant("(sa{sv}as)", &inactive)
         ),
-        None
-    );
-    assert_eq!(
-        trigger(
-            SESSION_INTERFACE,
-            "PropertiesChanged",
-            &variant("(sa{sv}as)", other_interface)
-        ),
-        None
-    );
-    assert_eq!(
-        trigger(
-            SESSION_INTERFACE,
-            "PropertiesChanged",
-            &variant("(sa{sv}as)", &no_active)
-        ),
-        None
-    );
-    assert_eq!(
-        trigger(
-            SESSION_INTERFACE,
-            "PropertiesChanged",
-            &variant("(sa{sv}as)", &only_invalidated)
-        ),
-        None
+        None,
+        "a signal named PropertiesChanged on the session interface is not one"
     );
 }
 

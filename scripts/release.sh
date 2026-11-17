@@ -130,8 +130,14 @@ verify() {
 
   command -v cargo >/dev/null 2>&1 || die "cargo is not installed"
 
+  # A target directory left by another toolchain makes rustc reject its own
+  # build scripts.  The dev gate already cleans first; the release gate does
+  # the same, and keeps rustup's clippy out of the lookup.
+  cargo clean
+  export CARGO_HOME="$PWD/target/cargo-home"
+
   cargo fmt --all --check
-  cargo clippy --workspace --all-targets -- -D warnings
+  cargo clippy --workspace --all-targets --locked -- -D warnings
   cargo test --workspace --locked
 
   if command -v guix >/dev/null 2>&1; then

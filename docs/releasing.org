@@ -15,7 +15,7 @@ written by a person because a script cannot say what a release means.
 
 | Where                              | What it is                                  |
 |------------------------------------+---------------------------------------------|
-| =rust/Cargo.toml=                    | =version = "0.39.3"=                          |
+| =rust/Cargo.toml=                    | =version = "0.40.0"=                          |
 | =xtask/Cargo.toml=                   | the installer crate, same version             |
 | =default.nix=                        | the Nix derivation's version                  |
 | =packaging/arch/PKGBUILD=            | =pkgver=                                      |
@@ -30,7 +30,7 @@ stable before committing:
 
 #+begin_src sh
   scripts/release.sh check             # manifests + NEWS.org agree
-  scripts/release.sh set-version 0.39.3
+  scripts/release.sh set-version 0.40.0
   cargo check --workspace --offline    # rewrites the package version in Cargo.lock
   cargo check --workspace --locked --offline
   scripts/release.sh check
@@ -85,7 +85,7 @@ file and pass the path.
 =NEWS.org= is organised by release and, inside each release, by what changed:
 
 #+begin_src org
-  ** v0.39.3 (2026-11-17)
+  ** v0.40.0 (2026-11-17)
 
   *** Added
   - *One sentence that says what a user gets.*  Then the detail: the keyword,

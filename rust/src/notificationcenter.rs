@@ -102,14 +102,64 @@ pub fn time_label(timestamp_us: i64) -> String {
         .unwrap_or_default()
 }
 
-/// A body is markup only when Pango accepts it.  A malformed body remains
-/// readable text instead of becoming an empty label.
-pub fn body_markup(body: &str) -> Option<&str> {
+/// A body is markup only when Pango accepts it.  Only `b`, `i` and `u` keep
+/// their meaning; every other tag is removed and its text escaped.  A
+/// notification is D-Bus input from any session client, and Pango's `span`
+/// attributes can spoof shell UI or exhaust the renderer with huge sizes.
+pub fn body_markup(body: &str) -> Option<String> {
     if body.is_empty() {
         return None;
     }
 
-    gtk::pango::parse_markup(body, '\0').ok().map(|_| body)
+    let mut output = String::new();
+    let mut rest = body;
+    let mut saw_tag = false;
+    let mut open = Vec::new();
+
+    while let Some(start) = rest.find('<') {
+        output.push_str(&format::markup_escape(&rest[..start]));
+
+        let end = rest[start..].find('>')?;
+        let tag = rest[start + 1..start + end].to_ascii_lowercase();
+
+        match tag.as_str() {
+            "b" | "i" | "u" => {
+                open.push(tag.chars().next().expect("one-character tag"));
+                output.push('<');
+                output.push_str(&tag);
+                output.push('>');
+            }
+            "/b" | "/i" | "/u" => {
+                let expected = tag.chars().nth(1).expect("closing tag name");
+
+                if open.pop() != Some(expected) {
+                    return None;
+                }
+
+                output.push('<');
+                output.push_str(&tag);
+                output.push('>');
+            }
+            _ => {}
+        }
+
+        saw_tag = true;
+        rest = &rest[start + end + 1..];
+    }
+
+    if !open.is_empty() {
+        return None;
+    }
+
+    output.push_str(&format::markup_escape(rest));
+
+    if saw_tag {
+        Some(output)
+    } else {
+        gtk::pango::parse_markup(body, '\0')
+            .ok()
+            .map(|_| body.to_owned())
+    }
 }
 
 /// The newest-first ids the toast stack is showing.  Posting an id that is
@@ -868,8 +918,8 @@ fn icon_image(icon: &str, pixel_size: i32) -> gtk::Image {
 }
 
 fn set_body(label: &gtk::Label, body: &str) {
-    if body_markup(body).is_some() {
-        label.set_markup(body);
+    if let Some(markup) = body_markup(body) {
+        label.set_markup(&markup);
     } else {
         label.set_text(body);
     }

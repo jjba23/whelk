@@ -123,6 +123,15 @@ fn formatting() {
 }
 
 #[test]
+fn a_multibyte_key_does_not_get_sliced_inside_a_character() {
+    // `Numpad` plus a pasted non-ASCII suffix used to index byte 6, which can
+    // be the middle of a UTF-8 character.  It must remain an ordinary key.
+    let chord = Chord::parse("Numéé").expect("a pasted key is still a chord");
+
+    assert_eq!(chord.key, "Numéé");
+}
+
+#[test]
 fn display_understands_both_notations() {
     // The same stored chord, written the way either kind of user reads it.
     assert_eq!(display("C-v", ChordStyle::Cua), "Ctrl+V");

@@ -21,8 +21,13 @@
   ;; Nothing of the right name running is not a failure, so the command is
   ;; allowed to say so instead of the task dying on `pkill''s non-zero exit.
   (dsl:run (list "pkill" "whelk") #:allow-failure? #t)
-  (time-machine-program-shell (list "cargo" "run" "-p" "whelk-rs" "--release")
-                              #:verbose? #t))
+  ;; The shell no longer searches the current directory for Scheme modules:
+  ;; a packaged build must not load whatever happens to sit beside the
+  ;; caller.  The development tree names its modules explicitly.
+  (time-machine-program-shell
+   (list "env" "WHELK_SCHEME_DIR=./scheme"
+         "cargo" "run" "-p" "whelk-rs" "--release")
+   #:verbose? #t))
 
 (define (test)
   "Format, lint and run the whole Cargo test suite inside the Guix environment."
@@ -30,6 +35,12 @@
   ;; library path that Cargo's dynamically linked build scripts need.
   (time-machine-manifest-shell
    (list "sh" "scripts/guix-test.sh")
+   #:verbose? #t))
+
+(define (clippy)
+  "Run the same lints as `test' without the format and test phases."
+  (time-machine-manifest-shell
+   (list "sh" "scripts/guix-test.sh" "clippy")
    #:verbose? #t))
 
 (define deb-packages
@@ -144,7 +155,8 @@
 (define (debug-run)
   "Debug build, then gdb."
   (time-machine-program-shell (list "cargo" "build" "--bin" "whelk"))
-  (dsl:run (list "gdb" "--args" "./target/debug/whelk")))
+  (dsl:run (list "env" "WHELK_SCHEME_DIR=./scheme"
+                 "gdb" "--args" "./target/debug/whelk")))
 
 (define (default)
   "List the tasks this project defines."

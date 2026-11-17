@@ -152,14 +152,10 @@ fn scheme_paths() -> Vec<PathBuf> {
         candidates.push(PathBuf::from(directory));
     }
 
-    candidates.push(PathBuf::from("scheme"));
-    candidates.push(PathBuf::from("../scheme"));
-
-    if let Some(manifest) = option_env!("CARGO_MANIFEST_DIR") {
-        candidates.push(PathBuf::from(manifest).join("../scheme"));
-    }
-
-    candidates.push(PathBuf::from("/usr/share/guile/site/3.0"));
+    // Only paths the user or the installer chose.  A relative `scheme' and
+    // the build-time CARGO_MANIFEST_DIR are attacker-writable in packaged
+    // builds: either can point at a directory the user did not install.
+    // `maak run` exports WHELK_SCHEME_DIR for the development tree.
 
     // A staged or custom-prefix install keeps the modules beside its binary.
     if let Ok(executable) = std::env::current_exe()
@@ -168,6 +164,8 @@ fn scheme_paths() -> Vec<PathBuf> {
     {
         candidates.push(prefix.join("share/guile/site/3.0"));
     }
+
+    candidates.push(PathBuf::from("/usr/share/guile/site/3.0"));
 
     let mut paths = Vec::new();
 

@@ -37,7 +37,9 @@ use gtk4 as gtk;
 
 use crate::idlepolicy::{self, NO_TIMER};
 use crate::inhibitors;
-use crate::logind::{LOGIND_NAME, MANAGER_INTERFACE, MANAGER_PATH, SESSION_INTERFACE};
+use crate::logind::{
+    LOGIND_NAME, MANAGER_INTERFACE, MANAGER_PATH, PROPERTIES_INTERFACE, SESSION_INTERFACE,
+};
 
 const INHIBIT_TIMEOUT_MS: i32 = 5000;
 const INHIBIT_REASON_DEFAULT: &str = "presentation mode";
@@ -553,7 +555,7 @@ fn subscribe_idle_hint(state: &Rc<RefCell<State>>, path: &str) {
     let weak = Rc::downgrade(state);
     let subscription = bus.subscribe_to_signal(
         Some(LOGIND_NAME),
-        Some(SESSION_INTERFACE),
+        Some(PROPERTIES_INTERFACE),
         Some("PropertiesChanged"),
         Some(path),
         None,

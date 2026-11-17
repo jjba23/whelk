@@ -19,7 +19,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
@@ -31,6 +31,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
+use crate::logind::PROPERTIES_INTERFACE;
 use crate::settings::ClipboardSettings;
 
 pub const DEFAULT_MAX_ENTRIES: u32 = 50;
@@ -1390,7 +1391,15 @@ impl Clipboard {
             (path, bytes)
         };
 
-        ensure_private_parent(&path);
+        if let Err(error) = ensure_private_parent(&path) {
+            eprintln!(
+                "whelk: clipboard: refusing to save '{}': {error}",
+                path.display()
+            );
+            self.inner.borrow_mut().save_in_flight = false;
+
+            return;
+        }
 
         let file = gio::File::for_path(&path);
         let data = glib::Bytes::from_owned(bytes);
@@ -1564,7 +1573,7 @@ impl Clipboard {
                         let weak = Rc::downgrade(&inner);
                         let subscription = session_connection.subscribe_to_signal(
                             Some("org.freedesktop.login1"),
-                            Some("org.freedesktop.login1.Session"),
+                            Some(PROPERTIES_INTERFACE),
                             Some("PropertiesChanged"),
                             Some(&path),
                             None,
@@ -1748,40 +1757,65 @@ fn environment_persist() -> Option<String> {
         .filter(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
 }
 
-fn ensure_private_parent(path: &Path) {
-    let Some(parent) = path.parent() else {
-        return;
+/// Require a directory the current user owns and no one else can enter.  The
+/// history contains clipboard contents, so an existing world-writable or
+/// symlinked parent is a refusal, not something to repair silently.
+fn ensure_private_parent(path: &Path) -> std::io::Result<()> {
+    let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "clipboard persistence path has no parent directory",
+        ));
     };
 
-    if parent.as_os_str().is_empty() {
-        return;
-    }
-
-    if let Err(error) = std::fs::DirBuilder::new()
+    std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(parent)
+        .create(parent)?;
+
+    let metadata = std::fs::symlink_metadata(parent)?;
+
+    if !metadata.is_dir()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o077 != 0
     {
-        eprintln!(
-            "whelk: clipboard: cannot create '{}': {error}",
-            parent.display()
-        );
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "clipboard persistence directory '{}' is not a private directory owned by this user",
+                parent.display()
+            ),
+        ));
     }
+
+    Ok(())
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    ensure_private_parent(path);
+    ensure_private_parent(path)?;
 
-    let mut temporary = path.as_os_str().to_owned();
-
-    temporary.push(format!(".tmp-{}", std::process::id()));
-
-    let temporary = PathBuf::from(temporary);
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "clipboard persistence path has no parent directory",
+            )
+        })?;
+    // `create_new` is O_CREAT|O_EXCL and therefore refuses a symlink planted
+    // at the temporary name.  A random name keeps concurrent saves apart.
+    let temporary = parent.join(format!(
+        ".whelk-clipboard-{}.tmp",
+        glib::uuid_string_random()
+    ));
     let result = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&temporary)?;
 
@@ -2028,15 +2062,35 @@ fn write_clipboard_fallback(entry: &Entry) {
 /// The short-lived program `wl-paste --watch` runs.  It drains the watcher's
 /// default representation, asks for the type list and then the richest type,
 /// and writes one record to standard output.
+fn clipboard_sensitive() -> bool {
+    std::env::var_os("CLIPBOARD_STATE").as_deref() == Some(OsStr::new("sensitive"))
+}
+
+fn read_type_list() -> Option<String> {
+    let types = wl_paste(&["wl-paste", "--list-types"], 64 * 1024, TYPES_TIMEOUT_MS)?;
+
+    Some(String::from_utf8_lossy(&types).into_owned())
+}
+
 pub fn helper() -> i32 {
+    // `wl-paste --watch` marks password-manager selections in the
+    // environment.  The helper drains the event first, so check both before
+    // and after every fetch: the selection can change while it runs.
+    if clipboard_sensitive() {
+        return 0;
+    }
+
     let mut input = std::io::stdin().lock();
 
     let _ = std::io::copy(&mut input, &mut std::io::sink());
 
-    let Some(types) = wl_paste(&["wl-paste", "--list-types"], 64 * 1024, TYPES_TIMEOUT_MS) else {
+    if clipboard_sensitive() {
+        return 0;
+    }
+
+    let Some(types) = read_type_list() else {
         return 0;
     };
-    let types = String::from_utf8_lossy(&types).into_owned();
 
     if types.is_empty() {
         return 0;
@@ -2059,7 +2113,18 @@ pub fn helper() -> i32 {
         return 0;
     };
 
-    if data.is_empty() {
+    if clipboard_sensitive() || data.is_empty() {
+        return 0;
+    }
+
+    // A selection offer can be withdrawn or replaced between the type list
+    // and the data fetch.  Only store a record whose type is still offered,
+    // and do not re-fetch text from a different selection.
+    let Some(current_types) = read_type_list() else {
+        return 0;
+    };
+
+    if current_types != types || types_secret(&current_types) {
         return 0;
     }
 
@@ -2076,6 +2141,11 @@ pub fn helper() -> i32 {
     } else {
         None
     };
+
+    if clipboard_sensitive() {
+        return 0;
+    }
+
     let text = text.unwrap_or_default();
     let record = encode_record(mime, &data, &text);
     let mut output = std::io::stdout().lock();
@@ -2214,6 +2284,40 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_saves_create_a_private_parent_and_file() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let path = root.path().join("whelk").join("clipboard-history");
+
+        write_private(&path, b"secret").expect("private write");
+
+        assert_eq!(std::fs::read(&path).expect("read back"), b"secret");
+        assert_eq!(
+            std::fs::metadata(&path).expect("metadata").mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(path.parent().expect("parent"))
+                .expect("parent metadata")
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+
+    #[test]
+    fn a_public_parent_is_refused() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755))
+            .expect("chmod");
+
+        let error = write_private(&root.path().join("history"), b"secret")
+            .expect_err("a public persistence directory is refused");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(!root.path().join("history").exists());
+    }
 
     #[test]
     fn records_round_trip_including_nul_bytes() {

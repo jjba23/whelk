@@ -39,6 +39,11 @@ use crate::traymenu::{self, TrayMenuEntry};
 /// path guards below turn that into a truncated menu.
 pub const MAX_DEPTH: usize = 32;
 
+/// The largest number of rows a single `org.gtk.Menus` answer may expand into.
+/// The depth guard alone does not stop a wide DAG that reuses the same section
+/// from many parents; this bounds the total work as well as the path length.
+pub const MAX_NODES: usize = 4096;
+
 /// What choosing a row does.  The action is data, so the same entry can be
 /// rendered by the popover or selected by a future menu search.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -326,9 +331,18 @@ pub fn from_gtk(
     };
     let mut bar = Vec::new();
     let mut stack = HashSet::new();
+    let mut budget = MAX_NODES;
 
     collect_top_level(
-        &mut bar, root, &menus, service, app_path, style, 0, &mut stack,
+        &mut bar,
+        root,
+        &menus,
+        service,
+        app_path,
+        style,
+        0,
+        &mut stack,
+        &mut budget,
     );
 
     bar.retain(|menu| !menu.entries.is_empty());
@@ -345,12 +359,19 @@ fn collect_top_level(
     style: ChordStyle,
     depth: usize,
     stack: &mut HashSet<(u32, u32)>,
+    budget: &mut usize,
 ) {
     if depth > MAX_DEPTH {
         return;
     }
 
     for attrs in items {
+        if *budget == 0 {
+            return;
+        }
+
+        *budget -= 1;
+
         let Some(dict) = attrs_dict(attrs) else {
             continue;
         };
@@ -370,6 +391,7 @@ fn collect_top_level(
                     style,
                     depth + 1,
                     stack,
+                    budget,
                 );
                 stack.remove(&target);
             }
@@ -403,6 +425,7 @@ fn collect_top_level(
                 style,
                 depth + 1,
                 stack,
+                budget,
             );
             stack.remove(&target);
         } else if submenu_target.is_none() {
@@ -431,12 +454,19 @@ fn append_items(
     style: ChordStyle,
     depth: usize,
     stack: &mut HashSet<(u32, u32)>,
+    budget: &mut usize,
 ) {
     if depth > MAX_DEPTH {
         return;
     }
 
     for attrs in items {
+        if *budget == 0 {
+            return;
+        }
+
+        *budget -= 1;
+
         let Some(dict) = attrs_dict(attrs) else {
             continue;
         };
@@ -460,6 +490,7 @@ fn append_items(
                     style,
                     depth + 1,
                     stack,
+                    budget,
                 );
                 stack.remove(&target);
             }
@@ -505,6 +536,7 @@ fn append_items(
                 style,
                 depth + 1,
                 stack,
+                budget,
             );
             stack.remove(&target);
         }

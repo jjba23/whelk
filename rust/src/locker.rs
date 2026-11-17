@@ -38,7 +38,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gtk::prelude::*;
 use gtk4 as gtk;
@@ -46,6 +46,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::lockauth::{self, AuthOutcome};
 use crate::lockpolicy;
+use crate::logind::{self, Trigger};
 
 thread_local! {
     /// The last lock process this shell started, so a second logind trigger
@@ -56,6 +57,15 @@ thread_local! {
     /// launch to this process as another activation, which must not build a
     /// second set of lock surfaces over the first.
     static LOCKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The active lock state owns the session-lock instance and every widget.
+    /// Signal and timer callbacks are weak so they cannot revive it; this is
+    /// the one strong reference that keeps it alive for the lock's lifetime.
+    static CURRENT_LOCKER: RefCell<Option<Rc<RefCell<Locker>>>> = const { RefCell::new(None) };
+    /// Set when the fallback cannot provide a real input grab.  The lock then
+    /// exits with a failure instead of presenting a lock screen that Alt-Tab
+    /// can reach behind.
+    static LOCK_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LOCK_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Starts logind's `Lock`, `PrepareForSleep` and session `Active=false`
@@ -66,7 +76,13 @@ pub fn watch_logind() {
             return;
         }
 
-        crate::logind::watch(start_lock_screen);
+        logind::watch(|trigger, connection| {
+            if trigger == Trigger::Sleeping {
+                start_lock_screen_before_sleep(connection);
+            } else {
+                start_lock_screen();
+            }
+        });
     });
 }
 
@@ -75,12 +91,75 @@ pub fn watch_logind() {
 /// in this process; `--lock` is the same entry point a keybinding uses.  Both
 /// logind and the idle timer reach the lock through here.
 pub(crate) fn start_lock_screen() {
+    spawn_lock_screen(None);
+}
+
+/// Start a lock screen for `PrepareForSleep(true)`.
+///
+/// A sleep-delay inhibitor is taken before the child is spawned and kept until
+/// the child writes its readiness file.  The child writes it only after the
+/// compositor lock or a secure layer-shell fallback is actually up, so logind
+/// cannot suspend into the gap between the signal and the lock.
+fn start_lock_screen_before_sleep(connection: &gtk::gio::DBusConnection) {
+    let Some(inhibitor) = logind::sleep_delay_inhibitor(connection) else {
+        log("logind refused the sleep-delay inhibitor; starting the lock anyway");
+
+        start_lock_screen();
+
+        return;
+    };
+    let Some(path) = ready_path() else {
+        log("no runtime directory for the lock readiness file; starting the lock anyway");
+
+        drop(inhibitor);
+        start_lock_screen();
+
+        return;
+    };
+
+    let _ = fs::remove_file(&path);
+
+    if let Some(parent) = path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        log(&format!(
+            "could not create the lock readiness directory: {error}"
+        ));
+        drop(inhibitor);
+        start_lock_screen();
+
+        return;
+    }
+
+    if !spawn_lock_screen(Some(&path)) {
+        drop(inhibitor);
+
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        while !path.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        if !path.exists() {
+            log("the lock screen did not report readiness; releasing the sleep delay");
+        }
+
+        let _ = fs::remove_file(path);
+        drop(inhibitor);
+    });
+}
+
+fn spawn_lock_screen(ready_file: Option<&PathBuf>) -> bool {
     SPAWNED_LOCKER.with(|slot| {
         let mut slot = slot.borrow_mut();
 
         if let Some(child) = slot.as_mut() {
             match child.try_wait() {
-                Ok(None) => return,
+                Ok(None) => return false,
                 Ok(Some(_)) | Err(_) => *slot = None,
             }
         }
@@ -88,12 +167,46 @@ pub(crate) fn start_lock_screen() {
         let Ok(executable) = std::env::current_exe() else {
             log("could not find whelk to start the lock screen");
 
-            return;
+            return false;
         };
+        let mut command = Command::new(executable);
 
-        match Command::new(executable).arg("--lock-now").spawn() {
-            Ok(child) => *slot = Some(child),
-            Err(error) => log(&format!("could not start the lock screen: {error}")),
+        command.arg("--lock-now");
+
+        if let Some(path) = ready_file {
+            command.env("WHELK_LOCK_READY_FILE", path);
+        }
+
+        match command.spawn() {
+            Ok(child) => {
+                *slot = Some(child);
+                true
+            }
+            Err(error) => {
+                log(&format!("could not start the lock screen: {error}"));
+                false
+            }
+        }
+    })
+}
+
+fn ready_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|path| path.join("whelk").join("lock-ready"))
+}
+
+fn mark_ready() {
+    LOCK_READY.with(|ready| {
+        if ready.replace(true) {
+            return;
+        }
+
+        if let Some(path) = std::env::var_os("WHELK_LOCK_READY_FILE")
+            && let Err(error) = fs::write(&path, b"ready")
+        {
+            log(&format!("could not signal lock readiness: {error}"));
         }
     });
 }
@@ -166,12 +279,12 @@ mod sys {
 
 const CSS: &str = "
     .whelk-lock-background {
-        background-color: rgba(12, 14, 18, 0.92);
+        background-color: #0c0e12;
     }
     .whelk-lock-panel {
         padding: 32px;
         border-radius: 18px;
-        background-color: rgba(24, 27, 34, 0.86);
+        background-color: #181b22;
     }
     .whelk-lock-clock {
         font-size: 64px;
@@ -275,7 +388,16 @@ pub fn run() -> glib::ExitCode {
 
     application.connect_activate(lock);
 
-    application.run_with_args(&["whelk-lock"])
+    LOCK_FAILED.with(|failed| failed.set(false));
+    LOCK_READY.with(|ready| ready.set(false));
+
+    let exit = application.run_with_args(&["whelk-lock"]);
+
+    if LOCK_FAILED.with(std::cell::Cell::get) {
+        glib::ExitCode::FAILURE
+    } else {
+        exit
+    }
 }
 
 fn lock(application: &gtk::Application) {
@@ -307,10 +429,25 @@ fn lock(application: &gtk::Application) {
         hold: None,
     }));
 
-    let session = start_session_lock(&state);
+    CURRENT_LOCKER.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&state)));
+
+    let protocol = sys::is_supported();
+    let session = protocol && start_session_lock(&state);
 
     if !session {
-        build_fallback_windows(&state);
+        if protocol {
+            // The compositor implements session-lock but refused this lock.
+            // A weaker layer surface is not that lock; fail closed.
+            log("ext-session-lock-v1 refused the lock; not falling back");
+            fail_lock(application);
+            return;
+        }
+
+        if !build_fallback_windows(&state) {
+            fail_lock(application);
+            return;
+        }
+
         watch_monitors(&state);
     }
 
@@ -333,6 +470,18 @@ fn lock(application: &gtk::Application) {
     // The application has no visible window until the compositor or the
     // fallback presents one; do not let GTK quit in the gap.
     state.borrow_mut().hold = Some(application.hold());
+
+    if !session {
+        // The fallback has built its layer surfaces; there is no compositor
+        // "locked" event in that path.
+        mark_ready();
+    }
+}
+
+fn fail_lock(application: &gtk::Application) {
+    LOCK_FAILED.with(|failed| failed.set(true));
+    CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
+    application.quit();
 }
 
 // ---------------------------------------------------------------------------
@@ -362,17 +511,22 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
         None
     });
 
-    let weak = Rc::downgrade(state);
     instance.connect_local("locked", false, move |_| {
         log("screen locked (ext-session-lock-v1)");
-
-        let _ = weak.upgrade();
+        mark_ready();
 
         None
     });
 
+    let weak = Rc::downgrade(state);
     instance.connect_local("failed", false, move |_| {
-        log("ext-session-lock-v1 refused the lock; the session stays locked");
+        log("ext-session-lock-v1 refused the lock");
+
+        if let Some(state) = weak.upgrade() {
+            let application = state.borrow().application.clone();
+
+            fail_lock(&application);
+        }
 
         None
     });
@@ -395,8 +549,10 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
 
     if !acquired {
         // Another locker may already own the session.  A weaker layer surface
-        // would not be that lock, so there is deliberately no fallback here.
+        // would not be that lock, so report failure and fail closed.
         log("ext-session-lock-v1 could not start");
+
+        return false;
     }
 
     state.borrow_mut().session_lock = Some(instance);
@@ -518,11 +674,17 @@ fn current_monitors() -> Vec<gtk::gdk::Monitor> {
         .unwrap_or_default()
 }
 
-fn build_fallback_windows(state: &Rc<RefCell<Locker>>) {
-    let Some(display) = gtk::gdk::Display::default() else {
-        log("no display to cover: the session is locked without a visible surface");
+fn build_fallback_windows(state: &Rc<RefCell<Locker>>) -> bool {
+    if !crate::ui::layer_shell_available() {
+        log("cannot lock this session: no ext-session-lock-v1 and no layer shell");
 
-        return;
+        return false;
+    }
+
+    let Some(display) = gtk::gdk::Display::default() else {
+        log("no display to cover: refusing a lock screen with no surface");
+
+        return false;
     };
     let monitors = monitors_of(&display);
 
@@ -532,12 +694,14 @@ fn build_fallback_windows(state: &Rc<RefCell<Locker>>) {
     if monitors.is_empty() {
         create_fallback_window(state, None, true);
 
-        return;
+        return true;
     }
 
     for (index, monitor) in monitors.iter().enumerate() {
         create_fallback_window(state, Some(monitor), index == 0);
     }
+
+    true
 }
 
 /// Follow the monitor model while the compatibility lock is up.  The protocol
@@ -635,31 +799,24 @@ fn create_fallback_window(
     window.connect_close_request(|_| glib::Propagation::Stop);
     window.set_child(Some(&build_content(state, primary).overlay));
 
-    if crate::ui::layer_shell_available() {
-        window.init_layer_shell();
-        window.set_layer(Layer::Overlay);
-        window.set_namespace(Some("whelk-lock"));
+    window.init_layer_shell();
+    window.set_layer(Layer::Overlay);
+    window.set_namespace(Some("whelk-lock"));
 
-        if let Some(monitor) = monitor {
-            window.set_monitor(Some(monitor));
-        }
-
-        for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
-            window.set_anchor(edge, true);
-        }
-
-        window.set_exclusive_zone(-1);
-        window.set_keyboard_mode(if primary {
-            KeyboardMode::Exclusive
-        } else {
-            KeyboardMode::None
-        });
-    } else {
-        // X11 and Broadway have no layer shell: an ordinary fullscreen window
-        // is the documented compatibility path.
-        window.set_default_size(1280, 800);
-        window.fullscreen();
+    if let Some(monitor) = monitor {
+        window.set_monitor(Some(monitor));
     }
+
+    for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
+        window.set_anchor(edge, true);
+    }
+
+    window.set_exclusive_zone(-1);
+    window.set_keyboard_mode(if primary {
+        KeyboardMode::Exclusive
+    } else {
+        KeyboardMode::None
+    });
 
     state.borrow_mut().windows.push(window.clone());
 
@@ -1044,6 +1201,7 @@ fn unlock(state: &Rc<RefCell<Locker>>) {
         }
     }
 
+    CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
     application.quit();
 }
 
@@ -1078,6 +1236,7 @@ fn unlock_local(state: &Rc<RefCell<Locker>>) {
     };
 
     clear_failures();
+    CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
     application.quit();
 }
 

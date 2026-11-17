@@ -123,11 +123,30 @@ fn toast_margins_clear_a_top_bar_only() {
 
 #[test]
 fn only_valid_pango_markup_is_treated_as_markup() {
-    assert_eq!(body_markup("<b>bold</b>"), Some("<b>bold</b>"));
+    assert_eq!(body_markup("<b>bold</b>"), Some("<b>bold</b>".to_owned()));
     assert_eq!(body_markup("<b>unterminated"), None);
     assert_eq!(body_markup("a & b"), None);
-    assert_eq!(body_markup("plain text"), Some("plain text"));
+    assert_eq!(body_markup("plain text"), Some("plain text".to_owned()));
     assert_eq!(body_markup(""), None);
+}
+
+#[test]
+fn notification_markup_keeps_only_emphasis_tags() {
+    // A notification body comes from any session client.  `span` can spoof
+    // shell text or request huge metrics, so it is removed while its text is
+    // kept and escaped.
+    assert_eq!(
+        body_markup("<span style='font-size: 99999px'>evil</span>"),
+        Some("evil".to_owned())
+    );
+    assert_eq!(
+        body_markup("<span><b>bold</b> &amp; safe</span>"),
+        Some("<b>bold</b> &amp;amp; safe".to_owned())
+    );
+    assert_eq!(
+        body_markup("<b>a & b</b>"),
+        Some("<b>a &amp; b</b>".to_owned())
+    );
 }
 
 #[test]

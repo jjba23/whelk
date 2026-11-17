@@ -52,8 +52,9 @@ should say what was checked by hand.
 #+end_src
 
 Run the narrow test while working, then the full suite before opening the pull
-request.  =maak test= is the same gate inside the pinned Guix environment and is
-what CI runs.
+request.  =maak test= is the same gate inside the pinned Guix environment -- it
+cleans the target directory first, uses the shell's own =cargo-clippy=, and is
+what CI runs.  =maak clippy= runs only the lint half.
 
 * What a patch is judged by
 
