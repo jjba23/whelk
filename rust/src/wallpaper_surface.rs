@@ -371,6 +371,14 @@ fn destroy_live() {
 }
 
 fn cleanup(surface: &Surface) {
+    // An animated wallpaper's frame timer holds a view clone and keeps
+    // rescheduling until its generation moves.  Bump it before the view is
+    // cleared, or a hotplug or repaint leaves a chain drawing forever against
+    // a destroyed view.
+    surface
+        .generation
+        .set(surface.generation.get().wrapping_add(1));
+
     if let Some(stream) = surface.media.borrow_mut().take() {
         stream.pause();
     }
