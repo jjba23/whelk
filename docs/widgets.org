@@ -119,6 +119,30 @@ flowchart TD
     G -->|no| I["the last place it was seen,<br/>clamped into the screen that is left"]
 #+end_src
 
+* The Rust bootstrap's widget data
+:PROPERTIES:
+:CUSTOM_ID: widgets-rust
+:END:
+
+=whelk-rs= reads and owns the same descriptions without drawing the cards yet.
+=src/widgets.rs= is the data behind them: the nine kinds and their standard
+sizes, the position/size/monitor defaults and clamps, the mouse vocabulary and
+per-kind refresh cadence, the reminders model whose done flags are runtime
+state, world-clock city parsing, the Open-Meteo and Yahoo answer decoding, the
+calendar's Monday-first month grid, a note's file-or-text rule, and the
+drag/placement arithmetic (snap to the 8 px grid, clamp into the monitor, a
+saved position winning over the settings file).  =src/widgetstate.rs= is the
+same =widgets-<settings-stem>.ini= file the C shell writes, so a drag recorded
+by either shell is where the other one puts the card, and =Guile::load_widgets=
+reads =shell-widgets->alists= into the same typed configs.  The =scheme= bar
+module is Rust as well: =src/schemebar.rs= calls =#:update= through
+=src/guile/widget.rs=, which registers the =whelk-widget-*= primitives in
+=(whelk core)= and swaps the returned widget into the bar each refresh.
+
+What is still C is the card itself: the layer-shell surface, its grip, the
+drag gesture and each kind's paint and refresh.  Those consume exactly the
+values listed above.
+
 ------------------
 
 Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

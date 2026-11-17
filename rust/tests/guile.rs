@@ -54,7 +54,11 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
                     #:background "rgba(10, 20, 30, 0.5)"
                     #:opacity 0.8
                     #:left (list (custom-module #:exec "printf hi" #:interval 0))
-                    #:right (list (clock-module #:format "%H:%M")))))
+                    #:right (list (clock-module #:format "%H:%M"))))
+ #:widgets (list (desktop-widget 'clock #:x 40 #:y 64)
+                (desktop-widget 'notes
+                                #:x 400 #:y 64
+                                #:options '((text . "Ship the release.")))))
 "#,
     );
 
@@ -149,6 +153,24 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
             ..
         } if marker == "shell:recent-items"
     ));
+
+    // The desktop widgets' placement and own options come from the same
+    // settings file, through `(shell-widgets->alists)`.
+    let widgets = guile
+        .load_widgets(&config_path)
+        .expect("load desktop widgets");
+
+    assert_eq!(widgets.len(), 2);
+    assert_eq!(widgets[0].spec.kind, "clock");
+    assert_eq!((widgets[0].x, widgets[0].y), (40, 64));
+    assert_eq!((widgets[0].width, widgets[0].height), (220, 240));
+    assert_eq!(widgets[0].monitor, "default");
+    assert_eq!(widgets[1].title(), "Notes");
+    assert_eq!((widgets[1].x, widgets[1].y), (400, 64));
+    assert_eq!(
+        widgets[1].spec.text("text").as_deref(),
+        Some("Ship the release.")
+    );
 
     let menu_sources = guile
         .load_menu_sources(&config_path)

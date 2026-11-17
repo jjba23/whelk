@@ -21,9 +21,10 @@
 //! application can never replace the current application's menu.  AT-SPI runs
 //! on its own worker thread and follows accessibility object events.
 //!
-//! The live `org.gtk.Menus.Changed` and DBusMenu `LayoutUpdated` watches remain
-//! a later slice; those producers are re-read when focus or the X11 object graph
-//! changes.  AT-SPI changes are followed live.
+//! Production is followed live: `org.gtk.Menus.Changed` and DBusMenu
+//! `LayoutUpdated`/`ItemsPropertiesUpdated` cost one debounced re-read, and a
+//! tree identical to the one on screen is not rebuilt.  What that decision is
+//! is [`crate::menuwatch`]; this module owns the subscriptions and the reads.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -44,6 +45,7 @@ use crate::command;
 use crate::menuapps::{self, MenuSources};
 use crate::menubar::{self, Menu, MenuAction, MenuEntry};
 use crate::menuprobe;
+use crate::menuwatch;
 use crate::session::{self, FocusedPaths, Session, WindowActions};
 use crate::style;
 
@@ -86,6 +88,9 @@ struct MenuState {
     /// The accessibility producer, when the protocol producers found nothing.
     /// Dropping the watch stops its worker.
     atspi: Option<atspi::Watch>,
+    /// The live follow-up to the protocol producer that answered.  Dropping it
+    /// unsubscribes the change signal and ends an `org.gtk.Menus` group.
+    watch: Option<Watch>,
     generation: u64,
     initialized: bool,
 }
@@ -166,6 +171,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         buttons: Vec::new(),
         script: RefCell::new(None),
         atspi: None,
+        watch: None,
         generation: 0,
         initialized: false,
     }));
@@ -251,6 +257,7 @@ fn rebuild(state: &Rc<RefCell<MenuState>>, app_id: &str, paths: FocusedPaths, pi
         state.initialized = true;
         state.script.take();
         state.atspi.take();
+        state.watch.take();
         state.app_id = app_id.to_owned();
         state.paths = paths;
         state.pid = pid;
@@ -726,6 +733,7 @@ fn probe_gtk_next(probe: Rc<RefCell<Probe>>) {
     let callback_probe = Rc::clone(&probe);
     let service = service.clone();
     let callback_service = service.clone();
+    let watch_path = path.clone();
     let app_path = app_path.clone();
 
     bus.call(
@@ -764,6 +772,7 @@ fn probe_gtk_next(probe: Rc<RefCell<Probe>>) {
                 probe_gtk_next(callback_probe);
             } else {
                 replace_menus(&state, menus);
+                watch_gtk(&state, &callback_service, &watch_path, generation);
             }
         },
     );
@@ -948,6 +957,7 @@ fn probe_dbus_next(probe: Rc<RefCell<Probe>>) {
                 probe_dbus_next(callback_probe);
             } else {
                 replace_menus(&state, menus);
+                watch_dbusmenu(&state, &callback_service, &callback_path, generation);
             }
         },
     );
@@ -1016,6 +1026,364 @@ fn state_window_id(probe: &Probe) -> u32 {
 fn replace_menus(state: &Rc<RefCell<MenuState>>, menus: Vec<Menu>) {
     state.borrow_mut().menus = menus;
     render(state);
+}
+
+// ---------------------------------------------------------------------------
+// Following the producer that answered
+// ---------------------------------------------------------------------------
+
+/// The live half of a producer: the change signal, the debounce it feeds and
+/// the `org.gtk.Menus` group that has to be ended with it.
+struct Watch {
+    /// Dropping the subscription is what unsubscribes the change signal.
+    _subscription: gio::SignalSubscription,
+    /// The debounce timer, cancelled if the watch goes away mid-burst.
+    timer: Rc<RefCell<Option<glib::SourceId>>>,
+    /// The debounce state the signal and read callbacks share.
+    refresh: Rc<RefCell<menuwatch::Refresh>>,
+    /// The `(bus, service, path)` whose `Start` group the probe subscribed.
+    /// The C watcher ends its group when it is freed; so does this one.
+    end: Option<(gio::DBusConnection, String, String)>,
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        if let Some(source) = self.timer.borrow_mut().take() {
+            source.remove();
+        }
+
+        if let Some((bus, service, path)) = self.end.take() {
+            end_gtk_group(&bus, &service, &path);
+        }
+    }
+}
+
+/// `org.gtk.Menus.End` is fire-and-forget: its reply carries nothing and a
+/// failure only means the application already dropped the group.
+fn end_gtk_group(bus: &gio::DBusConnection, service: &str, path: &str) {
+    bus.call(
+        Some(service),
+        path,
+        "org.gtk.Menus",
+        "End",
+        Some(&(vec![0u32],).to_variant()),
+        None,
+        gio::DBusCallFlags::NONE,
+        -1,
+        None::<&gio::Cancellable>,
+        |_| {},
+    );
+}
+
+fn watch_gtk(state: &Rc<RefCell<MenuState>>, service: &str, path: &str, generation: u64) {
+    let Some(bus) = state.borrow().bus.clone() else {
+        return;
+    };
+    let refresh = Rc::new(RefCell::new(menuwatch::Refresh::new(
+        menuwatch::Protocol::GtkMenus,
+    )));
+    let timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let weak = Rc::downgrade(state);
+    let watch_service = service.to_owned();
+    let watch_path = path.to_owned();
+
+    let subscription = bus.subscribe_to_signal(
+        Some(service),
+        Some("org.gtk.Menus"),
+        Some("Changed"),
+        Some(path),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |_signal| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+
+            on_signal(
+                &state,
+                menuwatch::Protocol::GtkMenus,
+                &watch_service,
+                &watch_path,
+                generation,
+            );
+        },
+    );
+
+    state.borrow_mut().watch = Some(Watch {
+        _subscription: subscription,
+        timer,
+        refresh,
+        end: Some((bus, service.to_owned(), path.to_owned())),
+    });
+
+    // C subscribes before it calls `Start`, so a change emitted between the
+    // two is not lost.  The probe already called `Start`, so this subscription
+    // is the equivalent: read once now, and adopt the answer only if it says
+    // something the tree on screen does not.
+    read_gtk(state, service, path, generation);
+}
+
+fn watch_dbusmenu(state: &Rc<RefCell<MenuState>>, service: &str, path: &str, generation: u64) {
+    let Some(bus) = state.borrow().bus.clone() else {
+        return;
+    };
+    let refresh = Rc::new(RefCell::new(menuwatch::Refresh::new(
+        menuwatch::Protocol::DBusMenu,
+    )));
+    let timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    let weak = Rc::downgrade(state);
+    let watch_service = service.to_owned();
+    let watch_path = path.to_owned();
+
+    // Both signals on the object that published the layout: `LayoutUpdated`
+    // says the ids may have moved, `ItemsPropertiesUpdated` says a row's label,
+    // enabled state or toggle changed.  Either costs one `GetLayout`.
+    let subscription = bus.subscribe_to_signal(
+        Some(service),
+        Some("com.canonical.dbusmenu"),
+        None,
+        Some(path),
+        None,
+        gio::DBusSignalFlags::NONE,
+        move |signal| {
+            if menuwatch::protocol_for_member(signal.interface_name, signal.signal_name)
+                != Some(menuwatch::Protocol::DBusMenu)
+            {
+                return;
+            }
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+
+            on_signal(
+                &state,
+                menuwatch::Protocol::DBusMenu,
+                &watch_service,
+                &watch_path,
+                generation,
+            );
+        },
+    );
+
+    state.borrow_mut().watch = Some(Watch {
+        _subscription: subscription,
+        timer,
+        refresh,
+        end: None,
+    });
+}
+
+fn on_signal(
+    state: &Rc<RefCell<MenuState>>,
+    protocol: menuwatch::Protocol,
+    service: &str,
+    path: &str,
+    generation: u64,
+) {
+    let (refresh, timer) = {
+        let state = state.borrow();
+
+        if !state.current_generation(generation) {
+            return;
+        }
+
+        let Some(watch) = state.watch.as_ref() else {
+            return;
+        };
+
+        (Rc::clone(&watch.refresh), Rc::clone(&watch.timer))
+    };
+
+    if refresh.borrow_mut().signal() == menuwatch::Step::Coalesce {
+        return;
+    }
+
+    // A burst is one read: the timer this signal replaces never fires.
+    if let Some(source) = timer.borrow_mut().take() {
+        source.remove();
+    }
+
+    let weak = Rc::downgrade(state);
+    let slot = Rc::clone(&timer);
+    let service = service.to_owned();
+    let path = path.to_owned();
+    let source =
+        glib::timeout_add_local_once(Duration::from_millis(menuwatch::DEBOUNCE_MS), move || {
+            *slot.borrow_mut() = None;
+
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+
+            read(&state, protocol, &service, &path, generation);
+        });
+
+    *timer.borrow_mut() = Some(source);
+}
+
+/// What a re-read needs from the module: the bus, the debounce state it was
+/// scheduled by, and the facts the parser records in the tree it builds.
+struct ReadContext {
+    bus: gio::DBusConnection,
+    refresh: Rc<RefCell<menuwatch::Refresh>>,
+    style: ChordStyle,
+    app_path: Option<String>,
+}
+
+fn read_context(state: &Rc<RefCell<MenuState>>, generation: u64) -> Option<ReadContext> {
+    let state = state.borrow();
+
+    if !state.current_generation(generation) {
+        return None;
+    }
+
+    let watch = state.watch.as_ref()?;
+
+    Some(ReadContext {
+        bus: state.bus.clone()?,
+        refresh: Rc::clone(&watch.refresh),
+        style: state.style,
+        app_path: state.paths.app_path.clone(),
+    })
+}
+
+fn read(
+    state: &Rc<RefCell<MenuState>>,
+    protocol: menuwatch::Protocol,
+    service: &str,
+    path: &str,
+    generation: u64,
+) {
+    match protocol {
+        menuwatch::Protocol::GtkMenus => read_gtk(state, service, path, generation),
+        menuwatch::Protocol::DBusMenu => read_dbusmenu(state, service, path, generation),
+    }
+}
+
+fn read_gtk(state: &Rc<RefCell<MenuState>>, service: &str, path: &str, generation: u64) {
+    let Some(context) = read_context(state, generation) else {
+        return;
+    };
+    let Some(reply_type) = glib::VariantTy::new("(a(uuaa{sv}))").ok() else {
+        return;
+    };
+
+    if !context.refresh.borrow_mut().fire() {
+        return;
+    }
+
+    let weak = Rc::downgrade(state);
+    let refresh = context.refresh;
+    let style = context.style;
+    let app_path = context.app_path;
+    let bus = context.bus;
+    let callback_service = service.to_owned();
+    let callback_path = path.to_owned();
+
+    // `End` before `Start`, so the application never has two subscriptions
+    // for the bar; the C watcher does the same for every refresh.
+    end_gtk_group(&bus, service, path);
+    bus.call(
+        Some(service),
+        path,
+        "org.gtk.Menus",
+        "Start",
+        Some(&(vec![0u32],).to_variant()),
+        Some(reply_type),
+        gio::DBusCallFlags::NONE,
+        START_TIMEOUT_MS,
+        None::<&gio::Cancellable>,
+        move |result| {
+            let owed = refresh.borrow_mut().finish();
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let current = state.borrow().current_generation(generation);
+
+            if let Ok(reply) = result
+                && current
+            {
+                let menus = menubar::from_gtk(
+                    &reply.child_value(0),
+                    &callback_service,
+                    app_path.as_deref(),
+                    style,
+                );
+
+                adopt(&state, menuwatch::Protocol::GtkMenus, menus);
+            }
+
+            if owed {
+                read_gtk(&state, &callback_service, &callback_path, generation);
+            }
+        },
+    );
+}
+
+fn read_dbusmenu(state: &Rc<RefCell<MenuState>>, service: &str, path: &str, generation: u64) {
+    let Some(context) = read_context(state, generation) else {
+        return;
+    };
+    let Some(reply_type) = glib::VariantTy::new("(u(ia{sv}av))").ok() else {
+        return;
+    };
+
+    if !context.refresh.borrow_mut().fire() {
+        return;
+    }
+
+    let weak = Rc::downgrade(state);
+    let refresh = context.refresh;
+    let style = context.style;
+    let bus = context.bus;
+    let callback_service = service.to_owned();
+    let callback_path = path.to_owned();
+
+    bus.call(
+        Some(service),
+        path,
+        "com.canonical.dbusmenu",
+        "GetLayout",
+        Some(&(0i32, -1i32).to_variant()),
+        Some(reply_type),
+        gio::DBusCallFlags::NONE,
+        LAYOUT_TIMEOUT_MS,
+        None::<&gio::Cancellable>,
+        move |result| {
+            let owed = refresh.borrow_mut().finish();
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let current = state.borrow().current_generation(generation);
+
+            if let Ok(reply) = result
+                && current
+            {
+                let menus =
+                    menubar::from_dbusmenu(&reply, &callback_service, &callback_path, style);
+
+                adopt(&state, menuwatch::Protocol::DBusMenu, menus);
+            }
+
+            if owed {
+                read_dbusmenu(&state, &callback_service, &callback_path, generation);
+            }
+        },
+    );
+}
+
+/// Adopt a fresh tree only when it says something different.  What counts as
+/// different, and when an empty answer is not one, is [`menuwatch::replaces`].
+fn adopt(state: &Rc<RefCell<MenuState>>, protocol: menuwatch::Protocol, menus: Vec<Menu>) {
+    let replaces = {
+        let state = state.borrow();
+
+        menuwatch::replaces(protocol, &state.menus, &menus)
+    };
+
+    if replaces {
+        replace_menus(state, menus);
+    }
 }
 
 fn app_path_for(app_id: &str) -> Option<String> {

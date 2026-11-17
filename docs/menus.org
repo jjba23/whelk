@@ -343,8 +343,12 @@ New Window from their =Exec=, their named actions, and Close Window in File.
 Current boundaries are narrow, and stated rather than hidden:
 
 - =org.gtk.Menus.Changed= and DBusMenu =LayoutUpdated=/=ItemsPropertiesUpdated=
-  are not followed live.  A focus change or reload re-reads those producers;
-  AT-SPI changes are followed live.
+  are followed live through =src/menuwatch.rs=: a burst costs one debounced
+  re-read (120 ms), a change during a read owes exactly one more, and a tree
+  that says the same thing as the one on screen is not rebuilt.  A tree that
+  really changed is rebuilt and closes the open menu, where the C module
+  remembers the open path and puts it back; =LayoutUpdated= on its own closes
+  nothing.
 - User-installed Orbit JSON maps under =global-menu/shortcuts/apps= or
   =WHELK_SHORTCUT_MAPS= are read by both the C shell and =whelk-rs=.  The Rust
   producer indexes the sorted files with the configuration, reads the matching

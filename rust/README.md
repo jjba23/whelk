@@ -241,6 +241,14 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/menuprobe.rs` — the global menu's ordered fallback chain: exact X11 GTK
   paths before conventional paths, the registrar only when a window id exists,
   and DBusMenu paths with the registrar's answer moved to the front.
+- `src/menuwatch.rs` — the live follow-up both protocol producers publish,
+  ported from `util/gtkmenu.c` and `util/dbusmenu.c`: which change signal
+  belongs to which protocol, the 120 ms debounce a burst is folded into (a GTK
+  burst measures from its last signal, a DBusMenu burst from its first), the
+  single follow-up read a change during a read owes, and the rule that a fresh
+  tree replaces the one on screen only when it differs.  An empty
+  `org.gtk.Menus` answer withdraws the application's menus; an empty
+  `GetLayout` is a failed read and keeps what is showing.
 - `src/menubar.rs` — the global menu as owned data: the configured
   `Menu<TAB>Item<TAB>Chord<TAB>Command` protocol with `>` submenus, the
   `org.gtk.Menus` `a(uuaa{sv})` reader with sections, accelerators, targets and
@@ -324,6 +332,34 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   and walks the shell menu's tagged units (falling back to
   `(default-shell-menu)` when the file names none). Nested alists and
   exact/inexact numbers survive the typed conversion.
+- `src/guile/widget.rs` — the Scheme widget bridge, ported from the widget half
+  of `src/guile_bridge.c`: the nine `whelk-widget-*` primitives (label, markup,
+  progress, level, sparkline, image, box, button, add-class) registered into
+  `(whelk core)` when Guile is initialized, and the call a `scheme-module`
+  makes.  A widget crosses the boundary as an exact-integer handle into a
+  thread-local registry, not a smob: the values crossing the ABI are ones
+  `sys.rs` declares, and a stale handle is simply `None`.  A primitive can
+  return a string, number or symbol instead, which becomes a label, as the C
+  bridge accepts.
+- `src/schemebar.rs` — the `scheme` bar module, ported from
+  `modules/scheme.c`: `#:update`'s token, the one-second refresh, the slot the
+  current widget is swapped into, and the rule that a failed or empty reading
+  keeps the previous widget.  A module configured without `#:update` says so in
+  the bar instead of polling.
+- `src/widgets.rs` — the desktop widgets' data, ported from the display-free
+  half of `src/widgets.c` and the `(whelk state)` records behind it: the nine
+  kinds and their standard sizes, geometry defaults and clamps, the mouse
+  vocabulary and per-kind cadence, the reminders model whose done flags are
+  runtime state, world-clock city parsing, Open-Meteo and Yahoo answer
+  decoding, the calendar's Monday-first month grid, a note's file-or-text
+  rule, a custom reading's empty fallback, and the drag/placement arithmetic
+  (snap to the 8 px grid, clamp into the monitor, a saved position winning
+  over the settings file).
+- `src/widgetstate.rs` — the placement and per-widget state file, ported from
+  `util/widgetstate.c`: `$XDG_STATE_HOME/whelk/widgets-<stem>.ini` (or
+  `~/.local/state`), positions stored per monitor with a monitor-less
+  fallback, the `GKeyFile` format the C shell also writes, `0700` directories,
+  and the snap/clamp rules both shells share.
 - `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
   thickness, clock format and generated skin come from its Scheme bar. Every
   configured left, centre, right and overflow module goes through the factory; the
@@ -463,9 +499,13 @@ work even when the application publishes no accelerator.
 
 The main producers are ported, with these deliberate gaps:
 
-- `org.gtk.Menus.Changed` and DBusMenu `LayoutUpdated`/
-  `ItemsPropertiesUpdated` are not followed live.  A focus change or shell
-  reload re-reads those producers; AT-SPI changes are followed live.
+- Production is followed live.  `org.gtk.Menus.Changed` and DBusMenu
+  `LayoutUpdated`/`ItemsPropertiesUpdated` cost one debounced `Start` or
+  `GetLayout` through `src/menuwatch.rs`, and a tree identical to the one on
+  screen keeps the menu that is open.  A tree that really changed is rebuilt,
+  which closes the open menu; the C module remembers the open path and puts it
+  back.  `LayoutUpdated` does not close the menu by itself: an application
+  sends it while it builds the menu somebody just opened.
 - The application name comes from the dictionary, then the desktop entry's
   `Name`, then the id's last component.  A dictionary name still wins over the
   desktop entry, matching the C order.
@@ -593,6 +633,9 @@ The tests are split by what they can prove without a session:
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, the real menu dictionary and Orbit corpus, repeated loads, caught exceptions |
 | `tests/atspi_dbus.rs` | A fake AT-SPI application on a private D-Bus: object-path children, role/state/name/key-binding reads, process-id matching, unknown applications and live `ChildrenChanged` delivery |
+| `tests/widgets.rs` | Kind catalogue and sizes, geometry clamps, option/mouse vocabulary, refresh cadence, reminders parsing/toggling/serialisation, world-clock cities, month-grid layout, weather and stock decoding, note/custom fallbacks, drag/placement arithmetic |
+| `tests/widgetstate.rs` | State path rules, 8 px snapping, clamping, monitor-aware position round trips and fallback, refused negative/malformed values, per-widget state removal |
+| `tests/menuwatch.rs` | Signal classification, the GTK restart and DBusMenu join debounce, the one owed follow-up read, and the replace rules for identical and empty trees |
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
@@ -625,9 +668,16 @@ The bridge is safe by construction at its boundary, not by convention:
 5. FFI declarations are confined to `src/guile/sys.rs`. It contains only the
    functions this slice calls, with the C signatures reviewed against libguile
    3.0.
+6. A widget built by a `whelk-widget-*` primitive crosses the boundary as an
+   exact integer handle, never as a pointer: the registry lives in a
+   thread-local beside Guile, and taking a handle is how ownership moves from
+   Scheme to GTK.  The one procedure kept across calls (a `whelk-widget-button`
+   callback) is rooted for exactly the life of the click closure.
 
-`(whelk-rust-version)` is the one callback from Scheme into Rust. It allocates a
-Scheme string from a compile-time constant, so it cannot panic across the C ABI.
+`(whelk-rust-version)` and the nine `whelk-widget-*` primitives are the
+callbacks from Scheme into Rust.  Every primitive body runs under
+`catch_unwind` and answers `#f` instead of unwinding into Guile's frames; the
+version primitive allocates a Scheme string from a compile-time constant.
 
 ## Unsafe surface
 
@@ -644,6 +694,12 @@ enough to review:
 - `src/locker.rs` — the GTK session-lock C API that gtk4-rs does not yet bind;
   the wrapper owns the returned `GObject` and releases it at the same point the
   protocol lock is released.
+- `src/guile/widget.rs` — the nine `whelk-widget-*` subr trampolines, the single
+  `scm_t_subr` cast they are registered through, the integer handle registry,
+  the `scm_internal_catch` around a module procedure, and the rooted procedure a
+  `whelk-widget-button` keeps for as long as its click closure lives.  Every
+  primitive body runs under `catch_unwind`, so a Rust panic cannot unwind
+  through Guile's frames.
 - `tests/guile.rs` — one call into the same Guile boundary for the integration
   test.
 
@@ -691,9 +747,14 @@ calculator, files, web, generic menus, SSH hosts, force-quit and the session
 menu are wired; the clipboard history, its bar module, picker mode and the
 `--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
-RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
-locker's per-monitor rebuild while the protocol lock is up is still in C, as
-are the Scheme `scheme` module, the global menu's live GTK/DBusMenu watchers,
-the settings window and session management.  The next slices should finish
-those protocol watches and the Scheme widget bridge, then make the Rust binary
-the installed `whelk` once the C and Rust suites both cover the same behavior.
+RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The locker's per-monitor rebuild while the protocol lock is up is still in C, as
+are the settings window and session management.  The global menu follows its
+producers live: a `Changed` or `LayoutUpdated` costs one debounced re-read and
+an unchanged tree is not rebuilt.  The Scheme widget bridge and the `scheme`
+bar module are Rust too, and so is the desktop widgets' data: their kinds,
+geometry, state file, reminders, weather and stock decoding, and placement
+arithmetic.  What is still C for the desktop widgets is their surfaces: the
+layer-shell card, its drag gesture and its per-kind paint/refresh, which the
+Rust side has the data for but does not draw yet.  The next slice is those
+surfaces, then making the Rust binary the installed `whelk` once the C and Rust
+suites both cover the same behavior.

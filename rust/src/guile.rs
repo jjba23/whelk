@@ -27,6 +27,7 @@ use crate::bar::BarSettings;
 use crate::menuapps::{self, MenuSources};
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 use crate::startmenu::MenuEntry;
+use crate::widgets::WidgetConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuileError {
@@ -100,6 +101,8 @@ unsafe extern "C" fn catch_handler(
 
 /// The Guile runtime is global and thread-affine.  A handle is deliberately
 /// neither Send nor Sync; call it from the thread that initialized it.
+pub mod widget;
+
 pub struct Guile {
     true_value: sys::Scm,
     false_value: sys::Scm,
@@ -153,6 +156,7 @@ impl Guile {
         };
 
         runtime.register_rust_version()?;
+        runtime.register_widget_primitives()?;
 
         Ok(runtime)
     }
@@ -208,6 +212,43 @@ impl Guile {
             .into_iter()
             .filter_map(|value| match value {
                 SchemeValue::Alist(entries) => Some(BarSettings::from_alist(&entries)),
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// Read the configured desktop widgets, `(shell-widgets->alists)`: each
+    /// one's kind, placement and own option alist.  A configuration without
+    /// widgets answers an empty list, which is the opt-in default.
+    pub fn load_widgets(&self, config_path: &Path) -> Result<Vec<WidgetConfig>, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let alist = self.catch(|| {
+            let module = CString::new("whelk state").expect("static module name");
+            let name = CString::new("shell-widgets->alists").expect("static procedure name");
+            let procedure = unsafe { sys::scm_c_public_ref(module.as_ptr(), name.as_ptr()) };
+
+            Ok(unsafe { sys::scm_call_1(procedure, path) })
+        })?;
+        let _alist_root = Root::new(alist);
+        let value = self.scheme_value(alist)?;
+        let SchemeValue::List(values) = value else {
+            return Ok(Vec::new());
+        };
+
+        Ok(values
+            .into_iter()
+            .filter_map(|value| match value {
+                SchemeValue::Alist(entries) => WidgetConfig::from_alist(&entries),
                 _ => None,
             })
             .collect())
