@@ -118,8 +118,13 @@ impl LauncherItem {
     }
 }
 
-/// The XDG data directories, in the order a desktop id is looked up.  The user
-/// directory wins over every system directory.
+/// The XDG application directories, in the order a desktop id is looked up.
+/// The user directory wins over every system directory.
+///
+/// The XDG variables name data directories, and desktop entries live in the
+/// `applications` subdirectory of each one.  Scanning the data directory itself
+/// finds no entry at all: `/usr/share` holds no `.desktop` file, only
+/// `/usr/share/applications` does.
 pub fn desktop_dirs() -> Vec<PathBuf> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -143,6 +148,9 @@ pub fn desktop_dirs() -> Vec<PathBuf> {
     );
 
     directories
+        .into_iter()
+        .map(|directory| directory.join("applications"))
+        .collect()
 }
 
 fn desktop_bool(value: Option<&String>) -> bool {

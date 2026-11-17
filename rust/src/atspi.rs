@@ -28,6 +28,7 @@ use gtk4 as gtk;
 
 use crate::chord::{self, ChordStyle};
 use crate::menubar::{Menu, MenuAction, MenuEntry};
+use crate::sources;
 
 pub const ATSPI_TIMEOUT_MS: i32 = 250;
 pub const MAX_DEPTH: usize = 9;
@@ -535,7 +536,7 @@ impl Drop for Watch {
         self.cancel.store(true, Ordering::Relaxed);
 
         if let Some(source) = self.source.take() {
-            source.remove();
+            sources::remove(source);
         }
     }
 }

@@ -47,6 +47,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::lockauth::{self, AuthOutcome};
 use crate::lockpolicy;
 use crate::logind::{self, Trigger};
+use crate::sources;
 
 thread_local! {
     /// The last lock process this shell started, so a second logind trigger
@@ -1166,11 +1167,11 @@ fn unlock(state: &Rc<RefCell<Locker>>) {
         locker.rebuilds.stop();
 
         if let Some(source) = locker.retry_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(source) = locker.rebuild_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some((model, handler)) = locker.monitor_model.take() {
@@ -1219,11 +1220,11 @@ fn unlock_local(state: &Rc<RefCell<Locker>>) {
         locker.rebuilds.stop();
 
         if let Some(source) = locker.retry_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(source) = locker.rebuild_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some((model, handler)) = locker.monitor_model.take() {

@@ -29,6 +29,7 @@ use crate::command;
 use crate::launcherkeys::LauncherKeys;
 use crate::nightlight;
 use crate::settings::SchemeValue;
+use crate::sources;
 use crate::style;
 
 /// Typing in a field settles for this long before the value is written, so a
@@ -332,7 +333,7 @@ impl State {
 
     fn drop_pending(&self) {
         if let Some(source) = self.apply.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
 
         self.pending.borrow_mut().clear();

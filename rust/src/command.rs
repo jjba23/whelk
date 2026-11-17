@@ -23,6 +23,7 @@ use gtk::glib;
 use gtk4 as gtk;
 
 use crate::format;
+use crate::sources;
 
 /// A command started by [`run_with_timeout`].  Dropping the handle cancels the
 /// command; a module keeps it for exactly as long as it still wants the answer.
@@ -62,7 +63,7 @@ impl Drop for CommandHandle {
 impl CommandRun {
     fn cancel(&self) {
         if let Some(source) = self.timeout_source.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
 
         self.cancellable.cancel();
@@ -156,7 +157,7 @@ where
         callback_run.completed.set(true);
 
         if let Some(source) = callback_run.timeout_source.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
 
         let answer = if callback_run.cancellable.is_cancelled() {

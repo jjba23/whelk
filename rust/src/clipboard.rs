@@ -33,6 +33,7 @@ use gtk4 as gtk;
 
 use crate::logind::PROPERTIES_INTERFACE;
 use crate::settings::ClipboardSettings;
+use crate::sources;
 
 pub const DEFAULT_MAX_ENTRIES: u32 = 50;
 pub const DEFAULT_MAX_ENTRY_BYTES: u32 = 32 * 1024 * 1024;
@@ -838,11 +839,11 @@ impl Clipboard {
             state.lock_connection.take();
 
             if let Some(source) = state.save_timeout.take() {
-                source.remove();
+                sources::remove(source);
             }
 
             if let Some(source) = state.prune_timeout.take() {
-                source.remove();
+                sources::remove(source);
             }
 
             state.watch.take()
@@ -1302,7 +1303,7 @@ impl Clipboard {
         };
 
         if let Some(source) = source {
-            source.remove();
+            sources::remove(source);
         }
 
         if ttl == 0 {
@@ -1454,7 +1455,7 @@ impl Clipboard {
             let mut state = self.inner.borrow_mut();
 
             if let Some(source) = state.save_timeout.take() {
-                source.remove();
+                sources::remove(source);
             }
 
             let Some(path) = state.persist_path.clone() else {
@@ -1606,11 +1607,11 @@ impl Clipboard {
 impl Drop for State {
     fn drop(&mut self) {
         if let Some(source) = self.save_timeout.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(source) = self.prune_timeout.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         self.lock_subscription.take();
@@ -2274,7 +2275,7 @@ impl Capture {
         self.process.force_exit();
 
         if let Some(timer) = self.timer.borrow_mut().take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         self.main_loop.quit();

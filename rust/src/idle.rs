@@ -40,6 +40,7 @@ use crate::inhibitors;
 use crate::logind::{
     LOGIND_NAME, MANAGER_INTERFACE, MANAGER_PATH, PROPERTIES_INTERFACE, SESSION_INTERFACE,
 };
+use crate::sources;
 
 const INHIBIT_TIMEOUT_MS: i32 = 5000;
 const INHIBIT_REASON_DEFAULT: &str = "presentation mode";
@@ -215,7 +216,7 @@ impl Idle {
         state.started = false;
 
         if let Some(timer) = state.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         state.subscription = None;
@@ -635,7 +636,7 @@ fn apply_idle_hint(state: &Rc<RefCell<State>>, idle: bool) {
 
 fn schedule_timer(state: &Rc<RefCell<State>>) {
     if let Some(timer) = state.borrow_mut().timer.take() {
-        timer.remove();
+        sources::remove(timer);
     }
 
     let (delay, decision) = {

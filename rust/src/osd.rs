@@ -19,6 +19,7 @@ use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::bar::{BarSettings, Edge as BarEdge};
+use crate::sources;
 use crate::style;
 
 pub const TIMEOUT: Duration = Duration::from_millis(1_400);
@@ -187,7 +188,7 @@ impl Osd {
         state.window.present();
 
         if let Some(timer) = state.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         state.generation = state.generation.wrapping_add(1);
@@ -213,7 +214,7 @@ impl Osd {
         state.generation = state.generation.wrapping_add(1);
 
         if let Some(timer) = state.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         state.window.set_visible(false);
@@ -269,7 +270,7 @@ impl Osd {
 impl Drop for State {
     fn drop(&mut self) {
         if let Some(timer) = self.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         if let Some(css) = self.css.take()

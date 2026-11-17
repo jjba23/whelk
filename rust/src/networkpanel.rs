@@ -26,6 +26,7 @@ use crate::bar::BarSettings;
 use crate::command;
 use crate::format;
 use crate::nmcli;
+use crate::sources;
 use crate::style;
 
 pub const WIDTH: i32 = 400;
@@ -923,7 +924,7 @@ impl NetworkPanel {
         let source = self.inner.borrow_mut().refresh_source.take();
 
         if let Some(source) = source {
-            source.remove();
+            sources::remove(source);
         }
     }
 
@@ -954,7 +955,7 @@ impl NetworkPanel {
 impl Drop for State {
     fn drop(&mut self) {
         if let Some(source) = self.refresh_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(css) = self.css.take()

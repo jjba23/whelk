@@ -48,6 +48,7 @@ use crate::menuprobe;
 use crate::menusearch;
 use crate::menuwatch;
 use crate::session::{self, FocusedPaths, Session, WindowActions};
+use crate::sources;
 use crate::style;
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 1;
@@ -1071,7 +1072,7 @@ struct Watch {
 impl Drop for Watch {
     fn drop(&mut self) {
         if let Some(source) = self.timer.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some((bus, service, path)) = self.end.take() {
@@ -1222,7 +1223,7 @@ fn on_signal(
 
     // A burst is one read: the timer this signal replaces never fires.
     if let Some(source) = timer.borrow_mut().take() {
-        source.remove();
+        sources::remove(source);
     }
 
     let weak = Rc::downgrade(state);

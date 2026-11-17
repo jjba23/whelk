@@ -82,6 +82,7 @@ pub mod session;
 pub mod settings;
 pub mod shortcutmaps;
 pub mod signals;
+pub mod sources;
 pub mod startbar;
 pub mod startmenu;
 pub mod style;

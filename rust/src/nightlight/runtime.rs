@@ -17,6 +17,7 @@ use gtk4 as gtk;
 
 use super::backend::{self, Platform};
 use super::{Config, Engine};
+use crate::sources;
 
 struct Runtime {
     engine: Engine<Platform>,
@@ -68,7 +69,7 @@ pub fn stop() {
         };
 
         if let Some(timer) = runtime.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         runtime.engine.restore();
@@ -77,7 +78,7 @@ pub fn stop() {
 
 fn tick(runtime: &mut Runtime) {
     if let Some(timer) = runtime.timer.take() {
-        timer.remove();
+        sources::remove(timer);
     }
 
     let Some(seconds) = runtime.engine.tick(now_minutes()) else {

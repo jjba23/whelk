@@ -32,6 +32,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::collection::collect;
 use crate::rotation::Playlist;
 use crate::settings::WallpaperSettings;
+use crate::sources;
 use crate::ui::layer_shell_available;
 use crate::wallpaper::{Animation, Kind, kind_for_path};
 use crate::wallpaper_view::WhelkWallpaperView;
@@ -109,7 +110,7 @@ pub fn needs_rebuild(previous: Option<&str>, outputs: &[Output], surfaces: usize
 pub fn clear() {
     ROTATION.with(|slot| {
         if let Some(timer) = slot.borrow_mut().take() {
-            timer.remove();
+            sources::remove(timer);
         }
     });
     MONITORS.with(|slot| {
@@ -119,7 +120,7 @@ pub fn clear() {
     });
     SYNC.with(|slot| {
         if let Some(source) = slot.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
     });
     SESSION.with(|slot| *slot.borrow_mut() = None);

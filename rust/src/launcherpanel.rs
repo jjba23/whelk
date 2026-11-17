@@ -28,6 +28,7 @@ use crate::launcher as launcher_geometry;
 use crate::launcherdata::{self, ItemKind, LauncherItem, RESULT_LIMIT};
 use crate::launcherkeys::LauncherKeys;
 use crate::menusearch;
+use crate::sources;
 use crate::style;
 
 const DEBOUNCE: Duration = Duration::from_millis(120);
@@ -692,7 +693,7 @@ impl Launcher {
         let source = self.inner.borrow_mut().query_source.take();
 
         if let Some(source) = source {
-            source.remove();
+            sources::remove(source);
         }
     }
 
@@ -1373,7 +1374,7 @@ impl Launcher {
 impl Drop for State {
     fn drop(&mut self) {
         if let Some(source) = self.query_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(css) = self.zoom_css.take()

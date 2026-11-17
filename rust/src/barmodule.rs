@@ -22,6 +22,7 @@ use gtk4 as gtk;
 use crate::bar::ModuleSpec;
 use crate::command::{self, CommandHandle};
 use crate::format;
+use crate::sources;
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 1;
 pub const DEFAULT_COMMAND_TIMEOUT_SECONDS: u64 = 5;
@@ -174,7 +175,7 @@ impl HostInner {
         }
 
         if let Some(source) = self.timer.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
 
         self.update.borrow_mut().take();
@@ -276,7 +277,7 @@ impl ModuleHost {
         };
 
         if let Some(previous) = self.inner.timer.borrow_mut().take() {
-            previous.remove();
+            sources::remove(previous);
         }
 
         let host = self.clone();

@@ -36,6 +36,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::zwlr_gamma_control_v1::{
 };
 
 use crate::nightlight::{Backend, GammaRamp, Rgb};
+use crate::sources;
 
 /// A refused output is usually another client holding it.  Retrying on every
 /// fade step would be a request storm; thirty seconds is enough for the other
@@ -399,7 +400,7 @@ impl Backend for WaylandBackend {
 impl Drop for WaylandBackend {
     fn drop(&mut self) {
         if let Some(source) = self.source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         self.state.borrow_mut().release();

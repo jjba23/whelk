@@ -30,6 +30,7 @@ use crate::format;
 use crate::notifications::{
     Notification, NotificationEvent, NotificationEventSubscription, NotificationService,
 };
+use crate::sources;
 use crate::style;
 
 pub const PANEL_WIDTH: i32 = 380;
@@ -827,7 +828,7 @@ impl NotificationCenter {
         let source = self.inner.borrow_mut().timers.remove(&id);
 
         if let Some(source) = source {
-            source.remove();
+            sources::remove(source);
         }
     }
 
@@ -866,7 +867,7 @@ impl Drop for State {
         let timers = std::mem::take(&mut self.timers);
 
         for (_, source) in timers {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some(css) = self.css.take()

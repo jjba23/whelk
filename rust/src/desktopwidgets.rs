@@ -27,6 +27,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::bar::BarSettings;
 use crate::batterybar;
 use crate::command;
+use crate::sources;
 use crate::style;
 use crate::ui::layer_shell_available;
 use crate::widgets::{
@@ -440,7 +441,7 @@ impl Card {
 impl Drop for Card {
     fn drop(&mut self) {
         if let Some(timer) = self.timer.take() {
-            timer.remove();
+            sources::remove(timer);
         }
 
         if let Some(css) = self.css.take()

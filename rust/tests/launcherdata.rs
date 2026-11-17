@@ -8,8 +8,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use whelk_rs::launcherdata::{
-    ItemKind, file_items, parse_niri_windows, rank_indices, scan_command_dirs, scan_desktop_dirs,
-    session_items,
+    ItemKind, desktop_dirs, file_items, parse_niri_windows, rank_indices, scan_command_dirs,
+    scan_desktop_dirs, session_items,
 };
 
 fn write_desktop(directory: &PathBuf, name: &str, body: &str) {
@@ -174,5 +174,21 @@ fn the_session_menu_is_built_in() {
         items
             .iter()
             .all(|item| !item.action.is_empty() && item.icon.is_some())
+    );
+}
+
+#[test]
+fn desktop_entries_are_looked_up_in_the_applications_subdirectory() {
+    let directories = desktop_dirs();
+
+    assert!(
+        !directories.is_empty(),
+        "there is always at least the user's application directory"
+    );
+    assert!(
+        directories
+            .iter()
+            .all(|directory| directory.ends_with("applications")),
+        "a desktop entry lives in <data-dir>/applications, not in the data directory: {directories:?}"
     );
 }

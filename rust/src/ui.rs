@@ -39,6 +39,7 @@ use crate::osd::Osd;
 use crate::preferences::{self, PreferenceValue, Preferences, ReadFn, ReloadFn, SaveFn, Snapshot};
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
+use crate::sources;
 use crate::startmenu::MenuEntry;
 use crate::style;
 use crate::wallpaperpicker::Picker;
@@ -710,7 +711,7 @@ impl Shell {
         }
 
         if let Some(source) = self.reload_source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         if let Some((monitor, handler)) = self.config_watch.take() {
@@ -757,7 +758,7 @@ impl Drop for ClockTimer {
         self.alive.set(false);
 
         if let Some(source) = self.source.borrow_mut().take() {
-            source.remove();
+            sources::remove(source);
         }
     }
 }
@@ -799,7 +800,10 @@ fn build_bar_window(
     window.set_widget_name(&widget_id);
     window.add_css_class("whelk-surface");
     window.set_decorated(false);
-    window.set_resizable(false);
+    // A layer surface is sized by the compositor -- an exclusive zone, a scale
+    // change or a margin all shrink or grow it -- and a non-resizable window
+    // ignores those configure events, laying out at its first size instead.
+    window.set_resizable(true);
 
     let bar = gtk::CenterBox::new();
     bar.add_css_class("whelk-bar");
@@ -1088,7 +1092,7 @@ fn schedule_reload(shell: &ShellRef) {
     let mut state = shell.borrow_mut();
 
     if let Some(source) = state.reload_source.take() {
-        source.remove();
+        sources::remove(source);
     }
 
     let weak = Rc::downgrade(shell);
@@ -1234,6 +1238,39 @@ fn configure_layer_shell(
     if let Some(monitor) = monitor {
         window.set_monitor(Some(monitor));
     }
+
+    // A GTK window does not take its size from the compositor's configure: a
+    // layer client asks for one.  Without this, an anchored surface is only as
+    // large as its content -- a bar as wide as its modules -- while the
+    // compositor happily anchors that small window.
+    apply_surface_size(window, bar, monitor);
+}
+
+/// Ask for the size the anchors imply: a horizontal bar spans its output's
+/// width, a vertical one its height, and the other axis keeps its natural size.
+fn apply_surface_size(
+    window: &gtk::ApplicationWindow,
+    bar: &BarSettings,
+    monitor: Option<&gtk::gdk::Monitor>,
+) {
+    let fallback = gtk::gdk::Display::default()
+        .and_then(|display| display.monitors().item(0))
+        .and_downcast::<gtk::gdk::Monitor>();
+    let Some(monitor) = monitor.or(fallback.as_ref()) else {
+        return;
+    };
+    let geometry = monitor.geometry();
+
+    let (width, height) = match bar.edge {
+        BarEdge::Top | BarEdge::Bottom => {
+            (geometry.width() - bar.margin_left - bar.margin_right, -1)
+        }
+        BarEdge::Left | BarEdge::Right => {
+            (-1, geometry.height() - bar.margin_top - bar.margin_bottom)
+        }
+    };
+
+    window.set_default_size(width.max(1), height);
 }
 
 fn edge_for(edge: BarEdge) -> Edge {

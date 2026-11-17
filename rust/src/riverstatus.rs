@@ -45,6 +45,7 @@ mod protocol {
     wayland_scanner::generate_client_code!("../protocol/river-status-unstable-v1.xml");
 }
 
+use crate::sources;
 use protocol::zriver_seat_status_v1::{self, ZriverSeatStatusV1};
 use protocol::zriver_status_manager_v1::{self, ZriverStatusManagerV1};
 
@@ -261,7 +262,7 @@ impl Watch {
 impl Drop for Watch {
     fn drop(&mut self) {
         if let Some(source) = self.source.take() {
-            source.remove();
+            sources::remove(source);
         }
 
         {
