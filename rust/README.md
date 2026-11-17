@@ -761,8 +761,10 @@ The Rust shell keeps `unsafe` at the boundaries where a C library has no safe
 Rust API, and keeps it out of the application logic.  Calls into Guile go
 through the safe functions in `src/guile/sys.rs`; `src/guile.rs` and
 `src/guile/widget.rs` have no unsafe blocks apart from the `extern "C"`
-callbacks Guile calls back into.  The crate exports no `#[no_mangle]` symbols:
-Scheme reaches Rust through `scm_c_define_gsubr`, not through a second C ABI.
+callbacks Guile calls back into.  `Scm` is an opaque `#[repr(transparent)]`
+newtype with a private field, so safe code cannot manufacture one from an
+arbitrary pointer.  The crate exports no `#[no_mangle]` symbols: Scheme reaches
+Rust through `scm_c_define_gsubr`, not through a second C ABI.
 The inventory is small enough to review:
 
 - `src/guile/sys.rs` — the libguile declarations, protected `SCM` roots,
