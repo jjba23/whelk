@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use whelk_rs::bar::{BarSettings, Edge, Layer, When, fold_visible};
+use whelk_rs::bar::{BarSettings, Edge, Layer, Reading, When, fold_visible};
 use whelk_rs::settings::SchemeValue;
 
 fn alist(entries: Vec<(&str, SchemeValue)>) -> Vec<(String, SchemeValue)> {
@@ -267,18 +267,91 @@ fn empty_modules_and_empty_options_are_omitted() {
 
 #[test]
 fn trailing_readings_fold_when_the_right_row_runs_out_of_room() {
-    // The C bar measures the readings left to right, reserving room for the
-    // "+N" button whenever another reading follows.  These are its rules.
-    assert_eq!(fold_visible(&[], 200, 6), 0);
-    // 50 + 0 + reserve(34+6) fits; the second 50 no longer does.
-    assert_eq!(fold_visible(&[50, 50, 50], 120, 6), 1);
-    // With no reading after it, the last one is not charged the button.
-    assert_eq!(fold_visible(&[30, 30], 100, 6), 2);
-    // A row too narrow for anything still keeps its first reading.
-    assert_eq!(fold_visible(&[80, 80], 10, 6), 1);
+    // Without priorities the row folds exactly as the C bar did: from the
+    // right, keeping the readings the configuration wrote first.
+    let readings = |widths: &[i32]| -> Vec<Reading> {
+        widths
+            .iter()
+            .map(|width| Reading {
+                width: *width,
+                priority: 0,
+            })
+            .collect()
+    };
+
+    assert!(fold_visible(&[], 200, 6).is_empty());
+    // 50 + reserve(34+6) fits; the second 50 no longer does.
+    assert_eq!(fold_visible(&readings(&[50, 50, 50]), 120, 6), vec![0]);
+    // Everything fits when nothing has to be kept for the button.
+    assert_eq!(fold_visible(&readings(&[30, 30]), 100, 6), vec![0, 1]);
+    // A row too narrow for anything still keeps one reading.
+    assert_eq!(fold_visible(&readings(&[80, 80]), 10, 6), vec![0]);
     // Hidden readings measure zero, like the C widget_width().
-    assert_eq!(fold_visible(&[0, 0, 0], 100, 6), 3);
-    // Spacing is charged between visible readings: 30 + 10 + 30 + the
-    // reserve is 114, so only the first fits in 110.
-    assert_eq!(fold_visible(&[30, 30, 30], 110, 10), 1);
+    assert_eq!(fold_visible(&readings(&[0, 0, 0]), 100, 6), vec![0, 1, 2]);
+    // Spacing is charged between kept readings; 110 would fit all three
+    // exactly, so the narrower row is the one that folds.
+    assert_eq!(
+        fold_visible(&readings(&[30, 30, 30]), 110, 10),
+        vec![0, 1, 2]
+    );
+    assert_eq!(fold_visible(&readings(&[30, 30, 30]), 100, 10), vec![0]);
+}
+
+#[test]
+fn priorities_decide_which_reading_folds_first() {
+    let reading = |width: i32, priority: i32| Reading { width, priority };
+
+    // The clock is last in the row and first in priority: it stays, and the
+    // load average beside it folds.
+    let row = [reading(40, 10), reading(40, 100), reading(40, 0)];
+
+    assert_eq!(fold_visible(&row, 120, 6), vec![1]);
+
+    // A `#:keep?` reading outranks a merely high-priority one.
+    let row = [reading(40, 100), reading(40, whelk_rs::bar::KEEP_PRIORITY)];
+
+    assert_eq!(fold_visible(&row, 60, 6), vec![1]);
+
+    // Equal claims keep the row's order: the leftmost of two equals wins.
+    let row = [reading(60, 0), reading(60, 0)];
+
+    assert_eq!(fold_visible(&row, 110, 6), vec![0]);
+
+    // The two loudest stay, and the answer is in row order whatever order the
+    // claims were taken in.
+    let row = [reading(40, 5), reading(40, 9), reading(40, 7)];
+
+    assert_eq!(fold_visible(&row, 130, 6), vec![1, 2]);
+}
+
+#[test]
+fn a_module_says_how_much_it_wants_to_stay() {
+    let keep = BarSettings::from_alist(&alist(vec![(
+        "modules-right",
+        SchemeValue::List(vec![module(
+            "clock",
+            vec![("keep?", SchemeValue::Bool(true))],
+        )]),
+    )]));
+    let tuned = BarSettings::from_alist(&alist(vec![(
+        "modules-right",
+        SchemeValue::List(vec![module(
+            "cpu",
+            vec![("priority", SchemeValue::Integer(25))],
+        )]),
+    )]));
+    let silent = BarSettings::from_alist(&alist(vec![(
+        "modules-right",
+        SchemeValue::List(vec![module("cpu", vec![])]),
+    )]));
+
+    assert_eq!(
+        whelk_rs::bar::module_priority(&keep.right[0]),
+        whelk_rs::bar::KEEP_PRIORITY
+    );
+    assert_eq!(whelk_rs::bar::module_priority(&tuned.right[0]), 25);
+    assert_eq!(
+        whelk_rs::bar::module_priority(&silent.right[0]),
+        whelk_rs::bar::DEFAULT_PRIORITY
+    );
 }

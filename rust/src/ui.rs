@@ -21,6 +21,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
+use crate::about;
 use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer, ModuleSpec};
 use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
@@ -51,6 +52,23 @@ thread_local! {
     /// One manager owns the idle timer, its logind inhibitor and DND, for as
     /// long as the shell runs.
     static IDLE: std::cell::RefCell<Option<Idle>> = const { std::cell::RefCell::new(None) };
+    /// How a bar writes a shelf state back to the GUI preferences, installed
+    /// once by the shell: a chevron that the reader opened must stay open
+    /// across the reload its own click might cause.
+    static SHELF_SAVE: std::cell::RefCell<Option<ShelfSaver>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// How a bar writes the shelf's state back to the GUI preferences.
+type ShelfSaver = Rc<dyn Fn(bool)>;
+
+/// Remember whether the overflow shelf is open.
+fn save_shelf_state(expanded: bool) {
+    let saver = SHELF_SAVE.with(|slot| slot.borrow().clone());
+
+    if let Some(saver) = saver {
+        saver(expanded);
+    }
 }
 
 struct Bootstrap {
@@ -236,6 +254,7 @@ fn requests_from(command_line: &gtk::gio::ApplicationCommandLine) -> Requests {
         menu: text("menu"),
         session_menu: flag("session-menu"),
         settings: flag("settings"),
+        about: flag("about"),
         wallpaper_picker: flag("wallpaper-picker"),
         notifications: flag("notifications"),
         dnd: flag("dnd"),
@@ -322,6 +341,18 @@ fn perform(
         }
         Request::Reload => shell.borrow_mut().reload(),
         Request::Settings => present_preferences(shell),
+        Request::About => {
+            let style = shell
+                .borrow()
+                .loaded
+                .bars
+                .first()
+                .cloned()
+                .unwrap_or_default();
+            let label = shell.borrow().config_label.clone();
+
+            about::show_program(&style, &label);
+        }
         Request::Lock => locker::start_lock_screen(),
         Request::Menu(command) => {
             if let Some(launcher) = Launcher::current() {
@@ -543,6 +574,28 @@ impl Shell {
             state.wallpaper_menu = Some(menu);
         }
 
+        {
+            let weak = Rc::downgrade(&shell);
+
+            SHELF_SAVE.with(|slot| {
+                let saver: ShelfSaver = Rc::new(move |expanded: bool| {
+                    let Some(shell) = weak.upgrade() else {
+                        return;
+                    };
+                    let mut state = shell.borrow_mut();
+
+                    if let Err(error) = state
+                        .loader
+                        .save_preference("bar-overflow-expanded?", &PreferenceValue::Bool(expanded))
+                    {
+                        eprintln!("whelk: could not remember the shelf: {error}");
+                    }
+                });
+
+                *slot.borrow_mut() = Some(saver);
+            });
+        }
+
         watch_config(&shell);
         watch_monitors(&shell);
 
@@ -732,6 +785,8 @@ impl Shell {
         Clipboard::install(None);
         NotificationService::install(None);
 
+        SHELF_SAVE.with(|slot| *slot.borrow_mut() = None);
+
         self.preferences.take();
         self.picker.take();
         self.wallpaper_menu.take();
@@ -865,7 +920,8 @@ fn build_bar_window(
 
     append_modules(&start, &bar_settings.left, &context);
     append_modules(&center, &bar_settings.center, &context);
-    append_modules(&end, &bar_settings.right, &context);
+
+    let mut readings = append_modules(&end, &bar_settings.right, &context);
 
     // A clock module is itself one of the readings now.  Only a configuration
     // without one needs the bootstrap clock, so a configured clock is not
@@ -908,6 +964,12 @@ fn build_bar_window(
         clock.add_css_class("whelk-clock");
         update_clock(&clock, &clock_format);
         end.append(&clock);
+        // The only clock a configuration without a clock module gets: it must
+        // not be the reading that folds.
+        readings.push((
+            clock.clone().upcast::<gtk::Widget>(),
+            crate::bar::KEEP_PRIORITY,
+        ));
 
         Some(ClockTimer { source, alive })
     } else {
@@ -941,6 +1003,7 @@ fn build_bar_window(
             end: end.clone(),
             overflow,
             more,
+            readings,
             spacing: bar_settings.spacing,
             padding: bar_settings.padding,
         },
@@ -1347,12 +1410,26 @@ pub(crate) fn layer_shell_available() -> bool {
     display.backend().is_wayland() && gtk4_layer_shell::is_supported()
 }
 
-fn append_modules(section: &gtk::Box, modules: &[ModuleSpec], context: &ModuleContext) {
+/// Build one row, and return what it holds: the widgets in row order with the
+/// priority each one declared, which is what the fold reads.
+fn append_modules(
+    section: &gtk::Box,
+    modules: &[ModuleSpec],
+    context: &ModuleContext,
+) -> Vec<(gtk::Widget, i32)> {
+    let mut readings = Vec::new();
+
     for module in modules {
         if let Some(widget) = barfactory::build(module, context) {
             section.append(&widget);
+            readings.push((
+                widget.upcast::<gtk::Widget>(),
+                crate::bar::module_priority(module),
+            ));
         }
     }
+
+    readings
 }
 
 /// The configured overflow row: built with the bar so its modules have already
@@ -1402,6 +1479,7 @@ fn append_overflow(
         let expanded = button.is_active();
 
         overflow_for_toggle.set_visible(expanded);
+        save_shelf_state(expanded);
         icon_for_toggle.set_icon_name(Some(if expanded {
             "pan-end-symbolic"
         } else {
@@ -1474,29 +1552,48 @@ struct FoldState {
     end: gtk::Box,
     overflow: Option<OverflowRow>,
     more: FoldedShelf,
+    /// The right row as it was built: in row order, with each reading's claim.
+    readings: Vec<(gtk::Widget, i32)>,
     spacing: i32,
     padding: i32,
 }
 
-/// The C bar folds once, from an idle after the surface is presented.  Rust
-/// waits for the window's first map and then a short timeout, so the row's
-/// real allocation is known; a headless build has no map and leaves the row
-/// alone, just like the C `root_width <= 1` guard.
+/// Fold the right row, and fold it again whenever the bar is handed a new size.
+///
+/// The C bar folded once, from an idle after the surface was presented, which
+/// left a row folded to a width it no longer had: a scale change, a rotation or
+/// a font that grows all re-lay the bar out, and the fold has to re-answer.  A
+/// headless build has no surface and keeps the row whole, exactly as the
+/// `root_width <= 1` guard does.
 fn fold_after_map(state: FoldState, window: &gtk::ApplicationWindow) {
     let state = Rc::new(state);
     let armed = Rc::new(Cell::new(false));
+
+    let map_state = Rc::clone(&state);
 
     window.connect_map(move |_| {
         if armed.replace(true) {
             return;
         }
 
-        let state = Rc::clone(&state);
+        let state = Rc::clone(&map_state);
 
+        // A short timeout rather than an idle: the row's real allocation is
+        // what the first fold needs, and map alone does not have it yet.
         gtk::glib::timeout_add_local_once(Duration::from_millis(100), move || {
             collapse_end(&state);
         });
     });
+
+    // `GdkSurface:width` is the allocation the compositor gave the surface,
+    // which is what a fold has to fit into.
+    if let Some(surface) = window.surface() {
+        let state = Rc::clone(&state);
+
+        surface.connect_width_notify(move |_| {
+            collapse_end(&state);
+        });
+    }
 }
 
 fn widget_width(widget: &gtk::Widget) -> i32 {
@@ -1525,7 +1622,7 @@ fn collapse_end(state: &FoldState) {
     let root_width = state.bar.width();
 
     // No allocation yet: leave the row alone rather than hiding everything.
-    if root_width <= 1 {
+    if root_width <= 1 || state.readings.is_empty() {
         return;
     }
 
@@ -1539,38 +1636,45 @@ fn collapse_end(state: &FoldState) {
     }
 
     let available = (root_width - used_by_others - 16).max(0);
+    let readings: Vec<crate::bar::Reading> = state
+        .readings
+        .iter()
+        .map(|(widget, priority)| crate::bar::Reading {
+            width: reading_width(widget),
+            priority: *priority,
+        })
+        .collect();
+    let kept = crate::bar::fold_visible(&readings, available, state.spacing);
 
-    let mut structural = vec![state.more.button.clone().upcast::<gtk::Widget>()];
-
-    if let Some(overflow) = &state.overflow {
-        structural.push(overflow.shelf.clone().upcast::<gtk::Widget>());
-        structural.push(overflow.toggle.clone().upcast::<gtk::Widget>());
+    // Re-answer from the whole row every time: a widget the last fold moved to
+    // the shelf has to be a candidate again once the bar is wider.
+    while let Some(child) = state.more.shelf.first_child() {
+        state.more.shelf.remove(&child);
     }
 
-    let mut modules = Vec::new();
-    let mut child = state.end.first_child();
+    let row = state.end.clone().upcast::<gtk::Widget>();
 
-    while let Some(widget) = child {
-        child = widget.next_sibling();
-
-        if !structural.contains(&widget) {
-            modules.push(widget);
+    for (widget, _) in &state.readings {
+        if widget.parent().as_ref() == Some(&row) {
+            state.end.remove(widget);
         }
     }
 
-    if modules.is_empty() {
-        return;
+    // Prepending in reverse puts the kept readings back at the head of the row,
+    // in their configured order and ahead of the overflow and `+N` controls.
+    for index in kept.iter().rev() {
+        if let Some((widget, _)) = state.readings.get(*index) {
+            state.end.prepend(widget);
+        }
     }
 
-    let widths: Vec<i32> = modules.iter().map(reading_width).collect();
-    let visible = crate::bar::fold_visible(&widths, available, state.spacing);
-
-    for widget in modules.iter().skip(visible) {
-        state.end.remove(widget);
-        state.more.shelf.append(widget);
+    for (index, (widget, _)) in state.readings.iter().enumerate() {
+        if !kept.contains(&index) {
+            state.more.shelf.append(widget);
+        }
     }
 
-    let folded = modules.len() - visible;
+    let folded = state.readings.len() - kept.len();
 
     if folded > 0 {
         state.more.count.set_text(&format!("+{folded}"));

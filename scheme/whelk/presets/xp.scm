@@ -5,16 +5,15 @@
 
 ;;; Commentary:
 ;;
-;; A taskbar in the Windows XP arrangement: Start at the left, the focused
-;; window's title in the middle, the notification area and a 24-hour clock at
-;; the right, on Luna blue.  It is a preset of ordinary whelk modules, not a
-;; separate program: the window title is (window-module), which reads niri and
-;; sway over IPC on Wayland and falls back to xprop on X11, so the same bar
-;; tracks windows in either session.
+;; A taskbar in the Windows XP arrangement: Start at the left, the open windows
+;; as buttons in the middle, the notification area and a 24-hour clock at the
+;; right, on Luna blue.  It is a preset of ordinary whelk modules, not a
+;; separate program: (tasks-module) lists every window, grouped by workspace,
+;; through the session's own IPC on niri, sway, Hyprland and X11.
 ;;
-;; It is a starting point rather than a finished imitation: a real XP taskbar
-;; lists every open window as a button, which whelk does not have a module for
-;; yet.  The task-button row is the piece a future `tasks-module' would fill.
+;; A click focuses a window and the middle button closes it, the two gestures an
+;; XP taskbar has.  The row folds by priority when it runs out of room: the
+;; clock and the notification area are kept, the task buttons are not.
 
 ;;; Code:
 
@@ -73,9 +72,8 @@ The centre is the focused window, so the bar follows the session on Wayland
    #:flare 0.0
 
    #:left (list (start-module #:tooltip "Start"))
-   #:center (list (window-module #:format "{title}"
-                                 #:max-length 60
-                                 #:tooltip "{title}\n{app-id}"))
+   #:center (list (tasks-module #:max-length 30
+                               #:priority 20))
    #:right (list (tray-module #:max-items 4 #:spacing 2)
                  (wifi-module #:format "{icon}")
                  (battery-module #:format "{icon} {capacity}%")

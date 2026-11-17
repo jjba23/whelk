@@ -111,6 +111,7 @@ file cannot leave the shell with a half-applied look."
 ;; must not become a setting that the rest of whelk silently ignores.
 (define %preference-keys
   '(bar-height bar-spacing bar-padding bar-edge bar-layer bar-exclusive?
+    bar-overflow-expanded?
     bar-font bar-font-size bar-theme bar-foreground bar-background bar-accent
     bar-border-color bar-radius bar-opacity bar-blur bar-shine bar-reflection
     bar-flare
@@ -394,7 +395,10 @@ settings window numbers it."
                          module-overrides?)
      (apply-module-group (bar-config-modules-right bar) prefs counter
                          module-overrides?)
-     (bar-config-overflow-expanded? bar)
+     ;; The chevron's own switch is remembered like any other bar preference: a
+     ;; reload must not close a shelf the reader opened.
+     (boolean-preference prefs 'bar-overflow-expanded?
+                         (bar-config-overflow-expanded? bar))
      (apply-module-group (bar-config-modules-overflow bar) prefs counter
                          module-overrides?))))
 

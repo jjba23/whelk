@@ -415,6 +415,7 @@ fn run_shell_action(name: &str, style: &BarSettings) {
         "reload" => activate("reload"),
         "quit" => quit(),
         "about" => about::show(style),
+        "about-whelk" => about::show_program(style, &style.name),
         "settings" => activate("settings"),
         _ => eprintln!("whelk: start: no shell action named '{name}'"),
     }

@@ -174,6 +174,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "notifications",
         "power-profile",
         "start",
+        "tasks",
         "tray",
         "wallpaper",
         "wifi",

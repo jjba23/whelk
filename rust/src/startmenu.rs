@@ -131,6 +131,7 @@ impl MenuEntry {
 
         vec![
             Self::item("About This System", "shell:about"),
+            Self::item("About whelk", "shell:about-whelk"),
             Self::item("Control Panel", "shell:settings"),
             Self::item("Software…", "gnome-software"),
             Self::Separator,

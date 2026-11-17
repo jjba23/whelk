@@ -152,6 +152,161 @@ fn battery_absent_and_present_states_are_distinct() {
     assert!(!reading.present);
 }
 
+/// A pack with the energy pair sysfs reports for most laptops, in micro-units.
+fn energy_pack(
+    root: &Path,
+    name: &str,
+    capacity: &str,
+    status: &str,
+    now: &str,
+    full: &str,
+    power: &str,
+) {
+    let directory = root.join(name);
+
+    fs::create_dir_all(&directory).expect("battery fixture directory");
+    fs::write(directory.join("type"), "Battery\n").expect("type fixture");
+    fs::write(directory.join("capacity"), format!("{capacity}\n")).expect("capacity fixture");
+    fs::write(directory.join("status"), format!("{status}\n")).expect("status fixture");
+    fs::write(directory.join("present"), "1\n").expect("present fixture");
+    fs::write(directory.join("energy_now"), format!("{now}\n")).expect("energy_now fixture");
+    fs::write(directory.join("energy_full"), format!("{full}\n")).expect("energy_full fixture");
+    fs::write(directory.join("power_now"), format!("{power}\n")).expect("power_now fixture");
+}
+
+#[test]
+fn battery_time_comes_from_energy_and_power() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    // 30 Wh left, draining 10 W: three hours.
+    energy_pack(
+        &supply,
+        "BAT0",
+        "75",
+        "Discharging",
+        "30000000",
+        "40000000",
+        "10000000",
+    );
+
+    let reading = batterybar::read_at(&supply, None).expect("a battery");
+
+    assert_eq!(reading.seconds_remaining, Some(3 * 3600));
+    assert_eq!(
+        batterybar::format_seconds(reading.seconds_remaining),
+        "3h 00m"
+    );
+
+    // Charging counts up to full instead: 10 Wh to go at 20 W is half an hour.
+    energy_pack(
+        &supply, "BAT0", "75", "Charging", "30000000", "40000000", "20000000",
+    );
+
+    let charging = batterybar::read_at(&supply, None).expect("a battery");
+
+    assert_eq!(charging.seconds_remaining, Some(1800));
+    assert_eq!(
+        batterybar::format_seconds(charging.seconds_remaining),
+        "30m"
+    );
+}
+
+#[test]
+fn battery_time_falls_back_to_charge_and_current() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+    let directory = supply.join("BAT0");
+
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("type"), "Battery\n").unwrap();
+    fs::write(directory.join("capacity"), "50\n").unwrap();
+    fs::write(directory.join("status"), "Discharging\n").unwrap();
+    fs::write(directory.join("present"), "1\n").unwrap();
+    // 2000 mAh at 12 V is 24 Wh; 2 A at 12 V is 24 W: one hour.
+    fs::write(directory.join("charge_now"), "2000000\n").unwrap();
+    fs::write(directory.join("charge_full"), "4000000\n").unwrap();
+    fs::write(directory.join("current_now"), "2000000\n").unwrap();
+    fs::write(directory.join("voltage_now"), "12000000\n").unwrap();
+
+    let reading = batterybar::read_at(&supply, None).expect("a battery");
+
+    assert_eq!(reading.seconds_remaining, Some(3600));
+}
+
+#[test]
+fn a_full_or_idle_pack_has_no_duration() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    energy_pack(&supply, "BAT0", "100", "Full", "40000000", "40000000", "0");
+
+    let reading = batterybar::read_at(&supply, None).expect("a battery");
+
+    assert_eq!(reading.seconds_remaining, None);
+    assert_eq!(batterybar::format_seconds(None), "-");
+}
+
+#[test]
+fn device_all_sums_the_packs() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    // Two packs, 20 Wh and 40 Wh left of 40 Wh and 40 Wh: 60 of 80 is 75%.
+    energy_pack(
+        &supply,
+        "BAT0",
+        "50",
+        "Discharging",
+        "20000000",
+        "40000000",
+        "5000000",
+    );
+    energy_pack(
+        &supply,
+        "BAT1",
+        "100",
+        "Discharging",
+        "40000000",
+        "40000000",
+        "5000000",
+    );
+
+    let both = batterybar::read_at(&supply, Some("all")).expect("two batteries");
+
+    assert_eq!(both.name, "all");
+    assert_eq!(both.capacity, 75);
+    assert_eq!(both.status, "Discharging");
+    // 60 Wh at 10 W is six hours; the second pack alone would say eight.
+    assert_eq!(both.seconds_remaining, Some(6 * 3600));
+
+    let one = batterybar::read_at(&supply, Some("BAT1")).expect("the first pack");
+
+    assert_eq!(one.name, "BAT1");
+    assert_eq!(one.capacity, 100);
+}
+
+#[test]
+fn one_charging_pack_makes_the_machine_charge() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    energy_pack(&supply, "BAT0", "100", "Full", "40000000", "40000000", "0");
+    energy_pack(
+        &supply, "BAT1", "50", "Charging", "20000000", "40000000", "10000000",
+    );
+
+    let both = batterybar::read_at(&supply, Some("all")).expect("two batteries");
+
+    assert_eq!(both.status, "Charging");
+    // The full pack has nothing to fill, so the hour is the second pack's.
+    assert_eq!(both.seconds_remaining, Some(2 * 3600));
+}
+
 #[test]
 fn battery_classes_put_charging_before_thresholds() {
     assert_eq!(

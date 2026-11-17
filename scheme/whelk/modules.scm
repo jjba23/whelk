@@ -26,6 +26,8 @@
 ;;   #:on-click        #:on-click-right  #:on-click-middle
 ;;   #:on-scroll-up    #:on-scroll-down
 ;;   #:css-class       extra CSS class on the module's own button
+;;   #:keep?           this reading stays when the row has to fold
+;;   #:priority        how much it wants to stay, against the others
 ;;
 ;; @example
 ;; (cpu-module #:icon "\uf2db" #:format "{icon} {usage}%" #:interval 2)
@@ -69,7 +71,8 @@
             tray-module
             start-module
             menu-module
-            wallpaper-module))
+            wallpaper-module
+            tasks-module))
 
 ;; =============================================================================
 ;; The record
@@ -371,6 +374,16 @@ picture frame by default), #:format uses {icon}, and a configuration that names
 #:on-click or #:on-click-right gets its commands instead of the card and the
 picker."
   (apply module 'wallpaper kv))
+
+(define* (tasks-module #:rest kv)
+  "Every open window as a button, grouped by workspace: the taskbar half a
+`window-module` cannot be.  A left click focuses the window and the middle
+button closes it, with the session's own verbs (niri, sway, Hyprland or X11).
+#:max-length truncates each label (28 by default), #:show-workspaces? (default
+on) puts the workspace's number before its windows, and
+#:hide-empty-workspaces? (default on) keeps a workspace that has nothing in it
+from taking a slot."
+  (apply module 'tasks kv))
 
 (define* (tray-module #:rest kv)
   "The StatusNotifierItem tray: other programs' status icons.  #:spacing is the

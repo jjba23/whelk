@@ -49,6 +49,7 @@ just the one that ships."
   (let ((user (or (getenv "USER") "")))
     (list
      (menu-item "About This System" "shell:about")
+     (menu-item "About whelk" "shell:about-whelk")
      (menu-item "Control Panel" "shell:settings")
      (menu-item "Software…" "gnome-software")
      (menu-separator)

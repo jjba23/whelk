@@ -24,6 +24,7 @@ pub enum Request {
     Quit,
     Reload,
     Settings,
+    About,
     Lock,
     Menu(String),
     SessionMenu,
@@ -49,6 +50,7 @@ pub struct Requests {
     pub quit: bool,
     pub reload: bool,
     pub settings: bool,
+    pub about: bool,
     pub lock: bool,
     pub menu: Option<String>,
     pub session_menu: bool,
@@ -88,6 +90,10 @@ impl Requests {
 
         if self.settings {
             commands.push(Request::Settings);
+        }
+
+        if self.about {
+            commands.push(Request::About);
         }
 
         if self.lock {
@@ -172,6 +178,12 @@ pub const FORWARDED_OPTIONS: &[OptionSpec] = &[
         short: None,
         value: Some("PATH"),
         description: "Read this settings file",
+    },
+    OptionSpec {
+        long: "about",
+        short: None,
+        value: None,
+        description: "Show the About whelk window",
     },
     OptionSpec {
         long: "launcher",
@@ -390,6 +402,7 @@ impl Options {
             "menu" => self.requests.menu = Some(value(joined, arguments, name)?),
             "session-menu" => self.requests.session_menu = true,
             "settings" => self.requests.settings = true,
+            "about" => self.requests.about = true,
             "wallpaper-picker" => self.requests.wallpaper_picker = true,
             "notifications" => self.requests.notifications = true,
             "dnd" => self.requests.dnd = true,

@@ -89,6 +89,7 @@ pub mod startbar;
 pub mod startmenu;
 pub mod style;
 pub mod supervisor;
+pub mod taskbar;
 pub mod tray;
 pub mod traybar;
 pub mod trayicon;

@@ -191,42 +191,91 @@ pub struct BarSettings {
 /// it is a little wider than the chevron it replaced.
 pub const FOLD_BUTTON_WIDTH: i32 = 34;
 
-/// How many of a row's readings fit before the rest must fold.
+/// How much a reading wants to stay on the row.
 ///
-/// This is the C `collapse_end()` walk: widths are charged left to right with
-/// the row's spacing between visible readings, and every reading that is not
-/// the last also reserves room for the `+N` button.  A row too narrow for even
-/// its first reading still keeps one -- an empty right row is worse than a
-/// clipped clock.
-pub fn fold_visible(widths: &[i32], available: i32, spacing: i32) -> usize {
-    if widths.is_empty() {
-        return 0;
+/// A configuration says this per module: `#:keep? #t` is the loudest claim
+/// there is, `#:priority` is a number to tune (a clock at 100 beats a load
+/// average at 10), and a reading that says nothing keeps the positional default
+/// every bar had before there was a priority at all.
+pub const DEFAULT_PRIORITY: i32 = 0;
+pub const KEEP_PRIORITY: i32 = 1_000;
+
+/// The priority a module declares, clamped to the range the fold understands.
+pub fn module_priority(spec: &ModuleSpec) -> i32 {
+    if spec.boolean("keep?").unwrap_or(false) {
+        return KEEP_PRIORITY;
+    }
+
+    spec.integer("priority")
+        .map(|priority| priority.clamp(-i64::from(KEEP_PRIORITY), i64::from(KEEP_PRIORITY)) as i32)
+        .unwrap_or(DEFAULT_PRIORITY)
+}
+
+/// One reading on the row: how wide it is and how much it wants to stay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reading {
+    pub width: i32,
+    pub priority: i32,
+}
+
+/// The readings that stay on the row, as indexes into `readings` in row order.
+///
+/// The C bar folded positionally -- everything past the first that did not fit
+/// -- which is how a clock can disappear while a load average stays.  Here the
+/// claim decides: readings are taken in priority order (position breaks a tie,
+/// so a row of equals folds from the right exactly as it always did) while the
+/// row's width allows, and the answer is returned in row order so the row keeps
+/// the order the configuration wrote.
+///
+/// A row too narrow for even its best reading still keeps one: an empty right
+/// row is worse than a clipped clock.
+pub fn fold_visible(readings: &[Reading], available: i32, spacing: i32) -> Vec<usize> {
+    if readings.is_empty() {
+        return Vec::new();
     }
 
     let available = available.max(0);
     let spacing = spacing.max(0);
+    let mut order: Vec<usize> = (0..readings.len()).collect();
+
+    order.sort_by(|left, right| {
+        readings[*right]
+            .priority
+            .cmp(&readings[*left].priority)
+            .then(left.cmp(right))
+    });
+
+    // Everything fits: no fold, and no room has to be kept for its button.
+    let total: i32 = readings
+        .iter()
+        .map(|reading| reading.width.max(0))
+        .sum::<i32>()
+        + spacing * (readings.len() as i32 - 1);
+
+    if total <= available {
+        return (0..readings.len()).collect();
+    }
+
+    let mut kept = Vec::new();
     let mut used = 0;
-    let mut visible = 0;
 
-    for (index, width) in widths.iter().enumerate() {
-        let width = (*width).max(0);
-        let gap = if visible > 0 { spacing } else { 0 };
-        let more_after = index + 1 < widths.len();
-        let reserve = if more_after {
-            FOLD_BUTTON_WIDTH + spacing
-        } else {
-            0
-        };
+    for index in order {
+        let width = readings[index].width.max(0);
+        let gap = if kept.is_empty() { 0 } else { spacing };
+        // Anything left out of the row has to be reachable: the `+N` button is
+        // charged to every reading that is not the last one taken.
+        let reserve = FOLD_BUTTON_WIDTH + spacing;
 
-        if used + gap + width + reserve > available {
-            break;
+        if used + gap + width + reserve > available && !kept.is_empty() {
+            continue;
         }
 
         used += gap + width;
-        visible += 1;
+        kept.push(index);
     }
 
-    visible.max(1)
+    kept.sort_unstable();
+    kept
 }
 
 impl Default for BarSettings {

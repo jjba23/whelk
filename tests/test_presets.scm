@@ -62,8 +62,10 @@
        (and (equal? (bar-config-background xp-bar) "#245edb")
             (equal? (bar-config-foreground xp-bar) "#ffffff")
             (= (bar-config-radius xp-bar) 0)))
-(check "xp tracks the focused window in its centre"
-       (equal? (kinds (bar-config-modules-center xp-bar)) '(window)))
+(check "xp lists every open window in its centre"
+       ;; A taskbar, not a title: the centre is the task list, which focuses a
+       ;; window on a click and closes it on a middle click.
+       (equal? (kinds (bar-config-modules-center xp-bar)) '(tasks)))
 (check "xp keeps the tray, the time and the battery on the right"
        (let ((right (kinds (bar-config-modules-right xp-bar))))
          (and (memq 'tray right)

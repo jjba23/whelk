@@ -16,6 +16,15 @@ accept the shared options:
 | =#:on-click=, =#:on-click-right=, =#:on-click-middle= | shell commands on the mouse buttons     |
 | =#:on-scroll-up=, =#:on-scroll-down= | shell commands on the wheel                                  |
 | =#:css-class=                      | an extra CSS class on the module's own widget                  |
+| =#:keep?= / =#:priority=            | the reading's claim when the row has to fold (see below)        |
+
+When a row runs out of room it folds the readings it can spare, and the claim
+decides which: `#:keep? #t` is the loudest, `#:priority` is a number to tune (a
+clock at 100 outranks a load average at 10), and a reading that says nothing
+keeps the positional default -- the rightmost readings fold first, exactly as
+before.  A row too narrow for even its best reading still keeps one, and the
+fold re-answers whenever the bar is given a new width, so a scale change or a
+rotation does not leave a bar folded to yesterday's size.
 
 Unknown options are ignored rather than rejected: a settings file can be ahead
 of the binary, which is what makes upgrading whelk safe.  A boolean switch takes
@@ -32,7 +41,7 @@ leaving the configuration untouched.
 | =clock-module=         | strftime(3) on the local time                    | =#:format=, and ={calendar}= in the tooltip             |
 | =cpu-module=           | /proc/stat, as a difference between samples      | ={usage}=                                               |
 | =memory-module=        | /proc/meminfo                                    | ={percentage}=, ={used}=, ={total}=, ={avail}=, ={swap-used}=, ={swap-total}= |
-| =battery-module=       | /sys/class/power_supply                          | =#:device= (first pack by default), =#:charging-format=, =#:charging-icon=, =#:charging-color=, =#:show-capacity-when-charging?=, =#:warning=, =#:critical=, ={capacity}=, ={state}= |
+| =battery-module=       | /sys/class/power_supply                          | =#:device= (first pack by default, =\"all\"= sums every pack), =#:charging-format=, =#:charging-icon=, =#:charging-color=, =#:show-capacity-when-charging?=, =#:warning=, =#:critical=, ={capacity}=, ={state}=, ={time}= (seconds until empty or full, from energy/power or charge/current) |
 | =backlight-module=     | /sys/class/backlight                             | =#:device=, =#:format= (default ="{icon}"=), ={percent}= |
 | =audio-module=         | wpctl (PipeWire), falling back to pactl          | =#:muted-format=, =#:muted-icon=, =#:format= (default ="{icon}"=), ={volume}= |
 | =power-profile-module= | powerprofilesctl                                 | ={profile}=                                             |
@@ -47,6 +56,7 @@ leaving the configuration untouched.
 | =notifications-module= | the notification store's count                   | ={count}=, ={state}= (default ="{icon}"=; the count is in the tooltip; left click: centre, right: DND) |
 | =clipboard-module=     | whelk's clipboard history, newest first           | ={count}= (default ="{icon}"=; =#:format "{icon} {count}"= shows the depth; click: the picker; right-click: pause/clear) |
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
+| =tasks-module=         | every open window, grouped by workspace          | =#:max-length=, =#:show-workspaces?=, =#:hide-empty-workspaces?= (click: focus, middle click: close) |
 | =wallpaper-module=     | the collection in =#:wallpaper=, as a menu        | =#:icon=, =#:format= (default ="{icon}"=; click: the wallpapers, right-click: the full picker) |
 | =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= (a readout only; the idle manager owns whelk's lock) | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |
