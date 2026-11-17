@@ -22,7 +22,12 @@
              (gnu packages commencement))
 
 (packages->manifest (list guile-3.0
+                          ;; The separate outputs each carry one piece: `out'
+                          ;; has rustc, `cargo' the build tool, and `tools'
+                          ;; rustfmt and clippy.  Selecting one is not enough.
+                          (list rust "out")
                           (list rust "cargo")
+                          (list rust "tools")
                           gcc-toolchain
                           pkg-config
                           wayland ; wayland-scanner, for the river-status protocol

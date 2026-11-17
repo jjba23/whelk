@@ -26,7 +26,8 @@ that turns an alist into a typed struct.
 #+end_src
 
 =maak run= starts the shell inside the same pinned environment, and =maak test=
-runs the three commands above.  A direct Cargo build is fine when the host
+runs the three commands above there through =scripts/guix-test.sh=.  A direct
+Cargo build is fine when the host
 already has Rust 1.92 or newer, GTK 4.18 or newer, =gtk4-layer-shell=, Guile
 3.0 and Linux-PAM development files.
 

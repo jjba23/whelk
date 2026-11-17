@@ -26,14 +26,10 @@
 
 (define (test)
   "Format, lint and run the whole Cargo test suite inside the Guix environment."
+  ;; The script runs inside the shell: it also gives the loader the Guix
+  ;; library path that Cargo's dynamically linked build scripts need.
   (time-machine-manifest-shell
-   (list "/bin/sh" "-c"
-         (string-join
-          (list "set -eu"
-                "cargo fmt --all --check"
-                "cargo clippy --workspace --all-targets -- -D warnings"
-                "cargo test --workspace --locked")
-          "; "))
+   (list "sh" "scripts/guix-test.sh")
    #:verbose? #t))
 
 (define deb-packages

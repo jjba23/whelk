@@ -13,8 +13,12 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 - *The Guix development manifest loads the Rust package.*  =manifest.scm= used
   =rust= without importing =(gnu packages rust)=, so =maak test= stopped before
-  Cargo and the release workflow could not verify the tree.  The pinned Guix
-  shell now resolves the compiler and the full test gate runs.
+  Cargo.  The task also passed one unquoted =sh -c= string, so its semicolons
+  ended the shell and Cargo ran on the host instead of inside the pinned Guix
+  environment.  The manifest now selects rust's =out=, =cargo= and =tools=
+  outputs, so the shell has the compiler, Cargo, rustfmt and clippy, and
+  =scripts/guix-test.sh= runs the gate inside the shell with the loader path
+  its build scripts need.
 
 *[Released]
 
