@@ -11,6 +11,37 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.40.1 (2026-11-17)
+
+*** Fixed
+
+- *The shell no longer aborts when a bar's timer has already fired.*  Cancelling
+  a module's work removed a main-loop source that could already be gone, and
+  GLib treats the id of a missing source as a programmer error: the gtk-rs
+  wrapper panics, and a panic inside a GIO or GTK callback cannot unwind, so
+  the process died and the supervisor restarted it in a loop.  Every source
+  removal now goes through one helper that ignores an id that no longer names a
+  source.
+- *The launcher lists the installed applications again.*  The XDG variables
+  name data directories and desktop entries live in their =applications=
+  subdirectory; whelk scanned the data directory itself, so no entry was ever
+  found.  The global menu's desktop-entry lookup, which resolves an
+  application's name and icon, reads the same directories and is fixed by the
+  same change.
+- *The bar spans its output.*  The Rust port had dropped the C surface's size
+  request and marked the window non-resizable, so an anchored bar laid out at
+  the width of its modules.  The window now asks for the monitor's width (or
+  height, for a vertical bar) minus its margins and accepts the compositor's
+  configure events.
+
+*** Verified
+
+- =cargo fmt --all --check= and =cargo clippy --workspace --all-targets -- -D
+  warnings= pass.
+- =cargo test --workspace --locked= passes, including the new regressions:
+  removing a fired one-shot source is a no-op, removing a pending one cancels
+  it, and desktop entries are looked up in =applications=.
+
 ** v0.40.0 (2026-11-17)
 
 *** Security
