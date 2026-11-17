@@ -3,13 +3,23 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-//! Night-light arithmetic, ported from `src/util/nightlight.c`.
+//! Night-light arithmetic, ported from `src/nightlight.c`.
 //!
-//! This module deliberately knows nothing about Wayland or X11.  It turns a
-//! temperature into an RGB multiplier, a schedule into a strength, and a
-//! strength into a 16-bit gamma ramp.  The display backends only have to carry
-//! the resulting table to the server, which keeps the parts that can be tested
-//! without a monitor separate from the parts that cannot.
+//! The policy knows nothing about Wayland or X11: it turns a temperature into
+//! an RGB multiplier, a schedule into a strength, and a strength into a 16-bit
+//! gamma ramp.  [`Engine`] adds C's controller on top -- apply only when the
+//! colour changed, and only from neutral after whelk has touched the screen --
+//! and the display backends carry the table to the server.  [`runtime`] owns
+//! the clock, [`backend`] picks the Wayland or RandR implementation, and the
+//! parts that can be tested without a monitor stay free of both.
+
+mod backend;
+mod runtime;
+mod wayland;
+mod x11;
+
+pub use backend::{Choice, Platform, choice};
+pub use runtime::{start, stop, update};
 
 pub const MIN_TEMPERATURE: i32 = 1_000;
 pub const MAX_TEMPERATURE: i32 = 6_500;
@@ -67,6 +77,15 @@ impl Rgb {
         Self(std::array::from_fn(|index| {
             self.0[index] + amount * (other.0[index] - self.0[index])
         }))
+    }
+
+    /// Whether this colour differs from `other` by more than a gamma step
+    /// anyone can see.  Used to decide a rewrite is not worth the table.
+    pub fn is_close(self, other: Self, epsilon: f64) -> bool {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .all(|(left, right)| (left - right).abs() < epsilon)
     }
 
     pub fn is_neutral(self) -> bool {
@@ -232,6 +251,116 @@ pub fn strength(config: &Config, minutes_of_day: f64) -> f64 {
     // falls.  When the transition fills the window the two meet in the middle
     // at exactly half strength.
     ((elapsed / transition).min((window - elapsed) / transition)).clamp(0.0, 1.0)
+}
+
+/// The colour difference below which another gamma table is wasted.  C's
+/// `COLOR_EPSILON`; a fade step is larger than this, a rounding wobble is not.
+pub const COLOR_EPSILON: f64 = 0.001;
+
+/// Where the engine writes: the Wayland and RandR backends, or a test's fake.
+pub trait Backend {
+    /// Write one colour to every output.  False when none could be written, so
+    /// the engine keeps the previous colour and tries again next tick.
+    fn set_color(&mut self, rgb: Rgb) -> bool;
+
+    /// Release the outputs, restoring the tables they had before whelk.
+    fn restore(&mut self);
+}
+
+/// The clock and the colour, as C's `nightlight.c` has them: apply the
+/// schedule, and write only when the resulting colour differs from the one on
+/// screen.
+pub struct Engine<B: Backend> {
+    config: Config,
+    backend: B,
+    applied: Option<Rgb>,
+}
+
+impl<B: Backend> Engine<B> {
+    pub fn new(config: Config, backend: B) -> Self {
+        Self {
+            config,
+            backend,
+            applied: None,
+        }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn set_config(&mut self, config: Config) {
+        self.config = config;
+    }
+
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
+    /// Apply what the schedule says at MINUTES and answer when the colour can
+    /// next move, or `None` when the clock cannot move it.
+    pub fn tick(&mut self, minutes: f64) -> Option<u32> {
+        self.apply(minutes);
+        wake_seconds(&self.config, minutes)
+    }
+
+    /// Apply the scheduled colour.  True when the backend was asked to write.
+    pub fn apply(&mut self, minutes: f64) -> bool {
+        let strength = if self.config.enabled {
+            strength(&self.config, minutes)
+        } else {
+            0.0
+        };
+        let neutral = strength <= 0.0;
+        let rgb = if neutral {
+            Rgb::NEUTRAL
+        } else {
+            mix(self.config.temperature, strength)
+        };
+
+        // Nothing has been written yet: a neutral colour (midday, or a filter
+        // that is off) must not take exclusive control of the outputs just to
+        // write an identity table.  The gamma may be a calibrator's.
+        if neutral && self.applied.is_none() {
+            return false;
+        }
+
+        if self
+            .applied
+            .is_some_and(|previous| previous.is_close(rgb, COLOR_EPSILON))
+        {
+            return false;
+        }
+
+        if !self.backend.set_color(rgb) {
+            return false;
+        }
+
+        self.applied = Some(rgb);
+
+        true
+    }
+
+    /// Hand the outputs back.  The C backend releases its controls on exit so
+    /// another night light or a calibrator can take them.
+    pub fn restore(&mut self) {
+        self.backend.restore();
+        self.applied = None;
+    }
+}
+
+/// Seconds until the next wake, or `None` when the policy cannot change with
+/// the clock: off, always-on, or a window whose ends are the same minute.
+pub fn wake_seconds(config: &Config, minutes_of_day: f64) -> Option<u32> {
+    if !config.enabled || config.mode == Mode::Always || config.start_minute == config.end_minute {
+        return None;
+    }
+
+    Some(next_tick_seconds(config, minutes_of_day))
 }
 
 /// How long until the strength can next change by a visible amount.

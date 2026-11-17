@@ -151,11 +151,16 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/barfactory.rs` — the Rust equivalent of the C factory table: a kind is
   looked up without building a widget, an unknown kind is logged and left out,
   and the module receives only the session/bar facts it needs.
-- `src/nightlight.rs` — the C night light's display-independent half: the
-  normalised blackbody curve, 1000–6500 K clamping, overnight and short-window
-  schedules, fade strength, next-tick policy, strict `HH:MM` parsing, and typed
-  `Rgb`/`GammaRamp` values.  The wlr-gamma-control and RandR backends still live
-  in C; this slice is what both backends consume.
+- `src/nightlight.rs` — the C night light, ported whole: the normalised
+  blackbody curve, 1000–6500 K clamping, overnight and short-window schedules,
+  fade strength, next-tick policy, strict `HH:MM` parsing, and typed
+  `Rgb`/`GammaRamp` values.  `nightlight/engine` is C's controller (apply only
+  when the colour changed, neutral once after the filter touched the screen),
+  `nightlight/wayland.rs` is the wlr-gamma-control backend (controls only while
+  warm, released on neutral, a refused output retried after 30 s) and
+  `nightlight/x11.rs` is the RandR backend (per-CRTC originals restored on
+  neutral and shutdown).  `nightlight/runtime.rs` owns the GLib timer and the
+  reload/teardown hooks.
 - `src/osd.rs` — the C on-screen display as a Rust layer-shell surface: one
   shell-owned HUD, bottom placement relative to the bar, a 1400 ms hide timer,
   clamped progress with the unbounded percentage label, and restyling when the
@@ -691,7 +696,7 @@ The tests are split by what they can prove without a session:
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
-| `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps and config normalization |
+| `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps, config normalization and which display server's backend the environment selects |
 | `tests/osd.rs` | HUD placement above a bottom bar, progress clamping and the percentage label |
 | `tests/notifications.rs` | Stable ids, oldest-first order, timeout resolution, `replaces_id`, removal, icon precedence, service DND, changed/posted/closed events and listener notifications |
 | `tests/notificationcenter.rs` | App grouping and newest-first cards, empty summaries, toast queue limit/replacement, toast margins, body-markup validation and local time labels |
@@ -800,8 +805,10 @@ Rust surface.  The launcher overlay is Rust: applications, windows, commands,
 calculator, files, web, generic menus, SSH hosts, force-quit and the session
 menu are wired; the clipboard history, its bar module, picker mode and the
 `--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
-The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
-RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
+The night light is Rust end to end: arithmetic, schedule, controller, the
+wlr-gamma-control and RandR backends, and the GLib timer that drives them.  It
+opens its own display connection, so a compositor or X server without a gamma
+table logs why and keeps the setting for a session that has one.  The volume/brightness HUD is a Rust surface.  The
 lock screen follows the monitor model on both of its paths now: the
 compatibility surfaces rebuild on a hotplug, and a protocol lock whose primary
 output disappears rebuilds its windows from the outputs that remain.  The

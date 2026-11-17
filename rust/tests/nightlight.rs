@@ -7,8 +7,9 @@
 // the shape of a scheduled window, and the gamma table a display server gets.
 
 use whelk_rs::nightlight::{
-    Config, GammaRamp, MAX_TEMPERATURE, MIN_TEMPERATURE, Mode, NEUTRAL_TEMPERATURE, Rgb, color,
-    mix, next_tick_seconds, parse_clock, strength,
+    Backend, Choice, Config, Engine, GammaRamp, MAX_TEMPERATURE, MIN_TEMPERATURE, Mode,
+    NEUTRAL_TEMPERATURE, Rgb, choice, color, mix, next_tick_seconds, parse_clock, strength,
+    wake_seconds,
 };
 
 fn assert_close(actual: f64, expected: f64) {
@@ -211,4 +212,163 @@ fn defaults_and_normalization_match_the_c_configuration() {
     assert_eq!(config.start_minute, 0);
     assert_eq!(config.end_minute, 1_439);
     assert_eq!(config.transition_minutes, 1_440);
+}
+
+#[derive(Default)]
+struct FakeBackend {
+    writes: Vec<Rgb>,
+    restores: usize,
+    fail: bool,
+}
+
+impl Backend for FakeBackend {
+    fn set_color(&mut self, rgb: Rgb) -> bool {
+        self.writes.push(rgb);
+
+        !self.fail
+    }
+
+    fn restore(&mut self) {
+        self.restores += 1;
+    }
+}
+
+fn always_on() -> Config {
+    Config {
+        enabled: true,
+        mode: Mode::Always,
+        ..Config::default()
+    }
+}
+
+#[test]
+fn a_scheduled_filter_outside_its_window_leaves_the_screen_alone() {
+    let config = scheduled(19 * 60, 7 * 60, 30);
+    let wake = wake_seconds(&config, 12.0 * 60.0).expect("the window opens later");
+    let mut engine = Engine::new(config, FakeBackend::default());
+
+    // Midday is neutral and the engine has never written, so it must not take
+    // the gamma tables just to write an identity ramp.
+    assert!(!engine.apply(12.0 * 60.0));
+    assert!(engine.backend().writes.is_empty());
+    assert!(wake > 0);
+}
+
+#[test]
+fn an_always_on_filter_writes_once_and_then_only_on_a_change() {
+    let mut engine = Engine::new(always_on(), FakeBackend::default());
+
+    assert!(engine.apply(12.0 * 60.0));
+    assert_eq!(engine.backend().writes.len(), 1);
+
+    assert!(!engine.apply(12.0 * 60.0));
+    assert_eq!(
+        engine.backend().writes.len(),
+        1,
+        "the same colour is not another gamma table"
+    );
+    // Always-on cannot change with the clock, so nothing is scheduled.
+    assert_eq!(engine.tick(12.0 * 60.0), None);
+}
+
+#[test]
+fn a_fade_writes_each_step_but_not_the_same_minute_twice() {
+    let mut engine = Engine::new(scheduled(19 * 60, 7 * 60, 30), FakeBackend::default());
+
+    engine.apply(19.0 * 60.0 + 15.0);
+    assert_eq!(engine.backend().writes.len(), 1);
+
+    engine.apply(19.0 * 60.0 + 15.0);
+    assert_eq!(engine.backend().writes.len(), 1);
+
+    assert_eq!(engine.tick(19.0 * 60.0 + 20.0), Some(5));
+    assert_eq!(engine.backend().writes.len(), 2);
+}
+
+#[test]
+fn turning_the_filter_off_puts_the_neutral_colour_back_once() {
+    let mut engine = Engine::new(always_on(), FakeBackend::default());
+
+    engine.apply(12.0 * 60.0);
+    assert_eq!(engine.backend().writes.len(), 1);
+
+    let mut off = always_on();
+    off.enabled = false;
+
+    engine.set_config(off);
+
+    assert!(engine.tick(12.0 * 60.0).is_none());
+    assert_eq!(engine.backend().writes.len(), 2);
+    assert!(engine.backend().writes[1].is_neutral());
+
+    engine.apply(12.0 * 60.0);
+    assert_eq!(
+        engine.backend().writes.len(),
+        2,
+        "neutral is written once, not on every tick"
+    );
+}
+
+#[test]
+fn a_failed_write_is_not_recorded_and_is_retried() {
+    let mut engine = Engine::new(always_on(), FakeBackend::default());
+
+    engine.backend_mut().fail = true;
+    assert!(!engine.apply(12.0 * 60.0));
+    assert_eq!(engine.backend().writes.len(), 1);
+
+    engine.backend_mut().fail = false;
+    assert!(engine.apply(12.0 * 60.0));
+    assert_eq!(engine.backend().writes.len(), 2);
+}
+
+#[test]
+fn restore_releases_the_outputs_and_forgets_the_colour() {
+    let mut engine = Engine::new(always_on(), FakeBackend::default());
+
+    engine.apply(12.0 * 60.0);
+    engine.restore();
+
+    assert_eq!(engine.backend().restores, 1);
+
+    // After a restore the engine is back to "has never written", so a neutral
+    // tick (the filter turned off) does not take the outputs again.
+    let mut off = always_on();
+    off.enabled = false;
+    engine.set_config(off);
+
+    engine.apply(12.0 * 60.0);
+    assert_eq!(engine.backend().writes.len(), 1);
+}
+
+#[test]
+fn the_display_environment_picks_the_backend() {
+    // A Wayland session means the compositor's gamma protocol; whelk does not
+    // fall through to RandR in the same session when that fails.
+    assert_eq!(choice(Some("wayland-1"), Some(":0")), Choice::Wayland);
+    assert_eq!(choice(Some(""), Some(":0")), Choice::X11);
+    assert_eq!(choice(None, Some(":0")), Choice::X11);
+    // Empty variables are what a stripped environment has; both mean nothing
+    // to warm.
+    assert_eq!(choice(Some(""), Some("")), Choice::Unavailable);
+    assert_eq!(choice(None, None), Choice::Unavailable);
+}
+
+#[test]
+fn an_empty_schedule_never_needs_a_wake_up() {
+    let mut config = scheduled(19 * 60, 7 * 60, 30);
+
+    assert!(wake_seconds(&config, 12.0 * 60.0).is_some());
+
+    config.enabled = false;
+    assert_eq!(wake_seconds(&config, 12.0 * 60.0), None);
+
+    config.enabled = true;
+    config.mode = Mode::Always;
+    assert_eq!(wake_seconds(&config, 12.0 * 60.0), None);
+
+    // Start and end at the same minute describe an all-day window: the colour
+    // cannot move with the clock.
+    let all_day = scheduled(7 * 60, 7 * 60, 30);
+    assert_eq!(wake_seconds(&all_day, 12.0 * 60.0), None);
 }

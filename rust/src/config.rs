@@ -34,6 +34,8 @@ pub struct LoadedConfig {
     pub menu_sources: Rc<MenuSources>,
     /// The desktop widgets the settings file asks for, in placement order.
     pub widgets: Vec<WidgetConfig>,
+    /// The night light the display server should carry, overrides included.
+    pub night_light: crate::nightlight::Config,
 }
 
 impl LoadedConfig {
@@ -47,6 +49,7 @@ impl LoadedConfig {
             menu: MenuEntry::default_menu(),
             menu_sources: Rc::new(MenuSources::default()),
             widgets: Vec::new(),
+            night_light: crate::nightlight::Config::default(),
         }
     }
 }
@@ -134,6 +137,16 @@ impl ConfigLoader {
             Vec::new()
         });
 
+        // A night light that cannot be read leaves the shell usable and the
+        // filter off, the same way a broken widget list draws no cards.
+        let night_light = guile.load_night_light(&self.path).unwrap_or_else(|error| {
+            eprintln!(
+                "whelk-rs: night light settings could not be loaded: {error}; leaving it off"
+            );
+
+            crate::nightlight::Config::default()
+        });
+
         Ok(LoadedConfig {
             wallpaper,
             bars,
@@ -142,6 +155,7 @@ impl ConfigLoader {
             menu,
             menu_sources: Rc::new(menu_sources),
             widgets,
+            night_light,
         })
     }
 

@@ -270,6 +270,15 @@ impl Shell {
             state.rebuild();
         }
 
+        // The night light opens its own display connection and follows the
+        // configuration from here; a session whose server has no gamma table
+        // logs why and keeps the setting for one that does.
+        {
+            let config = shell.borrow().loaded.night_light.clone();
+
+            crate::nightlight::start(config);
+        }
+
         // The picker is created hidden: a `--wallpaper-picker` run, a menu row
         // or the shell's own action presents it, and a chosen picture is
         // saved as the GUI preference the loader already knows how to read.
@@ -423,6 +432,8 @@ impl Shell {
 
                 self.rebuild();
 
+                crate::nightlight::update(self.loaded.night_light.clone());
+
                 if wallpaper_changed && let Some(application) = self.application.upgrade() {
                     crate::wallpaper_surface::present(&application, &self.loaded.wallpaper);
                 }
@@ -455,6 +466,8 @@ impl Shell {
     }
 
     fn teardown(&mut self) {
+        crate::nightlight::stop();
+
         Osd::install(None);
         Launcher::install(None);
         NetworkPanel::install(None);
