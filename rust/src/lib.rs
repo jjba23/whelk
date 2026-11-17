@@ -68,6 +68,8 @@ pub mod menubar;
 pub mod menuprobe;
 pub mod menusearch;
 pub mod menuwatch;
+pub mod mpris;
+pub mod mprisbar;
 pub mod networkpanel;
 pub mod nightlight;
 pub mod nmcli;

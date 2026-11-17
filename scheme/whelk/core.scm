@@ -59,6 +59,7 @@
                bluetooth-module
                notifications-module
                tray-module
+               mpris-module
                start-module
                menu-module
                menu-item

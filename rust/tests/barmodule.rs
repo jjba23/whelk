@@ -171,6 +171,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "language",
         "memory",
         "menu",
+        "mpris",
         "notifications",
         "power-profile",
         "start",

@@ -124,29 +124,34 @@
                              "{count}")))
 
 ;; The headphones tile is the way into the music player, not a transport
-;; menu: a left click asks the running Emacs for an Orpheus frame.
+;; menu: a left click asks the running Emacs for an Orpheus frame, while the
+;; module's own play/pause stays off that button.
 (check "the headphones tile opens Orpheus"
-       (string-contains (or (module-option (default-reading 'custom) 'on-click)
+       (string-contains (or (module-option (default-reading 'mpris) 'on-click)
                             "")
                         "(orpheus)"))
 
-;; A reading is the shell's, not a daemon's: a custom tile prints its glyph or
-;; asks a media player, and the notification centre and the clipboard depth come
-;; from native modules.
+;; A reading is the shell's, not a daemon's: a custom tile prints its glyph, and
+;; the player, the notification centre and the clipboard depth come from native
+;; modules -- no `playerctl` in a command somewhere under the bar.
 (define (default-modules b)
   (append (bar-config-modules-left b)
           (bar-config-modules-center b)
           (bar-config-modules-right b)
           (bar-config-modules-overflow b)))
 
-(check "no default tile shells out for its reading"
+(check "no default tile asks another program for a reading"
        (every (lambda (m)
                 (let ((command (and (eq? (shell-module-kind m) 'custom)
                                     (module-option m 'exec))))
                   (or (not command)
-                      (string-contains command "printf")
-                      (string-contains command "playerctl"))))
+                      (string-contains command "printf"))))
               (default-modules built-in)))
+(check "the default bar's now-playing tile is MPRIS, not a subprocess"
+       (let ((player (find (lambda (m) (eq? (shell-module-kind m) 'mpris))
+                           (default-modules built-in))))
+         (and player
+              (equal? (module-option player 'format) "{icon}"))))
 
 ;; The session menu is whelk's own: a power button must not fail because a
 ;; desktop has not installed an external menu program.
@@ -186,7 +191,7 @@
 ;; ask the shell for their state instead of querying another program.
 (check "the right half keeps the reference's order"
        (equal? (kinds (bar-config-modules-right built-in))
-               '(custom clipboard custom dnd custom custom memory audio keyboard
+               '(mpris clipboard custom dnd custom custom memory audio keyboard
                  battery power-profile wifi bluetooth tray notifications custom
                  clock)))
 

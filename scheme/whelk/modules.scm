@@ -72,6 +72,7 @@
             start-module
             menu-module
             wallpaper-module
+            mpris-module
             tasks-module))
 
 ;; =============================================================================
@@ -384,6 +385,21 @@ on) puts the workspace's number before its windows, and
 #:hide-empty-workspaces? (default on) keeps a workspace that has nothing in it
 from taking a slot."
   (apply module 'tasks kv))
+
+(define* (mpris-module #:rest kv)
+  "The player, spoken to directly over MPRIS: no playerctl, no subprocess.
+#:player names one (\"spotify\", or the full bus name) and defaults to auto --
+whichever player last reported it was playing, so the bar follows the music.
+#:format uses {title}, {artist}, {album}, {player}, {state}, {position},
+{length}, {progress} and {art}, and defaults to \"{icon} {title}\"; the icon is
+the play, pause or stop glyph unless #:icon says otherwise.  #:max-length
+truncates the title (40 by default, 0 = no limit).  A left click is play/pause,
+the middle button is next, the right button is previous and the wheel does the
+same two; #:on-click, #:on-click-middle and #:on-click-right replace any of
+them.  #:art? #t shows a cover from a local mpris:artUrl at #:art-size pixels
+(16 by default).  The tile is on the bar only while there is a player --
+#:show-off? #t keeps it there either way."
+  (apply module 'mpris kv))
 
 (define* (tray-module #:rest kv)
   "The StatusNotifierItem tray: other programs' status icons.  #:spacing is the

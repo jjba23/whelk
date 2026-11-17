@@ -59,17 +59,14 @@
 
    ;; --------------------------------------------------------------- right --
    #:right (list
-            ;; Now playing: the glyph, and the track in the tooltip.
-            (custom-module #:exec "playerctl metadata --format '{{title}} — {{artist}}' 2>/dev/null || echo 'Nothing playing'"
-                           #:interval 2
-                           #:max-length 40
-                           #:icon "\uf025"
-                           #:format "{icon}"
-                           #:tooltip "Now playing: {text}
-Click: open Orpheus · Right-click: play or pause · Middle: next track"
-                           #:on-click "emacsclient -c -a '' --eval \"(progn (require 'orpheus) (orpheus))\""
-                           #:on-click-right "playerctl play-pause"
-                           #:on-click-middle "playerctl next")
+            ;; Now playing: the player spoken to directly over MPRIS, so the
+            ;; tile is live and there is no playerctl in the middle.
+            (mpris-module #:icon "\uf025"
+                          #:format "{icon}"
+                          #:tooltip "Now playing: {title} — {artist}
+{position} / {length} · {state}
+Click: open Orpheus · Middle: next · Right-click: previous"
+                          #:on-click "emacsclient -c -a '' --eval \"(progn (require 'orpheus) (orpheus))\"")
 
             ;; Clipboard history: its depth, and the picker on a click.
             (clipboard-module #:icon "\uf328"

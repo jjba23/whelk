@@ -32,6 +32,7 @@ use crate::keyboardbar;
 use crate::languagebar;
 use crate::memorybar;
 use crate::menuapps::MenuSources;
+use crate::mprisbar;
 use crate::notificationsbar;
 use crate::powerprofilebar;
 use crate::schemebar;
@@ -90,6 +91,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("language", languagebar::module),
     ("memory", memorybar::module),
     ("menu", globalmenu::module),
+    ("mpris", mprisbar::module),
     ("notifications", notificationsbar::module),
     ("power-profile", powerprofilebar::module),
     ("scheme", schemebar::module),

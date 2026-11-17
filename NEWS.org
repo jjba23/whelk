@@ -45,6 +45,30 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   settings file in use, and where the documentation, the source and the two
   package channels are.  *Copy* copies it, *Escape* closes it.  The machine's
   own report (*About This System*) is unchanged beside it.
+- *Presets can be overridden.*  =use-preset!= takes =#:bars=, =#:widgets=,
+  =#:shell-menu= and =#:clipboard= to replace any part of the bundle, and a
+  preset's own bar constructor takes every =bar= keyword
+  (=(xp-bar #:height 40 #:accent "#80ff80")=), so changing one colour no longer
+  means forking the preset.  =#f= means "the preset's own", which is how ='()=
+  says "no desktop widgets".
+- *A preset can be switched without editing a file.*  =whelk --preset xp=
+  switches the running shell and remembers the choice, =whelk --preset current=
+  goes back to the shipped bar, =whelk --preset forget= hands the shell back to
+  =settings.scm=, and =WHELK_PRESET=xp whelk= does it for one run.  The choice
+  is saved as the =preset= GUI preference, so it survives a restart, shares the
+  override file with the settings window and disappears with its Reset.  The
+  order is: =WHELK_PRESET= for the run, then the remembered choice, then the
+  settings file -- a switcher that only worked on files without a
+  =(use-preset! ...)= line would not be a switcher.
+- *A native MPRIS module.*  =(mpris-module)= shows what is playing and controls
+  it by talking to the player's own =org.mpris.MediaPlayer2.Player= interface:
+  no =playerctl=, no polling of one process per player.  ={title}=, ={artist}=,
+  ={album}=, ={player}=, ={state}=, ={position}=, ={length}=, ={progress}= and
+  ={art}= are the reading; =#:player= names one player and defaults to the
+  player that last reported it was playing, so the bar follows the music; a
+  left click is play/pause, the middle button is next, the right button is
+  previous, and =#:art? #t= shows a local cover.  The default bar's now-playing
+  tile uses it instead of the two-second =playerctl= command.
 
 *** Changed
 
@@ -54,13 +78,20 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 *** Verified
 
 - =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
-  warnings= and =cargo test --workspace= pass (540 tests), and so do the Guile
+  warnings= and =cargo test --workspace= pass (556 tests), and so do the Guile
   suites.
 - The taskbar was run in a live niri session: the row listed the workspace
   number and its five windows as truncated buttons, and the XP preset's centre
   is that module.
 - =whelk --about= opened the new window in that same session, with the version,
   the session and the settings path.
+- Presets were switched in a live shell: =WHELK_PRESET=xp= and a saved
+  =(preset . xp)= both registered the XP bar over a settings file that asked for
+  something else, and the GUI overrides were layered on top of it.
+- The MPRIS parsing, player choice and time formatting are pinned by 12 tests;
+  the tile itself has *not* been seen against a real player yet, and its
+  controls have not been clicked -- it is the one part of this release that
+  ships tested but not exercised.
 - The Guix and Nix builds, and the smoke install, pass.
 
 ** v0.41.4 (2026-11-17)
