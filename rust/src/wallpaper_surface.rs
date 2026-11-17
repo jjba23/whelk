@@ -9,9 +9,17 @@
 //! rotation timer driven by the collection/playlist modules.  The C engine
 //! still owns the session's background until `whelk-rs` is installed as
 //! `whelk`; both have separate GTK application ids and layer namespaces.
+//!
+//! The surface set follows the outputs the way C's `sync_surfaces` does.  The
+//! outputs are signed as `CONNECTOR:WxH;` in model order; a hotplug or a
+//! resolution change rebuilds every surface once an idle has let the monitor
+//! model settle, and an unchanged signature leaves a running movie alone.
+//! Rebuilding cleans each surface's media first (`view.clear()` and a paused
+//! `MediaStream`), so a removed output cannot leave a decoder running behind a
+//! destroyed window.
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
@@ -29,40 +37,93 @@ use crate::wallpaper::{Animation, Kind, kind_for_path};
 use crate::wallpaper_view::WhelkWallpaperView;
 
 thread_local! {
-    /// The windows this module presented last.  A repaint (a chosen picture, a
-    /// settings save, a hotplug) replaces them instead of stacking a second
-    /// background on the same outputs.
-    static LIVE: RefCell<Vec<gtk::ApplicationWindow>> = const { RefCell::new(Vec::new()) };
+    /// The windows and views this module presented last.  A repaint (a chosen
+    /// picture, a settings save, a hotplug) replaces them instead of stacking a
+    /// second background on the same outputs.
+    static LIVE: RefCell<Vec<LiveSurface>> = const { RefCell::new(Vec::new()) };
     static ROTATION: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
+    /// The monitor model watched while a background is up.
+    static MONITORS: RefCell<Option<(gtk::gio::ListModel, glib::SignalHandlerId)>> =
+        const { RefCell::new(None) };
+    /// One idle per burst of monitor changes.
+    static SYNC: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
+    /// What a rebuild needs after `present` has returned.
+    static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
 }
 
 struct Surface {
     view: WhelkWallpaperView,
     generation: Rc<Cell<u64>>,
+    /// The stream currently painting this surface, if the item is a video.
+    /// Held so a rebuild can pause it instead of leaving it to the GC.
+    media: RefCell<Option<gtk::MediaStream>>,
 }
 
-impl Clone for Surface {
-    fn clone(&self) -> Self {
-        Self {
-            view: self.view.clone(),
-            generation: self.generation.clone(),
-        }
+struct LiveSurface {
+    window: gtk::ApplicationWindow,
+    surface: Surface,
+}
+
+struct Session {
+    application: gtk::Application,
+    settings: WallpaperSettings,
+    playlist: Rc<RefCell<Playlist>>,
+    /// The item a new output must show; rotation keeps it current.
+    selected: PathBuf,
+    outputs: String,
+}
+
+/// One output as the signature sees it.  Separated from `GdkMonitor` so the
+/// signature and its rebuild rule can be tested without a display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Output {
+    pub connector: Option<String>,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// C's `monitor_signature`: `CONNECTOR:WxH;` for each output, in model order.
+/// A missing connector is `?`, exactly as the C engine writes it.
+pub fn signature(outputs: &[Output]) -> String {
+    let mut signature = String::new();
+
+    for output in outputs {
+        signature.push_str(output.connector.as_deref().unwrap_or("?"));
+        signature.push_str(&format!(":{}x{};", output.width, output.height));
     }
+
+    signature
 }
 
-/// Destroy the backgrounds and the rotation timer presented last.
+/// True when the surfaces no longer match the outputs.  C's `sync_surfaces`
+/// rebuilds all of them rather than diffing, so `None` (nothing built yet), a
+/// changed signature or a stale surface count all mean the same thing.
+pub fn needs_rebuild(previous: Option<&str>, outputs: &[Output], surfaces: usize) -> bool {
+    let current = signature(outputs);
+
+    previous != Some(current.as_str()) || surfaces != outputs.len()
+}
+
+/// Destroy the backgrounds, the rotation timer and the monitor watch presented
+/// last.
 pub fn clear() {
     ROTATION.with(|slot| {
         if let Some(timer) = slot.borrow_mut().take() {
             timer.remove();
         }
     });
-    LIVE.with(|live| {
-        for window in live.borrow_mut().drain(..) {
-            window.set_child(None::<&gtk::Widget>);
-            window.destroy();
+    MONITORS.with(|slot| {
+        if let Some((model, handler)) = slot.borrow_mut().take() {
+            model.disconnect(handler);
         }
     });
+    SYNC.with(|slot| {
+        if let Some(source) = slot.borrow_mut().take() {
+            source.remove();
+        }
+    });
+    SESSION.with(|slot| *slot.borrow_mut() = None);
+    destroy_live();
 }
 
 pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
@@ -88,81 +149,233 @@ pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
     let Some(first) = playlist.selected().map(Path::to_owned) else {
         return;
     };
+    let rotate = playlist.should_rotate(true, settings.interval_seconds);
+    let outputs = current_outputs();
+    let live = build_live(application, settings, &first, &outputs);
+    let signed = outputs
+        .iter()
+        .map(|(_, output)| output.clone())
+        .collect::<Vec<_>>();
 
-    let display = gtk::gdk::Display::default();
-    let monitors = display
-        .as_ref()
-        .map(|display| {
-            let model = display.monitors();
-            let mut monitors = Vec::new();
+    LIVE.with(|slot| *slot.borrow_mut() = live);
+    SESSION.with(|slot| {
+        *slot.borrow_mut() = Some(Session {
+            application: application.clone(),
+            settings: settings.clone(),
+            playlist: Rc::new(RefCell::new(playlist)),
+            selected: first,
+            outputs: signature(&signed),
+        });
+    });
 
-            for index in 0..model.n_items() {
-                if let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() {
-                    monitors.push(monitor);
-                }
-            }
+    watch_monitors();
 
-            monitors
-        })
-        .unwrap_or_default();
+    if rotate {
+        start_rotation(settings);
+    }
+}
 
-    let mut surfaces = Vec::new();
-    let mut windows = Vec::new();
+fn current_outputs() -> Vec<(gtk::gdk::Monitor, Output)> {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return Vec::new();
+    };
+    let model = display.monitors();
+    let mut outputs = Vec::new();
 
-    if monitors.is_empty() {
-        let (window, surface) = create_surface(application, settings, None);
-        windows.push(window);
-        surfaces.push(surface);
-    } else {
-        for monitor in monitors {
-            let (window, surface) = create_surface(application, settings, Some(&monitor));
-            windows.push(window);
-            surfaces.push(surface);
+    for index in 0..model.n_items() {
+        if let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() {
+            let output = output_of(&monitor);
+
+            outputs.push((monitor, output));
         }
     }
 
-    for surface in &surfaces {
+    outputs
+}
+
+fn output_of(monitor: &gtk::gdk::Monitor) -> Output {
+    let geometry = monitor.geometry();
+
+    Output {
+        connector: monitor
+            .connector()
+            .map(|connector| connector.to_string())
+            .filter(|connector| !connector.is_empty()),
+        width: geometry.width(),
+        height: geometry.height(),
+    }
+}
+
+/// Build one surface per output, or a single monitor-less one on a display
+/// that reports none, and give each the current picture.
+fn build_live(
+    application: &gtk::Application,
+    settings: &WallpaperSettings,
+    path: &Path,
+    outputs: &[(gtk::gdk::Monitor, Output)],
+) -> Vec<LiveSurface> {
+    let mut live = Vec::new();
+
+    if outputs.is_empty() {
+        let (window, surface) = create_surface(application, settings, None);
+
         load_into_surface(
-            surface,
-            &first,
+            &surface,
+            path,
             settings.animation,
             settings.animation_ms,
             settings.video,
             settings.mute_video,
         );
-    }
-
-    for window in &windows {
         window.present();
+        live.push(LiveSurface { window, surface });
+
+        return live;
     }
 
-    LIVE.with(|live| *live.borrow_mut() = windows);
+    for (monitor, _) in outputs {
+        let (window, surface) = create_surface(application, settings, Some(monitor));
 
-    let rotate = playlist.should_rotate(true, settings.interval_seconds);
-    let playlist = Rc::new(RefCell::new(playlist));
+        load_into_surface(
+            &surface,
+            path,
+            settings.animation,
+            settings.animation_ms,
+            settings.video,
+            settings.mute_video,
+        );
+        window.present();
+        live.push(LiveSurface { window, surface });
+    }
+
+    live
+}
+
+/// Follow the monitor model while a background is up.  An idle is the same
+/// shape the bars and the locker use: rebuilding while the model is still
+/// emitting makes a surface ask it for a monitor that is going away.
+fn watch_monitors() {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    let model = display.monitors();
+    let handler = model.connect_items_changed(|_, _, _, _| schedule_sync());
+
+    MONITORS.with(|slot| *slot.borrow_mut() = Some((model, handler)));
+}
+
+fn schedule_sync() {
+    if SYNC.with(|slot| slot.borrow().is_some()) {
+        return;
+    }
+
+    let source = glib::idle_add_local_once(|| {
+        SYNC.with(|slot| *slot.borrow_mut() = None);
+        sync_surfaces();
+    });
+
+    SYNC.with(|slot| *slot.borrow_mut() = Some(source));
+}
+
+/// Bring the surfaces in line with the outputs.  C does not diff: a signature
+/// change rebuilds the whole set, and each new surface gets the current item
+/// while the old ones (and their decoders) are cleaned up first.
+fn sync_surfaces() {
+    let Some((application, settings, selected, previous)) = SESSION.with(|slot| {
+        slot.borrow().as_ref().map(|session| {
+            (
+                session.application.clone(),
+                session.settings.clone(),
+                session.selected.clone(),
+                session.outputs.clone(),
+            )
+        })
+    }) else {
+        return;
+    };
+
+    let outputs = current_outputs();
+    let described: Vec<Output> = outputs.iter().map(|(_, output)| output.clone()).collect();
+    let surfaces = LIVE.with(|slot| slot.borrow().len());
+
+    if !needs_rebuild(Some(&previous), &described, surfaces) {
+        return;
+    }
+
+    destroy_live();
+
+    let live = build_live(&application, &settings, &selected, &outputs);
+
+    LIVE.with(|slot| *slot.borrow_mut() = live);
+    SESSION.with(|slot| {
+        if let Some(session) = slot.borrow_mut().as_mut() {
+            session.outputs = signature(&described);
+        }
+    });
+}
+
+fn start_rotation(settings: &WallpaperSettings) {
+    let Some(playlist) = SESSION.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|session| session.playlist.clone())
+    }) else {
+        return;
+    };
     let interval = settings.interval_seconds;
     let shuffle = settings.shuffle;
     let animation = settings.animation;
     let animation_ms = settings.animation_ms;
     let video = settings.video;
     let mute_video = settings.mute_video;
+    let timer = glib::timeout_add_seconds_local(interval, move || {
+        let next = playlist.borrow_mut().advance(shuffle).map(Path::to_owned);
 
-    if rotate {
-        let timer_surfaces = surfaces;
-        let timer = glib::timeout_add_seconds_local(interval, move || {
-            let next = playlist.borrow_mut().advance(shuffle).map(Path::to_owned);
-
-            if let Some(path) = next {
-                for surface in &timer_surfaces {
-                    load_into_surface(surface, &path, animation, animation_ms, video, mute_video);
+        if let Some(path) = next {
+            SESSION.with(|slot| {
+                if let Some(session) = slot.borrow_mut().as_mut() {
+                    session.selected = path.clone();
                 }
-            }
+            });
+            LIVE.with(|slot| {
+                for live in slot.borrow().iter() {
+                    load_into_surface(
+                        &live.surface,
+                        &path,
+                        animation,
+                        animation_ms,
+                        video,
+                        mute_video,
+                    );
+                }
+            });
+        }
 
-            glib::ControlFlow::Continue
-        });
+        glib::ControlFlow::Continue
+    });
 
-        ROTATION.with(|slot| *slot.borrow_mut() = Some(timer));
+    ROTATION.with(|slot| *slot.borrow_mut() = Some(timer));
+}
+
+/// Destroy every background, cleaning up its media first.  A video stream is
+/// paused explicitly before its window goes away; dropping the view alone
+/// would leave the decoder to the collector.
+fn destroy_live() {
+    LIVE.with(|slot| {
+        for live in slot.borrow_mut().drain(..) {
+            cleanup(&live.surface);
+            live.window.set_child(None::<&gtk::Widget>);
+            live.window.destroy();
+        }
+    });
+}
+
+fn cleanup(surface: &Surface) {
+    if let Some(stream) = surface.media.borrow_mut().take() {
+        stream.pause();
     }
+
+    surface.view.clear();
 }
 
 fn create_surface(
@@ -210,6 +423,7 @@ fn create_surface(
         Surface {
             view,
             generation: Rc::new(Cell::new(0)),
+            media: RefCell::new(None),
         },
     )
 }
@@ -225,6 +439,12 @@ fn load_into_surface(
     let generation = surface.generation.get().wrapping_add(1);
     surface.generation.set(generation);
 
+    // Whatever this surface showed before is replaced now; pause it before
+    // the new picture or stream takes over.
+    if let Some(stream) = surface.media.borrow_mut().take() {
+        stream.pause();
+    }
+
     if kind_for_path(path) == Kind::Video {
         if !video {
             surface.view.clear();
@@ -238,6 +458,8 @@ fn load_into_surface(
         surface
             .view
             .set_paintable(stream.upcast_ref(), animation, animation_ms);
+        surface.media.borrow_mut().replace(stream.clone().upcast());
+
         return;
     }
 

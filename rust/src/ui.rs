@@ -386,6 +386,11 @@ impl Shell {
     fn reload(&mut self) {
         match self.loader.load() {
             Ok(loaded) => {
+                // A bar-only save (the settings window writes one on every
+                // control) must not restart the background; a wallpaper change
+                // in the file is a repaint, as the C engine does on reload.
+                let wallpaper_changed = loaded.wallpaper != self.loaded.wallpaper;
+
                 self.loaded = loaded;
                 self.config_label = self.loader.label();
                 start_idle(self.loaded.idle_lock_after);
@@ -417,6 +422,10 @@ impl Shell {
                 }
 
                 self.rebuild();
+
+                if wallpaper_changed && let Some(application) = self.application.upgrade() {
+                    crate::wallpaper_surface::present(&application, &self.loaded.wallpaper);
+                }
             }
             Err(error) => {
                 eprintln!(

@@ -31,8 +31,14 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   animated GIF/WebP frames through `GdkPixbufAnimation`, starts a layer-shell
   background on Wayland and a normal window on Broadway/X11, and drives rotation
   from the collection/playlist.  A repaint replaces the surfaces it presented
-  last (windows and rotation timer), so a chosen picture, a settings save or a
-  monitor change never stacks a second background on one output.
+  last (windows, rotation timer and any paused media), so a chosen picture or a
+  settings save never stacks a second background on one output.  The set
+  follows the monitor model: the outputs are signed as `CONNECTOR:WxH;` in
+  model order, and one idle rebuilds every surface when that signature or the
+  surface count changes, giving a new output the current item while an
+  unchanged set leaves a running movie alone.  A rebuild clears each surface's
+  media first -- `view.clear()` and a paused `MediaStream` -- so a removed
+  output cannot leave a decoder running behind a destroyed window.
 - `src/wallpaperpicker.rs` — the wallpaper picker, ported from
   `src/wallpaper_picker.c`: an overlay surface with a centred card, the
   collection as a flow-box grid of thumbnails decoded one per idle (so opening
@@ -665,7 +671,7 @@ The tests are split by what they can prove without a session:
 | `tests/preferences.rs` | Scheme value formatting, module override keys and occurrence numbering across the bar, which options a single field may edit, clock text and parsing, launcher labels, and colour text |
 | `tests/locker.rs` | The lock screen's rebuild queue: one rebuild per burst, the churn a rebuild causes dropped, and a stopped lock never building again |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
-| `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
+| `tests/wallpaper_surface.rs` | Animated-frame delay policy (including the 100 ms zero-delay fallback) and the output signature/rebuild rule: connector and resolution changes, a missing connector, and a stale surface count |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
 | `tests/barmonitors.rs` | Monitor-rule selection, output-count conditions and flattened bar placements |
 | `tests/config.rs` | Missing-file defaults (including the built-in shell menu), the configuration label, and reloading a real two-bar config through one Guile handle |
@@ -760,8 +766,11 @@ The Rust surface is deliberately a first slice, not a feature-for-feature copy
 of the C engine:
 
 - It creates one background surface per monitor, all showing the same current
-  item. Per-monitor media cleanup is not ported yet; the picker is, as
-  `--wallpaper-picker`.
+  item, and follows the monitor model: a hotplug or resolution change rebuilds
+  the set once the model settles, pausing each surface's video stream and
+  clearing its view before the window goes away.  A configuration save repaints
+  only when the wallpaper settings themselves changed, so a bar-only save does
+  not restart a movie.  The picker is Rust too, as `--wallpaper-picker`.
 - Still images use `GdkTexture`; animated GIF/WebP images use
   `GdkPixbufAnimation` with the C engine's 100 ms zero-delay fallback. Videos
   use `GtkMediaFile`, loop, and respect `mute-video?`.
