@@ -3,13 +3,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-//! The Rust half of whelk's migration.
+//! whelk's Rust shell.
 //!
-//! The C shell still builds and runs.  This crate starts the replacement from
-//! the inside out: pure policy that can be tested without a display, a small
-//! audited Guile boundary, and a GTK4 bootstrap that presents the shell's first
-//! Rust surface.  Each layer has a stable Rust API so a later commit can move
-//! callers over without rewriting the logic again.
+//! The crate is the whole installed shell: a GTK4 layer-shell surface set, a
+//! small audited Guile boundary, the process supervisor and the policy modules
+//! behind every bar reading.  The C implementation has been removed; the
+//! configuration language and its data files are unchanged.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
@@ -26,6 +25,7 @@ pub mod batterybar;
 pub mod bluetoothbar;
 pub mod calc;
 pub mod chord;
+pub mod cli;
 pub mod clipboard;
 pub mod clipboardbar;
 pub mod clockbar;
@@ -79,9 +79,11 @@ pub mod schemebar;
 pub mod session;
 pub mod settings;
 pub mod shortcutmaps;
+pub mod signals;
 pub mod startbar;
 pub mod startmenu;
 pub mod style;
+pub mod supervisor;
 pub mod tray;
 pub mod traybar;
 pub mod trayicon;

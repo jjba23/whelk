@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_whelk-rs")
+    env!("CARGO_BIN_EXE_whelk")
 }
 
 fn scheme_dir() -> PathBuf {
@@ -23,7 +23,7 @@ fn run(args: &[&str], config: Option<&Path>) -> std::process::Output {
         command.arg("--config").arg(config);
     }
 
-    command.output().expect("run whelk-rs")
+    command.output().expect("run whelk")
 }
 
 #[test]
@@ -32,8 +32,31 @@ fn version_does_not_need_a_display_or_a_config() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        format!("whelk-rs {}", env!("CARGO_PKG_VERSION"))
+        format!("whelk {}", env!("CARGO_PKG_VERSION"))
     );
+}
+
+#[test]
+fn help_lists_the_forwarded_command_surface() {
+    let output = run(&["--help"], None);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+
+    for option in [
+        "--launcher",
+        "--clipboard-status",
+        "--menu",
+        "--notifications",
+        "--night-light",
+        "--idle-status",
+        "--network",
+        "--lock",
+        "--reload",
+        "--quit",
+    ] {
+        assert!(stdout.contains(option), "help omitted {option}: {stdout}");
+    }
 }
 
 #[test]

@@ -196,7 +196,7 @@ impl NotificationCenter {
         service: &NotificationService,
         style: &BarSettings,
     ) -> Self {
-        let panel_window = surface_window(application, "notifications", "whelk-rs notifications");
+        let panel_window = surface_window(application, "notifications", "whelk notifications");
         let panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let heading = gtk::Box::new(gtk::Orientation::Vertical, 1);
@@ -243,7 +243,7 @@ impl NotificationCenter {
         panel.append(&scroller);
         panel_window.set_child(Some(&panel));
 
-        let toast_window = surface_window(application, "toasts", "whelk-rs toasts");
+        let toast_window = surface_window(application, "toasts", "whelk toasts");
         let toast_stack = gtk::Box::new(gtk::Orientation::Vertical, 8);
 
         toast_stack.add_css_class("whelk-toast-stack");

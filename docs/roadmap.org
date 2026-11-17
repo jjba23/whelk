@@ -9,7 +9,7 @@ here, release by release.
 
 | Area                       | State                                                                    |
 |----------------------------+--------------------------------------------------------------------------|
-| Build system, Guile engine | working: Meson, =scm_boot_guile=, Scheme-primitive registration           |
+| Build system, Guile engine | working: Cargo, the Guile bridge, Scheme-primitive registration          |
 | Configuration DSL          | working: bars, modules, hot reload, optional REPL                        |
 | Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu |
 | Notifications              | working: =org.freedesktop.Notifications=, toasts, grouped centre, actions, do-not-disturb |

@@ -1,4 +1,4 @@
-;; whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+;; whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 ;;
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -21,66 +21,20 @@
   ;; Nothing of the right name running is not a failure, so the command is
   ;; allowed to say so instead of the task dying on `pkill''s non-zero exit.
   (dsl:run (list "pkill" "whelk") #:allow-failure? #t)
-  (time-machine-program-shell (list "whelk")
+  (time-machine-program-shell (list "cargo" "run" "-p" "whelk-rs" "--release")
                               #:verbose? #t))
 
 (define (test)
-  "Build and run the whole test suite inside the Guix environment.
-
-The shell wrapper only applies to the first command, so the pipeline is run by
-one inner `sh -c' instead of a bare `&&': otherwise `ninja' would execute
-outside the Guix environment.
-
-The build directory is thrown away first: a tree configured by a different
-Meson version makes both `meson setup' and `ninja' fail with 'build data file
-... references functions or classes that don't exist'. Rebuilding from scratch
-also means the passing tests are the ones that match the checked out sources."
+  "Format, lint and run the whole Cargo test suite inside the Guix environment."
   (time-machine-manifest-shell
    (list "/bin/sh" "-c"
-         ;; One token, because it is one shell script.
-         (~ "'~a'"
-            (string-join
-             (list "set -eu"
-                   "rm -rf build"
-                   "meson setup build"
-                   "ninja -C build"
-                   "meson test -C build --print-errorlogs")
-             "; ")))
+         (string-join
+          (list "set -eu"
+                "cargo fmt --all --check"
+                "cargo clippy --workspace --all-targets -- -D warnings"
+                "cargo test --workspace --locked")
+          "; "))
    #:verbose? #t))
-
-(define (test-asan)
-  "Build and run the suite with AddressSanitizer and UndefinedBehaviorSanitizer."
-  (time-machine-manifest-shell
-   (list "/bin/sh" "-c"
-         (~ "'~a'"
-            (string-join
-             (list "set -eu"
-                   "rm -rf build-asan"
-                   "ASAN_OPTIONS=detect_leaks=0 meson setup build-asan -Db_sanitize=address,undefined -Db_lto=false -Dbuildtype=debugoptimized -Dstrip=false"
-                   "ninja -C build-asan"
-                   "ASAN_OPTIONS=detect_leaks=0 meson test -C build-asan --print-errorlogs")
-             "; ")))
-   #:verbose? #t))
-
-(define c-packages
-  (make-parameter
-   (string-join (map symbol->string
-                     '(gtk4 guile-3.0 gtk4-layer-shell-0 wayland-client
-                            gio-unix-2.0))
-                " ")))
-
-(define (add-libs)
-  "Regenerate .ccls for the LSP from the Guix store paths."
-  (delete-file-recursively ".ccls")
-  ;; A pipe and an append-redirection, so this is one of the lines that needs a
-  ;; shell.  Every part is a word of it, and `tr''s second set is the `\n'
-  ;; escape the shell hands over as a newline character.
-  (time-machine-manifest-shell
-   (append (list "pkg-config" "--cflags")
-           (string-split (c-packages) #\space)
-           (list "|" "tr" "' '" "'\\n'" ">>" ".ccls"))
-   #:verbose? #t)
-  (cat ".ccls"))
 
 (define deb-packages
   (make-parameter (map symbol->string
@@ -88,8 +42,8 @@ also means the passing tests are the ones that match the checked out sources."
                                          devscripts
                                          cme
                                          lintian
-                                         meson
-                                         ninja-build
+                                         cargo
+                                         rustc
                                          pkg-config
                                          libgtk-4-dev
                                          libgtk4-layer-shell-dev
@@ -138,13 +92,14 @@ also means the passing tests are the ones that match the checked out sources."
   (make-parameter (map symbol->string
                        '(rpm-build rpmdevtools
                                    gcc
-                                   meson
-                                   ninja-build
+                                   cargo
+                                   rust
                                    pkgconfig
                                    gtk4-devel
                                    gtk4-layer-shell-devel
                                    guile30-devel
-                                   libwayland-client-devel))))
+                                   libwayland-client-devel
+                                   pam-devel))))
 
 (define (rpm-build)
   "Build RPM package for openSUSE and Fedora/RHEL"
@@ -186,15 +141,14 @@ also means the passing tests are the ones that match the checked out sources."
       (dsl:run (list "rpmlint" latest-src-rpm)
                #:verbose? #t))))
 
-(define (meson-build)
-  "Meson build."
-  (time-machine-program-shell (list "meson" "setup" "build"))
-  (time-machine-program-shell (list "ninja" "-C" "build")))
+(define (cargo-build)
+  "Cargo release build."
+  (time-machine-program-shell (list "cargo" "build" "--release" "--bin" "whelk")))
 
 (define (debug-run)
-  "Debug run whelk."
-  (meson-build)
-  (dsl:run (list "gdb" "--args" "./build/whelk")))
+  "Debug build, then gdb."
+  (time-machine-program-shell (list "cargo" "build" "--bin" "whelk"))
+  (dsl:run (list "gdb" "--args" "./target/debug/whelk")))
 
 (define (default)
   "List the tasks this project defines."

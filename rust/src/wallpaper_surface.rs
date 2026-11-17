@@ -7,7 +7,7 @@
 //!
 //! One layer-shell surface per output, a `WhelkWallpaperView` in each, and a
 //! rotation timer driven by the collection/playlist modules.  The C engine
-//! still owns the session's background until `whelk-rs` is installed as
+//! still owns the session's background until `whelk` is installed as
 //! `whelk`; both have separate GTK application ids and layer namespaces.
 //!
 //! The surface set follows the outputs the way C's `sync_surfaces` does.  The
@@ -137,7 +137,7 @@ pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
 
     if items.is_empty() {
         eprintln!(
-            "whelk-rs: wallpaper is enabled but no supported files were found in {:?}",
+            "whelk: wallpaper is enabled but no supported files were found in {:?}",
             settings.paths
         );
         return;
@@ -397,10 +397,10 @@ fn create_surface(
 
     let window = gtk::ApplicationWindow::builder()
         .application(application)
-        .title("whelk-rs wallpaper")
+        .title("whelk wallpaper")
         .build();
 
-    window.add_css_class("whelk-rs-wallpaper-window");
+    window.add_css_class("whelk-wallpaper-window");
     window.set_decorated(false);
     window.set_resizable(false);
     window.set_child(Some(&view));
@@ -517,7 +517,7 @@ fn load_image(
         Ok(texture) => view.set_paintable(texture.upcast_ref(), animation, animation_ms),
         Err(error) => {
             eprintln!(
-                "whelk-rs: cannot decode wallpaper '{}': {error}",
+                "whelk: cannot decode wallpaper '{}': {error}",
                 path.display()
             );
             view.clear();

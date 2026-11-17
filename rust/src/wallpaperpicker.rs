@@ -280,7 +280,7 @@ impl Picker {
     ) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs wallpaper")
+            .title("whelk wallpaper")
             .build();
         let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);

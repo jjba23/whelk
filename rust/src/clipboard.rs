@@ -498,7 +498,7 @@ pub fn parse_records(pending: &mut Vec<u8>, history: &mut History) -> usize {
             Ok(Some(header)) => header,
             Ok(None) => break,
             Err(()) => {
-                eprintln!("whelk-rs: clipboard: dropping a malformed record");
+                eprintln!("whelk: clipboard: dropping a malformed record");
                 pending.clear();
                 break;
             }
@@ -925,6 +925,21 @@ impl Clipboard {
         self.status().text()
     }
 
+    /// The one-line answer `--clipboard-status` prints, in the C shell's
+    /// spelling: availability, entry count and byte count on one line.
+    pub fn status_line(&self) -> String {
+        let count = self.count();
+        let noun = if count == 1 { "entry" } else { "entries" };
+
+        format!(
+            "{}; {} {}; {} bytes",
+            self.status_text(),
+            count,
+            noun,
+            self.bytes()
+        )
+    }
+
     pub fn max_entries(&self) -> u32 {
         self.inner.borrow().history.max_entries()
     }
@@ -1042,7 +1057,7 @@ impl Clipboard {
 
         if data.len() > limit {
             eprintln!(
-                "whelk-rs: clipboard: not storing a {}-byte copy: the entry budget is {} bytes",
+                "whelk: clipboard: not storing a {}-byte copy: the entry budget is {} bytes",
                 data.len(),
                 limit
             );
@@ -1170,7 +1185,7 @@ impl Clipboard {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
             Err(error) => {
                 eprintln!(
-                    "whelk-rs: clipboard: cannot inspect '{}': {error}",
+                    "whelk: clipboard: cannot inspect '{}': {error}",
                     path.display()
                 );
 
@@ -1179,7 +1194,7 @@ impl Clipboard {
         };
 
         if metadata.len() > FILE_MAX {
-            eprintln!("whelk-rs: clipboard: history file is too large; it was not loaded");
+            eprintln!("whelk: clipboard: history file is too large; it was not loaded");
 
             return;
         }
@@ -1188,7 +1203,7 @@ impl Clipboard {
             Ok(bytes) => bytes,
             Err(error) => {
                 eprintln!(
-                    "whelk-rs: clipboard: cannot read '{}': {error}",
+                    "whelk: clipboard: cannot read '{}': {error}",
                     path.display()
                 );
 
@@ -1210,7 +1225,7 @@ impl Clipboard {
 
             state.history.prune(ttl, now_us());
             eprintln!(
-                "whelk-rs: clipboard: restored {} entries from {}",
+                "whelk: clipboard: restored {} entries from {}",
                 state.history.len(),
                 path.display()
             );
@@ -1227,7 +1242,7 @@ impl Clipboard {
         let exe = std::env::current_exe()
             .ok()
             .and_then(|path| path.to_str().map(str::to_owned))
-            .unwrap_or_else(|| "whelk-rs".to_owned());
+            .unwrap_or_else(|| "whelk".to_owned());
         let executable = OsString::from(exe);
         let argv = [
             OsStr::new("wl-paste"),
@@ -1242,7 +1257,7 @@ impl Clipboard {
             Ok(process) => process,
             Err(error) => {
                 state.available = false;
-                eprintln!("whelk-rs: clipboard: wl-paste is not installed: {error}");
+                eprintln!("whelk: clipboard: wl-paste is not installed: {error}");
                 return;
             }
         };
@@ -1391,14 +1406,14 @@ impl Clipboard {
             move |result| {
                 if let Err(error) = result {
                     eprintln!(
-                        "whelk-rs: clipboard: could not save '{}': {error}",
+                        "whelk: clipboard: could not save '{}': {error}",
                         saved_path.display()
                     );
                 } else if let Err(error) =
                     std::fs::set_permissions(&saved_path, std::fs::Permissions::from_mode(0o600))
                 {
                     eprintln!(
-                        "whelk-rs: clipboard: could not make '{}' private: {error}",
+                        "whelk: clipboard: could not make '{}' private: {error}",
                         saved_path.display()
                     );
                 }
@@ -1448,7 +1463,7 @@ impl Clipboard {
 
         if let Err(error) = write_private(&path, &bytes) {
             eprintln!(
-                "whelk-rs: clipboard: could not save '{}': {error}",
+                "whelk: clipboard: could not save '{}': {error}",
                 path.display()
             );
         } else {
@@ -1499,7 +1514,7 @@ impl Clipboard {
                     Ok(connection) => connection,
                     Err(error) => {
                         inner.borrow_mut().lock_watch_pending = false;
-                        eprintln!("whelk-rs: clipboard: no system bus for lock detection: {error}");
+                        eprintln!("whelk: clipboard: no system bus for lock detection: {error}");
 
                         return;
                     }
@@ -1531,7 +1546,7 @@ impl Clipboard {
                             Ok(reply) => reply,
                             Err(error) => {
                                 eprintln!(
-                                    "whelk-rs: clipboard: could not find the logind session: {error}"
+                                    "whelk: clipboard: could not find the logind session: {error}"
                                 );
 
                                 return;
@@ -1564,7 +1579,7 @@ impl Clipboard {
 
                                     if clipboard.clear_unpinned() {
                                         eprintln!(
-                                            "whelk-rs: clipboard: session locked: unpinned history cleared"
+                                            "whelk: clipboard: session locked: unpinned history cleared"
                                         );
                                     }
                                 }
@@ -1748,7 +1763,7 @@ fn ensure_private_parent(path: &Path) {
         .create(parent)
     {
         eprintln!(
-            "whelk-rs: clipboard: cannot create '{}': {error}",
+            "whelk: clipboard: cannot create '{}': {error}",
             parent.display()
         );
     }
@@ -1958,7 +1973,7 @@ fn write_clipboard_gdk(entry: &Entry) -> bool {
     match clipboard.set_content(Some(&provider)) {
         Ok(()) => true,
         Err(error) => {
-            eprintln!("whelk-rs: clipboard: could not set the selection: {error}");
+            eprintln!("whelk: clipboard: could not set the selection: {error}");
             false
         }
     }
@@ -1997,7 +2012,7 @@ fn write_clipboard_fallback(entry: &Entry) {
     let process = match gio::Subprocess::newv(&argv, gio::SubprocessFlags::STDIN_PIPE) {
         Ok(process) => process,
         Err(error) => {
-            eprintln!("whelk-rs: clipboard: could not run wl-copy: {error}");
+            eprintln!("whelk: clipboard: could not run wl-copy: {error}");
             return;
         }
     };
@@ -2005,7 +2020,7 @@ fn write_clipboard_fallback(entry: &Entry) {
 
     process.communicate_async(Some(&data), gio::Cancellable::NONE, |result| {
         if let Err(error) = result {
-            eprintln!("whelk-rs: clipboard: wl-copy failed: {error}");
+            eprintln!("whelk: clipboard: wl-copy failed: {error}");
         }
     });
 }
@@ -2028,7 +2043,7 @@ pub fn helper() -> i32 {
     }
 
     if types_secret(&types) {
-        eprintln!("whelk-rs: clipboard: not storing a password manager's selection");
+        eprintln!("whelk: clipboard: not storing a password manager's selection");
         return 0;
     }
 
@@ -2432,5 +2447,20 @@ mod tests {
         pending.extend_from_slice(b"WHELK1 2 1\nxx");
         assert_eq!(parse_records(&mut pending, &mut history), 0);
         assert!(pending.is_empty());
+    }
+    #[test]
+    fn the_status_line_uses_the_c_spelling() {
+        let clipboard = Clipboard::new(ClipboardSettings::default());
+
+        assert_eq!(
+            clipboard.status_line(),
+            "Clipboard listener stopped; 0 entries; 0 bytes"
+        );
+
+        assert!(clipboard.add("text/plain", "one", b"1".to_vec()));
+        assert_eq!(
+            clipboard.status_line(),
+            "Clipboard listener stopped; 1 entry; 1 bytes"
+        );
     }
 }

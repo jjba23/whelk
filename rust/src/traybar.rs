@@ -196,7 +196,7 @@ fn start_watcher(state: &Rc<RefCell<TrayState>>) {
             let bus = match result {
                 Ok(bus) => bus,
                 Err(error) => {
-                    eprintln!("whelk-rs: tray: no session bus, so there is no tray: {error}");
+                    eprintln!("whelk: tray: no session bus, so there is no tray: {error}");
                     return;
                 }
             };
@@ -261,7 +261,7 @@ fn open_watcher(state: &Rc<RefCell<TrayState>>, connection: &gio::DBusConnection
             let watcher = match result {
                 Ok(watcher) => watcher,
                 Err(error) => {
-                    eprintln!("whelk-rs: tray: StatusNotifierWatcher is not reachable: {error}");
+                    eprintln!("whelk: tray: StatusNotifierWatcher is not reachable: {error}");
                     return;
                 }
             };
@@ -380,7 +380,7 @@ fn add_entry(state: &Rc<RefCell<TrayState>>, entry: &str) {
             let proxy = match result {
                 Ok(proxy) => proxy,
                 Err(error) => {
-                    eprintln!("whelk-rs: tray: item {callback_entry} is not reachable: {error}");
+                    eprintln!("whelk: tray: item {callback_entry} is not reachable: {error}");
                     return;
                 }
             };
@@ -400,7 +400,7 @@ fn add_entry(state: &Rc<RefCell<TrayState>>, entry: &str) {
                 hide_bluetooth,
             ) {
                 eprintln!(
-                    "whelk-rs: tray: hiding '{}': whelk reads this itself",
+                    "whelk: tray: hiding '{}': whelk reads this itself",
                     id.or(title).unwrap_or_else(|| callback_entry.clone())
                 );
                 return;
@@ -765,7 +765,7 @@ fn fetch_layout(
                     ChordStyle::Cua,
                 ),
                 Err(error) => {
-                    eprintln!("whelk-rs: tray: could not read the applet menu: {error}");
+                    eprintln!("whelk: tray: could not read the applet menu: {error}");
                     Vec::new()
                 }
             };

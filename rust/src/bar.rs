@@ -5,7 +5,7 @@
 
 //! The plain bar configuration, ported from `bar_from_alist` in the C bridge.
 //!
-//! The Scheme side already hands the C shell an alist of plain values; this is
+//! The Scheme side hands the shell an alist of plain values; this is
 //! the same shape as Rust types.  A missing field takes the C `WhelkBarConfig`
 //! default, and every conversion stays testable without Guile or a display.
 

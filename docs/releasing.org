@@ -11,7 +11,7 @@ A release is not one number; it is one number in six files, and
 
 | Where                              | What it is                                  |
 |------------------------------------+---------------------------------------------|
-| =meson.build=                        | =project(... version: '0.32.0')=              |
+| =rust/Cargo.toml=                    | =version = "0.32.0"=                          |
 | =default.nix=                        | =version = "0.32.0";=                         |
 | =packaging/arch/PKGBUILD=            | =pkgver=0.32.0=                               |
 | =packaging/debian/changelog=         | =whelk (0.32.0-1)=                            |
@@ -45,7 +45,7 @@ flowchart TD
     D -->|yes| Z3["refuse: choose the next version"]
     D -->|no| E{"GitHub release exists?"}
     E -->|yes| Z4["refuse: it is already published"]
-    E -->|no| F["verify:<br/>host build and meson test,<br/>Guix build, Nix build,<br/>release-smoke.sh --source"]
+    E -->|no| F["verify:<br/>Cargo tests and clippy,<br/>Guix build, Nix build,<br/>release-smoke.sh --source"]
     F -->|fails| Z5["refuse: nothing is tagged"]
     F -->|passes| G["git archive the tagged tree<br/>+ SHA-256"]
     G --> H["git tag -a vX.Y.Z<br/>push the branch, push the tag"]

@@ -98,7 +98,7 @@ its own minimal =pam_unix= service.  It is never consulted when a service file
 exists, it is only trusted as a root-owned setuid regular file that group and
 others cannot write, and its password goes over stdin, never a command line.
 
-=whelk --check-lock= (=whelk-rs --check-lock= in the Rust bootstrap) prints the
+=whelk --check-lock= prints the
 same decision without asking for a password: the candidate list, the library
 that loads, the service that would answer, whether a helper was found, whether
 strict mode is on, and whether the helper would be allowed to run.

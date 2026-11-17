@@ -407,7 +407,7 @@ fn run_shell_action(name: &str, style: &BarSettings) {
         "quit" => quit(),
         "about" => about::show(style),
         "settings" => activate("settings"),
-        _ => eprintln!("whelk-rs: start: no shell action named '{name}'"),
+        _ => eprintln!("whelk: start: no shell action named '{name}'"),
     }
 }
 

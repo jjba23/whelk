@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -22,7 +22,7 @@ Usage:
 
 check       Verify that every manifest and NEWS.org agree on VERSION.
 set-version Update the manifests to VERSION; add its NEWS.org section first.
-verify      Run the host tests, Guix build, and release smoke install.
+verify      Run the Cargo tests, Guix build, Nix build, and release smoke install.
 publish     Verify, create and push the tag, build a tarball/checksum, and
             create the GitHub release.  WHELK_RELEASE_NOTES may point at a
             Markdown file; otherwise GitHub generates the notes.
@@ -35,10 +35,6 @@ EOF
 die() {
   printf 'release: %s\n' "$*" >&2
   exit 1
-}
-
-meson_version() {
-  sed -n "s/^  version: '\([^']*\)',/\1/p" meson.build | head -n 1
 }
 
 cargo_version() {
@@ -74,7 +70,7 @@ check_version() {
 
   local name
   local value
-  for name in meson_version cargo_version xtask_version nix_version \
+  for name in cargo_version xtask_version nix_version \
               arch_version debian_version spec_version; do
     value=$("$name")
     [[ "$value" == "$expected" ]] ||
@@ -87,8 +83,8 @@ check_version() {
 
 current_version() {
   local version
-  version=$(meson_version)
-  [[ -n "$version" ]] || die "could not read the version from meson.build"
+  version=$(cargo_version)
+  [[ -n "$version" ]] || die "could not read the version from rust/Cargo.toml"
   printf '%s\n' "$version"
 }
 
@@ -117,7 +113,6 @@ check_release_available() {
 update_version() {
   local version="$1"
 
-  sed -i "s/^  version: '[^']*',/  version: '${version}',/" meson.build
   sed -i "0,/^version = \"[^\"]*\"/s//version = \"${version}\"/" rust/Cargo.toml
   sed -i "0,/^version = \"[^\"]*\"/s//version = \"${version}\"/" xtask/Cargo.toml
   sed -i "s/^  version = \"[^\"]*\";/  version = \"${version}\";/" default.nix
@@ -134,18 +129,10 @@ verify() {
   check_version "$version"
 
   command -v cargo >/dev/null 2>&1 || die "cargo is not installed"
-  command -v meson >/dev/null 2>&1 || die "meson is not installed"
-  command -v ninja >/dev/null 2>&1 || die "ninja is not installed"
 
   cargo fmt --all --check
   cargo clippy --workspace --all-targets -- -D warnings
   cargo test --workspace --locked
-
-  if [[ ! -d build-host ]]; then
-    meson setup build-host
-  fi
-  ninja -C build-host
-  meson test -C build-host --print-errorlogs
 
   if command -v guix >/dev/null 2>&1; then
     guix build -f guix.scm

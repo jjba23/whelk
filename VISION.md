@@ -1,6 +1,6 @@
 # Vision
 
-whelk is a Wayland shell written in C, configured by a Scheme program that is
+whelk is a Wayland shell written in Rust, configured by a Scheme program that is
 evaluated rather than parsed. The bar on screen today is a value your settings
 file returns; the point of the project is that every surface a desktop needs --
 bar, panels, launcher, notifications, toasts, menus -- is the same kind of

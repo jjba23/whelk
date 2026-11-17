@@ -126,7 +126,7 @@ pub fn show(style: &BarSettings) {
 
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let version = gtk::Label::new(Some(&format!(
-        "whelk-rs {} · GTK {}.{}.{}",
+        "whelk {} · GTK {}.{}.{}",
         env!("CARGO_PKG_VERSION"),
         gtk::major_version(),
         gtk::minor_version(),

@@ -46,7 +46,9 @@ fn an_animated_gif_exposes_and_advances_its_frames() {
     assert!(!animation.is_static_image());
 
     let iter = animation.iter(None);
-    let first = iter.pixbuf();
+    // GdkPixbufAnimationIter reuses its pixbuf between frames, so hold the
+    // bytes, not a borrowed pixbuf, when comparing the two frames.
+    let first = iter.pixbuf().read_pixel_bytes().to_vec();
     let delay = iter.delay_time().expect("first frame delay");
 
     assert!(delay >= Duration::from_millis(20));
@@ -55,8 +57,8 @@ fn an_animated_gif_exposes_and_advances_its_frames() {
         "the second frame should be due"
     );
 
-    let second = iter.pixbuf();
-    assert_ne!(first.read_pixel_bytes(), second.read_pixel_bytes());
+    let second = iter.pixbuf().read_pixel_bytes().to_vec();
+    assert_ne!(first, second);
 }
 
 #[test]

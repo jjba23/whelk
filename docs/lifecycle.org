@@ -43,23 +43,23 @@ group: commands a module launched can be applications the user wants to keep.
 sequenceDiagram
     participant Sup as supervisor
     participant Guile as Guile
-    participant Shell as shell.c
-    participant Idle as WhelkIdle
+    participant Shell as ui.rs
+    participant Idle as Idle
     participant Notif as notifications
     participant Clip as clipboard
     participant Bars as bars and widgets
 
     Sup->>Guile: exec the UI
-    Guile->>Guile: scm_boot_guile, load path, (whelk core), primitives, actions
-    Guile->>Shell: activate, whelk_shell_new
-    Shell->>Shell: the structural stylesheet from the GResource
+    Guile->>Guile: Guile::init, load path, (whelk core), primitives, actions
+    Guile->>Shell: activate, the shell is built
+    Shell->>Shell: the generated surface CSS
     Shell->>Idle: new, the manager exists first
     Shell->>Notif: new, set_idle, start
     Notif-->>Shell: owns org.freedesktop.Notifications, or leaves it alone
-    Shell->>Guile: whelk_bridge_init, read settings.scm
+    Shell->>Guile: ConfigLoader::load, read settings.scm
     Shell->>Clip: new, limits and policy from (clipboard-settings), start wl-paste
     Shell->>Guile: read the menu tables, dictionary and Orbit
-    Shell->>Shell: whelk_locker_init, PAM and logind ready before any --lock
+    Shell->>Shell: locker and logind ready before any --lock
     Shell->>Idle: lock action is this shell's lock, then start
     Shell->>Bars: build_bars
     Shell->>Shell: the centre, the launcher, the network panel, the OSD
@@ -81,15 +81,15 @@ Two consequences of that order are worth knowing:
 #+begin_src mermaid
 sequenceDiagram
     participant FS as config directory
-    participant Shell as shell.c
-    participant Guile as guile_bridge.c
+    participant Shell as ui.rs
+    participant Guile as guile.rs
     participant Bars as bars and widgets
     participant Panels as centre, launcher, panel, OSD
 
     FS->>Shell: changed
     Shell->>Shell: cancel the pending timeout, start a 250 ms one
     Note over Shell: a second save inside the window<br/>restarts the countdown
-    Shell->>Guile: whelk_bridge_load
+    Shell->>Guile: ConfigLoader::load
     alt evaluation failed
         Guile-->>Shell: false
         Shell->>Shell: log a warning, keep the last configuration
@@ -102,7 +102,7 @@ sequenceDiagram
     end
 #+end_src
 
-=build_bars= is also what a monitor hotplug calls, from an idle callback: the
+=rebuild= is also what a monitor hotplug calls, from an idle callback: the
 monitor model must stop emitting before a bar that queries it is destroyed.
 Both paths end in the same function, so a hotplug and a settings save cannot
 disagree about what a bar looks like.
@@ -115,8 +115,8 @@ disagree about what a bar looks like.
 sequenceDiagram
     participant Timer as the module's timer
     participant Module as modules
-    participant Cmd as util/command.c
-    participant Guard as ModuleGuard
+    participant Cmd as command.rs
+    participant Guard as request token
 
     Timer->>Module: update, every #:interval seconds
     Module->>Cmd: run the command, nmcli, xprop, niri msg, a sysfs read
@@ -154,11 +154,11 @@ notification daemon for the length of a supervisor delay.
 #+caption: Four ways in, one path out: everything that locks asks the same function, which is why the policy lives in one place.
 #+begin_src mermaid
 flowchart LR
-    K1["whelk --lock"] --> L["whelk_shell_lock"]
+    K1["whelk --lock"] --> L["the shell lock request"]
     K2["shell:lock<br/>in the shell menu"] --> L
     K3["logind's Lock signal<br/>loginctl lock-session"] --> L
     K4["the idle manager's timer"] --> L
-    L --> M["the locker, initialised at startup<br/>PAM and logind ready before any --lock"]
+    L --> M["the locker, ready at startup<br/>PAM and logind before any --lock"]
     M --> N{"ext-session-lock-v1 present?"}
     N -->|yes| O["the compositor owns the lock"]
     N -->|no| P["an overlay per output, fail-closed"]
@@ -178,7 +178,7 @@ message means.
 sequenceDiagram
     participant Src as SIGTERM, SIGINT, SIGHUP, --quit, Quit
     participant App as GApplication
-    participant Shell as shell.c
+    participant Shell as ui.rs
 
     Src->>App: leave the application normally
     App->>Shell: shutdown
@@ -199,7 +199,7 @@ A module is a value with its own widgets, timer and destroy function.  Building
 one is guarded at the factory boundary: an unknown kind is logged and left out,
 and a module that returns nothing does not stop the rest of the bar from being
 built.  A finished command never writes into a module that a reload has already
-freed; =ModuleGuard= keeps that generation boundary.  That is enough for a bad
+freed; The module request token keeps that generation boundary.  That is enough for a bad
 option and a failed command.  It is not enough for a native segmentation fault:
 one address space cannot safely recover from that, and pretending otherwise
 would hide a real bug.

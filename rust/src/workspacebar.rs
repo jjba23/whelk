@@ -130,7 +130,7 @@ fn refresh(session: Session, spec: &WorkspaceBarSpec, host: &ModuleHost) {
         };
         let Some(buttons) = buttons(session, &text, &spec) else {
             eprintln!(
-                "whelk-rs: workspaces: {}'s answer was not the expected JSON",
+                "whelk: workspaces: {}'s answer was not the expected JSON",
                 session.name()
             );
 

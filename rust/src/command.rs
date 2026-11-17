@@ -338,5 +338,5 @@ fn spawn_process(
 }
 
 fn log(message: &str) {
-    eprintln!("whelk-rs: command: {message}");
+    eprintln!("whelk: command: {message}");
 }

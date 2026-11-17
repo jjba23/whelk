@@ -3,21 +3,20 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-//! The small, dependency-free half of the Cargo packaging transition.
+//! The small, dependency-free packaging task.
 //!
-//! The C shell and its Meson install remain in the tree while the modules are
-//! ported.  This task is the lambdock-style entry point for the Rust half: build
-//! `whelk-rs`, stage the binary, the Guile modules and the README under a
-//! prefix, and never touch the installed C `whelk`.  It runs from the workspace
-//! root, so its target and the shared data files have one location.
+//! This is the project's install entry point: build `whelk`, stage the binary,
+//! the Guile modules, the desktop entry and the icon tree under a prefix.  It
+//! runs from the workspace root, so its target and the shared data files have
+//! one location.
 
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const BINARY: &str = "whelk-rs";
-const APP_ID: &str = "org.jointhefreeworld.whelk.rust";
+const BINARY: &str = "whelk";
+const APP_ID: &str = "org.jointhefreeworld.whelk";
 
 fn main() -> ExitCode {
     match run() {
@@ -87,6 +86,12 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
             }
             "--debug" => debug = true,
             "--no-build" => build = false,
+            other if other.starts_with("--prefix=") => {
+                prefix = PathBuf::from(&other["--prefix=".len()..]);
+            }
+            other if other.starts_with("--destdir=") => {
+                destdir = Some(PathBuf::from(&other["--destdir=".len()..]));
+            }
             other => return Err(format!("unknown install option {other:?}")),
         }
     }
@@ -134,7 +139,12 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
     )?;
     install_file(
         &workspace.join("rust/README.md"),
-        &root.join("share/doc/whelk-rs/README.md"),
+        &root.join("share/doc/whelk/README.md"),
+        0o644,
+    )?;
+    install_file(
+        &workspace.join("README.org"),
+        &root.join("share/doc/whelk/README.org"),
         0o644,
     )?;
     install_text(
@@ -162,8 +172,8 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
             .display()
     );
     println!(
-        "the C `whelk` binary was not touched; run `whelk-rs` beside it, and set \
-         WHELK_SCHEME_DIR={} if this prefix is not on Guile's load path",
+        "installed whelk; set WHELK_SCHEME_DIR={} if this prefix is not on \
+         Guile's load path",
         root.join("share/guile/site/3.0").display()
     );
 
@@ -180,7 +190,7 @@ fn workspace_root() -> Result<PathBuf, String> {
 }
 
 /// The checkout, rather than the Rust workspace: `git archive` must see the
-/// Meson tree too.  The workspace root is now that checkout.
+/// tree too.  The workspace root is that checkout.
 fn repository_root() -> Result<PathBuf, String> {
     workspace_root()
 }
@@ -247,14 +257,13 @@ fn dist(arguments: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// The Rust shell's own desktop entry.  It shares the C shell's icon so a
-/// desktop that has both installed shows one whelk mark, but its executable and
-/// startup class are the Rust ones.
+/// The installed desktop entry.  It points at the canonical whelk application
+/// id and the icon tree the install stages beside it.
 fn desktop_entry() -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
-         Name=Whelk (Rust)\n\
+         Name=Whelk\n\
          GenericName=Wayland Shell\n\
          Comment=A Wayland shell -- status bar, launcher and desktop widgets, configured in Guile Scheme\n\
          Exec={BINARY}\n\
@@ -348,13 +357,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_cargo_install_ships_a_desktop_entry_for_the_rust_binary() {
+    fn the_cargo_install_ships_a_desktop_entry_for_the_installed_binary() {
         let entry = desktop_entry();
 
         assert!(entry.ends_with('\n'));
-        assert!(entry.contains("Exec=whelk-rs\n"));
+        assert!(entry.contains("Exec=whelk\n"));
         assert!(entry.contains("Icon=org.jointhefreeworld.whelk\n"));
-        assert!(entry.contains("Name=Whelk (Rust)\n"));
-        assert!(entry.contains("StartupWMClass=org.jointhefreeworld.whelk.rust\n"));
+        assert!(entry.contains("Name=Whelk\n"));
+        assert!(entry.contains("StartupWMClass=org.jointhefreeworld.whelk\n"));
     }
 }

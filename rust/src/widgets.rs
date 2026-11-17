@@ -540,11 +540,11 @@ pub fn cities(input: &str) -> Vec<City> {
 /// A city's clock at `now`, or `None` when this machine does not know the
 /// zone.  The caller falls back to UTC, as the C card does.
 pub fn city_time(zone: &str) -> Option<(String, String)> {
-    // `glib::TimeZone::new` is `g_time_zone_new`, which falls back to UTC for
-    // a zone this machine does not know.  The C card calls
-    // `g_time_zone_new_identifier` first so it can say so on stderr; that
-    // function is not bound here, so an unknown zone silently reads as UTC.
-    let timezone = gtk::glib::TimeZone::new(Some(zone));
+    // `from_identifier` is `g_time_zone_new_identifier`.  The C card tries
+    // the configured zone and falls back to UTC when this machine does not
+    // know it.
+    let timezone = gtk::glib::TimeZone::from_identifier(Some(zone))
+        .or_else(|| gtk::glib::TimeZone::from_identifier(Some("UTC")))?;
     let now = gtk::glib::DateTime::now(&timezone).ok()?;
 
     Some((

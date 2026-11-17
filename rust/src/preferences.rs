@@ -423,7 +423,7 @@ impl Preferences {
     ) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs settings")
+            .title("whelk settings")
             .build();
         let host = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let state = Rc::new(State {
@@ -480,7 +480,7 @@ impl Preferences {
             bar.radius = 12;
         }
 
-        let generated = style::css("whelk-rs-settings", &bar, "settings-page", None);
+        let generated = style::css("whelk-settings", &bar, "settings-page", None);
         let css = gtk::CssProvider::new();
 
         css.load_from_string(&format!(
@@ -959,7 +959,7 @@ fn footer(state: &Rc<State>, host: &gtk::Box) -> gtk::Box {
             state.drop_pending();
 
             if !(state.callbacks.reset)() {
-                eprintln!("whelk-rs: could not reset the GUI preferences");
+                eprintln!("whelk: could not reset the GUI preferences");
             }
 
             let snapshot = (state.callbacks.reload)();

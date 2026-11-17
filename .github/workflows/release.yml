@@ -1,4 +1,4 @@
-# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -36,9 +36,9 @@ jobs:
         run: |
           set -euo pipefail
           version=${GITHUB_REF_NAME#v}
-          manifest=$(sed -n "s/^  version: '\([^']*\)',/\1/p" meson.build | head -n 1)
+          manifest=$(sed -n 's/^version = "\([^"]*\)"/\1/p' rust/Cargo.toml | head -n 1)
           [[ "$manifest" == "$version" ]] || {
-            echo "tag v${version} does not match meson.build ${manifest}" >&2
+            echo "tag v${version} does not match rust/Cargo.toml ${manifest}" >&2
             exit 1
           }
           mkdir -p dist

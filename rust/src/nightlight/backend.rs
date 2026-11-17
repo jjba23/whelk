@@ -67,7 +67,7 @@ pub fn open() -> Option<Platform> {
             Some(backend) => Some(Platform::Wayland(backend)),
             None => {
                 eprintln!(
-                    "whelk-rs: night light: this Wayland compositor does not offer \
+                    "whelk: night light: this Wayland compositor does not offer \
                      wlr-gamma-control-unstable-v1, so whelk cannot change the screen's gamma; \
                      the setting is kept for a session that can"
                 );
@@ -79,7 +79,7 @@ pub fn open() -> Option<Platform> {
             Some(backend) => Some(Platform::X11(Box::new(backend))),
             None => {
                 eprintln!(
-                    "whelk-rs: night light: this X display has no RandR gamma table whelk can \
+                    "whelk: night light: this X display has no RandR gamma table whelk can \
                      use; the setting is kept for a session that has one"
                 );
 
@@ -87,7 +87,7 @@ pub fn open() -> Option<Platform> {
             }
         },
         Choice::Unavailable => {
-            eprintln!("whelk-rs: night light: no Wayland or X display to warm");
+            eprintln!("whelk: night light: no Wayland or X display to warm");
 
             None
         }

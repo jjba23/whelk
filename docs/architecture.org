@@ -5,7 +5,7 @@
 The source tree, the boundaries that keep it testable, how a bar becomes pixels, and where a change belongs.
 
 #+name: components
-#+caption: One direction only: Scheme describes, the bridge translates, C builds.  Nothing in the shell calls back into the evaluator to ask what it meant.
+#+caption: One direction only: Scheme describes, the Guile boundary translates, Rust builds.  Nothing in the shell calls back into the evaluator to ask what it meant.
 #+begin_src mermaid
 flowchart TD
     subgraph scheme["Scheme - what a user writes"]
@@ -18,22 +18,20 @@ flowchart TD
         MENUDICT["menudict.scm, orbit.scm<br/>the shortcut tables"]
     end
 
-    subgraph bridge["the boundary"]
-        GB["src/guile_bridge.c<br/>the only file that calls scm_*"]
-        CFG["src/config.h<br/>WhelkBarConfig, WhelkModuleSpec"]
+    subgraph boundary["the boundary"]
+        G["rust/src/guile.rs<br/>the only safe interface to SCM"]
+        SYS["rust/src/guile/sys.rs<br/>reviewed libguile declarations"]
+        CFG["rust/src/config.rs<br/>LoadedConfig, bars, wallpaper, menu"]
     end
 
-    subgraph engine["C - what the shell runs"]
-        SHELL["shell.c<br/>which bars, when to rebuild"]
-        BAR["bar.c<br/>surface, rows, generated CSS"]
-        SURF["surface.c<br/>layer-shell plumbing"]
-        MOD["module.c<br/>factory table, timers, rendering"]
-        MODULES["modules/*.c<br/>one reading per file"]
-        UTIL["util/*<br/>commands, sysfs, JSON, text, mouse"]
-        NOTIF["notifications.c, notification_center.c"]
-        LAUNCH["launcher.c"]
-        NET["network_panel.c"]
-        STYLE["style.c<br/>the generated skin"]
+    subgraph shell["Rust - what the shell runs"]
+        APP["main.rs, supervisor.rs, signals.rs<br/>process, single instance, shutdown"]
+        UI["ui.rs<br/>bar set, reload, hotplug, idle"]
+        BAR["bar.rs, barfactory.rs<br/>typed bars and modules"]
+        MODULES["*bar.rs<br/>one reading per module"]
+        SURFACES["launcherpanel.rs, notificationcenter.rs,<br/>networkpanel.rs, locker.rs, desktopwidgets.rs"]
+        POLICY["settings.rs, wallpaper.rs, format.rs,<br/>session.rs, workspaces.rs, ..."]
+        STYLE["style.rs<br/>the generated skin"]
     end
 
     S --> CORE
@@ -41,21 +39,20 @@ flowchart TD
     LOADER --> STATE
     CORE --> DEFAULTS
     CORE --> THEMES
-    STATE --> GB
-    DEFAULTS --> GB
-    THEMES --> GB
-    MENUDICT --> GB
-    GB --> CFG
-    CFG --> SHELL
-    SHELL --> BAR
-    BAR --> SURF
-    BAR --> MOD
-    MOD --> MODULES
-    MODULES --> UTIL
+    STATE --> G
+    DEFAULTS --> G
+    THEMES --> G
+    MENUDICT --> G
+    G --> SYS
+    G --> CFG
+    CFG --> APP
+    APP --> UI
+    UI --> BAR
+    BAR --> MODULES
+    UI --> SURFACES
     BAR --> STYLE
-    SHELL --> NOTIF
-    SHELL --> LAUNCH
-    SHELL --> NET
+    MODULES --> POLICY
+    SURFACES --> POLICY
 #+end_src
 
 #+begin_src text
@@ -69,45 +66,39 @@ flowchart TD
                           themes.scm    the palettes
                           logger.scm    diagnostics on stderr
        |
-  src/guile_bridge.c      the only file that speaks SCM: reads the alists and
-                          hands C plain structs (src/config.h)
+  rust/src/guile.rs       the only file that speaks SCM: reads the alists and
+                          hands Rust plain structs (config.rs)
        |
-  src/shell.c             which settings file, which bars, when to rebuild,
-                          config-directory watching, monitor hotplug
+  rust/src/config.rs      the loaded configuration, reload boundary and
+                          built-in no-configuration path
+  rust/src/main.rs        the command line, supervisor and Guile lifecycle
+  rust/src/ui.rs          one bar set, its reload and monitor model, the idle
+                          manager, notifications and the shell actions
+  rust/src/bar.rs         a bar = edge, layer, modules and generated skin
+  rust/src/*bar.rs        one reading per module
+  rust/src/style.rs       the generated skin every surface wears
        |
-  src/bar.c               a bar = a surface + three module rows + generated CSS
-  src/surface.c           a generic anchored layer surface: bars, the panels,
-                          the toasts and the launcher are all this object
-  src/notifications.c     the notification service and its store
-  src/notification_center.c  the toast stack and the grouped centre
-  src/network_panel.c     the Wi-Fi and Bluetooth pages
-  src/launcher.c          the overlay, its modes and its ranking
-  src/style.c             the generated skin every surface wears
-       |
-  src/module.c            the factory table, the refresh timer, rendering
-  src/modules/*.c         one file per reading
-  src/util/*              commands, sysfs, JSON, text, mouse actions
+  rust/src/launcherpanel.rs, notificationcenter.rs, networkpanel.rs,
+  locker.rs, wallpaperpicker.rs, desktopwidgets.rs
+                          the independently presented surfaces
 #+end_src
 
 * The boundaries are the design
 
-- *No SCM escapes the bridge.*  =src/guile_bridge.h= has no Scheme type in any
-  signature, and nothing outside =guile_bridge.c= calls =scm_*=.  The rest of
-  the shell builds and is tested from plain structs, and the built-in fallback
-  bar is built the same way, with no Scheme at all.
-- *A module is a value, not a subclass.*  A kind, a root widget, an =update=
-  function, a =destroy= function, and the factory table in =module.c=.  Adding
-  one is three steps: a =.c= file with a factory, its prototype in
-  =src/modules/modules.h=, and a row in the table.  Nothing else changes.
-- *A bar is a surface, and a surface is not a bar.*  =src/surface.c= owns the
-  layer-shell plumbing (edge, anchors, margins, exclusive zone, monitor,
-  namespace).  A notification stack is the same object with a different child;
-  that is why the next surface does not have to re-learn layer-shell.
-- *CSS is structure plus skin.*  =resources/css/whelk.css= is the structure:
-  module layout, hover, workspace states, the battery's warning colours.  The
-  skin -- this bar's colours, fonts and radius -- is generated from the
-  configuration and scoped to the bar's window id, so two bars can wear two
-  materials.
+- *Scheme never becomes a pointer in application code.*  =guile/sys.rs= owns
+  the reviewed libguile declarations; =guile.rs= turns SCM values into owned
+  Rust strings, numbers and lists.  No widget holds a =SCM= value.
+- *A module is a value, not a subclass.*  A module kind is a row in
+  =barfactory.rs=; its reading and widget live in the matching =*bar.rs= file.
+  A module reports through the shared =barmodule.rs= host, so its timer,
+  cancellation, deadline and mouse options are the same as every other kind.
+- *A bar is configuration, a surface is not a bar.*  =ui.rs= turns a typed
+  =BarSettings= into one layer-shell surface per selected output.  Launchers,
+  panels, notifications and the locker use the same surface vocabulary without
+  pretending to be a bar.
+- *CSS is structure plus skin.*  =resources/css/whelk.css= is no longer a
+  compiled resource; the Rust surfaces generate their structural and thematic
+  CSS in =style.rs= and the per-surface modules, scoped to each window id.
 
 * How a bar becomes pixels
 
@@ -116,36 +107,35 @@ flowchart TD
 #+begin_src mermaid
 flowchart LR
     A["(bar #:name 'main ...)<br/>a Scheme record"] --> B["an alist<br/>state.scm: bar->alist"]
-    B --> C["WhelkBarConfig<br/>plain C structs, deep-copied"]
-    C --> D["WhelkBar<br/>bar.c"]
-    D --> E["WhelkSurface<br/>edge, anchors, margin,<br/>exclusive zone, monitor"]
+    B --> C["BarSettings<br/>plain Rust structs"]
+    C --> D["bar window<br/>ui.rs"]
+    D --> E["layer surface<br/>edge, anchors, margin,<br/>exclusive zone, monitor"]
     D --> F["module rows<br/>left, centre, right, overflow"]
-    F --> G["WhelkModule<br/>a root widget + a timer"]
+    F --> G["BarModule<br/>a root widget + a timer"]
     D --> H["a generated CSS provider<br/>scoped to this bar's window"]
-    I["resources/css/whelk.css<br/>the structure"] --> H
-    H --> J["the bar on screen"]
-    E --> J
-    G --> J
+    H --> I["the bar on screen"]
+    E --> I
+    G --> I
 #+end_src
 
-The deep copy is what makes a reload safe: the C structs do not point into the
-Scheme heap, so destroying every bar and building new ones from a fresh
-evaluation has nothing to reconcile.  A module's own generation guard covers the
-other direction -- a command that finishes after its module was freed writes
-nowhere (see [[file:lifecycle.org][Lifecycles]]).
+The deep copy is what makes a reload safe: the Rust structs do not point into
+the Scheme heap, so destroying every bar and building new ones from a fresh
+evaluation has nothing to reconcile.  A module's own token covers the other
+direction -- a command that finishes after its module was freed writes nowhere
+(see [[file:lifecycle.org][Lifecycles]]).
 
 * Where a change belongs
 
-| You are adding                        | It goes in                                          |
-|---------------------------------------+-----------------------------------------------------|
-| a reading on the bar                  | =src/modules/<kind>.c=, =modules.h=, a row in =module.c= |
-| an option every module understands    | the shared reader in =src/config.c= and the table in =guile_bridge.c= |
-| a bar or widget keyword               | =guile_bridge.c= (read), =config.h= (carry), =bar.c= (use) |
-| a new kind of surface                 | =src/surface.c= as the parent, then its own file       |
-| a palette                             | =scheme/whelk/themes.scm=                             |
-| a menu producer                       | =src/modules/menu.c=, in the probing order            |
-| a settings-window control             | =src/preferences.c= and the page it belongs to        |
-| a new configuration entry point       | =scheme/whelk/core.scm=, and it must still be a value |
+| You are adding                        | It goes in                                              |
+|---------------------------------------+---------------------------------------------------------|
+| a reading on the bar                  | =rust/src/<kind>bar.rs= and a row in =barfactory.rs=     |
+| an option every module understands    | =barmodule.rs= and the reader in =bar.rs=                 |
+| a bar or widget keyword               | =guile.rs= (read), =bar.rs= / =widgets.rs= (carry), =ui.rs= (use) |
+| a new kind of surface                 | =ui.rs= or its own module, over the shared surface helpers |
+| a palette                             | =scheme/whelk/themes.scm=                               |
+| a menu producer                       | =menubar.rs=, =menuprobe.rs= and =globalmenu.rs=          |
+| a settings-window control             | =preferences.rs= and the page it belongs to             |
+| a configuration entry point           | =scheme/whelk/core.scm=, and it must still be a value    |
 
 ------------------
 

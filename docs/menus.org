@@ -311,12 +311,12 @@ What this does not change: choosing a row closes the menu, a click outside
 closes it, and a focus change to another application closes it and builds that
 application's menus.
 
-** The Rust bootstrap's menu
+** The shell menu
 :PROPERTIES:
 :CUSTOM_ID: menu-rust
 :END:
 
-=whelk-rs= has its own =menu= module.  It is the same menubar in the same
+whelk has its own =menu= module.  It is the same menubar in the same
 place, built from owned Rust data rather than widgets assembled in C:
 =src/menubar.rs= reads the script protocol, =org.gtk.Menus= and DBusMenu;
 =src/menuapps.rs= owns the application dictionary, Orbit corpus and
@@ -350,7 +350,7 @@ Current boundaries are narrow, and stated rather than hidden:
   remembers the open path and puts it back; =LayoutUpdated= on its own closes
   nothing.
 - User-installed Orbit JSON maps under =global-menu/shortcuts/apps= or
-  =WHELK_SHORTCUT_MAPS= are read by both the C shell and =whelk-rs=.  The Rust
+  =WHELK_SHORTCUT_MAPS= are read by the Rust
   producer indexes the sorted files with the configuration, reads the matching
   file lazily, and places the map before the shipped Scheme corpus and after
   the curated dictionary.

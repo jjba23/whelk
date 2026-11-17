@@ -1,11 +1,11 @@
-# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 # Maintainer: Josep Bigorra <jjbigorra@gmail.com>
 pkgname=whelk
-pkgver=0.38.0
+pkgver=0.39.0
 pkgrel=1
 pkgdesc="Wayland shell with bars, a launcher and notifications, configured in Guile Scheme"
 arch=('x86_64' 'aarch64')
@@ -20,14 +20,13 @@ depends=(
   'pam'
   'wtype'
   'wayland'
-  'libx11'
-  'libxrandr'
 )
 
 makedepends=(
-  'meson'
-  'ninja'
+  'cargo'
+  'rust'
   'pkgconf'
+  'xorg-server-xvfb'
 )
 
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
@@ -36,18 +35,17 @@ sha256sums=('SKIP')
 build() {
   cd "$srcdir/${pkgname}-${pkgver}"
 
-  arch-meson . build
-  meson compile -C build
+  cargo build --release --locked --bin whelk
 }
 
 check() {
   cd "$srcdir/${pkgname}-${pkgver}"
-  meson test -C build --print-errorlogs
+  xvfb-run -a cargo test --workspace --locked
 }
 
 package() {
   cd "$srcdir/${pkgname}-${pkgver}"
 
-  DESTDIR="$pkgdir" meson install -C build
+  cargo xtask install --prefix=/usr --destdir="$pkgdir" --no-build
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

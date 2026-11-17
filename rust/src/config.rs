@@ -110,7 +110,7 @@ impl ConfigLoader {
         // C bridge returns its short fallback when the Scheme side cannot
         // answer; this does the same, with the full default menu instead.
         let menu = guile.load_shell_menu(&self.path).unwrap_or_else(|error| {
-            eprintln!("whelk-rs: shell menu could not be loaded: {error}; using the default menu");
+            eprintln!("whelk: shell menu could not be loaded: {error}; using the default menu");
 
             MenuEntry::default_menu()
         });
@@ -119,7 +119,7 @@ impl ConfigLoader {
         // module leaves the shared Edit/View and window verbs in place.
         let mut menu_sources = guile.load_menu_sources(&self.path).unwrap_or_else(|error| {
             eprintln!(
-                "whelk-rs: application menu sources could not be loaded: {error}; using shared menus only"
+                "whelk: application menu sources could not be loaded: {error}; using shared menus only"
             );
 
             MenuSources::default()
@@ -132,7 +132,7 @@ impl ConfigLoader {
         // A desktop widget that cannot be read is not a reason to refuse the
         // shell: the bars it was placed around are still valid.
         let widgets = guile.load_widgets(&self.path).unwrap_or_else(|error| {
-            eprintln!("whelk-rs: desktop widgets could not be loaded: {error}; drawing none");
+            eprintln!("whelk: desktop widgets could not be loaded: {error}; drawing none");
 
             Vec::new()
         });
@@ -140,9 +140,7 @@ impl ConfigLoader {
         // A night light that cannot be read leaves the shell usable and the
         // filter off, the same way a broken widget list draws no cards.
         let night_light = guile.load_night_light(&self.path).unwrap_or_else(|error| {
-            eprintln!(
-                "whelk-rs: night light settings could not be loaded: {error}; leaving it off"
-            );
+            eprintln!("whelk: night light settings could not be loaded: {error}; leaving it off");
 
             crate::nightlight::Config::default()
         });
@@ -217,13 +215,13 @@ impl ConfigLoader {
             Ok(guile) => match guile.read_preference(&path, key) {
                 Ok(value) => value,
                 Err(error) => {
-                    eprintln!("whelk-rs: could not read '{key}': {error}");
+                    eprintln!("whelk: could not read '{key}': {error}");
 
                     None
                 }
             },
             Err(error) => {
-                eprintln!("whelk-rs: could not read '{key}': {error}");
+                eprintln!("whelk: could not read '{key}': {error}");
 
                 None
             }
@@ -234,12 +232,12 @@ impl ConfigLoader {
     pub fn theme_names(&mut self) -> Vec<String> {
         match self.guile_mut() {
             Ok(guile) => guile.theme_names().unwrap_or_else(|error| {
-                eprintln!("whelk-rs: could not list the themes: {error}");
+                eprintln!("whelk: could not list the themes: {error}");
 
                 Vec::new()
             }),
             Err(error) => {
-                eprintln!("whelk-rs: could not list the themes: {error}");
+                eprintln!("whelk: could not list the themes: {error}");
 
                 Vec::new()
             }
@@ -254,7 +252,7 @@ impl ConfigLoader {
         match guile.load_night_light(&path) {
             Ok(config) => Some(config),
             Err(error) => {
-                eprintln!("whelk-rs: could not read the night light: {error}");
+                eprintln!("whelk: could not read the night light: {error}");
 
                 None
             }

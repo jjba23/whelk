@@ -68,7 +68,7 @@ impl Osd {
     pub fn new(application: &gtk::Application, style: &BarSettings) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs osd")
+            .title("whelk osd")
             .build();
 
         window.set_widget_name(&style::widget_id("osd"));

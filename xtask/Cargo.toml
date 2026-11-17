@@ -1,9 +1,9 @@
 [package]
 name = "xtask"
-version = "0.38.0"
+version = "0.39.0"
 edition = "2024"
 publish = false
-description = "Build and staged-install helper for whelk-rs"
+description = "Build and staged-install helper for whelk"
 
 [[bin]]
 name = "xtask"

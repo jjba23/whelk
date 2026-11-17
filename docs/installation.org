@@ -15,11 +15,9 @@ What has to exist on the machine before whelk can start, what the binary looks f
 - Linux-PAM development headers.  The library itself is not linked: the lock
   screen loads the host's at run time (see [[file:installation.org][What the binary links]]), but
   the build refuses to produce a shell that could only lock and never unlock.
-- Meson, Ninja, a C17 compiler, =pkg-config=
+- Rust 1.92 or newer, Cargo, =pkg-config=
 - =wayland-scanner=, which generates the river-status client binding at build
   time
-- Optional, found at build time: =libx11= (the X11 dock fallback) and
-  =libxrandr= (the X11 night light, which writes the CRTC gamma table)
 - Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
   (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
   menu shortcut), =nmcli=, =bluetoothctl=, =wlsunset=
@@ -33,9 +31,8 @@ and hides what is not.
 :END:
 
 =ldd $(command -v whelk)= is the honest answer to "what does this binary
-need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO, libm, Guile, and
-=libX11= and =libXrandr= where the build found them.  PAM is not on that list,
-and that is deliberate.
+need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO and Guile.  PAM is not
+on that list, and that is deliberate.
 
 The locker opens a PAM library with =dlopen= at the moment a password is
 submitted; [[file:lock-screen.org][The lock screen]] explains why.  A binary that linked
@@ -132,38 +129,29 @@ the channels in =~/.config/guix= have moved on.
 :CUSTOM_ID: source
 :END:
 
-#+begin_src sh
-  meson setup build
-  ninja -C build
-  meson test -C build          # the C and Guile suites
-  ./build/whelk
-#+end_src
-
-Whelk must be started *from the project root* (or installed): the Guile engine
-resolves its modules through the relative =scheme/= directory as well as the
-installation path baked in at configure time, so a build without an install
-finds =scheme/whelk/*.scm= by looking in the current directory.
-
-Install it with:
-
-#+begin_src sh
-  meson setup build --prefix=/usr
-  ninja -C build install
-#+end_src
-
-The Rust shell is a Cargo workspace at the repository root, beside the C tree
-while its modules are ported:
+Whelk is a Cargo workspace at the repository root:
 
 #+begin_src sh
   cargo build -p whelk-rs --release
-  cargo test -p whelk-rs
-  cargo xtask install --prefix=/usr/local --destdir="$DESTDIR"
-  ./target/release/whelk-rs
+  cargo test --workspace --locked       # the Rust and Guile suites
+  ./target/release/whelk
 #+end_src
 
-`xtask` stages =whelk-rs=, the shared =scheme/whelk= modules and the Rust README;
-it does not touch an installed C =whelk=.  The Meson build above remains the C
-shell's, because the two binaries still live side by side.
+Whelk must be started *from the project root* (or installed): the Guile engine
+resolves its modules through the checkout's =scheme/= directory as well as the
+installation path.  A build without an install finds =scheme/whelk/*.scm= from
+the current directory.
+
+Install it with the project's staging task:
+
+#+begin_src sh
+  cargo xtask install --prefix=/usr --destdir="$DESTDIR"
+#+end_src
+
+`xtask` stages =whelk=, the shared =scheme/whelk= modules, the desktop entry,
+the hicolor icon tree and the README.  The binary also finds the modules beside
+its own prefix, so =/usr/local= and staged package roots work without an
+environment variable.
 
 * Distribution packages
 :PROPERTIES:

@@ -10,7 +10,7 @@ fn main() {
     pkg_config::Config::new()
         .atleast_version("3.0")
         .probe("guile-3.0")
-        .expect("whelk-rs needs GNU Guile 3.0 development files (guile-3.0.pc)");
+        .expect("whelk needs GNU Guile 3.0 development files (guile-3.0.pc)");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=WHELK_SCHEME_DIR");

@@ -4,9 +4,8 @@
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 # The workspace: the Rust shell, and `xtask` -- the jobs cargo does not do on its
-# own (staging an install and writing the source archive).  The C shell and its Meson build remain in the tree while the
-# modules are ported one at a time, but the Rust half is built and installed by
-# cargo alone.
+# own (staging an install and writing the source archive).  This is the only
+# build; the C shell and its Meson build are gone.
 [workspace]
 members = ["rust", "xtask"]
 resolver = "2"

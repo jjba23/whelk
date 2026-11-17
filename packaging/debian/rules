@@ -1,8 +1,22 @@
 #!/usr/bin/make -f
-# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
+export CARGO_HOME=$(CURDIR)/debian/cargo-home
+
 %:
-	dh $@ --buildsystem=meson
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked --bin whelk
+
+override_dh_auto_test:
+	xvfb-run -a cargo test --workspace --locked
+
+override_dh_auto_install:
+	cargo xtask install --prefix=/usr --destdir=$(CURDIR)/debian/whelk --no-build
+
+override_dh_auto_clean:
+	cargo clean

@@ -6,7 +6,7 @@
 #+options: toc:nil num:nil html-style:nil
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://jointhefreeworld.org/static/css/jointhefreeworld.css" />
 
-[[https://jointhefreeworld.org/ggg/dist/lang-c.svg]] [[https://jointhefreeworld.org/ggg/dist/gtk4.svg]] [[https://jointhefreeworld.org/ggg/dist/scheme-guile.svg]] [[https://jointhefreeworld.org/ggg/dist/build-meson.svg]] [[https://jointhefreeworld.org/ggg/dist/gnu-guix.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]]
+[[https://img.shields.io/badge/language-Rust-dea584.svg]] [[https://jointhefreeworld.org/ggg/dist/gtk4.svg]] [[https://jointhefreeworld.org/ggg/dist/scheme-guile.svg]] [[https://img.shields.io/badge/build-Cargo-dea584.svg]] [[https://jointhefreeworld.org/ggg/dist/gnu-guix.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]]
 [[https://github.com/jjba23/whelk/actions/workflows/ci.yml/badge.svg]] [[https://img.shields.io/badge/license-MIT-2ea44f.svg]] [[https://jointhefreeworld.org/ggg/dist/jointhefreeworld-org.svg]]
 
 #+attr_html: :width 128 :alt the whelk logo: a whelk shell drawn in SVG
@@ -14,11 +14,11 @@
 
 #+begin_quote
 An ordinary status bar is a compiled artefact with a settings file in front of
-it.  whelk is a shell written in C and Rust, and the bar on screen is the value
+it.  whelk is a shell written in Rust, and the bar on screen is the value
 of a Guile program you can rewrite while it runs.
 #+end_quote
 
-whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, notification centre, floating desktop widgets and more.  It is written in C and Rust with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
+whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, notification centre, floating desktop widgets and more.  It is written in Rust with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
 in S-expressions, rather than in JSON plus a CSS file.
 
 It's a programmable flexible shell you can *program*: modules are values, a bar is a list, the settings file is
@@ -28,7 +28,7 @@ environment the configuration lives in.
 - 🐚 *Read the source, file an issue, send a PR:*
   [[https://github.com/jjba23/whelk][github.com/jjba23/whelk]]
 - 📦 *Install it:* from the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld Guix channel]], with Nix, with
-  Meson or Cargo, or from the =packaging/= recipes
+  Cargo, or from the =packaging/= recipes
 - 📚 *Hack on it:* [[file:docs/development.org][the development guide]] for the conventions, the tests and the house rules
 - 📰 *Follow what changed:* [[file:NEWS.org][the news]]
 - 🤖 *Know the rules of the road:* [[file:AI_POLICY.md][the AI policy]]
@@ -196,7 +196,7 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   Wayland protocol; whelk binds that protocol over its own connection.  River
   publishes the title there, not an application id, so ={app-id}= stays empty
   rather than being guessed.
-- *Boring where it counts.* =-Werror=, unit tests for the pure halves, a Guile
+- *Boring where it counts.* =-D warnings=, unit tests for the pure halves, a Guile
   suite that pins the built-in bar, a hermetic Guix build, and CI that runs the
   same task you do.
 
@@ -231,8 +231,7 @@ click, and the command line a keybinding uses to open a surface.
 |--------------------------+----------------------------------------------------------------------|
 | the jointhefreeworld channel | =guix install whelk=, from [[https://github.com/jjba23/guix-jointhefreeworld][the channel]]                        |
 | Nix                      | =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'= |
-| from source (C shell)    | =meson setup build && ninja -C build && meson test -C build=           |
-| from source (Rust shell) | =cargo build -p whelk-rs --release=, then =cargo xtask install=       |
+| from source              | =cargo build -p whelk-rs --release=, then =cargo xtask install=       |
 | a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build=                   |
 
 [[file:docs/installation.org][Installation]] has the requirements, what the binary links (and why PAM is not on

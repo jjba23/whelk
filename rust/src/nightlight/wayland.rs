@@ -269,7 +269,7 @@ impl Dispatch<ZwlrGammaControlV1, u32> for State {
 
                 if !output.warned {
                     eprintln!(
-                        "whelk-rs: night light: the compositor refused gamma control for one \
+                        "whelk: night light: the compositor refused gamma control for one \
                          output; another client may hold it, or the output has no gamma table"
                     );
                     output.warned = true;
@@ -384,7 +384,7 @@ impl Backend for WaylandBackend {
         drop(state);
 
         if self.connection.flush().is_err() {
-            eprintln!("whelk-rs: night light: could not flush a gamma update");
+            eprintln!("whelk: night light: could not flush a gamma update");
         }
 
         true

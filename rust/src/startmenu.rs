@@ -192,8 +192,8 @@ pub enum CommandAction {
 
 pub fn command_action(command: &str) -> CommandAction {
     match command.trim() {
-        "whelk --reload" | "whelk-rs --reload" => CommandAction::Reload,
-        "whelk --quit" | "whelk-rs --quit" => CommandAction::Quit,
+        "whelk --reload" => CommandAction::Reload,
+        "whelk --quit" => CommandAction::Quit,
         _ => CommandAction::Run(command.to_owned()),
     }
 }
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn reload_and_quit_stay_in_this_process() {
         assert_eq!(command_action("whelk --reload"), CommandAction::Reload);
-        assert_eq!(command_action(" whelk-rs --quit "), CommandAction::Quit);
+        assert_eq!(command_action(" whelk --quit "), CommandAction::Quit);
         assert_eq!(
             command_action("systemctl suspend"),
             CommandAction::Run("systemctl suspend".to_owned())

@@ -1,10 +1,10 @@
 [package]
 name = "whelk-rs"
-version = "0.38.0"
+version = "0.39.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
-description = "Rust + GTK4 + GNU Guile bootstrap for the whelk Wayland shell"
+description = "A GTK4 + GNU Guile Wayland shell with a Rust core"
 publish = false
 
 [lib]
@@ -12,11 +12,12 @@ name = "whelk_rs"
 path = "src/lib.rs"
 
 [[bin]]
-name = "whelk-rs"
+name = "whelk"
 path = "src/main.rs"
 
 [dependencies]
 gtk4 = { version = "0.11.5", features = ["v4_18"] }
+gio = { version = "0.22", features = ["v2_80"] }
 gtk4-layer-shell = "0.8.1"
 gdk-pixbuf = "0.22"
 libc = "0.2"

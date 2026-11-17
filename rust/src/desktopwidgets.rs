@@ -307,10 +307,7 @@ impl Widgets {
 
         for (index, config) in configs.iter().enumerate() {
             if config.kind().is_none() {
-                eprintln!(
-                    "whelk-rs: unknown desktop widget kind '{}'",
-                    config.spec.kind
-                );
+                eprintln!("whelk: unknown desktop widget kind '{}'", config.spec.kind);
                 continue;
             }
 
@@ -326,7 +323,7 @@ impl Widgets {
         }
 
         if !self.cards.is_empty() {
-            eprintln!("whelk-rs: {} desktop widget(s) up", self.cards.len());
+            eprintln!("whelk: {} desktop widget(s) up", self.cards.len());
         }
     }
 
@@ -361,7 +358,7 @@ impl Card {
         let widget_id = style::widget_id(&id);
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs widget")
+            .title("whelk widget")
             .build();
 
         window.set_widget_name(&widget_id);

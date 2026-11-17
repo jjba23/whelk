@@ -86,12 +86,12 @@ pub(crate) fn start_lock_screen() {
         }
 
         let Ok(executable) = std::env::current_exe() else {
-            log("could not find whelk-rs to start the lock screen");
+            log("could not find whelk to start the lock screen");
 
             return;
         };
 
-        match Command::new(executable).arg("--lock").spawn() {
+        match Command::new(executable).arg("--lock-now").spawn() {
             Ok(child) => *slot = Some(child),
             Err(error) => log(&format!("could not start the lock screen: {error}")),
         }
@@ -270,12 +270,12 @@ use gtk::glib;
 /// Runs the lock screen until a password is accepted.
 pub fn run() -> glib::ExitCode {
     let application = gtk::Application::builder()
-        .application_id("org.jointhefreeworld.whelk.rust.lock")
+        .application_id("org.jointhefreeworld.whelk.lock")
         .build();
 
     application.connect_activate(lock);
 
-    application.run_with_args(&["whelk-rs-lock"])
+    application.run_with_args(&["whelk-lock"])
 }
 
 fn lock(application: &gtk::Application) {

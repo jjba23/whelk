@@ -13,46 +13,48 @@ use whelk_rs::lockauth::{self, Stack};
 use whelk_rs::locker;
 use whelk_rs::rotation::Playlist;
 use whelk_rs::settings::default_config_path;
-use whelk_rs::ui;
+use whelk_rs::{cli, supervisor, ui};
 
 const USAGE: &str = "\
-whelk-rs -- the Rust bootstrap for the whelk Wayland shell
+whelk -- a Wayland shell, GTK4 and GNU Guile Scheme
 
-Usage: whelk-rs [OPTIONS]
+Usage: whelk [OPTIONS]
 
 Options:
-  --config PATH     Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
-  --check-config    Load the configuration, print the wallpaper policy and exit
-  --lock            Show the lock screen and exit once the password is accepted
-  --check-lock      Print how this machine would authenticate and exit
-  --launcher        Open the launcher after the shell starts
-  --launcher-mode M Open the launcher in M (app, window, run, calc, file, web,
-                    menu, ssh, quit, clipboard, menuitem or session)
-  --clipboard       Open the clipboard picker after the shell starts
-  --wallpaper-picker
-                    Open the wallpaper picker after the shell starts
-  --settings        Open the settings window after the shell starts
-  --version, -V     Print the Rust bootstrap version and exit
-  -h, --help        Print this help and exit
+  --config PATH          Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
+  --check-config         Load the configuration, print the wallpaper policy and exit
+  --check-lock           Print how this machine would authenticate and exit
+  --launcher, -l         Open the launcher in the running shell
+  --launcher-mode MODE   Launcher mode: app, window, run, calc, file, web, menu,
+                         ssh, quit, clipboard, menuitem or session
+  --clipboard            Open the clipboard picker
+  --clipboard-status     Print clipboard availability, count and bytes
+  --clipboard-pause      Pause or resume clipboard capture
+  --clipboard-clear      Delete the whole clipboard history
+  --clipboard-clear-unpinned
+                         Delete every clipboard entry that is not pinned
+  --clipboard-restart    Restart the clipboard listener
+  --menu COMMAND, -m     Open a menu from label<TAB>command lines
+  --session-menu         Open the built-in session menu
+  --settings             Open the settings window
+  --wallpaper-picker     Open the wallpaper picker
+  --notifications, -n    Open or close the notification centre
+  --dnd                  Turn do-not-disturb on or off
+  --night-light          Turn the night light on or off
+  --inhibit              Take or release the logind idle inhibitor
+  --inhibit-reason TEXT  Why the inhibitor is held
+  --idle-status          Explain the idle timer, inhibitor and DND
+  --network PAGE         Show the network panel: wifi or bluetooth
+  --lock                 Ask the running shell to lock the screen
+  --reload, -r           Re-read the settings file
+  --quit, -q             Stop the running shell
+  --version, -v, -V      Print the version and exit
+  -h, --help             Print this help and exit
 
-The C shell remains installed as `whelk`; this binary is the migration
-bootstrap and uses a separate application id.
+The action options are forwarded to the running shell through GApplication; a
+second whelk does not start a second bar.  `--config' belongs to the first
+process.
 ";
-
-#[derive(Debug, Default)]
-struct Options {
-    config: Option<PathBuf>,
-    check_config: bool,
-    lock: bool,
-    check_lock: bool,
-    launcher: bool,
-    launcher_mode: Option<String>,
-    clipboard: bool,
-    wallpaper_picker: bool,
-    settings: bool,
-    version: bool,
-    help: bool,
-}
 
 fn main() -> ExitCode {
     if std::env::args().any(|argument| argument == "--clipboard-store") {
@@ -62,14 +64,14 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(message) => {
-            eprintln!("whelk-rs: {message}");
+            eprintln!("whelk: {message}");
             ExitCode::FAILURE
         }
     }
 }
 
 fn run() -> Result<ExitCode, String> {
-    let options = parse_args(std::env::args().skip(1))?;
+    let options = cli::Options::parse(std::env::args().skip(1))?;
 
     if options.help {
         print!("{USAGE}");
@@ -77,7 +79,7 @@ fn run() -> Result<ExitCode, String> {
     }
 
     if options.version {
-        println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
+        println!("whelk {}", env!("CARGO_PKG_VERSION"));
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -87,16 +89,20 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    if options.lock {
+    // The logind trigger starts this hidden entry point directly.  A public
+    // `--lock` is a request to the running shell, so starting a lock process
+    // from one can never forward back into another lock process.
+    if options.lock_now {
         return Ok(locker::run().into());
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
     let mut loader = ConfigLoader::new(config_path.clone(), scheme_paths());
-    let loaded = loader.load()?;
 
     if options.check_config {
-        println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
+        let loaded = loader.load()?;
+
+        println!("whelk {}", env!("CARGO_PKG_VERSION"));
         println!("config: {}", config_path.display());
         println!("{}", loaded.wallpaper.summary());
 
@@ -129,23 +135,14 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let label = loader.label();
-    let mut launcher = options
-        .launcher
-        .then(|| options.launcher_mode.unwrap_or_default());
 
-    if options.clipboard {
-        launcher = Some("clipboard".to_owned());
+    // The supervisor forks before GTK or Guile is initialized.  The child
+    // re-enters here with WHELK_SUPERVISED and runs the UI in this process.
+    if let Some(status) = supervisor::run()? {
+        return Ok(ExitCode::from(status.clamp(0, 255) as u8));
     }
 
-    Ok(ui::run(
-        loader,
-        loaded,
-        label,
-        launcher,
-        options.wallpaper_picker,
-        options.settings,
-    )
-    .into())
+    Ok(ui::run(loader, label).into())
 }
 
 fn scheme_paths() -> Vec<PathBuf> {
@@ -164,6 +161,14 @@ fn scheme_paths() -> Vec<PathBuf> {
 
     candidates.push(PathBuf::from("/usr/share/guile/site/3.0"));
 
+    // A staged or custom-prefix install keeps the modules beside its binary.
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(bin) = executable.parent()
+        && let Some(prefix) = bin.parent()
+    {
+        candidates.push(prefix.join("share/guile/site/3.0"));
+    }
+
     let mut paths = Vec::new();
 
     for candidate in candidates {
@@ -177,57 +182,11 @@ fn scheme_paths() -> Vec<PathBuf> {
     paths
 }
 
-fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String> {
-    let mut options = Options::default();
-    let mut arguments = arguments;
-
-    while let Some(argument) = arguments.next() {
-        match argument.as_str() {
-            "--help" | "-h" => options.help = true,
-            "--version" | "-V" => options.version = true,
-            "--check-config" => options.check_config = true,
-            "--lock" => options.lock = true,
-            "--check-lock" => options.check_lock = true,
-            "--launcher" | "-l" => options.launcher = true,
-            "--clipboard" => options.clipboard = true,
-            "--wallpaper-picker" => options.wallpaper_picker = true,
-            "--settings" => options.settings = true,
-            "--launcher-mode" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--launcher-mode needs a mode".to_owned())?;
-                options.launcher_mode = Some(value);
-            }
-            _ if argument.starts_with("--launcher-mode=") => {
-                options.launcher_mode = Some(argument["--launcher-mode=".len()..].to_owned());
-            }
-            "--config" => {
-                let value = arguments
-                    .next()
-                    .ok_or_else(|| "--config needs a path".to_owned())?;
-                options.config = Some(PathBuf::from(value));
-            }
-            _ if argument.starts_with("--config=") => {
-                let value = &argument["--config=".len()..];
-
-                if value.is_empty() {
-                    return Err("--config needs a path".to_owned());
-                }
-
-                options.config = Some(PathBuf::from(value));
-            }
-            _ => return Err(format!("unknown option {argument}\n\n{USAGE}")),
-        }
-    }
-
-    Ok(options)
-}
-
 /// The same order the lock screen resolves, printed without asking for a
 /// password: which libraries exist, which one loads, which stack would answer,
 /// and whether the helper fallback is available to it.
 fn print_lock_report() {
-    println!("whelk-rs {}", env!("CARGO_PKG_VERSION"));
+    println!("whelk {}", env!("CARGO_PKG_VERSION"));
     println!(
         "user: {}",
         lockauth::session_user().unwrap_or_else(|| "unknown".to_owned())
@@ -280,59 +239,4 @@ fn print_lock_report() {
             "refused (no trustworthy helper)"
         }
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_args;
-
-    #[test]
-    fn config_forms_are_equivalent() {
-        let split = parse_args(["--config".to_owned(), "/tmp/a.scm".to_owned()].into_iter())
-            .expect("split form");
-        let joined =
-            parse_args(["--config=/tmp/a.scm".to_owned()].into_iter()).expect("joined form");
-
-        assert_eq!(split.config, joined.config);
-        assert_eq!(
-            split.config.as_deref(),
-            Some(std::path::Path::new("/tmp/a.scm"))
-        );
-    }
-
-    #[test]
-    fn launcher_options_are_named_or_split() {
-        let short = parse_args(["-l".to_owned()].into_iter()).expect("short launcher");
-        let split = parse_args(
-            [
-                "--launcher".to_owned(),
-                "--launcher-mode".to_owned(),
-                "window".to_owned(),
-            ]
-            .into_iter(),
-        )
-        .expect("split launcher mode");
-        let joined =
-            parse_args(["--launcher".to_owned(), "--launcher-mode=window".to_owned()].into_iter())
-                .expect("joined launcher mode");
-
-        assert!(short.launcher);
-        assert_eq!(split.launcher_mode.as_deref(), Some("window"));
-        assert_eq!(joined.launcher_mode.as_deref(), Some("window"));
-    }
-
-    #[test]
-    fn clipboard_is_its_own_launcher_mode() {
-        let options = parse_args(["--clipboard".to_owned()].into_iter()).expect("clipboard");
-
-        assert!(options.clipboard);
-        assert!(!options.launcher);
-    }
-
-    #[test]
-    fn unknown_options_are_errors() {
-        assert!(parse_args(["--nope".to_owned()].into_iter()).is_err());
-        assert!(parse_args(["--config".to_owned()].into_iter()).is_err());
-        assert!(parse_args(["--launcher-mode".to_owned()].into_iter()).is_err());
-    }
 }

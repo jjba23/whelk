@@ -1,13 +1,8 @@
-# whelk-rs
+# whelk
 
-The first slice of whelk's move from C + GTK4 + Guile Scheme to **Rust + GTK4 +
-Guile Scheme**.
-
-The C shell is still the default `whelk` binary and still owns the real session.
-`whelk-rs` is a separate Cargo package with a separate application id
-(`org.jointhefreeworld.whelk.rust`), so both can be built, tested and started
-without a flag day. The migration is incremental on purpose: pure policy and a
-small audited Scheme boundary are proven here before any C surface is deleted.
+whelk is a **Rust + GTK4 + Guile Scheme** Wayland shell.  The C implementation
+and its Meson build have been removed; this crate is the installed `whelk`
+binary, with the same configuration language, data files and application id.
 
 ## What is implemented
 
@@ -202,6 +197,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   overrides.  A bare left click on the count toggles the notification centre;
   a bare right click toggles DND.  The `dnd` module's bare left click does the
   same, and `#:show-off?` keeps it visible while DND is off.
+- `src/cli.rs` — the command line, ported from `src/main.c`: every C option,
+  the C dispatch order (a quit wins; a menu wins over the launcher; the
+  clipboard mode is an alternative to the launcher), short and joined forms,
+  and the local `--check-config`/`--check-lock` split.  It stays display-free;
+  `ui` registers the same options with GApplication so a second invocation is
+  forwarded to the shell that already owns the session.
 - `src/config.rs` — the loaded wallpaper/bar/idle/shell-menu snapshot and its
   reload boundary.  The Guile handle lives with the shell, so a second load reuses it;
   a missing file means the built-in bar, and a failed reload keeps the previous
@@ -410,7 +411,7 @@ small audited Scheme boundary are proven here before any C surface is deleted.
 - `src/widgetstate.rs` — the placement and per-widget state file, ported from
   `util/widgetstate.c`: `$XDG_STATE_HOME/whelk/widgets-<stem>.ini` (or
   `~/.local/state`), positions stored per monitor with a monitor-less
-  fallback, the `GKeyFile` format the C shell also writes, `0700` directories,
+  fallback, the `GKeyFile` format the shell writes, `0700` directories,
   and the snap/clamp rules both shells share.
 - `src/desktopwidgets.rs` — the cards themselves, ported from `src/widgets.c`:
   one bottom-layer surface per configured widget, anchored top-left at its
@@ -437,16 +438,20 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   plan.  It also owns the one clipboard service: starts it before the first
   bar, applies a reloaded policy, and flushes it during teardown.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
   on Broadway/X11 test displays.
-- `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--launcher`,
-  `--launcher-mode MODE`, `--clipboard`, `--wallpaper-picker`, `--settings`,
-  `--help`, plus
-  the lock screen's `--lock` and `--check-lock`.  `--clipboard-store` is the
-  internal helper entry point `wl-paste --watch` runs against this same binary.
+- `src/main.rs` — the local entry points (`--version`, `--check-config`,
+  `--config PATH`, `--check-lock`, `--help` and the clipboard helper), then
+  the GApplication shell.  `src/cli.rs` owns the complete C command surface:
+  launcher and mode, clipboard history and its status/pause/clear/restart
+  operations, menu and session menu, settings, wallpaper picker,
+  notifications, DND, night light, inhibitor and reason, idle status, network
+  page, lock, reload and quit.  `--clipboard-store` remains the internal
+  helper entry point `wl-paste --watch` runs against this binary; `--lock-now`
+  is the private lock process the shell starts itself.
 
 ## Bar modules
 
 The Rust bar now builds the daily-use readings from the same module lists as
-the C shell.  Put them in whichever half the configuration names:
+the shell.  Put them in whichever half the configuration names:
 
 ```scheme
 #:left   (list (workspaces-module #:interval 1
@@ -479,7 +484,7 @@ bluetoothctl.  `backlight`, `cpu` and `memory` read sysfs/proc directly;
 systemd-inhibit; `keyboard` reads the Caps Lock LED.  `notifications` and `dnd`
 read the in-process notification service, which shares the idle manager's DND
 flag.  `clipboard` reads the shell's own history and opens the same picker as
-`whelk-rs --clipboard`; its right-click menu pauses, restarts, clears or opens
+`whelk --clipboard`; its right-click menu pauses, restarts, clears or opens
 that picker.  `start` draws the whelk mark and opens the configured shell menu;
 its Recent Items submenu is live, and a shell item it cannot perform yet is
 reported on stderr instead of closing silently.  The configured `#:overflow`
@@ -603,26 +608,26 @@ by a bar reload.
 
 ## Requirements
 
-The build needs the same native stack as the C shell:
+The build needs:
 
-- Rust 1.92 or newer
+- Rust 1.92 or newer and Cargo
 - GTK 4.18 or newer (`gtk4.pc`)
 - GNU Guile 3.0 development files (`guile-3.0.pc`)
-- gtk4-layer-shell 1.0 or newer (`gtk4-layer-shell-0.pc`)
+- gtk4-layer-shell 1.2 or newer (`gtk4-layer-shell-0.pc`)
+- `pkg-config` and `wayland-scanner`
 
-Cargo and the Guile library are both resolved through `pkg-config` (Guile in
-`build.rs`); there is no vendored C shim.
+Cargo and the Guile library are resolved through `pkg-config` (Guile in
+`build.rs`).
 
 ## Commands
 
-The repository root is the Cargo workspace, as in lambdock: `rust/` is the
-shell, `xtask/` is the packaging task, and both share one `target/`.
-`.cargo/config.toml` aliases `cargo xtask` to `cargo run -p xtask --`.  Run from
-the workspace root:
+The repository root is the Cargo workspace: `rust/` is the shell, `xtask/` is
+the packaging task, and both share one `target/`.  `.cargo/config.toml` aliases
+`cargo xtask` to `cargo run -p xtask --`.  Run from the workspace root:
 
 ```sh
-cargo test -p whelk-rs
-cargo clippy -p whelk-rs --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p whelk-rs -- --version
 cargo run -p whelk-rs -- --check-config
 cargo run -p whelk-rs -- --config /path/to/settings.scm
@@ -631,31 +636,41 @@ cargo run -p whelk-rs -- --lock
 cargo run -p whelk-rs -- --launcher
 cargo run -p whelk-rs -- --launcher --launcher-mode=window
 cargo run -p whelk-rs -- --clipboard
+cargo run -p whelk-rs -- --clipboard-status
+cargo run -p whelk-rs -- --menu "printf 'Lock\twhelk --lock\n'"
+cargo run -p whelk-rs -- --session-menu
 cargo run -p whelk-rs -- --wallpaper-picker
 cargo run -p whelk-rs -- --settings
+cargo run -p whelk-rs -- --notifications
+cargo run -p whelk-rs -- --dnd
+cargo run -p whelk-rs -- --night-light
+cargo run -p whelk-rs -- --idle-status
+cargo run -p whelk-rs -- --network wifi
+cargo run -p whelk-rs -- --reload
+cargo run -p whelk-rs -- --quit
 cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
-# stages whelk-rs, the Scheme modules, the Rust desktop entry and the shared icons
+# stages whelk, the Scheme modules, the desktop entry and the shared icons
 cargo xtask dist --output /tmp
 ```
 
-The `xtask` target is the lambdock-style packaging task: `install` builds the
-release `whelk-rs` and stages the binary, the shared `scheme/whelk` modules and
-this README under the requested prefix and `DESTDIR`; `dist` writes the Git
-source archive.  It does not install the C `whelk`, and the Meson/Nix/Guix/
-Debian recipes still build the C shell while its modules are ported.  Use
-`--no-build` to stage an existing target, and `--debug` to stage the debug
-profile.  A custom prefix needs `WHELK_SCHEME_DIR` until the Rust binary becomes
-the installed `whelk` and its final data path is settled.
+The `xtask` target is the packaging task: `install` builds the release `whelk`
+and stages the binary, the shared `scheme/whelk` modules, the desktop entry,
+the icon tree and this README under the requested prefix and `DESTDIR`; `dist`
+writes the Git source archive.  The binary finds the Scheme modules beside its
+own prefix as well as in `/usr/share/guile/site/3.0`.  Use `--no-build` to stage
+an existing target, and `--debug` to stage the debug profile.
 
 `--check-lock` is the lock screen's diagnosis without a password: the library
 candidates, the one that loads, the service stack that would answer, and
 whether this machine has a setuid helper for the store-built case.  `--lock`
-shows the Rust lock screen itself; like the C one, only a successful
-authentication for the session user removes it.
+asks the running shell to show the lock screen; the shell starts the private
+`--lock-now` process itself, so a logind trigger and a keybinding do not forward
+into each other.  Only a successful authentication for the session user removes
+it.
 
 `--check-config` loads the real settings file through Guile, prints the
 wallpaper policy, walks the collection and resolves the current file. A missing
-file is the C shell's "no configuration" case and uses defaults; a file that
+file is the shell's "no configuration" case and uses defaults; a file that
 Guile rejects exits non-zero with the reason.
 
 `--launcher` opens the Rust launcher after the shell has started.  A second
@@ -663,24 +678,42 @@ mode can be selected with `--launcher-mode`; the built-in mode prefixes still
 work while typing (`>`, `=`, `/`, `?`, `@`, `%`, `!`, `;`, `:`).
 
 `--clipboard` is the shortcut for `--launcher --launcher-mode=clipboard`.  The
-clipboard service follows the same policy as the C shell: `(clipboard-settings)`
+clipboard service follows `(clipboard-settings)`:
 sets the limits, TTL, persistence file and lock clearing; an unconfigured file
 still honours `WHELK_CLIPBOARD_PERSIST` (`1`/`auto` for the state-directory
 file, or an absolute path).  Pinned copies are never evicted by the count,
 byte or TTL rules.  In the picker, `Ctrl+P` pins or unpins the selected copy,
 `Ctrl+Delete` removes it, and `Ctrl+Z` restores the last removal.
 
-With a valid configuration, `whelk-rs` presents the Rust bar and a Rust
-background surface. On Wayland it uses `zwlr_layer_shell_v1`'s background
-layer; on Broadway or X11 it falls back to an ordinary window for development
-and smoke tests. The C `whelk` binary remains the installed shell and keeps its
-own application id, namespace and background engine.
+With a valid configuration, `whelk` presents the bar and a background surface.
+On Wayland it uses `zwlr_layer_shell_v1`'s background layer; on Broadway or X11
+it falls back to an ordinary window for development and smoke tests.
 
 When running from `rust/`, the binary finds `../scheme` automatically. From
 another directory set `WHELK_SCHEME_DIR` to the checkout's `scheme/` directory or
-install the modules where Guile can find them. The C app id is not used, but if
-another `whelk-rs` is already running, use `dbus-run-session -- cargo run` for an
-isolated smoke test.
+install the modules where Guile can find them. If another `whelk` is already
+running, use `dbus-run-session -- cargo run` for an isolated smoke test.
+
+## One running shell
+
+The binary is a single-instance GApplication.  It registers its D-Bus name
+before reading the settings file, then handles the command line itself: a first
+invocation builds the shell and runs the requests in the C dispatch order, and a
+second `whelk --launcher`, `--notifications`, `--clipboard-status` or `--quit`
+is forwarded to the first one instead of starting a second bar.  Replies such
+as the clipboard status travel back over the command-line connection, so a
+script reads them from its own stdout.
+
+A broken settings file therefore does not stop `whelk --quit` from reaching the
+shell that is already running.  The `--config` option is read by the first
+process; a forwarded invocation cannot change the running shell's configuration.
+`WHELK_TEST_NON_UNIQUE=1` gives an integration test its own application
+instance.
+
+The lock screen is the one place where the request and the process are split.
+Public `--lock` is a request to the shell, which starts `--lock-now` as a
+separate GTK application.  That keeps the lock process from forwarding back
+into the shell that just asked for it.
 
 ## Tests
 
@@ -688,7 +721,7 @@ The tests are split by what they can prove without a session:
 
 | Test | What it covers |
 | --- | --- |
-| `tests/policy.rs` | C parity for extensions, transitions, fit math, easing and rotation |
+| `tests/policy.rs` | Wallpaper extensions, transitions, fit math, easing and rotation |
 | `tests/settings.rs` | Defaults, clamps, unknown values, HOME expansion, XDG path rules |
 | `tests/collection.rs` | Recursive walk, hidden entries, symlinks, depth limit, video filter, dedupe and sorting |
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
@@ -715,7 +748,7 @@ The tests are split by what they can prove without a session:
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
 | `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
-| `tests/cli.rs` | Version, check-config, missing config and rejected config without starting GTK |
+| `tests/cli.rs` | Version, help, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
 | `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps, config normalization and which display server's backend the environment selects |
 | `tests/osd.rs` | HUD placement above a bottom bar, progress clamping and the percentage label |
@@ -813,53 +846,12 @@ of the C engine:
 - The normal-window fallback is for development only; it is not a desktop
   background on Broadway/X11.
 
-## Scope and next steps
+## Scope
 
-This is still a bootstrap, not a replacement of the whole shell. The bar model,
-its generated skin, per-monitor placement, config/hotplug rebuilds, the shared
-module host/factory, the configured overflow row, and the `workspaces`, `clock`,
-`window`, `custom`, `audio`, `battery`, `wifi`, `bluetooth`, `backlight`, `cpu`,
-`memory`, `power-profile`, `keyboard`, `language`, `inhibit`, `notifications`,
-`dnd`, `tray` and the global `menu` (protocols, dictionary, Orbit, desktop
-actions and AT-SPI) are now ported and wired into the Rust bar, and so is the
-lock screen:
-its policy, PAM boundary, surfaces and logind triggers are Rust.  The start
-menu (`start`), its drawn mark, popover and About window are Rust too; only its
-settings-window action remains a C surface.  The idle
-manager's `IdleHint` watch, inhibitor, timer and DND flag are Rust too.  The
-notification service owns the session-bus methods and the store, and the Rust
-notification centre owns the panel and toast surfaces.  The Wi-Fi/Bluetooth
-network panel, including saved-profile keys and device connect/disconnect, is a
-Rust surface.  The launcher overlay is Rust: applications, windows, commands,
-calculator, files, web, generic menus, SSH hosts, force-quit and the session
-menu are wired; the clipboard history, its bar module, picker mode and the
-`--clipboard` shortcut are Rust as well.  The live menu-item mode reads a
-snapshot of the focused application's menubar that the global menu module
-publishes, so a menu can be found by what it says and chosen without opening
-it; each row carries its action and bus context.
-The night light is Rust end to end: arithmetic, schedule, controller, the
-wlr-gamma-control and RandR backends, and the GLib timer that drives them.  It
-opens its own display connection, so a compositor or X server without a gamma
-table logs why and keeps the setting for a session that has one.  The volume/brightness HUD is a Rust surface.  The
-lock screen follows the monitor model on both of its paths now: the
-compatibility surfaces rebuild on a hotplug, and a protocol lock whose primary
-output disappears rebuilds its windows from the outputs that remain.  The
-global menu follows its
-producers live: a `Changed` or `LayoutUpdated` costs one debounced re-read and
-an unchanged tree is not rebuilt.  The Scheme widget bridge and the `scheme`
-bar module are Rust too, and so are the desktop widgets.  Their kinds,
-geometry, state file, reminders, weather and stock decoding and placement
-arithmetic live in `src/widgets.rs` and `src/widgetstate.rs`; the cards
-`src/desktopwidgets.rs` presents are those values drawn: a layer-shell surface
-per widget, its skin, its grip-drag, and every kind's paint and refresh.  They
-are rebuilt with the bars, so a settings save or a hotplug moves them too.  The
-state file is the one the C shell writes, so a drag in either shell is where
-the other one puts the card.  The wallpaper picker is Rust too: an overlay grid
-of the collection whose click saves the `wallpaper-selected` preference and
-repaints the background, reachable with `--wallpaper-picker`.  The settings
-window is Rust too: `--settings` or the menu's Control Panel row builds it on
-first use and draws the same nine pages over the same overrides the C window
-writes, so a change in either shell is read by the other, and Reset is still
-one file deletion.  The next slice is making the Rust
-binary the installed `whelk` once the C and Rust suites both cover the same
-behavior.
+The shell is Rust end to end: the bar and its twenty-two module kinds, the
+launcher, clipboard, notification service and centre, the network panel, tray,
+global menu, lock screen, idle/inhibit manager, night light, wallpaper engine
+and picker, desktop widgets, settings window, command line, supervisor and
+signal handling.  The Guile modules in `scheme/whelk` remain the configuration
+language and are installed with the binary; the Rust tests and the Guile suite
+run under `cargo test --workspace --locked`.

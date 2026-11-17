@@ -45,7 +45,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
 
     let Some(token) = update_token(module) else {
         eprintln!(
-            "whelk-rs: scheme-module has no #:update procedure: it shows {}",
+            "whelk: scheme-module has no #:update procedure: it shows {}",
             MISSING_UPDATE.trim_start_matches("scheme: ")
         );
 

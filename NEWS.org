@@ -9,9 +9,62 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
-Nothing yet.
-
 *[Released]
+
+** v0.39.0 (2026-11-17)
+
+*** Changed
+
+- *The Rust shell has the C command line.*  Every option `src/main.c` accepts is
+  parsed and dispatched in the same order: launcher and mode, clipboard history
+  and its status/pause/clear/restart operations, menu and session menu,
+  settings, wallpaper picker, notifications, DND, night light, inhibitor and
+  reason, idle status, network page, lock, reload and quit.  The Rust binary is
+  a single-instance GApplication and registers before loading the settings, so
+  a second invocation is forwarded to the running shell even when the settings
+  file is broken.
+- Public =--lock= is a request to the running shell; the shell starts the
+  private =--lock-now= process itself, so a logind trigger cannot forward back
+  into another lock request.
+- =--clipboard-status= now prints the C spelling from the Rust service, and the
+  clipboard status line has a display-free test.
+- *The Rust shell is the installed =whelk=.*  The binary, desktop entry and lock
+  screen use the canonical =org.jointhefreeworld.whelk= application id; the
+  separate =whelk-rs= name and bootstrap app id are gone.
+- *The C supervisor is Rust.*  =whelk= forks the UI, forwards SIGTERM, SIGINT
+  and SIGHUP to it, waits for the ordinary shutdown path, and restarts a crash
+  with the C one/two/four-second backoff and five-failure limit.  The UI also
+  handles those signals itself when =WHELK_NO_SUPERVISE=1= is set.
+- The release tooling, Nix, Guix, Debian, Arch and RPM recipes now build and
+  install the Cargo workspace.  The staged binary finds its Scheme modules
+  beside its own prefix.
+- The retained Guile suite (themes, defaults, preferences, presets, wallpaper,
+  widgets, menu dictionary and the Scheme module contract) runs from Cargo as
+  =tests/scheme.rs=, so =cargo test --workspace --locked= is the whole suite.
+
+*** Removed
+
+- The C implementation (=src/=), its Meson build, the C unit tests, the
+  Broadway golden-image renderer, the Xvfb night-light script, the headless
+  locker integration harness and the ASan workflow.  They described and tested
+  a binary that no longer exists; the Rust policy, model and Guile tests are
+  the replacement.
+- The compiled =whelk.gresource.xml= stylesheet resource.  The Rust surfaces
+  generate their structural and thematic CSS directly.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace --locked= pass: 496 passed, 0 failed.
+- The Nix package builds with =rustPlatform= and runs the full suite under
+  Xvfb: =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'=.
+- =scripts/release-smoke.sh --source= installs the binary, Scheme modules,
+  desktop entry and documentation into a staged prefix, and the installed
+  binary answers =--version= and =--check-config=.
+- The supervisor was exercised live: a SIGKILL of the UI restarted it after the
+  one-second backoff, and SIGTERM took the graceful shutdown path.
+- The GTK and Wayland surfaces were not visually exercised against a live
+  compositor in this release.
 
 ** v0.38.0 (2026-11-17)
 

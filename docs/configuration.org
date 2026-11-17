@@ -260,7 +260,7 @@ change is written, the bar and the shell's panels reload, and the window stays
 open for the next one.  Opening the settings window closes any bar popover
 first, so nothing is left floating above it.
 
-The same window exists in the Rust port: =whelk-rs --settings= draws those nine
+=whelk --settings= draws those nine
 pages and writes the same =preferences-<settings-stem>.scm= file, so a change
 made in either shell is read by the other.  The Rust window offers a text field
 only where one value can be written back unchanged; an option that is a list or
@@ -406,8 +406,8 @@ mentions it should leave the compositor's background alone.
 *F11* or *Ctrl+F* expands to the monitor, arrow keys and *Enter* navigate,
 *Esc* or a click outside dismisses.  The chosen path is saved as the
 =wallpaper-selected= GUI preference; *Reset GUI settings* returns to
-=#:current= or the first picture.  The Rust bootstrap has the same overlay, as
-=whelk-rs --wallpaper-picker=, and saves the same preference.  Bind it from the
+=#:current= or the first picture.  The shell has the same overlay, as
+=whelk --wallpaper-picker=, and saves the same preference.  Bind it from the
 compositor:
 
 #+begin_src sh
@@ -432,8 +432,8 @@ built again from the new description.
 sequenceDiagram
     participant You as you
     participant FS as config directory
-    participant Shell as shell.c
-    participant Guile as guile_bridge.c
+    participant Shell as ui.rs
+    participant Guile as guile.rs
     participant Surfaces as bars, widgets, panels
 
     You->>FS: save settings.scm

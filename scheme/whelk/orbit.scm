@@ -1,4 +1,4 @@
-;; whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+;; whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;; Generated from Orbit Global Menu global-menu@unmade.space,

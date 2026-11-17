@@ -8,8 +8,7 @@
 //! One full-output layer surface, one search entry and one ranked list.  The
 //! databases and their parsing live in [`crate::launcherdata`]; this half owns
 //! the widgets, the debounce, the selection and the action a chosen row runs.
-//! The live menu-item mode still belongs to the C shell and says so instead
-//! of pretending to be empty.
+//! The live menu-item mode reads the snapshot the global menu publishes.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -104,7 +103,7 @@ impl Launcher {
     ) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs launcher")
+            .title("whelk launcher")
             .build();
 
         window.set_widget_name(&style::widget_id("launcher"));
@@ -1162,7 +1161,7 @@ impl Launcher {
                 let action = if item.name == "Lock Screen" {
                     current_exe()
                         .map(|executable| format!("{} --lock", quote(&executable)))
-                        .unwrap_or_else(|| "whelk-rs --lock".to_owned())
+                        .unwrap_or_else(|| "whelk --lock".to_owned())
                 } else {
                     item.action.clone()
                 };

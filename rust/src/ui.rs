@@ -16,6 +16,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
+use gtk::gio::prelude::ApplicationCommandLineExt;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -23,6 +24,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer, ModuleSpec};
 use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
+use crate::cli::{FORWARDED_OPTIONS, Request, Requests};
 use crate::clipboard::Clipboard;
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::desktopwidgets::Widgets;
@@ -34,7 +36,7 @@ use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
 use crate::osd::Osd;
-use crate::preferences::{self, Preferences, ReadFn, ReloadFn, SaveFn, Snapshot};
+use crate::preferences::{self, PreferenceValue, Preferences, ReadFn, ReloadFn, SaveFn, Snapshot};
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::startmenu::MenuEntry;
@@ -53,41 +55,92 @@ struct Bootstrap {
     loader: ConfigLoader,
     loaded: LoadedConfig,
     config_label: String,
-    launcher: Option<String>,
-    show_wallpaper_picker: bool,
-    show_settings: bool,
     hold: gtk::gio::ApplicationHoldGuard,
 }
 
 type ShellRef = Rc<RefCell<Shell>>;
 type ShellSlot = Rc<RefCell<Option<ShellRef>>>;
 
-pub fn run(
-    loader: ConfigLoader,
-    loaded: LoadedConfig,
-    config_label: String,
-    launcher: Option<String>,
-    show_wallpaper_picker: bool,
-    show_settings: bool,
-) -> gtk::glib::ExitCode {
+pub fn run(mut loader: ConfigLoader, config_label: String) -> gtk::glib::ExitCode {
+    let mut flags = gtk::gio::ApplicationFlags::HANDLES_COMMAND_LINE;
+
+    // Integration tests run a second shell beside the real one.  The C shell
+    // has the same escape hatch.
+    if std::env::var_os("WHELK_TEST_NON_UNIQUE").is_some() {
+        flags |= gtk::gio::ApplicationFlags::NON_UNIQUE;
+    }
+
     let application = gtk::Application::builder()
-        .application_id("org.jointhefreeworld.whelk.rust")
+        .application_id("org.jointhefreeworld.whelk")
+        .flags(flags)
         .build();
 
-    // A configuration can intentionally have no bar on the current outputs
-    // (a named external connector, or `#:when 'multi`).  Hold the application
-    // so it can wait for the monitor that makes the rule true.
-    let hold = application.hold();
+    for option in FORWARDED_OPTIONS {
+        let short = option
+            .short
+            .map(|character| gtk::glib::Char::from(character as u8))
+            .unwrap_or(gtk::glib::Char::from(0));
+        let argument = if option.value.is_some() {
+            gtk::glib::OptionArg::String
+        } else {
+            gtk::glib::OptionArg::None
+        };
 
-    let bootstrap = Rc::new(RefCell::new(Some(Bootstrap {
-        loader,
-        loaded,
-        config_label,
-        launcher,
-        show_wallpaper_picker,
-        show_settings,
-        hold,
-    })));
+        application.add_main_option(
+            option.long,
+            short,
+            gtk::glib::OptionFlags::NONE,
+            argument,
+            option.description,
+            option.value,
+        );
+    }
+
+    // Install the handlers before registering.  The supervisor forwards a
+    // termination signal as soon as the child exists, and a signal that
+    // arrives during registration must still take the ordinary shutdown path
+    // instead of killing the UI before it can flush the clipboard.
+    if let Err(error) = crate::signals::install() {
+        eprintln!("whelk: could not install termination handlers: {error}");
+    }
+
+    let _termination = crate::signals::quit_source(&application);
+
+    // Register before reading the configuration.  A second invocation only
+    // forwards its command line to the first shell, so a broken settings file
+    // must not stop `whelk --quit` or `--reload` from reaching the shell
+    // that is already running.  The C shell has the same ordering.
+    if let Err(error) = application.register(None::<&gtk::gio::Cancellable>) {
+        eprintln!("whelk: could not register the application: {error}");
+
+        return gtk::glib::ExitCode::FAILURE;
+    }
+
+    let bootstrap = Rc::new(RefCell::new(None));
+
+    if !application.is_remote() {
+        let loaded = match loader.load() {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                eprintln!("whelk: {error}");
+
+                return gtk::glib::ExitCode::FAILURE;
+            }
+        };
+
+        // A configuration can intentionally have no bar on the current outputs
+        // (a named external connector, or `#:when 'multi`).  Hold the
+        // application so it can wait for the monitor that makes the rule true.
+        let hold = application.hold();
+
+        *bootstrap.borrow_mut() = Some(Bootstrap {
+            loader,
+            loaded,
+            config_label,
+            hold,
+        });
+    }
+
     let slot: ShellSlot = Rc::new(RefCell::new(None));
 
     let activate_slot = slot.clone();
@@ -105,9 +158,6 @@ pub fn run(
             bootstrap.loader,
             bootstrap.loaded,
             bootstrap.config_label,
-            bootstrap.launcher,
-            bootstrap.show_wallpaper_picker,
-            bootstrap.show_settings,
             bootstrap.hold,
         );
 
@@ -121,57 +171,229 @@ pub fn run(
         }
     });
 
+    // A second invocation is forwarded here by GApplication.  When this is
+    // the first one, `activate` is ours to call: a handled command line does
+    // not activate the application by itself.
+    let command_line_slot = slot.clone();
+    application.connect_command_line(move |application, command_line| {
+        if command_line_slot.borrow().is_none() {
+            application.activate();
+        }
+
+        let requests = requests_from(command_line);
+
+        if let Some(shell) = command_line_slot.borrow().clone() {
+            for request in requests.commands() {
+                if !perform(application, &shell, request, Some(command_line)) {
+                    break;
+                }
+            }
+        }
+
+        gtk::glib::ExitCode::SUCCESS
+    });
+
+    add_quit_action(&application);
+    add_simple_action(&application, &slot, "reload", Request::Reload);
+    add_simple_action(&application, &slot, "settings", Request::Settings);
+    add_simple_action(&application, &slot, "notifications", Request::Notifications);
+    add_simple_action(&application, &slot, "dnd", Request::Dnd);
+    add_simple_action(&application, &slot, "night-light", Request::NightLight);
+    add_simple_action(&application, &slot, "inhibit", Request::Inhibit(None));
+    add_string_action(&application, &slot, "launcher", |value| {
+        Request::Launcher((!value.is_empty()).then_some(value))
+    });
+    add_string_action(&application, &slot, "menu", Request::Menu);
+    add_string_action(&application, &slot, "network", |value| {
+        Request::Network(Some(value))
+    });
+
+    // The real command line is handed to GApplication, not replaced with a
+    // synthetic program name: a second `whelk --launcher` must be parsed
+    // and forwarded instead of starting a second shell.
+    application.run()
+}
+
+/// Read the options GApplication parsed for this invocation.  `--config` is
+/// read by `main` before the application exists and intentionally ignored
+/// here: a second invocation cannot change the first one's configuration.
+fn requests_from(command_line: &gtk::gio::ApplicationCommandLine) -> Requests {
+    let options = command_line.options_dict();
+    let flag = |name: &str| options.lookup::<bool>(name).ok().flatten().unwrap_or(false);
+    let text = |name: &str| options.lookup::<String>(name).ok().flatten();
+
+    Requests {
+        launcher: flag("launcher"),
+        launcher_mode: text("launcher-mode"),
+        clipboard: flag("clipboard"),
+        clipboard_status: flag("clipboard-status"),
+        clipboard_pause: flag("clipboard-pause"),
+        clipboard_clear: flag("clipboard-clear"),
+        clipboard_clear_unpinned: flag("clipboard-clear-unpinned"),
+        clipboard_restart: flag("clipboard-restart"),
+        menu: text("menu"),
+        session_menu: flag("session-menu"),
+        settings: flag("settings"),
+        wallpaper_picker: flag("wallpaper-picker"),
+        notifications: flag("notifications"),
+        dnd: flag("dnd"),
+        night_light: flag("night-light"),
+        inhibit: flag("inhibit"),
+        inhibit_reason: text("inhibit-reason"),
+        idle_status: flag("idle-status"),
+        network: text("network"),
+        lock: flag("lock"),
+        reload: flag("reload"),
+        quit: flag("quit"),
+    }
+}
+
+fn add_quit_action(application: &gtk::Application) {
     let quit = gtk::gio::SimpleAction::new("quit", None);
-    let application_weak = application.downgrade();
+    let weak = application.downgrade();
 
     quit.connect_activate(move |_, _| {
-        if let Some(application) = application_weak.upgrade() {
+        if let Some(application) = weak.upgrade() {
             application.quit();
         }
     });
 
     application.add_action(&quit);
     application.set_accels_for_action("app.quit", &["<Control>q"]);
+}
 
-    // The shell menu's reload row, and the default menu's `whelk --reload`,
-    // both ask the running shell to re-read its settings.  A second process
-    // would be a second shell, so the request stays in this application.
-    let reload = gtk::gio::SimpleAction::new("reload", None);
-    let reload_slot = slot.clone();
+fn add_simple_action(
+    application: &gtk::Application,
+    slot: &ShellSlot,
+    name: &str,
+    request: Request,
+) {
+    let action = gtk::gio::SimpleAction::new(name, None);
+    let slot = slot.clone();
+    let weak = application.downgrade();
 
-    reload.connect_activate(move |_, _| {
-        if let Some(shell) = reload_slot.borrow().as_ref() {
-            shell.borrow_mut().reload();
+    action.connect_activate(move |_, _| {
+        if let (Some(application), Some(shell)) = (weak.upgrade(), slot.borrow().clone()) {
+            perform(&application, &shell, request.clone(), None);
         }
     });
-    application.add_action(&reload);
 
-    // The start menu's Control Panel row asks the shell for its settings
-    // window.  That first request is what builds it; a later one redraws it.
-    let settings = gtk::gio::SimpleAction::new("settings", None);
-    let settings_slot = slot.clone();
+    application.add_action(&action);
+}
 
-    settings.connect_activate(move |_, _| {
-        if let Some(shell) = settings_slot.borrow().as_ref() {
-            present_preferences(shell);
-        }
-    });
-    application.add_action(&settings);
+fn add_string_action(
+    application: &gtk::Application,
+    slot: &ShellSlot,
+    name: &str,
+    request: fn(String) -> Request,
+) {
+    let action = gtk::gio::SimpleAction::new(name, Some(gtk::glib::VariantTy::STRING));
+    let slot = slot.clone();
+    let weak = application.downgrade();
 
-    let launcher = gtk::gio::SimpleAction::new("launcher", Some(gtk::glib::VariantTy::STRING));
-
-    launcher.connect_activate(|_, parameter| {
-        let mode = parameter
+    action.connect_activate(move |_, parameter| {
+        let value = parameter
             .and_then(|parameter| parameter.get::<String>())
             .unwrap_or_default();
 
-        Launcher::show_current((!mode.is_empty()).then_some(mode.as_str()));
+        if let (Some(application), Some(shell)) = (weak.upgrade(), slot.borrow().clone()) {
+            perform(&application, &shell, request(value), None);
+        }
     });
-    application.add_action(&launcher);
 
-    // main() has already consumed whelk's options; give GTK only a program
-    // name, or it will reject --config as one of its own.
-    application.run_with_args(&["whelk-rs"])
+    application.add_action(&action);
+}
+
+/// Perform one forwarded request.  `false` means the application is quitting
+/// and no later request should run.
+fn perform(
+    application: &gtk::Application,
+    shell: &ShellRef,
+    request: Request,
+    command_line: Option<&gtk::gio::ApplicationCommandLine>,
+) -> bool {
+    match request {
+        Request::Quit => {
+            application.quit();
+
+            return false;
+        }
+        Request::Reload => shell.borrow_mut().reload(),
+        Request::Settings => present_preferences(shell),
+        Request::Lock => locker::start_lock_screen(),
+        Request::Menu(command) => {
+            if let Some(launcher) = Launcher::current() {
+                launcher.show_menu(&command);
+            }
+        }
+        Request::SessionMenu => {
+            if let Some(launcher) = Launcher::current() {
+                launcher.show_session_menu();
+            }
+        }
+        Request::Launcher(mode) => {
+            Launcher::show_current(mode.as_deref().filter(|mode| !mode.is_empty()));
+        }
+        Request::Clipboard => Launcher::show_current(Some("clipboard")),
+        Request::ClipboardStatus => {
+            if let Some(clipboard) = Clipboard::current() {
+                say(command_line, &format!("{}\n", clipboard.status_line()));
+            }
+        }
+        Request::ClipboardPause => {
+            if let Some(clipboard) = Clipboard::current() {
+                clipboard.set_paused(!clipboard.is_paused());
+            }
+        }
+        Request::ClipboardClear => {
+            if let Some(clipboard) = Clipboard::current() {
+                clipboard.clear();
+            }
+        }
+        Request::ClipboardClearUnpinned => {
+            if let Some(clipboard) = Clipboard::current() {
+                clipboard.clear_unpinned();
+            }
+        }
+        Request::ClipboardRestart => {
+            if let Some(clipboard) = Clipboard::current() {
+                clipboard.restart();
+            }
+        }
+        Request::WallpaperPicker => shell.borrow().show_picker(),
+        Request::Notifications => NotificationCenter::toggle_current(),
+        Request::Dnd => toggle_dnd(),
+        Request::NightLight => {
+            let enabled = shell.borrow_mut().toggle_night_light();
+
+            match enabled {
+                Some(enabled) => say(
+                    command_line,
+                    &format!("night light: {}\n", if enabled { "on" } else { "off" }),
+                ),
+                None => say(
+                    command_line,
+                    "night light: unchanged (the override could not be saved)\n",
+                ),
+            }
+        }
+        Request::Inhibit(reason) => toggle_inhibit(reason.as_deref()),
+        Request::IdleStatus => say(command_line, &idle_status()),
+        Request::Network(page) => {
+            NetworkPanel::show_current(page.as_deref().unwrap_or(""));
+        }
+    }
+
+    true
+}
+
+/// Write a reply for the invoking process.  GApplication sends it back over
+/// the command-line connection, so `whelk --clipboard-status` in a script
+/// reads its answer from stdout even though the shell owns the service.
+fn say(command_line: Option<&gtk::gio::ApplicationCommandLine>, text: &str) {
+    if let Some(command_line) = command_line {
+        command_line.print_literal(text);
+    }
 }
 
 struct Shell {
@@ -204,14 +426,11 @@ impl Shell {
         loader: ConfigLoader,
         loaded: LoadedConfig,
         config_label: String,
-        launcher_mode: Option<String>,
-        show_wallpaper_picker: bool,
-        show_settings: bool,
         hold: gtk::gio::ApplicationHoldGuard,
     ) -> ShellRef {
         // The C shell prepares the locker at startup, before a `--lock` or a
         // logind signal can arrive; the Rust shell watches logind at the same
-        // point and starts `whelk-rs --lock` when a trigger fires.
+        // point and starts `whelk --lock` when a trigger fires.
         locker::watch_logind();
         start_idle(loaded.idle_lock_after);
 
@@ -302,30 +521,12 @@ impl Shell {
             shell.borrow_mut().picker = Some(picker);
         }
 
-        if show_wallpaper_picker {
-            let state = shell.borrow();
-
-            if let Some(picker) = state.picker.as_ref() {
-                picker.show(&state.loaded.wallpaper);
-            }
-        }
-
-        if show_settings {
-            present_preferences(&shell);
-        }
-
         watch_config(&shell);
         watch_monitors(&shell);
 
         let wallpaper = shell.borrow().loaded.wallpaper.clone();
 
         crate::wallpaper_surface::present(application, &wallpaper);
-
-        if let Some(mode) = launcher_mode {
-            gtk::glib::idle_add_local_once(move || {
-                Launcher::show_current((!mode.is_empty()).then_some(mode.as_str()));
-            });
-        }
 
         shell
     }
@@ -366,7 +567,7 @@ impl Shell {
         }
 
         if built == 0 {
-            eprintln!("whelk-rs: no bar matches the current monitor model; waiting for an output");
+            eprintln!("whelk: no bar matches the current monitor model; waiting for an output");
         }
 
         // The cards are placed around the bars, so they are rebuilt with them:
@@ -439,11 +640,33 @@ impl Shell {
                 }
             }
             Err(error) => {
-                eprintln!(
-                    "whelk-rs: configuration reload failed: {error}; keeping the previous bars"
-                );
+                eprintln!("whelk: configuration reload failed: {error}; keeping the previous bars");
             }
         }
+    }
+
+    /// Present the wallpaper picker from a forwarded request.
+    fn show_picker(&self) {
+        if let Some(picker) = self.picker.as_ref() {
+            picker.show(&self.loaded.wallpaper);
+        }
+    }
+
+    /// Flip the night-light GUI preference and reload the shell, as the C
+    /// `--night-light` handler does.  `None` means the override was not saved.
+    fn toggle_night_light(&mut self) -> Option<bool> {
+        let enabled = !self.loaded.night_light.enabled;
+        let value = PreferenceValue::Bool(enabled);
+
+        if let Err(error) = self.loader.save_preference("night-light-enabled?", &value) {
+            eprintln!("whelk: could not save the night-light switch: {error}");
+
+            return None;
+        }
+
+        self.reload();
+
+        Some(enabled)
     }
 
     /// Save the picture chosen in the picker as the configuration's GUI
@@ -455,7 +678,7 @@ impl Shell {
         settings.current = Some(path.to_path_buf());
 
         if let Err(error) = self.loader.remember_wallpaper(path) {
-            eprintln!("whelk-rs: could not save the wallpaper choice: {error}");
+            eprintln!("whelk: could not save the wallpaper choice: {error}");
         }
 
         if let Some(application) = self.application.upgrade() {
@@ -570,7 +793,7 @@ fn build_bar_window(
     let widget_id = style::widget_id(&bar_settings.name);
     let window = gtk::ApplicationWindow::builder()
         .application(application)
-        .title("whelk-rs")
+        .title("whelk")
         .build();
 
     window.set_widget_name(&widget_id);
@@ -583,20 +806,20 @@ fn build_bar_window(
     bar.set_size_request(-1, bar_settings.height);
 
     let name = gtk::Label::new(Some("whelk"));
-    name.add_css_class("whelk-rs-name");
+    name.add_css_class("whelk-name");
     name.set_tooltip_text(Some(config_label));
 
     let wallpaper = gtk::Label::new(Some(&wallpaper_settings.summary()));
-    wallpaper.add_css_class("whelk-rs-status");
+    wallpaper.add_css_class("whelk-status");
     wallpaper.set_ellipsize(gtk::pango::EllipsizeMode::End);
 
     let start = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
     let center = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
     let end = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
 
-    start.add_css_class("whelk-rs-start");
-    center.add_css_class("whelk-rs-center");
-    end.add_css_class("whelk-rs-end");
+    start.add_css_class("whelk-start");
+    center.add_css_class("whelk-center");
+    end.add_css_class("whelk-end");
     start.append(&name);
 
     let mut context = ModuleContext::from_bar(bar_settings, session);
@@ -650,7 +873,7 @@ fn build_bar_window(
 
         *source.borrow_mut() = Some(timer);
 
-        clock.add_css_class("whelk-rs-clock");
+        clock.add_css_class("whelk-clock");
         update_clock(&clock, &clock_format);
         end.append(&clock);
 
@@ -763,7 +986,7 @@ fn present_preferences(shell: &ShellRef) {
         match state.loader.save_preference(key, value) {
             Ok(()) => true,
             Err(error) => {
-                eprintln!("whelk-rs: could not save '{key}': {error}");
+                eprintln!("whelk: could not save '{key}': {error}");
 
                 false
             }
@@ -779,7 +1002,7 @@ fn present_preferences(shell: &ShellRef) {
         match state.loader.reset_preferences() {
             Ok(answer) => answer,
             Err(error) => {
-                eprintln!("whelk-rs: could not reset the GUI preferences: {error}");
+                eprintln!("whelk: could not reset the GUI preferences: {error}");
 
                 false
             }
@@ -832,7 +1055,7 @@ fn watch_config(shell: &ShellRef) {
 
     if let Err(error) = std::fs::create_dir_all(directory) {
         eprintln!(
-            "whelk-rs: cannot create the configuration directory '{}': {error}",
+            "whelk: cannot create the configuration directory '{}': {error}",
             directory.display()
         );
 
@@ -846,7 +1069,7 @@ fn watch_config(shell: &ShellRef) {
     ) {
         Ok(monitor) => monitor,
         Err(error) => {
-            eprintln!("whelk-rs: cannot watch the configuration directory: {error}");
+            eprintln!("whelk: cannot watch the configuration directory: {error}");
 
             return;
         }
@@ -941,6 +1164,36 @@ fn start_idle(lock_after: i32) {
 
         *slot = Some(idle);
     });
+}
+
+/// The idle manager's DND flag, flipped from the command line or the
+/// `dnd` application action.
+fn toggle_dnd() {
+    if let Some(idle) = idle() {
+        idle.set_dnd(!idle.has_dnd());
+    }
+}
+
+/// Take or release the logind presentation inhibitor, with the C default
+/// reason when the command line did not supply one.
+fn toggle_inhibit(reason: Option<&str>) {
+    let Some(idle) = idle() else {
+        return;
+    };
+    let reason = reason
+        .filter(|reason| !reason.is_empty())
+        .unwrap_or("presentation mode");
+
+    if !idle.set_inhibited(!idle.is_inhibited(), reason) {
+        eprintln!("whelk: could not change the presentation inhibitor");
+    }
+}
+
+/// The idle manager's own account of its timer, inhibitor and DND state.
+fn idle_status() -> String {
+    idle()
+        .map(|idle| idle.describe())
+        .unwrap_or_else(|| "idle manager unavailable\n".to_owned())
 }
 
 fn idle() -> Option<Idle> {
@@ -1352,16 +1605,16 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         .whelk-surface {
             background-color: transparent;
         }
-        .whelk-rs-bar {
+        .whelk-bar {
             padding: 0;
         }
-        .whelk-rs-name {
+        .whelk-name {
             font-weight: 800;
         }
-        .whelk-rs-status {
+        .whelk-status {
             opacity: 0.72;
         }
-        .whelk-rs-clock {
+        .whelk-clock {
             font-weight: 700;
         }
         .whelk-overflow-more {

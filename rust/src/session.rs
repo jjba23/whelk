@@ -251,12 +251,12 @@ impl Session {
 
             match detected.evidence {
                 Some(evidence) => eprintln!(
-                    "whelk-rs: session {}, from {}",
+                    "whelk: session {}, from {}",
                     detected.session.name(),
                     evidence
                 ),
                 None => eprintln!(
-                    "whelk-rs: session: no compositor answered (niri msg, swaymsg, \
+                    "whelk: session: no compositor answered (niri msg, swaymsg, \
                      hyprctl, riverctl); the window and menu modules stay empty \
                      until one does"
                 ),

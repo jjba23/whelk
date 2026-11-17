@@ -1,15 +1,14 @@
-# whelk -- a Wayland shell written in C, GTK4 and GNU Guile Scheme
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 {
   lib,
-  stdenv,
-  meson,
-  ninja,
+  rustPlatform,
   pkg-config,
   wayland-scanner,
+  wayland,
   makeWrapper,
   wrapGAppsHook4,
   glib,
@@ -18,8 +17,6 @@
   guile,
   pam,
   wtype,
-  libX11,
-  libXrandr,
   hicolor-icon-theme,
   adwaita-icon-theme,
   xvfb-run,
@@ -27,35 +24,53 @@
   fontconfig,
 }:
 
-stdenv.mkDerivation (finalAttrs: {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "whelk";
-  version = "0.38.0";
+  version = "0.39.0";
 
-  strictDeps = true;
-  __structuredAttrs = true;
-
-  # `build/' is not source: a tree that has been built here would otherwise be
-  # unpacked into the sandbox and Meson would find a configured directory from
-  # another Meson version inside it.
   src = lib.cleanSourceWith {
     src = ./.;
-    filter = path: type:
-      let base = baseNameOf (toString path);
-      in !(builtins.elem base [ "build" "build-asan" "build-sanitize"
-                                "build-release" "result" ".direnv" ])
-         && lib.cleanSourceFilter path type;
+    filter =
+      path: type:
+      let
+        base = baseNameOf (toString path);
+      in
+      !(builtins.elem base [
+        "build"
+        "build-asan"
+        "build-sanitize"
+        "build-release"
+        "result"
+        ".direnv"
+        "target"
+        "dist"
+      ])
+      && lib.cleanSourceFilter path type;
   };
 
+  # The workspace root is the virtual manifest; the shell is the `rust/`
+  # member.  The Scheme tests walk back to the checkout, so the whole source
+  # stays available.
+  buildAndTestSubdir = "rust";
+  cargoLock.lockFile = ./Cargo.lock;
+  cargoBuildFlags = [
+    "--package"
+    "whelk-rs"
+    "--bin"
+    "whelk"
+  ];
+  cargoInstallFlags = [
+    "--locked"
+    "--bin"
+    "whelk"
+  ];
+
   nativeBuildInputs = [
-    meson
-    ninja
     pkg-config
     wayland-scanner
     makeWrapper
-    glib
     wrapGAppsHook4
-    # The theme tests are a Guile script, and Meson only registers them when it
-    # finds `guile' at configure time.
+    glib
     guile
   ];
 
@@ -64,21 +79,21 @@ stdenv.mkDerivation (finalAttrs: {
     gtk4-layer-shell
     guile
     pam
-    # whelk invokes wtype by name to type menu shortcuts.  The wrapper below
-    # puts it on PATH for the installed program, not only in the build.
+    wayland
     wtype
-    # On an X11 desktop a bar is a dock window with EWMH struts, which needs
-    # Xlib at build time; without it the Wayland-only build is what you get.
-    # Xrandr supplies the CRTC gamma table the night light writes on X11.
-    libX11
-    libXrandr
   ];
 
   doCheck = true;
 
-  # One wrapper, not two: wrapGAppsHook4 contributes GTK's data directories,
-  # and the PATH entry makes the runtime helper visible to whelk.  Letting the
-  # hook wrap separately would create a wrapper whose target is itself.
+  nativeCheckInputs = [
+    xvfb-run
+    dbus
+    fontconfig
+    hicolor-icon-theme
+    adwaita-icon-theme
+    guile
+  ];
+
   dontWrapGApps = true;
 
   preFixup = ''
@@ -90,17 +105,8 @@ stdenv.mkDerivation (finalAttrs: {
     wrapProgram $out/bin/whelk "''${makeWrapperArgs[@]}"
   '';
 
-  nativeCheckInputs = [
-    xvfb-run
-    dbus
-    fontconfig
-    hicolor-icon-theme
-    adwaita-icon-theme
-  ];
-
-  # The suite is small but not headless: the menubar tests build real GTK
-  # widgets, and the theme tests run Guile.  Xvfb with the software renderer is
-  # enough for both, and a session bus keeps GIO's portals quiet.
+  # GTK and the Scheme tests need a private display and data directories, but
+  # no compositor: Xvfb with the software renderer is enough.
   checkPhase = ''
     runHook preCheck
 
@@ -112,16 +118,23 @@ stdenv.mkDerivation (finalAttrs: {
     export GDK_BACKEND=x11
     export GSK_RENDERER=cairo
 
-    dbus-daemon --config-file=${dbus}/share/dbus-1/session.conf --fork --print-address 5 5>dbus_address
-    export DBUS_SESSION_BUS_ADDRESS=$(cat dbus_address)
-
-    xvfb-run -s "-screen 0 1280x800x24" meson test --print-errorlogs
+    xvfb-run -a cargo test --workspace --locked
 
     runHook postCheck
   '';
 
+  postInstall = ''
+    install -Dm644 $src/data/org.jointhefreeworld.whelk.desktop \
+      $out/share/applications/org.jointhefreeworld.whelk.desktop
+    mkdir -p $out/share/guile/site/3.0
+    cp -r $src/scheme/whelk $out/share/guile/site/3.0/whelk
+    cp -r $src/data/icons $out/share/icons
+    install -Dm644 $src/README.org $out/share/doc/whelk/README.org
+    install -Dm644 $src/LICENSE $out/share/licenses/whelk/LICENSE
+  '';
+
   meta = with lib; {
-    description = "Wayland shell configured with GNU Guile Scheme";
+    description = "Wayland shell with bars, a launcher and notifications, configured in Guile Scheme";
     homepage = "https://github.com/jjba23/whelk";
     license = licenses.mit;
     platforms = platforms.linux;

@@ -16,15 +16,15 @@
 #
 
 Name:           whelk
-Version:        0.38.0
+Version:        0.39.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
 URL:            https://github.com/jjba23/whelk
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc
-BuildRequires:  meson
-BuildRequires:  ninja
+BuildRequires:  cargo
+BuildRequires:  rust
 BuildRequires:  pkgconfig
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(gio-unix-2.0)
@@ -33,16 +33,17 @@ BuildRequires:  pkgconfig(gtk4-layer-shell-0)
 BuildRequires:  pkgconfig(guile-3.0)
 BuildRequires:  pkgconfig(pam)
 BuildRequires:  pkgconfig(wayland-client)
-BuildRequires:  pkgconfig(x11)
-BuildRequires:  pkgconfig(xrandr)
+BuildRequires:  guile
+BuildRequires:  xvfb-run
 Requires:       gtk4
+Requires:       gtk4-layer-shell
 Requires:       guile
 Requires:       pam
 Requires:       hicolor-icon-theme
 Requires:       wtype
 
 %description
-Whelk is a Wayland shell built with a C core, GTK4 and gtk4-layer-shell.
+Whelk is a Wayland shell built with a Rust core, GTK4 and gtk4-layer-shell.
 Its status bars, launcher, notification daemon and network panel are
 described in GNU Guile Scheme: a bar is a list of modules, and every
 module is a reading plus the mouse actions on it.
@@ -55,18 +56,19 @@ Wayfire.
 %autosetup
 
 %build
-%meson
-%meson_build
+cargo build --release --locked --bin whelk
 
 %install
-%meson_install
+cargo run -p xtask -- install --prefix=/usr --destdir=%{buildroot} --no-build
 
 %check
-%meson_test
+xvfb-run -a cargo test --workspace --locked
 
 %files
 %license LICENSE
-%doc README.org NEWS.org docs
+%doc NEWS.org docs
+%{_datadir}/doc/whelk/README.md
+%{_datadir}/doc/whelk/README.org
 %{_bindir}/whelk
 %{_datadir}/applications/org.jointhefreeworld.whelk.desktop
 %{_datadir}/icons/hicolor/*/apps/org.jointhefreeworld.whelk.*

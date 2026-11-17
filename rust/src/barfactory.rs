@@ -115,7 +115,7 @@ pub fn supports(kind: &str) -> bool {
 pub fn build(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> {
     let Some(factory) = factory(&module.kind) else {
         eprintln!(
-            "whelk-rs: module: unknown kind '{}': it is left out of the bar",
+            "whelk: module: unknown kind '{}': it is left out of the bar",
             module.kind
         );
 

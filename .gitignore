@@ -17,3 +17,6 @@ __pycache__/
 # Rust build artifacts (the workspace target, and a stale crate-local one)
 /target/
 rust/target/
+
+# `nix-build' leaves this symlink in the tree.
+/result

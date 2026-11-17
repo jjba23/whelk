@@ -245,7 +245,7 @@ impl NetworkPanel {
     pub fn new(application: &gtk::Application, style: &BarSettings) -> Self {
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk-rs network")
+            .title("whelk network")
             .build();
 
         window.set_widget_name(&style::widget_id("network"));
