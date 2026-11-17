@@ -124,6 +124,19 @@ the channels in =~/.config/guix= have moved on.
   ./result/bin/whelk
 #+end_src
 
+The binary is wrapped for the machine it runs on rather than the machine it was
+built on.  A nix-built GTK4 app links =libEGL= from libglvnd, whose compiled-in
+vendor directory is inside the store; on a host that is not NixOS the GPU
+drivers live elsewhere, so EGL finds no vendor, GTK's GL renderer reports
+=Failed to create EGL display=, and every surface falls back to cairo.  The
+wrapper names the nix Mesa vendor (=__EGL_VENDOR_LIBRARY_FILENAMES=), its DRI
+directory (=LIBGL_DRIVERS_PATH=) and its GLX vendor
+(=__GLX_VENDOR_LIBRARY_NAME=) with =--set-default=s: an existing value wins, so
+a host GL setup such as
+[[https://github.com/nix-community/nixGL][nixGL]] or the proprietary NVIDIA
+path still decides.  =EGL_PLATFORM= is deliberately left alone -- GTK asks for
+the platform its GDK backend is on.
+
 * From source
 :PROPERTIES:
 :CUSTOM_ID: source

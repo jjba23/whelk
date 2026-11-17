@@ -22,11 +22,12 @@
   xvfb-run,
   dbus,
   fontconfig,
+  mesa,
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "whelk";
-  version = "0.41.1";
+  version = "0.41.2";
 
   src = lib.cleanSourceWith {
     src = ./.;
@@ -87,6 +88,9 @@ rustPlatform.buildRustPackage (finalAttrs: {
     pam
     wayland
     wtype
+    # The GL renderer's drivers, named by the wrapper below; without them EGL
+    # finds no vendor and every surface falls back to cairo.
+    mesa
   ];
 
   doCheck = true;
@@ -102,9 +106,31 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   dontWrapGApps = true;
 
+  # A nix-built whelk links libEGL from libglvnd, whose compiled-in vendor
+  # directory is inside the nix store.  A machine that is not NixOS keeps its
+  # GPU drivers somewhere else, so libEGL finds no vendor library, GTK's GL
+  # renderer dies with `Failed to create EGL display`, and every surface falls
+  # back to cairo -- which is what makes a blurred, frosted bar feel slow.
+  #
+  # `__EGL_VENDOR_LIBRARY_FILENAMES` is libglvnd's own override, so the nix Mesa
+  # vendor is named explicitly; its DRI driver (radeonsi, iris, llvmpipe ...)
+  # talks to the kernel's render node directly, so no library from the host is
+  # loaded into this process and the glibc it was built against does not
+  # matter.  GLX (an X11 session) gets the same treatment through
+  # `__GLX_VENDOR_LIBRARY_NAME` and `LIBGL_DRIVERS_PATH`.  These are
+  # `--set-default`s: an environment that already names its vendors wins, so a
+  # host GL setup such as nixGL, or a user who wants the proprietary NVIDIA
+  # path, still decides.  `EGL_PLATFORM` stays GTK's business -- GTK asks for
+  # the platform its GDK backend is on (Wayland, X11, headless), and forcing it
+  # from a wrapper would break the others.
   preFixup = ''
     makeWrapperArgs+=("''${gappsWrapperArgs[@]}")
     makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath [ wtype ]})
+    makeWrapperArgs+=(
+      --set-default __EGL_VENDOR_LIBRARY_FILENAMES ${mesa}/share/glvnd/egl_vendor.d/50_mesa.json
+      --set-default __GLX_VENDOR_LIBRARY_NAME mesa
+      --set-default LIBGL_DRIVERS_PATH ${mesa}/lib/dri
+    )
   '';
 
   postFixup = ''
