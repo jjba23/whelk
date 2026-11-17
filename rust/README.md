@@ -427,7 +427,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   bootstrap name, wallpaper summary and clock remain only where the
   configuration leaves them empty, and a configured `clock` is not duplicated
   by the fallback.  The configured overflow row is built with the bar and
-  opens behind its chevron.  It watches the settings directory with a 250 ms debounce,
+  opens behind its chevron; the right row folds its trailing readings into a
+  `+N` popover after the first allocation, keeping the modules alive so their
+  timers and clicks still work.  It watches the settings directory with a 250 ms debounce,
   watches the GDK monitor model for hotplug, and rebuilds by destroying the old
   windows (and their module hosts/CSS/clock timers) before building the new
   plan.  It also owns the one clipboard service: starts it before the first
@@ -692,7 +694,7 @@ The tests are split by what they can prove without a session:
 | `tests/locker.rs` | The lock screen's rebuild queue: one rebuild per burst, the churn a rebuild causes dropped, and a stopped lock never building again |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy (including the 100 ms zero-delay fallback) and the output signature/rebuild rule: connector and resolution changes, a missing connector, and a stale surface count |
-| `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
+| `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists, typed options and the width-driven fold walk |
 | `tests/barmonitors.rs` | Monitor-rule selection, output-count conditions and flattened bar placements |
 | `tests/config.rs` | Missing-file defaults (including the built-in shell menu), the configuration label, and reloading a real two-bar config through one Guile handle |
 | `tests/style.rs` | CSS ids, colour alpha handling, material/effects/shadows and generated accent rules |

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use whelk_rs::bar::{BarSettings, Edge, Layer, When};
+use whelk_rs::bar::{BarSettings, Edge, Layer, When, fold_visible};
 use whelk_rs::settings::SchemeValue;
 
 fn alist(entries: Vec<(&str, SchemeValue)>) -> Vec<(String, SchemeValue)> {
@@ -263,4 +263,22 @@ fn empty_modules_and_empty_options_are_omitted() {
     assert_eq!(bar.right.len(), 1);
     assert_eq!(bar.right[0].kind, "clock");
     assert_eq!(bar.right[0].text("empty"), None);
+}
+
+#[test]
+fn trailing_readings_fold_when_the_right_row_runs_out_of_room() {
+    // The C bar measures the readings left to right, reserving room for the
+    // "+N" button whenever another reading follows.  These are its rules.
+    assert_eq!(fold_visible(&[], 200, 6), 0);
+    // 50 + 0 + reserve(34+6) fits; the second 50 no longer does.
+    assert_eq!(fold_visible(&[50, 50, 50], 120, 6), 1);
+    // With no reading after it, the last one is not charged the button.
+    assert_eq!(fold_visible(&[30, 30], 100, 6), 2);
+    // A row too narrow for anything still keeps its first reading.
+    assert_eq!(fold_visible(&[80, 80], 10, 6), 1);
+    // Hidden readings measure zero, like the C widget_width().
+    assert_eq!(fold_visible(&[0, 0, 0], 100, 6), 3);
+    // Spacing is charged between visible readings: 30 + 10 + 30 + the
+    // reserve is 114, so only the first fits in 110.
+    assert_eq!(fold_visible(&[30, 30, 30], 110, 10), 1);
 }

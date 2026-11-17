@@ -659,7 +659,8 @@ fn build_bar_window(
         None
     };
 
-    append_overflow(&end, bar_settings, &context);
+    let overflow = append_overflow(&end, bar_settings, &context);
+    let more = build_folded_shelf(&end);
 
     bar.set_start_widget(Some(&start));
     bar.set_center_widget(Some(&center));
@@ -676,6 +677,19 @@ fn build_bar_window(
         window.set_default_size(720, bar_settings.height.max(32));
     }
 
+    fold_after_map(
+        FoldState {
+            bar: bar.clone(),
+            start: start.clone(),
+            center: center.clone(),
+            end: end.clone(),
+            overflow,
+            more,
+            spacing: bar_settings.spacing,
+            padding: bar_settings.padding,
+        },
+        &window,
+    );
     window.present();
 
     BarWindow {
@@ -1010,10 +1024,14 @@ fn append_modules(section: &gtk::Box, modules: &[ModuleSpec], context: &ModuleCo
 /// The configured overflow row: built with the bar so its modules have already
 /// started, but hidden behind the chevron until it is opened.  This is the
 /// Rust equivalent of C's inline `#:overflow` area; the width-driven folded
-/// menu is still a later slice.
-fn append_overflow(end: &gtk::Box, bar_settings: &BarSettings, context: &ModuleContext) {
+/// row lives in `build_folded_shelf()` beside it.
+fn append_overflow(
+    end: &gtk::Box,
+    bar_settings: &BarSettings,
+    context: &ModuleContext,
+) -> Option<OverflowRow> {
     if bar_settings.overflow.is_empty() {
-        return;
+        return None;
     }
 
     let expanded = bar_settings.overflow_expanded;
@@ -1064,6 +1082,171 @@ fn append_overflow(end: &gtk::Box, bar_settings: &BarSettings, context: &ModuleC
 
     end.append(&overflow);
     end.append(&toggle);
+
+    Some(OverflowRow {
+        shelf: overflow,
+        toggle,
+    })
+}
+
+struct OverflowRow {
+    shelf: gtk::Box,
+    toggle: gtk::ToggleButton,
+}
+
+struct FoldedShelf {
+    button: gtk::MenuButton,
+    count: gtk::Label,
+    shelf: gtk::Box,
+}
+
+/// The `+N` shelf at the end of the right row.  Its popover is built now and
+/// filled only when the first allocation proves that readings do not fit.
+fn build_folded_shelf(end: &gtk::Box) -> FoldedShelf {
+    let shelf = gtk::Box::new(gtk::Orientation::Vertical, 4);
+
+    shelf.add_css_class("whelk-overflow-box");
+
+    let popover = gtk::Popover::new();
+
+    popover.set_child(Some(&shelf));
+
+    let count = gtk::Label::new(Some("+1"));
+
+    count.add_css_class("whelk-folded-count");
+
+    let button = gtk::MenuButton::new();
+
+    button.set_child(Some(&count));
+    button.add_css_class("flat");
+    button.add_css_class("whelk-overflow-more");
+    button.set_tooltip_text(Some("Readings that did not fit"));
+    button.set_popover(Some(&popover));
+    button.set_visible(false);
+    end.append(&button);
+
+    FoldedShelf {
+        button,
+        count,
+        shelf,
+    }
+}
+
+struct FoldState {
+    bar: gtk::CenterBox,
+    start: gtk::Box,
+    center: gtk::Box,
+    end: gtk::Box,
+    overflow: Option<OverflowRow>,
+    more: FoldedShelf,
+    spacing: i32,
+    padding: i32,
+}
+
+/// The C bar folds once, from an idle after the surface is presented.  Rust
+/// waits for the window's first map and then a short timeout, so the row's
+/// real allocation is known; a headless build has no map and leaves the row
+/// alone, just like the C `root_width <= 1` guard.
+fn fold_after_map(state: FoldState, window: &gtk::ApplicationWindow) {
+    let state = Rc::new(state);
+    let armed = Rc::new(Cell::new(false));
+
+    window.connect_map(move |_| {
+        if armed.replace(true) {
+            return;
+        }
+
+        let state = Rc::clone(&state);
+
+        gtk::glib::timeout_add_local_once(Duration::from_millis(100), move || {
+            collapse_end(&state);
+        });
+    });
+}
+
+fn widget_width(widget: &gtk::Widget) -> i32 {
+    if !widget.is_visible() {
+        return 0;
+    }
+
+    let width = widget.width();
+
+    if width > 0 {
+        return width;
+    }
+
+    let (_, natural, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
+
+    natural.max(0)
+}
+
+fn reading_width(widget: &gtk::Widget) -> i32 {
+    let width = widget_width(widget);
+
+    if width > 0 { width } else { 24 }
+}
+
+fn collapse_end(state: &FoldState) {
+    let root_width = state.bar.width();
+
+    // No allocation yet: leave the row alone rather than hiding everything.
+    if root_width <= 1 {
+        return;
+    }
+
+    let mut used_by_others = widget_width(state.start.upcast_ref::<gtk::Widget>())
+        + widget_width(state.center.upcast_ref::<gtk::Widget>())
+        + 2 * state.padding.max(0);
+
+    if let Some(overflow) = &state.overflow {
+        used_by_others += widget_width(overflow.shelf.upcast_ref::<gtk::Widget>())
+            + widget_width(overflow.toggle.upcast_ref::<gtk::Widget>());
+    }
+
+    let available = (root_width - used_by_others - 16).max(0);
+
+    let mut structural = vec![state.more.button.clone().upcast::<gtk::Widget>()];
+
+    if let Some(overflow) = &state.overflow {
+        structural.push(overflow.shelf.clone().upcast::<gtk::Widget>());
+        structural.push(overflow.toggle.clone().upcast::<gtk::Widget>());
+    }
+
+    let mut modules = Vec::new();
+    let mut child = state.end.first_child();
+
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+
+        if !structural.contains(&widget) {
+            modules.push(widget);
+        }
+    }
+
+    if modules.is_empty() {
+        return;
+    }
+
+    let widths: Vec<i32> = modules.iter().map(reading_width).collect();
+    let visible = crate::bar::fold_visible(&widths, available, state.spacing);
+
+    for widget in modules.iter().skip(visible) {
+        state.end.remove(widget);
+        state.more.shelf.append(widget);
+    }
+
+    let folded = modules.len() - visible;
+
+    if folded > 0 {
+        state.more.count.set_text(&format!("+{folded}"));
+        state.more.button.set_tooltip_text(Some(&format!(
+            "{folded} reading{} did not fit · click to see {}",
+            if folded == 1 { "" } else { "s" },
+            if folded == 1 { "it" } else { "them" }
+        )));
+    }
+
+    state.more.button.set_visible(folded > 0);
 }
 
 fn update_clock(label: &gtk::Label, format: &str) {
@@ -1093,6 +1276,12 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-rs-clock {
             font-weight: 700;
+        }
+        .whelk-overflow-more {
+            padding: 0 4px;
+        }
+        .whelk-overflow-box {
+            padding: 6px;
         }
         .whelk-module {
             padding: 0 6px;

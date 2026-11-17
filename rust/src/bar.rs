@@ -187,6 +187,48 @@ pub struct BarSettings {
     pub overflow_expanded: bool,
 }
 
+/// The room kept for the fold's `+N` label; the label can reach two digits, so
+/// it is a little wider than the chevron it replaced.
+pub const FOLD_BUTTON_WIDTH: i32 = 34;
+
+/// How many of a row's readings fit before the rest must fold.
+///
+/// This is the C `collapse_end()` walk: widths are charged left to right with
+/// the row's spacing between visible readings, and every reading that is not
+/// the last also reserves room for the `+N` button.  A row too narrow for even
+/// its first reading still keeps one -- an empty right row is worse than a
+/// clipped clock.
+pub fn fold_visible(widths: &[i32], available: i32, spacing: i32) -> usize {
+    if widths.is_empty() {
+        return 0;
+    }
+
+    let available = available.max(0);
+    let spacing = spacing.max(0);
+    let mut used = 0;
+    let mut visible = 0;
+
+    for (index, width) in widths.iter().enumerate() {
+        let width = (*width).max(0);
+        let gap = if visible > 0 { spacing } else { 0 };
+        let more_after = index + 1 < widths.len();
+        let reserve = if more_after {
+            FOLD_BUTTON_WIDTH + spacing
+        } else {
+            0
+        };
+
+        if used + gap + width + reserve > available {
+            break;
+        }
+
+        used += gap + width;
+        visible += 1;
+    }
+
+    visible.max(1)
+}
+
 impl Default for BarSettings {
     fn default() -> Self {
         Self {
