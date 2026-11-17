@@ -15,8 +15,6 @@
 //! line is a core index rather than a model, and a memory total can arrive
 //! without `MemAvailable` beside it.
 
-use std::ffi::CStr;
-
 use gtk::prelude::*;
 use gtk4 as gtk;
 
@@ -122,17 +120,20 @@ pub fn memory_summary() -> Option<String> {
 }
 
 /// The root filesystem: `"413 GiB free of 928 GiB (44% used)"`.
+///
+/// GIO answers the same numbers `statvfs` would, through the filesystem
+/// attributes the rest of the shell already links against.
 pub fn disk_summary() -> Option<String> {
-    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    let info = gtk::gio::File::for_path("/")
+        .query_filesystem_info(
+            "filesystem::size,filesystem::free",
+            None::<&gtk::gio::Cancellable>,
+        )
+        .ok()?;
+    let total = u64::try_from(info.size()).ok().filter(|size| *size > 0)?;
+    let free = info.attribute_uint64("filesystem::free");
 
-    if unsafe { libc::statvfs(c"/".as_ptr(), &mut stats) } != 0 {
-        return None;
-    }
-
-    disk_summary_from(
-        stats.f_blocks as u64 * stats.f_frsize as u64,
-        stats.f_bavail as u64 * stats.f_frsize as u64,
-    )
+    disk_summary_from(total, free)
 }
 
 /// The disk summary from already-read capacity numbers.
@@ -411,8 +412,13 @@ fn parse_f64_prefix(text: &str) -> Option<f64> {
     text[..index].parse().ok()
 }
 
+/// A NUL-terminated C array as a string, without a pointer in sight.
 fn c_array_string(value: &[libc::c_char]) -> String {
-    unsafe { CStr::from_ptr(value.as_ptr()) }
-        .to_string_lossy()
-        .into_owned()
+    let bytes: Vec<u8> = value
+        .iter()
+        .map(|character| *character as u8)
+        .take_while(|byte| *byte != 0)
+        .collect();
+
+    String::from_utf8_lossy(&bytes).into_owned()
 }

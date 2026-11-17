@@ -25,6 +25,7 @@ use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::clipboard::Clipboard;
 use crate::config::{ConfigLoader, LoadedConfig};
+use crate::desktopwidgets::Widgets;
 use crate::idle::Idle;
 use crate::launcherpanel::Launcher;
 use crate::locker;
@@ -158,6 +159,7 @@ struct Shell {
     config_label: String,
     session: Session,
     bars: Vec<BarWindow>,
+    widgets: Widgets,
     config_watch: Option<(gtk::gio::FileMonitor, gtk::glib::SignalHandlerId)>,
     monitor_watch: Option<(gtk::gio::ListModel, gtk::glib::SignalHandlerId)>,
     reload_source: Option<gtk::glib::SourceId>,
@@ -219,6 +221,7 @@ impl Shell {
             config_label,
             session: Session::detect(),
             bars: Vec::new(),
+            widgets: Widgets::new(),
             config_watch: None,
             monitor_watch: None,
             reload_source: None,
@@ -292,6 +295,18 @@ impl Shell {
         if built == 0 {
             eprintln!("whelk-rs: no bar matches the current monitor model; waiting for an output");
         }
+
+        // The cards are placed around the bars, so they are rebuilt with them:
+        // a settings save and a hotplug both land here, and the style they
+        // read is the first bar's, exactly as the C shell passes it.
+        let style = self.loaded.bars.first().cloned().unwrap_or_default();
+
+        self.widgets.build(
+            &application,
+            &self.loaded.widgets,
+            &style,
+            self.loader.path(),
+        );
     }
 
     fn reload(&mut self) {
@@ -366,6 +381,7 @@ impl Shell {
         // then destroys the window.  Destroying the window shuts down every
         // ModuleHost beneath it, cancelling timers and commands.
         self.bars.clear();
+        self.widgets.clear();
 
         // The history flushes synchronously when the service's last reference
         // goes away, after the bar and launcher listeners are gone.

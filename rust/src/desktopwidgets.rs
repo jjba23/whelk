@@ -1,0 +1,1537 @@
+// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+//
+// SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+//! The desktop widget cards, ported from `src/widgets.c`.
+//!
+//! Each card is a bottom-layer surface at its own place on its own monitor,
+//! moved by the grip in its header, and refreshed by the cadence its kind
+//! needs.  Everything the cards *say* lives in [`crate::widgets`]; this module
+//! only paints it and keeps the surfaces alive.
+//!
+//! The C manager kept a `WidgetGuard` so an asynchronous answer could tell
+//! whether the card that asked still existed.  Here the same question is a
+//! weak reference: every timer and every answer holds `Weak` handles to the
+//! widgets it would update, so a card that is gone drops its reading on the
+//! floor without a liveness token and without a single `unsafe` block.
+
+use std::cell::{Cell, RefCell};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use gtk::prelude::*;
+use gtk4 as gtk;
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+
+use crate::bar::BarSettings;
+use crate::batterybar;
+use crate::command;
+use crate::style;
+use crate::ui::layer_shell_available;
+use crate::widgets::{
+    self, Area, FALLBACK_AREA, ReminderRow, Reminders, StockQuote, WidgetConfig, WidgetKind,
+};
+use crate::widgetstate;
+
+/// The structural rules every card wears.  The palette, radius and material
+/// come from the generated skin below; these are the pieces that make a card
+/// readable in any theme.
+const CARD_CSS: &str = "
+    .whelk-widget-card {
+        padding: 14px;
+    }
+    .whelk-widget-header {
+        margin-bottom: 2px;
+    }
+    .whelk-widget-glyph {
+        opacity: 0.85;
+        font-size: 15px;
+    }
+    .whelk-widget-title {
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+    .whelk-widget-grip {
+        opacity: 0.35;
+        padding: 0 2px;
+    }
+    .whelk-widget-card.dragging .whelk-widget-header {
+        opacity: 0.9;
+    }
+    .whelk-widget-subtle {
+        opacity: 0.68;
+        font-size: 12px;
+    }
+    .whelk-widget-clock-time {
+        font-size: 30px;
+        font-weight: 700;
+        font-feature-settings: \"tnum\";
+    }
+    .whelk-widget-clock-time.digital {
+        font-size: 44px;
+        letter-spacing: 1px;
+    }
+    .whelk-widget-clock-face {
+        margin: 4px 0 2px;
+    }
+    .whelk-widget-calendar-nav {
+        margin-top: 2px;
+    }
+    .whelk-widget-calendar-month {
+        font-weight: 700;
+    }
+    .whelk-widget-weekday {
+        opacity: 0.55;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .whelk-widget-day {
+        font-size: 13px;
+    }
+    .whelk-widget-day.today {
+        font-weight: 700;
+        background-color: alpha(currentColor, 0.18);
+        border-radius: 6px;
+    }
+    .whelk-widget-weather-icon {
+        font-size: 34px;
+    }
+    .whelk-widget-temperature {
+        font-size: 30px;
+        font-weight: 700;
+    }
+    .whelk-widget-reading {
+        font-size: 14px;
+    }
+    .whelk-widget-battery-percent {
+        font-size: 30px;
+        font-weight: 700;
+    }
+    .whelk-widget-note {
+        font-size: 13px;
+    }
+    .whelk-widget-reminder {
+        font-size: 13px;
+    }
+    .whelk-widget-reminder-row {
+        padding: 2px 4px;
+        border-radius: 6px;
+    }
+    .whelk-widget-city {
+        font-size: 14px;
+    }
+    .whelk-widget-world-time {
+        font-size: 15px;
+        font-weight: 700;
+        font-feature-settings: \"tnum\";
+    }
+    .whelk-widget-stock-symbol {
+        font-weight: 700;
+    }
+    .whelk-widget-stock-change.up {
+        color: #4ade80;
+    }
+    .whelk-widget-stock-change.down {
+        color: #f87171;
+    }
+    .whelk-widget-footnote {
+        opacity: 0.55;
+        font-size: 11px;
+    }
+    .whelk-widget-card.warning {
+        border-color: #ffb340;
+    }
+    .whelk-widget-card.critical {
+        border-color: #ff5f56;
+    }
+";
+
+// ---------------------------------------------------------------------------
+// Policy that needs no display
+// ---------------------------------------------------------------------------
+
+/// One monitor's connector and the area a card may be dragged across on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonitorArea {
+    pub connector: String,
+    pub area: Area,
+}
+
+/// The area a card belongs to: the connector the settings file names, else the
+/// one its surface is on, else the display's first monitor, else
+/// [`FALLBACK_AREA`] for a display with no monitor model.
+pub fn area_for(configured: &str, at_surface: Option<&str>, monitors: &[MonitorArea]) -> Area {
+    let named = (!configured.trim().is_empty())
+        .then_some(configured)
+        .filter(|connector| *connector != "default");
+
+    for wanted in [named, at_surface].into_iter().flatten() {
+        if let Some(monitor) = monitors.iter().find(|monitor| monitor.connector == wanted) {
+            return monitor.area;
+        }
+    }
+
+    monitors
+        .first()
+        .map(|monitor| monitor.area)
+        .unwrap_or(FALLBACK_AREA)
+}
+
+/// Where the three hands of an analog clock point, in radians from three
+/// o'clock clockwise, at `hour:minute:second`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClockAngles {
+    pub hour: f64,
+    pub minute: f64,
+    pub second: f64,
+}
+
+/// The clock face's hand angles.  The hour and minute hands creep with the
+/// smaller unit, exactly as the C face draws them.
+pub fn clock_angles(hour: u32, minute: u32, second: u32) -> ClockAngles {
+    let hour_angle = (f64::from(hour % 12) + f64::from(minute) / 60.0) * std::f64::consts::PI / 6.0
+        - std::f64::consts::FRAC_PI_2;
+    let minute_angle = (f64::from(minute) + f64::from(second) / 60.0) * std::f64::consts::PI / 30.0
+        - std::f64::consts::FRAC_PI_2;
+    let second_angle =
+        f64::from(second) * std::f64::consts::PI / 30.0 - std::f64::consts::FRAC_PI_2;
+
+    ClockAngles {
+        hour: hour_angle,
+        minute: minute_angle,
+        second: second_angle,
+    }
+}
+
+/// One battery card reading: the two numbers it draws and the card classes
+/// that colour it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatterySummary {
+    pub percent: String,
+    pub status: String,
+    pub classes: Vec<&'static str>,
+}
+
+/// The battery card's words and classes.  A critical pack is critical even
+/// while charging, so the order matches the C card: threshold first, then the
+/// charging mark.
+pub fn battery_summary(capacity: i32, status: &str, warning: i32, critical: i32) -> BatterySummary {
+    let charging = plugged_in(status);
+    let mut classes = Vec::new();
+
+    if capacity <= critical {
+        classes.push("critical");
+    } else if capacity <= warning {
+        classes.push("warning");
+    }
+
+    if charging {
+        classes.push("charging");
+    }
+
+    BatterySummary {
+        percent: format!("{capacity}%"),
+        status: format!(
+            "{status} · {}",
+            if charging { "charging" } else { "on battery" }
+        ),
+        classes,
+    }
+}
+
+/// Whether a pack counts as on power on the widget card.  The card follows the
+/// C widget's three statuses rather than the bar module's stricter rule, so a
+/// full pack and one that stopped taking power still read as plugged in.
+fn plugged_in(status: &str) -> bool {
+    matches!(status, "Charging" | "Full" | "Not charging")
+}
+
+/// The markup one reminder row is drawn with: its text escaped, struck
+/// through when it is done.
+pub fn reminder_markup(row: &ReminderRow) -> String {
+    let mut escaped = String::with_capacity(row.text.len());
+
+    for character in row.text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\'' => escaped.push_str("&apos;"),
+            '"' => escaped.push_str("&quot;"),
+            character => escaped.push(character),
+        }
+    }
+
+    if row.done {
+        format!("<s>{escaped}</s>")
+    } else {
+        escaped
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The manager
+// ---------------------------------------------------------------------------
+
+/// Every desktop widget the current configuration asks for.  Dropping a card
+/// removes its timer, its skin and its surface.
+pub struct Widgets {
+    cards: Vec<Card>,
+    state_path: Option<PathBuf>,
+}
+
+impl Widgets {
+    pub fn new() -> Self {
+        Self {
+            cards: Vec::new(),
+            state_path: None,
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.cards.len()
+    }
+
+    /// Replace every card with the ones `configs` asks for.  An unknown kind is
+    /// reported and skipped, as the C manager does.
+    pub fn build(
+        &mut self,
+        application: &gtk::Application,
+        configs: &[WidgetConfig],
+        style: &BarSettings,
+        config_path: &Path,
+    ) {
+        self.clear();
+        self.state_path = widgetstate::state_path(config_path);
+
+        for (index, config) in configs.iter().enumerate() {
+            if config.kind().is_none() {
+                eprintln!(
+                    "whelk-rs: unknown desktop widget kind '{}'",
+                    config.spec.kind
+                );
+                continue;
+            }
+
+            if let Some(card) = Card::present(
+                application,
+                config,
+                index,
+                style,
+                self.state_path.as_deref(),
+            ) {
+                self.cards.push(card);
+            }
+        }
+
+        if !self.cards.is_empty() {
+            eprintln!("whelk-rs: {} desktop widget(s) up", self.cards.len());
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.cards.clear();
+    }
+}
+
+impl Default for Widgets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One presented card.  Its content, timer and drag state are owned by the
+/// widgets inside it; this struct is what a rebuild drops.
+struct Card {
+    window: gtk::ApplicationWindow,
+    css: Option<gtk::CssProvider>,
+    timer: Option<gtk::glib::SourceId>,
+}
+
+impl Card {
+    fn present(
+        application: &gtk::Application,
+        config: &WidgetConfig,
+        index: usize,
+        style: &BarSettings,
+        state_path: Option<&Path>,
+    ) -> Option<Self> {
+        let id = config.id(index);
+        let widget_id = style::widget_id(&id);
+        let window = gtk::ApplicationWindow::builder()
+            .application(application)
+            .title("whelk-rs widget")
+            .build();
+
+        window.set_widget_name(&widget_id);
+        window.add_css_class("whelk-surface");
+        window.set_decorated(false);
+        window.set_resizable(false);
+
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 9);
+
+        card.add_css_class("whelk-widget-card");
+        card.add_css_class(&config.object_class());
+        card.set_size_request(config.width, config.height);
+
+        if let Some(tooltip) = config.tooltip() {
+            card.set_tooltip_text(Some(&tooltip));
+        }
+
+        attach_clicks(&card, config);
+
+        append_header(&card, config);
+
+        // A dragged position wins over the settings file, and it is clamped
+        // again here because the monitor may have been resized or replaced
+        // since it was saved.
+        let connector = configured_connector(config);
+        let saved = state_path
+            .and_then(|path| widgetstate::load_position_for(path, &id, connector.as_deref()));
+        let position = config.restore_position(saved, current_area(None, &config.monitor));
+
+        let timer = build_content(&card, config, style, state_path, &id);
+
+        // The drag gesture reads the card back off its window, so the tree is
+        // in place before the controller is attached.
+        window.set_child(Some(&card));
+
+        if let Some(grip) = grip(&card) {
+            attach_drag(
+                &grip,
+                &window,
+                config,
+                &id,
+                state_path,
+                Rc::new(Cell::new(position)),
+            );
+        }
+
+        let skin = install_skin(&widget_id, style, config);
+
+        if layer_shell_available() {
+            window.init_layer_shell();
+            window.set_layer(Layer::Bottom);
+            window.set_namespace(Some("whelk-widget"));
+            window.set_anchor(Edge::Top, true);
+            window.set_anchor(Edge::Left, true);
+            window.set_keyboard_mode(KeyboardMode::None);
+            window.set_exclusive_zone(-1);
+
+            if let Some(monitor) = monitor_for(&config.monitor) {
+                window.set_monitor(Some(&monitor));
+            }
+
+            set_position(&window, position.0, position.1);
+        } else {
+            // Broadway and a plain X11 test display have no layer shell; a
+            // normal window is still a useful smoke test for the tree.
+            window.set_default_size(config.width, config.height);
+        }
+
+        window.present();
+
+        Some(Self {
+            window,
+            css: skin,
+            timer,
+        })
+    }
+}
+
+impl Drop for Card {
+    fn drop(&mut self) {
+        if let Some(timer) = self.timer.take() {
+            timer.remove();
+        }
+
+        if let Some(css) = self.css.take()
+            && let Some(display) = gtk::gdk::Display::default()
+        {
+            gtk::style_context_remove_provider_for_display(&display, &css);
+        }
+
+        self.window.set_child(None::<&gtk::Widget>);
+        self.window.destroy();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Surface plumbing
+// ---------------------------------------------------------------------------
+
+fn label(text: &str, class: &str, xalign: f32) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+
+    label.set_xalign(xalign);
+    label.set_halign(if xalign < 0.5 {
+        gtk::Align::Start
+    } else if xalign > 0.5 {
+        gtk::Align::End
+    } else {
+        gtk::Align::Center
+    });
+
+    if !class.is_empty() {
+        label.add_css_class(class);
+    }
+
+    label
+}
+
+fn append_header(card: &gtk::Box, config: &WidgetConfig) {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let fill = label("", "whelk-widget-header-fill", 0.0);
+    let glyph = config.kind().map(WidgetKind::glyph).unwrap_or("◌");
+
+    row.add_css_class("whelk-widget-header");
+    row.append(&label(glyph, "whelk-widget-glyph", 0.0));
+    row.append(&label(&config.title(), "whelk-widget-title", 0.0));
+    fill.set_hexpand(true);
+    row.append(&fill);
+    card.append(&row);
+}
+
+/// The drag handle inside the header.  Cards are moved the way a window is:
+/// by the small piece that says so, so their own buttons keep their clicks.
+fn grip(card: &gtk::Box) -> Option<gtk::Label> {
+    let header = card.first_child()?;
+    let grip = label("⠿", "whelk-widget-grip", 1.0);
+
+    grip.set_cursor_from_name(Some("grab"));
+    grip.set_tooltip_text(Some("Drag to move this widget"));
+    header.downcast::<gtk::Box>().ok()?.append(&grip);
+
+    Some(grip)
+}
+
+/// The mouse vocabulary a bar module also has, from the same option names.
+fn attach_clicks(card: &gtk::Box, config: &WidgetConfig) {
+    let mut scroll_up = None;
+    let mut scroll_down = None;
+
+    for (key, command_line) in config.click_commands() {
+        match key {
+            "on-click" => click(card, gtk::gdk::BUTTON_PRIMARY, command_line),
+            "on-click-middle" => click(card, gtk::gdk::BUTTON_MIDDLE, command_line),
+            "on-click-right" => click(card, gtk::gdk::BUTTON_SECONDARY, command_line),
+            "on-scroll-up" => scroll_up = Some(command_line),
+            "on-scroll-down" => scroll_down = Some(command_line),
+            _ => {}
+        }
+    }
+
+    if scroll_up.is_none() && scroll_down.is_none() {
+        return;
+    }
+
+    match (scroll_up, scroll_down) {
+        (Some(up), Some(down)) => scroll(card, Some(up), Some(down)),
+        (Some(up), None) => scroll(card, Some(up), None),
+        (None, Some(down)) => scroll(card, None, Some(down)),
+        (None, None) => {}
+    }
+}
+
+fn click(card: &gtk::Box, button: u32, command_line: String) {
+    let gesture = gtk::GestureClick::new();
+
+    gesture.set_button(button);
+    gesture.connect_pressed(move |_, _, _, _| command::spawn(&command_line));
+    card.add_controller(gesture);
+}
+
+fn scroll(card: &gtk::Box, up: Option<String>, down: Option<String>) {
+    let controller = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+
+    controller.connect_scroll(move |_, _, dy| {
+        if dy < 0.0
+            && let Some(command_line) = up.as_deref()
+        {
+            command::spawn(command_line);
+
+            return gtk::glib::Propagation::Stop;
+        }
+
+        if dy > 0.0
+            && let Some(command_line) = down.as_deref()
+        {
+            command::spawn(command_line);
+
+            return gtk::glib::Propagation::Stop;
+        }
+
+        gtk::glib::Propagation::Proceed
+    });
+    card.add_controller(controller);
+}
+
+fn attach_drag(
+    grip: &gtk::Label,
+    window: &gtk::ApplicationWindow,
+    config: &WidgetConfig,
+    id: &str,
+    state_path: Option<&Path>,
+    position: Rc<Cell<(i32, i32)>>,
+) {
+    let drag = gtk::GestureDrag::new();
+    let origin = Rc::new(Cell::new(position.get()));
+    let begin_position = Rc::clone(&position);
+
+    drag.set_button(gtk::gdk::BUTTON_PRIMARY);
+
+    {
+        let card = window
+            .child()
+            .and_downcast::<gtk::Box>()
+            .expect("a widget card has its box as its child");
+        let handle = grip.clone();
+        let origin = Rc::clone(&origin);
+
+        drag.connect_drag_begin(move |_, _, _| {
+            origin.set(begin_position.get());
+            card.add_css_class("dragging");
+            handle.set_cursor_from_name(Some("grabbing"));
+        });
+    }
+
+    {
+        let window = window.clone();
+        let moving = Rc::clone(&position);
+        let monitor = config.monitor.clone();
+        let size = (config.width, config.height);
+        let origin = Rc::clone(&origin);
+
+        drag.connect_drag_update(move |_, offset_x, offset_y| {
+            let area = current_area(Some(&window), &monitor);
+            let (x, y) = widgets::drag_position(origin.get(), (offset_x, offset_y), size, area);
+
+            set_position(&window, x, y);
+            moving.set((x, y));
+        });
+    }
+
+    {
+        let card = window
+            .child()
+            .and_downcast::<gtk::Box>()
+            .expect("a widget card has its box as its child");
+        let handle = grip.clone();
+        let window = window.clone();
+        let monitor = config.monitor.clone();
+        let id = id.to_owned();
+        let state_path = state_path.map(Path::to_path_buf);
+        let landing = Rc::clone(&position);
+
+        drag.connect_drag_end(move |_, _, _| {
+            card.remove_css_class("dragging");
+            handle.set_cursor_from_name(Some("grab"));
+
+            if let Some(path) = state_path.as_deref() {
+                let connector = monitor_key(&window, &monitor);
+                let (x, y) = landing.get();
+
+                widgetstate::save_position_for(path, &id, connector.as_deref(), x, y);
+            }
+        });
+    }
+
+    grip.add_controller(drag);
+}
+
+fn set_position(window: &gtk::ApplicationWindow, x: i32, y: i32) {
+    if !layer_shell_available() {
+        return;
+    }
+
+    window.set_margin(Edge::Top, y);
+    window.set_margin(Edge::Left, x);
+}
+
+fn monitor_for(connector: &str) -> Option<gtk::gdk::Monitor> {
+    if connector.is_empty() || connector == "default" {
+        return None;
+    }
+
+    let display = gtk::gdk::Display::default()?;
+    let model = display.monitors();
+
+    for index in 0..model.n_items() {
+        let monitor = model.item(index).and_downcast::<gtk::gdk::Monitor>()?;
+        let name = monitor
+            .connector()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+
+        if name == connector {
+            return Some(monitor);
+        }
+    }
+
+    None
+}
+
+/// The connector a placement is keyed under: the settings file's monitor, or
+/// the one the card's surface is actually on.
+fn monitor_key(window: &gtk::ApplicationWindow, configured: &str) -> Option<String> {
+    let connector = window
+        .surface()
+        .and_then(|surface| gtk::gdk::Display::default()?.monitor_at_surface(&surface))
+        .and_then(|monitor| monitor.connector())
+        .map(|name| name.to_string());
+
+    widgets::monitor_key(configured, connector.as_deref()).map(str::to_owned)
+}
+
+fn configured_connector(config: &WidgetConfig) -> Option<String> {
+    widgets::monitor_key(&config.monitor, None).map(str::to_owned)
+}
+
+/// The area a card may be dragged across right now.
+fn current_area(window: Option<&gtk::ApplicationWindow>, configured: &str) -> Area {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return FALLBACK_AREA;
+    };
+    let model = display.monitors();
+    let mut monitors = Vec::new();
+
+    for index in 0..model.n_items() {
+        let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() else {
+            continue;
+        };
+        let geometry = monitor.geometry();
+
+        monitors.push(MonitorArea {
+            connector: monitor
+                .connector()
+                .map(|name| name.to_string())
+                .unwrap_or_default(),
+            area: Area {
+                width: geometry.width(),
+                height: geometry.height(),
+            },
+        });
+    }
+
+    let at_surface = window
+        .and_then(|window| window.surface())
+        .and_then(|surface| display.monitor_at_surface(&surface))
+        .and_then(|monitor| monitor.connector())
+        .map(|name| name.to_string());
+
+    area_for(configured, at_surface.as_deref(), &monitors)
+}
+
+fn install_skin(
+    widget_id: &str,
+    style: &BarSettings,
+    config: &WidgetConfig,
+) -> Option<gtk::CssProvider> {
+    let display = gtk::gdk::Display::default()?;
+    let generated = style::css(
+        widget_id,
+        style,
+        "whelk-widget-card",
+        config.css().as_deref(),
+    );
+    let css = gtk::CssProvider::new();
+
+    css.load_from_string(&format!("{CARD_CSS}\n{generated}"));
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &css,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    Some(css)
+}
+
+// ---------------------------------------------------------------------------
+// The update cadence
+// ---------------------------------------------------------------------------
+
+/// Run `update` every `interval` seconds; it answers `false` once the card it
+/// paints is gone, which removes the timer.
+fn repeat(interval: u32, update: Rc<dyn Fn() -> bool>) -> gtk::glib::SourceId {
+    gtk::glib::timeout_add_seconds_local(interval, move || {
+        if update() {
+            gtk::glib::ControlFlow::Continue
+        } else {
+            gtk::glib::ControlFlow::Break
+        }
+    })
+}
+
+/// Paint once now, then on the card's cadence when it has one.
+fn schedule(interval: u32, update: Rc<dyn Fn() -> bool>) -> Option<gtk::glib::SourceId> {
+    if !update() || interval == 0 {
+        return None;
+    }
+
+    Some(repeat(interval, update))
+}
+
+/// One asynchronous answer, dropped when the card that asked is gone.
+fn fetch(url: String, busy: Rc<Cell<bool>>, done: impl FnOnce(Option<String>) + 'static) {
+    if busy.replace(true) {
+        return;
+    }
+
+    let file = gtk::gio::File::for_uri(&url);
+
+    file.load_contents_async(None::<&gtk::gio::Cancellable>, move |result| {
+        busy.set(false);
+
+        let text = result
+            .ok()
+            .map(|(bytes, _etag)| String::from_utf8_lossy(&bytes).into_owned());
+
+        done(text);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// The kinds
+// ---------------------------------------------------------------------------
+
+fn build_content(
+    card: &gtk::Box,
+    config: &WidgetConfig,
+    style: &BarSettings,
+    state_path: Option<&Path>,
+    id: &str,
+) -> Option<gtk::glib::SourceId> {
+    match config.kind()? {
+        WidgetKind::Clock => build_clock(card, config, style),
+        WidgetKind::Calendar => build_calendar(card),
+        WidgetKind::Weather => build_weather(card, config),
+        WidgetKind::Battery => build_battery(card, config),
+        WidgetKind::Notes => build_notes(card, config),
+        WidgetKind::Reminders => {
+            build_reminders(card, config, state_path, id);
+
+            None
+        }
+        WidgetKind::WorldClock => build_world_clock(card, config),
+        WidgetKind::Stocks => build_stocks(card, config),
+        WidgetKind::Custom => build_custom(card, config),
+    }
+}
+
+fn ink(style: &BarSettings) -> gtk::gdk::RGBA {
+    style
+        .foreground
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .and_then(|value| gtk::gdk::RGBA::parse(value).ok())
+        .unwrap_or_else(|| gtk::gdk::RGBA::new(0.92, 0.92, 0.94, 1.0))
+}
+
+fn build_clock(
+    card: &gtk::Box,
+    config: &WidgetConfig,
+    style: &BarSettings,
+) -> Option<gtk::glib::SourceId> {
+    let analog = config.spec.text("style").as_deref() != Some("digital");
+    let seconds = config.spec.boolean("show-seconds?").unwrap_or(true);
+    let colour = ink(style);
+
+    let face = analog.then(|| {
+        let face = gtk::DrawingArea::new();
+
+        face.add_css_class("whelk-widget-clock-face");
+        face.set_hexpand(true);
+        face.set_vexpand(true);
+        face.set_size_request(120, 120);
+        face.set_content_width(170);
+        face.set_content_height(170);
+        face.set_draw_func(move |_, cairo, width, height| {
+            draw_clock_face(cairo, width, height, colour, seconds);
+        });
+        card.append(&face);
+
+        face
+    });
+
+    let time = label("--:--", "whelk-widget-clock-time", 0.5);
+
+    if !analog {
+        time.add_css_class("digital");
+    }
+
+    let date = label("", "whelk-widget-subtle", 0.5);
+
+    card.append(&time);
+    card.append(&date);
+
+    let weak_time = time.downgrade();
+    let weak_date = date.downgrade();
+    let weak_face = face.as_ref().map(gtk::DrawingArea::downgrade);
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (Some(time), Some(date)) = (weak_time.upgrade(), weak_date.upgrade()) else {
+            return false;
+        };
+        let now = gtk::glib::DateTime::now_local().ok();
+        let time_text = now
+            .as_ref()
+            .and_then(|now| now.format("%H:%M").ok())
+            .map(|text| text.to_string())
+            .unwrap_or_else(|| "--:--".to_owned());
+        let date_text = now
+            .as_ref()
+            .and_then(|now| now.format("%A, %d %B").ok())
+            .map(|text| text.to_string())
+            .unwrap_or_default();
+
+        time.set_text(&time_text);
+        date.set_text(&date_text);
+
+        if let Some(face) = weak_face.as_ref().and_then(|face| face.upgrade()) {
+            face.queue_draw();
+        }
+
+        true
+    });
+
+    schedule(1, update)
+}
+
+fn draw_clock_face(
+    cairo: &gtk::cairo::Context,
+    width: i32,
+    height: i32,
+    colour: gtk::gdk::RGBA,
+    seconds: bool,
+) {
+    let Some(now) = gtk::glib::DateTime::now_local().ok() else {
+        return;
+    };
+
+    let cx = f64::from(width) / 2.0;
+    let cy = f64::from(height) / 2.0;
+    let radius = (f64::from(width.min(height)) / 2.0 - 7.0).max(1.0);
+    let (red, green, blue) = (
+        f64::from(colour.red()),
+        f64::from(colour.green()),
+        f64::from(colour.blue()),
+    );
+
+    cairo.set_source_rgba(red, green, blue, 0.82);
+    cairo.set_line_width(1.2);
+    cairo.arc(cx, cy, radius, 0.0, 2.0 * std::f64::consts::PI);
+    let _ = cairo.stroke();
+
+    for tick in 0..60 {
+        let angle = f64::from(tick) * std::f64::consts::PI / 30.0 - std::f64::consts::FRAC_PI_2;
+        let inner = radius - if tick % 5 == 0 { 10.0 } else { 5.0 };
+        let outer = radius - 3.0;
+
+        cairo.set_line_width(if tick % 5 == 0 { 2.0 } else { 0.8 });
+        cairo.move_to(cx + angle.cos() * inner, cy + angle.sin() * inner);
+        cairo.line_to(cx + angle.cos() * outer, cy + angle.sin() * outer);
+        let _ = cairo.stroke();
+    }
+
+    let angles = clock_angles(now.hour() as u32, now.minute() as u32, now.second() as u32);
+
+    cairo.set_line_cap(gtk::cairo::LineCap::Round);
+    cairo.set_line_width(5.0);
+    cairo.move_to(cx, cy);
+    cairo.line_to(
+        cx + angles.hour.cos() * radius * 0.48,
+        cy + angles.hour.sin() * radius * 0.48,
+    );
+    let _ = cairo.stroke();
+
+    cairo.set_line_width(3.0);
+    cairo.move_to(cx, cy);
+    cairo.line_to(
+        cx + angles.minute.cos() * radius * 0.70,
+        cy + angles.minute.sin() * radius * 0.70,
+    );
+    let _ = cairo.stroke();
+
+    if seconds {
+        cairo.set_source_rgba(red, green, blue, 0.55);
+        cairo.set_line_width(1.2);
+        cairo.move_to(cx, cy);
+        cairo.line_to(
+            cx + angles.second.cos() * radius * 0.82,
+            cy + angles.second.sin() * radius * 0.82,
+        );
+        let _ = cairo.stroke();
+    }
+
+    cairo.set_source_rgba(red, green, blue, 0.92);
+    cairo.arc(cx, cy, 3.0, 0.0, 2.0 * std::f64::consts::PI);
+    let _ = cairo.fill();
+}
+
+fn build_calendar(card: &gtk::Box) -> Option<gtk::glib::SourceId> {
+    let navigation = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let shown = Rc::new(Cell::new(today_month()));
+    let previous = gtk::Button::with_label("‹");
+    let month = gtk::Button::with_label("");
+    let next = gtk::Button::with_label("›");
+    let grid = gtk::Grid::new();
+
+    navigation.add_css_class("whelk-widget-calendar-nav");
+
+    for (button, tooltip) in [
+        (&previous, "The previous month"),
+        (&month, "Back to today"),
+        (&next, "The next month"),
+    ] {
+        button.add_css_class("flat");
+        button.add_css_class("whelk-widget-calendar-button");
+        button.set_focusable(false);
+        button.set_tooltip_text(Some(tooltip));
+    }
+
+    month.add_css_class("whelk-widget-calendar-month");
+    month.set_hexpand(true);
+    navigation.append(&previous);
+    navigation.append(&month);
+    navigation.append(&next);
+    card.append(&navigation);
+
+    grid.add_css_class("whelk-widget-calendar-grid");
+    grid.set_column_homogeneous(true);
+    grid.set_row_spacing(2);
+    grid.set_vexpand(true);
+    card.append(&grid);
+
+    let weak_grid = grid.downgrade();
+    let weak_month = month.downgrade();
+    let drawn = Rc::clone(&shown);
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (Some(grid), Some(month)) = (weak_grid.upgrade(), weak_month.upgrade()) else {
+            return false;
+        };
+
+        render_month(&grid, &month, drawn.get());
+
+        true
+    });
+
+    for (button, shift) in [(&previous, -1), (&next, 1)] {
+        let shown = Rc::clone(&shown);
+        let redraw = Rc::clone(&update);
+
+        button.connect_clicked(move |_| {
+            shown.set(shift_month(shown.get(), shift));
+            redraw();
+        });
+    }
+
+    {
+        let shown = Rc::clone(&shown);
+        let redraw = Rc::clone(&update);
+
+        month.connect_clicked(move |_| {
+            shown.set(today_month());
+            redraw();
+        });
+    }
+
+    schedule(60, update)
+}
+
+/// The current month, as `(year, month)`.
+fn today_month() -> (i32, u32) {
+    gtk::glib::DateTime::now_local()
+        .ok()
+        .map(|now| (now.year(), now.month() as u32))
+        .unwrap_or((1970, 1))
+}
+
+fn shift_month(month: (i32, u32), by: i32) -> (i32, u32) {
+    let index = month.0 * 12 + month.1 as i32 - 1 + by;
+
+    (index.div_euclid(12), index.rem_euclid(12) as u32 + 1)
+}
+
+fn render_month(grid: &gtk::Grid, heading: &gtk::Button, month: (i32, u32)) {
+    while let Some(child) = grid.first_child() {
+        child.unparent();
+    }
+
+    let today = gtk::glib::DateTime::now_local()
+        .ok()
+        .map(|now| (now.year(), now.month() as u32, now.day_of_month() as u32))
+        .unwrap_or((1970, 1, 1));
+    let layout = widgets::month_grid(month.0, month.1, today);
+
+    heading.set_label(&layout.heading);
+
+    for (column, weekday) in widgets::WEEKDAYS.iter().enumerate() {
+        let label = label(weekday, "whelk-widget-weekday", 0.5);
+
+        label.set_hexpand(true);
+        grid.attach(&label, column as i32, 0, 1, 1);
+    }
+
+    for day in 1..=layout.days {
+        let slot = layout.leading + day as usize - 1;
+        let label = label(&day.to_string(), "whelk-widget-day", 0.5);
+
+        label.set_hexpand(true);
+        label.set_valign(gtk::Align::Fill);
+
+        if layout.today == Some(day) {
+            label.add_css_class("today");
+        }
+
+        grid.attach(&label, (slot % 7) as i32, (slot / 7 + 1) as i32, 1, 1);
+    }
+}
+
+fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let place = label("", "whelk-widget-subtle", 0.0);
+    let reading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let icon = label("·", "whelk-widget-weather-icon", 0.5);
+    let temperature = label("—", "whelk-widget-temperature", 0.0);
+    let condition = label("", "whelk-widget-reading", 0.0);
+    let range = label("", "whelk-widget-subtle", 0.0);
+    let details = label("", "whelk-widget-subtle", 0.0);
+
+    reading.set_hexpand(true);
+    icon.set_valign(gtk::Align::Center);
+    reading.append(&icon);
+    reading.append(&temperature);
+    card.append(&place);
+    card.append(&reading);
+    card.append(&condition);
+    card.append(&range);
+    card.append(&details);
+
+    let latitude = config
+        .spec
+        .text("latitude")
+        .unwrap_or_else(|| "37.7749".to_owned());
+    let longitude = config
+        .spec
+        .text("longitude")
+        .unwrap_or_else(|| "-122.4194".to_owned());
+    let imperial = config.spec.text("units").as_deref() == Some("imperial");
+    let url = widgets::weather_url(&latitude, &longitude, imperial);
+    let location = config
+        .spec
+        .text("location")
+        .unwrap_or_else(|| "San Francisco".to_owned());
+    let busy = Rc::new(Cell::new(false));
+    let (weak_place, weak_icon) = (place.downgrade(), icon.downgrade());
+    let (weak_temperature, weak_condition) = (temperature.downgrade(), condition.downgrade());
+    let (weak_range, weak_details) = (range.downgrade(), details.downgrade());
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (
+            Some(place_label),
+            Some(icon_label),
+            Some(temperature_label),
+            Some(condition_label),
+            Some(range_label),
+            Some(details_label),
+        ) = (
+            weak_place.upgrade(),
+            weak_icon.upgrade(),
+            weak_temperature.upgrade(),
+            weak_condition.upgrade(),
+            weak_range.upgrade(),
+            weak_details.upgrade(),
+        )
+        else {
+            return false;
+        };
+
+        place_label.set_text(&location);
+
+        fetch(url.clone(), Rc::clone(&busy), move |text| {
+            match text
+                .as_deref()
+                .and_then(|text| widgets::parse_weather(text, !imperial))
+            {
+                Some(reading) => {
+                    icon_label.set_text(reading.glyph);
+                    temperature_label.set_text(&reading.temperature);
+                    condition_label.set_text(reading.condition);
+                    range_label.set_text(&reading.range);
+                    details_label.set_text(&reading.details);
+                }
+                None => {
+                    icon_label.set_text("·");
+                    temperature_label.set_text("—");
+                    condition_label.set_text("Weather unavailable");
+                    range_label.set_text("");
+                    details_label.set_text("");
+                }
+            }
+        });
+
+        true
+    });
+
+    schedule(1800, update)
+}
+
+fn build_battery(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let percent = label("—", "whelk-widget-battery-percent", 0.0);
+    let level = gtk::LevelBar::for_interval(0.0, 100.0);
+    let status = label("", "whelk-widget-reading", 0.0);
+    let device = label("", "whelk-widget-subtle", 0.0);
+
+    level.add_css_class("whelk-widget-battery-level");
+    level.set_value(0.0);
+    level.set_hexpand(true);
+    card.append(&percent);
+    card.append(&level);
+    card.append(&status);
+    card.append(&device);
+
+    let device_option = config.spec.text("device");
+    let warning = config
+        .spec
+        .integer("warning")
+        .map_or(30, |value| value as i32);
+    let critical = config
+        .spec
+        .integer("critical")
+        .map_or(15, |value| value as i32);
+
+    let (weak_percent, weak_level) = (percent.downgrade(), level.downgrade());
+    let (weak_status, weak_device) = (status.downgrade(), device.downgrade());
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (Some(percent_label), Some(level), Some(status_label), Some(device_label)) = (
+            weak_percent.upgrade(),
+            weak_level.upgrade(),
+            weak_status.upgrade(),
+            weak_device.upgrade(),
+        ) else {
+            return false;
+        };
+
+        let Some(reading) = batterybar::read(device_option.as_deref()).filter(|info| info.present)
+        else {
+            percent_label.set_text("—");
+            status_label.set_text("No battery");
+            device_label.set_text("");
+            level.set_visible(false);
+
+            return true;
+        };
+        let summary = battery_summary(reading.capacity, &reading.status, warning, critical);
+        let card = percent_label
+            .ancestor(gtk::Box::static_type())
+            .and_downcast::<gtk::Box>();
+
+        percent_label.set_text(&summary.percent);
+        status_label.set_text(&summary.status);
+        device_label.set_text(&reading.name);
+        level.set_visible(true);
+        level.set_value(f64::from(reading.capacity));
+
+        if let Some(card) = card {
+            for class in ["warning", "critical", "charging"] {
+                card.remove_css_class(class);
+            }
+
+            for class in summary.classes {
+                card.add_css_class(class);
+            }
+        }
+
+        true
+    });
+
+    schedule(30, update)
+}
+
+fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let body = label("", "whelk-widget-note", 0.0);
+
+    body.set_wrap(true);
+    body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    body.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    body.set_lines(7);
+    body.set_yalign(0.0);
+    body.set_vexpand(true);
+    body.set_hexpand(true);
+    card.append(&body);
+
+    let file = config.spec.text("file");
+    let text = config.spec.text("text");
+    let interval = config.interval();
+    let weak_body = body.downgrade();
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(body) = weak_body.upgrade() else {
+            return false;
+        };
+
+        body.set_text(&widgets::note_text(file.as_deref(), text.as_deref()));
+
+        true
+    });
+
+    schedule(interval, update)
+}
+
+fn build_reminders(card: &gtk::Box, config: &WidgetConfig, state_path: Option<&Path>, id: &str) {
+    let saved = state_path.and_then(|path| widgetstate::get(path, id, widgets::REMINDER_STATE_KEY));
+    let reminders = Reminders::restore(saved.as_deref(), config.spec.text("items").as_deref());
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let state = Rc::new(ReminderCard {
+        list: list.clone(),
+        reminders: RefCell::new(reminders),
+        state_path: state_path.map(Path::to_path_buf),
+        id: id.to_owned(),
+    });
+
+    list.add_css_class("whelk-widget-reminder-list");
+    list.set_vexpand(true);
+    card.append(&list);
+    state.render();
+}
+
+/// A reminders card: its list, the model behind it, and where a toggle is
+/// written.  The rows hold a weak reference to it, so a card that is gone can
+/// not be toggled back to life.
+struct ReminderCard {
+    list: gtk::Box,
+    reminders: RefCell<Reminders>,
+    state_path: Option<PathBuf>,
+    id: String,
+}
+
+impl ReminderCard {
+    fn render(self: &Rc<Self>) {
+        while let Some(child) = self.list.first_child() {
+            child.unparent();
+        }
+
+        for (index, row) in self.reminders.borrow().rows().iter().enumerate() {
+            let button = gtk::Button::new();
+            let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let mark = label(
+                if row.done { "✓" } else { "○" },
+                if row.done {
+                    "whelk-widget-reminder-done"
+                } else {
+                    "whelk-widget-reminder-mark"
+                },
+                0.0,
+            );
+            let text = label("", "whelk-widget-reminder", 0.0);
+            let card = Rc::downgrade(self);
+
+            text.set_markup(&reminder_markup(row));
+            text.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            text.set_max_width_chars(28);
+            text.set_hexpand(true);
+            content.append(&mark);
+            content.append(&text);
+            button.set_child(Some(&content));
+            button.add_css_class("flat");
+            button.add_css_class("whelk-widget-reminder-row");
+            button.set_tooltip_text(Some(if row.done {
+                "Mark this reminder as not done"
+            } else {
+                "Mark this reminder done"
+            }));
+            button.connect_clicked(move |_| {
+                let Some(card) = card.upgrade() else {
+                    return;
+                };
+
+                if card.reminders.borrow_mut().toggle(index) {
+                    card.save();
+                    card.render();
+                }
+            });
+            self.list.append(&button);
+        }
+    }
+
+    fn save(&self) {
+        let Some(path) = self.state_path.as_deref() else {
+            return;
+        };
+        let value = self.reminders.borrow().serialised();
+
+        widgetstate::set(path, &self.id, widgets::REMINDER_STATE_KEY, Some(&value));
+    }
+}
+
+fn build_world_clock(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let cities = widgets::cities(config.spec.text("cities").as_deref().unwrap_or_default());
+    let mut rows = Vec::new();
+
+    for city in cities {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let name = label(&city.label, "whelk-widget-city", 0.0);
+        let time = label("--:--", "whelk-widget-world-time", 1.0);
+        let day = label("", "whelk-widget-subtle", 1.0);
+
+        name.set_hexpand(true);
+        row.append(&name);
+        row.append(&time);
+        row.append(&day);
+        day.set_halign(gtk::Align::End);
+        card.append(&row);
+        rows.push((city.zone, time.downgrade(), day.downgrade()));
+    }
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let mut alive = false;
+
+        for (zone, time, day) in &rows {
+            let (Some(time), Some(day)) = (time.upgrade(), day.upgrade()) else {
+                continue;
+            };
+
+            alive = true;
+
+            if let Some((reading, weekday)) = widgets::city_time(zone) {
+                time.set_text(&reading);
+                day.set_text(&weekday);
+            }
+        }
+
+        alive
+    });
+
+    schedule(30, update)
+}
+
+fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let symbols =
+        widgets::stock_symbols(config.spec.text("symbols").as_deref().unwrap_or_default());
+    let mut rows = Vec::new();
+
+    for symbol in &symbols {
+        let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let name = label(symbol, "whelk-widget-stock-symbol", 0.0);
+        let price = label("—", "whelk-widget-stock-price", 1.0);
+        let change = label("", "whelk-widget-stock-change", 1.0);
+
+        name.set_hexpand(true);
+        line.append(&name);
+        line.append(&price);
+        line.append(&change);
+        change.set_halign(gtk::Align::End);
+        card.append(&line);
+        rows.push((symbol.clone(), price.downgrade(), change.downgrade()));
+    }
+
+    let footnote = label("", "whelk-widget-footnote", 0.0);
+
+    card.append(&footnote);
+
+    let url = widgets::stocks_url(&symbols);
+    let busy = Rc::new(Cell::new(false));
+    let weak_footnote = footnote.downgrade();
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(footnote) = weak_footnote.upgrade() else {
+            return false;
+        };
+
+        if symbols.is_empty() {
+            footnote.set_text("Add symbols");
+
+            return true;
+        }
+
+        let quoted: Vec<(String, gtk::Label, gtk::Label)> = rows
+            .iter()
+            .filter_map(|(symbol, price, change)| {
+                Some((symbol.clone(), price.upgrade()?, change.upgrade()?))
+            })
+            .collect();
+        let footnote_answer = footnote.clone();
+        let wanted = symbols.clone();
+
+        fetch(url.clone(), Rc::clone(&busy), move |text| {
+            let quotes = text
+                .as_deref()
+                .map(|text| widgets::parse_stocks(text, &wanted))
+                .unwrap_or_default();
+
+            apply_quotes(&quoted, &quotes);
+            footnote_answer.set_text(if quotes.is_empty() {
+                "Quotes unavailable"
+            } else {
+                "Delayed quotes · Yahoo Finance"
+            });
+        });
+
+        true
+    });
+
+    schedule(300, update)
+}
+
+fn apply_quotes(rows: &[(String, gtk::Label, gtk::Label)], quotes: &[StockQuote]) {
+    for (symbol, price, change) in rows {
+        let Some(quote) = quotes.iter().find(|quote| &quote.symbol == symbol) else {
+            continue;
+        };
+
+        price.set_text(&quote.price_text());
+        change.set_text(&quote.change_text());
+        change.remove_css_class("up");
+        change.remove_css_class("down");
+        change.add_css_class(if quote.is_up() { "up" } else { "down" });
+    }
+}
+
+fn build_custom(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+    let body = label("", "whelk-widget-note", 0.0);
+
+    body.set_wrap(true);
+    body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    body.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    body.set_lines(8);
+    body.set_yalign(0.0);
+    body.set_vexpand(true);
+    card.append(&body);
+
+    let exec = config.spec.text("exec");
+    let empty = config.spec.text("empty");
+    let busy = Rc::new(Cell::new(false));
+    let interval = config.interval();
+    let weak_body = body.downgrade();
+
+    let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(body) = weak_body.upgrade() else {
+            return false;
+        };
+
+        let Some(command_line) = exec.as_deref().filter(|line| !line.is_empty()) else {
+            body.set_text("Set #:exec on this widget.");
+
+            return true;
+        };
+
+        if busy.replace(true) {
+            return true;
+        }
+
+        let body = body.clone();
+        let empty = empty.clone();
+        let busy = Rc::clone(&busy);
+
+        command::run(command_line, move |output| {
+            busy.set(false);
+            body.set_text(&widgets::custom_text(output.as_deref(), empty.as_deref()));
+        });
+
+        true
+    });
+
+    schedule(interval, update)
+}

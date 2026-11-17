@@ -139,9 +139,19 @@ module is Rust as well: =src/schemebar.rs= calls =#:update= through
 =src/guile/widget.rs=, which registers the =whelk-widget-*= primitives in
 =(whelk core)= and swaps the returned widget into the bar each refresh.
 
-What is still C is the card itself: the layer-shell surface, its grip, the
-drag gesture and each kind's paint and refresh.  Those consume exactly the
-values listed above.
+The cards are drawn by =src/desktopwidgets.rs=: one bottom-layer surface per
+configured widget, anchored at its saved or configured place, skinned from the
+first bar's palette, moved by its grip (snapped to the grid and clamped into
+the monitor), with a timer per kind and one asynchronous request at a time for
+Weather and Stocks.  A card that goes away drops its timer, its skin and its
+surface, and an answer that arrives late paints nothing.  The manager is
+rebuilt with the bars, so a settings save or a monitor hotplug re-places every
+card; the same =widgets-<stem>.ini= means a drag in either shell is where the
+other one puts the card.
+
+Nothing in the Rust widget path is C: the data, the state file, the Scheme
+bridge, the =scheme= bar module and the surfaces are Rust.  The C shell keeps
+its own copy of =src/widgets.c= until the Rust binary replaces it.
 
 ------------------
 

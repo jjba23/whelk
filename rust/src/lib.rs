@@ -32,6 +32,7 @@ pub mod command;
 pub mod config;
 pub mod cpubar;
 pub mod custombar;
+pub mod desktopwidgets;
 pub mod dndbar;
 pub mod filesearch;
 pub mod format;

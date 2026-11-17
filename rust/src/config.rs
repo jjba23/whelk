@@ -19,6 +19,7 @@ use crate::menuapps::MenuSources;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
 use crate::shortcutmaps::ShortcutMaps;
 use crate::startmenu::MenuEntry;
+use crate::widgets::WidgetConfig;
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
@@ -30,6 +31,8 @@ pub struct LoadedConfig {
     /// The curated dictionary and Orbit corpus, loaded once per configuration.
     /// Every bar shares the same immutable copy.
     pub menu_sources: Rc<MenuSources>,
+    /// The desktop widgets the settings file asks for, in placement order.
+    pub widgets: Vec<WidgetConfig>,
 }
 
 impl LoadedConfig {
@@ -42,6 +45,7 @@ impl LoadedConfig {
             clipboard: ClipboardSettings::default(),
             menu: MenuEntry::default_menu(),
             menu_sources: Rc::new(MenuSources::default()),
+            widgets: Vec::new(),
         }
     }
 }
@@ -121,6 +125,14 @@ impl ConfigLoader {
         // even when the Scheme modules are unavailable.
         menu_sources.shortcut_maps = ShortcutMaps::load();
 
+        // A desktop widget that cannot be read is not a reason to refuse the
+        // shell: the bars it was placed around are still valid.
+        let widgets = guile.load_widgets(&self.path).unwrap_or_else(|error| {
+            eprintln!("whelk-rs: desktop widgets could not be loaded: {error}; drawing none");
+
+            Vec::new()
+        });
+
         Ok(LoadedConfig {
             wallpaper,
             bars,
@@ -128,6 +140,7 @@ impl ConfigLoader {
             clipboard,
             menu,
             menu_sources: Rc::new(menu_sources),
+            widgets,
         })
     }
 

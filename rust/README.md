@@ -360,6 +360,15 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   `~/.local/state`), positions stored per monitor with a monitor-less
   fallback, the `GKeyFile` format the C shell also writes, `0700` directories,
   and the snap/clamp rules both shells share.
+- `src/desktopwidgets.rs` — the cards themselves, ported from `src/widgets.c`:
+  one bottom-layer surface per configured widget, anchored top-left at its
+  saved or configured place, its skin generated from the first bar's palette,
+  its grip a primary-button drag that snaps and clamps into the monitor it
+  belongs to, and its own mouse vocabulary.  Each kind paints the data
+  `src/widgets.rs` decodes: the analog face and digital reading, the month
+  calendar with its navigation, Open-Meteo's current conditions, the battery
+  level, a note, the reminder rows whose clicks write runtime state, the world
+  clock, the delayed quotes and a custom command's output.
 - `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
   thickness, clock format and generated skin come from its Scheme bar. Every
   configured left, centre, right and overflow module goes through the factory; the
@@ -633,6 +642,7 @@ The tests are split by what they can prove without a session:
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, the real menu dictionary and Orbit corpus, repeated loads, caught exceptions |
 | `tests/atspi_dbus.rs` | A fake AT-SPI application on a private D-Bus: object-path children, role/state/name/key-binding reads, process-id matching, unknown applications and live `ChildrenChanged` delivery |
+| `tests/desktopwidgets.rs` | The monitor a drag may cross (named connector, the surface's monitor, the first one, the headless fallback), the analog clock's hand angles, the battery card's words and classes, and the escaped markup of a reminder row |
 | `tests/widgets.rs` | Kind catalogue and sizes, geometry clamps, option/mouse vocabulary, refresh cadence, reminders parsing/toggling/serialisation, world-clock cities, month-grid layout, weather and stock decoding, note/custom fallbacks, drag/placement arithmetic |
 | `tests/widgetstate.rs` | State path rules, 8 px snapping, clamping, monitor-aware position round trips and fallback, refused negative/malformed values, per-widget state removal |
 | `tests/menuwatch.rs` | Signal classification, the GTK restart and DBusMenu join debounce, the one owed follow-up read, and the replace rules for identical and empty trees |
@@ -703,7 +713,7 @@ enough to review:
 - `tests/guile.rs` — one call into the same Guile boundary for the integration
   test.
 
-Everything else — the bar and its modules, the global menu, tray, launcher,
+Everything else — the bar and its modules, the desktop widgets, the global menu, tray, launcher,
 panels, notifications, wallpaper, clipboard, session parsing and command
 runner — is safe Rust.  The idle manager's logind inhibitor used to keep a raw
 `i32` fd and call `libc::close`; it now stores `std::os::fd::OwnedFd` and reads
@@ -751,10 +761,13 @@ RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The l
 are the settings window and session management.  The global menu follows its
 producers live: a `Changed` or `LayoutUpdated` costs one debounced re-read and
 an unchanged tree is not rebuilt.  The Scheme widget bridge and the `scheme`
-bar module are Rust too, and so is the desktop widgets' data: their kinds,
-geometry, state file, reminders, weather and stock decoding, and placement
-arithmetic.  What is still C for the desktop widgets is their surfaces: the
-layer-shell card, its drag gesture and its per-kind paint/refresh, which the
-Rust side has the data for but does not draw yet.  The next slice is those
-surfaces, then making the Rust binary the installed `whelk` once the C and Rust
-suites both cover the same behavior.
+bar module are Rust too, and so are the desktop widgets.  Their kinds,
+geometry, state file, reminders, weather and stock decoding and placement
+arithmetic live in `src/widgets.rs` and `src/widgetstate.rs`; the cards
+`src/desktopwidgets.rs` presents are those values drawn: a layer-shell surface
+per widget, its skin, its grip-drag, and every kind's paint and refresh.  They
+are rebuilt with the bars, so a settings save or a hotplug moves them too.  The
+state file is the one the C shell writes, so a drag in either shell is where
+the other one puts the card.  The next slice is the settings window, then
+making the Rust binary the installed `whelk` once the C and Rust suites both
+cover the same behavior.
