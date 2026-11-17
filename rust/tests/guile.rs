@@ -18,7 +18,6 @@ fn write_settings(directory: &std::path::Path, body: &str) -> PathBuf {
     path
 }
 
-#[test]
 fn scheme_strings_are_escaped() {
     assert_eq!(scheme_string_literal(r#"a"b\c"#), r#""a\"b\\c""#);
     assert_eq!(scheme_string_literal("line\nnext"), "\"line\\nnext\"");
@@ -26,7 +25,6 @@ fn scheme_strings_are_escaped() {
 
 // Guile is process-global and thread-affine.  Keep every call in one test so
 // Cargo's test threads cannot initialize or enter it twice.
-#[test]
 fn guile_reads_the_real_shell_wallpaper_settings() {
     let directory = tempfile::tempdir().expect("tempdir");
     let config_path = write_settings(
@@ -341,4 +339,12 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
             .expect("evaluate")
             .contains('3')
     );
+}
+
+// libtest runs a #[test] on a worker thread; Guile's GC signal delivery needs
+// the process main thread.  This test binary therefore has its own main and
+// no libtest harness.
+fn main() {
+    scheme_strings_are_escaped();
+    guile_reads_the_real_shell_wallpaper_settings();
 }

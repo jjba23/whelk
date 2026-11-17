@@ -41,6 +41,10 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 - The retained Guile suite (themes, defaults, preferences, presets, wallpaper,
   widgets, menu dictionary and the Scheme module contract) runs from Cargo as
   =tests/scheme.rs=, so =cargo test --workspace --locked= is the whole suite.
+- The Guile integration binary now has its own main-thread harness.  Running it
+  through libtest sometimes aborted at process teardown with Guile's
+  "signals delivery fails constantly at GC" message, even after every test had
+  passed.
 
 *** Removed
 
@@ -55,7 +59,8 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 *** Verified
 
 - =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
-  warnings= and =cargo test --workspace --locked= pass: 496 passed, 0 failed.
+  warnings= and =cargo test --workspace --locked= pass: 494 libtest tests plus the
+  Guile harness, 0 failed.
 - The Nix package builds with =rustPlatform= and runs the full suite under
   Xvfb: =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'=.
 - =scripts/release-smoke.sh --source= installs the binary, Scheme modules,
