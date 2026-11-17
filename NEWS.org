@@ -11,6 +11,58 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.42.0 (2026-11-17)
+
+*** Added
+
+- *A task list: the bar can be a taskbar.*  =(tasks-module)= puts every open
+  window on the bar as a button, grouped by workspace, with the session's own
+  window list (niri's `windows`, sway's tree, `hyprctl clients`, `wmctrl -lp`).
+  A click focuses a window and the middle button closes it, the two gestures an
+  XP taskbar has; the focused window is marked, and an answer this module does
+  not understand is an empty list rather than a broken bar.  The XP preset's
+  centre is that module now, so the preset is a taskbar instead of a title.
+- *Fold priorities.*  A reading can say how much it wants to stay:
+  =#:keep? #t= is the loudest, =#:priority= a number to tune (a clock at 100
+  outranks a load average at 10), and a reading that says nothing keeps the
+  positional default, so an unconfigured bar folds exactly as it did.  The fold
+  is now recomputed whenever the surface is given a new width -- a scale change,
+  a rotation, a font that grew -- instead of once after the first allocation,
+  and the row is re-answered from the whole set, so a reading that was folded at
+  the old size comes back at the new one.
+- *The shelf is remembered.*  Opening the overflow chevron saves
+  =bar-overflow-expanded?= as a GUI preference, and the next load (or reload)
+  opens it again: a reader who opened the shelf does not lose it to a save that
+  had nothing to do with it.
+- *Battery time and two packs.*  =(battery-module)= reports ={time}= -- seconds
+  until the pack is empty, or until it is full while charging -- computed from
+  =energy_now=/=power_now=, or from =charge_now=/=current_now= scaled by the
+  pack's voltage.  =#:device "all"= sums every pack in the machine: the
+  percentages are weighted by capacity, the rates are added up, and any pack
+  that is charging makes the machine charging.
+- *An About whelk window.*  =whelk --about=, and *About whelk* in the shell
+  menu, open the program's own report: version, running session, GTK, the
+  settings file in use, and where the documentation, the source and the two
+  package channels are.  *Copy* copies it, *Escape* closes it.  The machine's
+  own report (*About This System*) is unchanged beside it.
+
+*** Changed
+
+- A bar's rows are rebuilt when the surface is resized, which is also when the
+  fold answers again; the fold used to be a single pass after the first map.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (540 tests), and so do the Guile
+  suites.
+- The taskbar was run in a live niri session: the row listed the workspace
+  number and its five windows as truncated buttons, and the XP preset's centre
+  is that module.
+- =whelk --about= opened the new window in that same session, with the version,
+  the session and the settings path.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.41.4 (2026-11-17)
 
 *** Fixed
