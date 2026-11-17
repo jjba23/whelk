@@ -85,6 +85,8 @@
             get-shell-idle
             get-shell-night-light
             get-shell-wallpaper
+            get-shell-frost
+            frosted-glass
             configure-shell!
             normalize-edge
             normalize-layer
@@ -100,7 +102,8 @@
             bar->alist
             shell-bars->alists
             shell-clipboard->alist
-            shell-wallpaper->alist))
+            shell-wallpaper->alist
+            shell-frost->alist))
 
 ;; =============================================================================
 ;; The bar record
@@ -261,7 +264,7 @@ rather than written back into this file."
 ;; `(whelk menu)' units, or #f for "the default the shell ships".
 (define-record-type <shell-config>
   (make-shell-config bars widgets shell-menu clipboard idle night-light wallpaper
-                     enable-repl? repl-socket-path)
+                     frost enable-repl? repl-socket-path)
   shell-config?
   (bars shell-config-bars)
   (widgets shell-config-widgets)
@@ -270,11 +273,12 @@ rather than written back into this file."
   (idle shell-config-idle)
   (night-light shell-config-night-light)
   (wallpaper shell-config-wallpaper)
+  (frost shell-config-frost)
   (enable-repl? shell-config-enable-repl?)
   (repl-socket-path shell-config-repl-socket-path))
 
 (define %default-shell-config%
-  (make-shell-config '() '() #f '() '() '() '() #f "/tmp/whelk-repl.sock"))
+  (make-shell-config '() '() #f '() '() '() '() '() #f "/tmp/whelk-repl.sock"))
 
 ;; Keyed by settings file path; 'default is the shell with no settings file.
 (define *shell-configs* (make-hash-table))
@@ -543,6 +547,36 @@ oldest first.  TTL-SECONDS, when positive, expires unpinned entries."
         (cons 'max-total-bytes max-total-bytes)
         (cons 'ttl-seconds ttl-seconds)))
 
+(define* (frosted-glass #:key
+                        (enabled? #t)
+                        (tint "")
+                        (opacity 0.62)
+                        (warmth 0.35)
+                        (grain 0.06)
+                        (highlight 0.30)
+                        (shadow 0.35))
+  "Describe the frosted-glass finish every whelk surface shares.
+
+The blur itself is the compositor's work: a Wayland surface cannot blur what
+is behind it, so niri, Hyprland or SwayFX needs a layer rule for the
+`whelk-rust' namespace (see the materials page of the manual).  What whelk can
+paint is the glass: TINT laid over each surface's own background at OPACITY,
+two warm gradients whose strength is WARMTH, a grain of GRAIN that hides the
+banding a blurred backdrop shows, a hairline HIGHLIGHT along the top edge and a
+soft drop SHADOW under floating panes.  An empty TINT keeps every surface's
+configured colour and adds only the finish.
+
+All the numbers are 0.0 to 1.0; a value outside that range is clamped.  #f for
+ENABLED? turns the whole finish off, which is what a settings file that never
+mentions `#:frost' gets."
+  (list (cons 'enabled? (if enabled? #t #f))
+        (cons 'tint (if (string? tint) tint ""))
+        (cons 'opacity opacity)
+        (cons 'warmth warmth)
+        (cons 'grain grain)
+        (cons 'highlight highlight)
+        (cons 'shadow shadow)))
+
 (define (clock->minutes text fallback)
   "Return \"HH:MM\" as minutes from midnight, or FALLBACK when it is not one."
   (if (and (string? text)
@@ -770,6 +804,7 @@ size and its thumbnails per row; the card expands to the output from there.
                            (idle '())
                            (night-light '())
                            (wallpaper '())
+                           (frost '())
                            (enable-repl? #f)
                            (repl-socket-path "/tmp/whelk-repl.sock"))
   "Register BARS as the shell described by settings file CONFIG-PATH.
@@ -814,6 +849,7 @@ how a configuration is changed without restarting the compositor:
                                  (if (list? idle) idle '())
                                  (if (list? night-light) night-light '())
                                  (if (list? wallpaper) wallpaper '())
+                                 (if (list? frost) frost '())
                                  enable-repl?
                                  repl-socket-path)))
     (when (and (list? bars) (not (= (length valid) (length bars))))
@@ -911,6 +947,10 @@ than layering on top of the previous run."
   "Return the wallpaper-settings alist, or '() when it was not configured."
   (shell-config-wallpaper (apply get-shell-config args)))
 
+(define (get-shell-frost . args)
+  "Return the frosted-glass alist, or '() when it was not configured."
+  (shell-config-frost (apply get-shell-config args)))
+
 (define (shell-menu->units . args)
   "Return the shell menu as the C runtime reads it: a list of menu units.
 
@@ -994,6 +1034,11 @@ because a settings file may want to read the menu it configured."
 (define (shell-wallpaper->alist . args)
   "Return the wallpaper settings as an alist, or '() when unconfigured."
   (let ((settings (apply get-shell-wallpaper args)))
+    (if (list? settings) settings '())))
+
+(define (shell-frost->alist . args)
+  "Return the frosted-glass settings as an alist, or '() when unconfigured."
+  (let ((settings (apply get-shell-frost args)))
     (if (list? settings) settings '())))
 
 (define (widget->alist w)

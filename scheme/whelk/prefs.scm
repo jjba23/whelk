@@ -524,8 +524,11 @@ the settings window's reload callback, so the two paths cannot drift apart."
            #:night-light (apply-night-light-preferences
                           prefs (get-shell-night-light config-path))
            ;; The wallpaper engine is not a bar option, but it lives in the
-           ;; same shell record: a GUI save must not drop it.
+           ;; same shell record: a GUI save must not drop it.  The frosted
+           ;; glass is the same story -- losing it on every control change
+           ;; would flash every pane back to its flat skin.
            #:wallpaper (get-shell-wallpaper config-path)
+           #:frost (get-shell-frost config-path)
            #:enable-repl? (get-shell-enable-repl? config-path)
            #:repl-socket-path (get-shell-repl-socket-path config-path))
           updated))))

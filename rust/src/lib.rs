@@ -40,6 +40,7 @@ pub mod desktopwidgets;
 pub mod dndbar;
 pub mod filesearch;
 pub mod format;
+pub mod frost;
 pub mod fuzzy;
 pub mod globalmenu;
 pub mod guile;

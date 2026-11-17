@@ -1,0 +1,287 @@
+#+title: Materials
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+Frosted glass, and the half of it the compositor has to do.
+
+* Who blurs what
+
+A Wayland surface cannot blur what is behind it.  The layer-shell protocol has
+no backdrop filter, and a client that tried to fake one would have to read the
+screen back, which no compositor allows.  Every blurred bar, launcher or
+notification panel you have seen on Wayland is blurred by its *compositor*, told
+which layer surfaces to touch by their namespace.
+
+What whelk can paint is the glass over that blur: a warm translucent tint, two
+soft gradients that catch the light like a pane, a grain that keeps a blurred
+backdrop from banding, a hairline along the top edge, and a shadow under panes
+that float.  That is the =frosted-glass= finish.  Because every surface's skin
+is generated in one place, one setting reaches the bar, the launcher, the
+desktop widget cards, the notification centre and its toasts, the network panel
+and the on-screen display together.
+
+| Part of the look                     | Painted by   | Set by                                |
+|--------------------------------------+--------------+---------------------------------------|
+| the blur of the wallpaper behind it   | the compositor | the layer rule in this document     |
+| tint and opacity                      | whelk        | =#:frost= / the bar's =#:opacity=     |
+| the two warm gradients                | whelk        | =#:warmth=                            |
+| the grain                             | whelk        | =#:grain=                             |
+| the hairline along the top edge       | whelk        | =#:highlight=                         |
+| the shadow under floating panes       | whelk        | =#:shadow=                            |
+| corner radius                         | whelk        | the bar's =#:radius=, a theme's radius |
+
+The two halves have to agree on the corner radius: whelk rounds its own surface,
+and the compositor rounds the *blur* to the =geometry-corner-radius= you give
+its layer rule.  A rule that says 0 leaves a square blur behind a rounded bar,
+which reads as a halo.
+
+* The finish whelk paints
+
+The finish is a shell setting, next to the wallpaper policy:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars (list (bar #:name 'main #:height 32 #:opacity 0.85
+                     #:left (list (menu-module))
+                     #:right (list (clock-module))))
+   #:frost (frosted-glass #:tint "#17110d"
+                          #:opacity 0.62
+                          #:warmth 0.35))
+#+end_src
+
+| Key          | Default | What it does                                                       |
+|--------------+---------+--------------------------------------------------------------------|
+| =#:enabled?= | =#t=    | whether the finish is painted at all                               |
+| =#:tint=     | =""=    | a CSS colour laid over the surface's own background                |
+| =#:opacity=  | =0.62=  | the tint's alpha                                                    |
+| =#:warmth=   | =0.35=  | how strongly the two warm gradients show                            |
+| =#:grain=    | =0.06=  | the frosted grain; it also hides banding in a blurred backdrop      |
+| =#:highlight= | =0.30=  | the hairline along the top edge, and a faint border                 |
+| =#:shadow=   | =0.35=  | the soft shadow under floating panes                                |
+
+An empty =#:tint= keeps every surface's configured colour -- the bar's
+=#:background=, the theme's background, the panel's own -- and adds only the
+gradients, the grain and the edges.  That is the way to warm up an existing
+palette without repainting it, and it is what a settings file that says
+=(frosted-glass)= gets.
+
+All the numbers are clamped to =0.0 .. 1.0=.  A settings file that never mentions
+=#:frost= has the finish off, so nothing changes for a machine that upgrades
+into it.  A finish that cannot be read (a typo in the block) logs one warning
+and leaves the shell flat rather than refusing to start.
+
+** Turning the finish off
+
+#+begin_src scheme
+  #:frost (frosted-glass #:enabled? #f)
+#+end_src
+
+Leaving =#:frost= out entirely does the same for a settings file that never had
+it.  Both keep the compositor rule harmless: a fully opaque surface simply has
+nothing to show through.
+
+** The finish and the bar's own material
+
+The bar's =#:background=, =#:opacity=, =#:shine=, =#:blur=, =#:reflection= and
+=#:flare= still apply.  The frost gradients are painted *under* the bar's own
+effects, so an explicitly configured shine keeps its place on top, and a
+configured =#:shine= replaces the frost's top hairline instead of stacking two
+highlights on the same edge.  A configured =#:border-color= wins over the
+frost's faint border.
+
+Opacity is what lets a blur show at all.  A bar at =#:opacity 1.0= is opaque no
+matter what the compositor blurs behind it; =0.75= to =0.9= shows the wallpaper
+through a dark tint, and below roughly =0.5= text starts to fight the desktop
+behind it.
+
+* Layer namespaces
+
+The compositor matches layer surfaces by namespace.  whelk sets one per
+surface, so a rule can blur the chrome and leave the wallpaper alone:
+
+| Namespace                    | Surface                                        |
+|------------------------------+------------------------------------------------|
+| =whelk-rust=                 | the bar                                        |
+| =whelk-rust-launcher=        | the launcher                                   |
+| =whelk-rust-notifications=   | the notification centre                        |
+| =whelk-rust-toasts=          | the notification toast stack                   |
+| =whelk-rust-network=         | the Wi-Fi and Bluetooth panel                  |
+| =whelk-rust-osd=             | the volume and brightness display              |
+| =whelk-widget=               | each desktop widget card                       |
+| =whelk-rust-wallpaper=       | the wallpaper surface (opaque, never blurred)  |
+| =whelk-wallpaper-picker=     | the wallpaper picker                           |
+| =whelk-lock=                 | the lock screen                                |
+
+=whelk-rust= (the bar) and =whelk-widget= are the two a plain prefix rule
+misses; the wallpaper surface is the one worth excluding.
+
+* niri
+
+Layer rules arrived in niri 25.01 and the =background-effect= block in 26.04, so
+blur behind a layer surface needs a niri that new.  Put this in =config.kdl=:
+
+#+begin_src kdl
+  layer-rule {
+      match namespace="^(whelk-rust|whelk-widget)"
+      exclude namespace="^whelk-rust-wallpaper$"
+
+      background-effect {
+          blur true
+          noise 0.04
+          saturation 1.1
+      }
+
+      // Match the bar's radius, or the blur corners will not.
+      geometry-corner-radius 12
+  }
+#+end_src
+
+- =noise= adds a little dither to the blur.  whelk already paints its own grain;
+  keep this small (=0.02= to =0.05=) or drop it, and let =#:grain= do the work.
+- =saturation= above 1 makes the wallpaper's colours read through the tint.
+- The rule applies to every whelk layer surface the regexes match, so the
+  launcher, both panels, the toasts and the OSD are covered by the same block.
+- niri's =shadow { on }= in the same rule draws a shadow around the *whole*
+  surface, margins included.  whelk sets no layer margins on its panels, so it is
+  safe there; the bar's shadow is already painted by whelk.
+
+List what niri sees with =niri msg layers=, which prints each surface's
+namespace and is the fastest way to check a regex.
+
+* Hyprland
+
+Hyprland has enabled blur for layer surfaces for a long time.  The current
+configuration form is =hl.layer_rule=:
+
+#+begin_src lua
+  hl.layer_rule({
+      match = { namespace = "^(whelk-rust|whelk-widget)" },
+      blur = true,
+      ignore_alpha = 0.5,
+  })
+#+end_src
+
+Older =.conf= configurations spell the same thing as one line per effect:
+
+#+begin_src ini
+  layerrule = blur, whelk-rust
+  layerrule = blur, whelk-rust-launcher
+  layerrule = blur, whelk-rust-notifications
+  layerrule = blur, whelk-rust-toasts
+  layerrule = blur, whelk-rust-network
+  layerrule = blur, whelk-rust-osd
+  layerrule = blur, whelk-widget
+  layerrule = ignorealpha 0.5, whelk-rust
+#+end_src
+
+- =ignore_alpha= keeps the blur from painting over the fully transparent pixels
+  outside the rounded corners; without it a rounded pane gets square blur
+  corners.
+- Blur strength and passes are global in Hyprland (=blur:size=, =blur:passes=,
+  =blur:new_optimizations=); the layer rule only says *which* layers blur.
+- =hyprctl layers= lists namespaces and their rectangles.
+
+* SwayFX
+
+SwayFX matches layer namespaces exactly, one =layer_effects= block per
+namespace:
+
+#+begin_src ini
+  blur enable
+  blur_radius 6
+  blur_passes 2
+
+  layer_effects "whelk-rust" {
+      blur enable;
+      blur_ignore_transparent enable;
+      corner_radius 12;
+  }
+
+  layer_effects "whelk-rust-launcher" {
+      blur enable;
+      blur_ignore_transparent enable;
+      corner_radius 12;
+  }
+#+end_src
+
+Repeat the block for =whelk-rust-notifications=, =whelk-rust-toasts=,
+=whelk-rust-network=, =whelk-rust-osd= and =whelk-widget=.  A =layer_effects=
+block accepts only =blur=, =blur_xray=, =blur_ignore_transparent=, =shadows=,
+=corner_radius= and =reset=; anything else makes sway log =Invalid layer_effects
+effect= and drop the whole line, so set =blur_radius=, =blur_passes= and
+=blur_noise= globally instead.  =blur_ignore_transparent enable= is what keeps
+the blur inside the rounded corners.
+
+=swaymsg -r -t get_outputs | jq '.[0].layer_shell_surfaces | .[] | .namespace'=
+prints the namespaces in use.
+
+* Compositors without a blur
+
+sway (without FX), river, labwc, Weston and most wlroots compositors have no
+backdrop blur, and nothing whelk does can add it.  Two options:
+
+1. Keep the finish and raise the tint's opacity so the panels read as warm
+   glass over the wallpaper rather than as a hole in it:
+   =(frosted-glass #:tint "#17110d" #:opacity 0.9 #:warmth 0.5)=.
+2. Turn the finish off and use an opaque material, which is what those
+   compositors' own panels do.
+
+The gradients and the grain cost nothing either way -- they are part of the
+surface's CSS, not a filter -- so a machine without compositor blur still gets
+the warm pane, just without the wallpaper's colours moving underneath it.
+
+* Three recipes
+
+** Warm dark glass, the house look
+
+#+begin_src scheme
+  (bar #:name 'main #:theme 'ember #:opacity 0.86 #:radius 12
+       #:left (list (menu-module))
+       #:right (list (clock-module)))
+
+  #:frost (frosted-glass #:tint "#17110d" #:opacity 0.62 #:warmth 0.40
+                         #:grain 0.06 #:highlight 0.30 #:shadow 0.35)
+#+end_src
+
+Amber-ish gradients over a near-black tint: the desktop shows through, the
+gradients read as light falling on the pane.
+
+** Pale glass
+
+#+begin_src scheme
+  #:frost (frosted-glass #:tint "#f4ece1" #:opacity 0.55 #:warmth 0.20
+                         #:grain 0.04 #:highlight 0.45 #:shadow 0.20)
+#+end_src
+
+For a light palette or a bright wallpaper; a stronger hairline keeps the edges
+from dissolving.
+
+** No tint at all
+
+#+begin_src scheme
+  #:frost (frosted-glass #:warmth 0.25 #:grain 0.05)
+#+end_src
+
+Keeps every surface's colour and adds only the warm wash, the grain and the
+edges.  This is the setting to try first on an existing bar: it cannot change
+what the palette already decided.
+
+* When the glass does not show
+
+| What you see                                  | What to check                                                      |
+|-----------------------------------------------+--------------------------------------------------------------------|
+| no blur at all                                 | the compositor rule exists; =niri msg layers= / =hyprctl layers= show the namespace |
+| a square blur behind a rounded bar             | =geometry-corner-radius= / =corner_radius= is 0 or too small       |
+| the bar looks flat, no tint                    | =#:frost= missing, =#:enabled? #f=, or =#:tint= empty by intent      |
+| the bar is opaque                              | the bar or theme =#:opacity= is 1.0                                 |
+| blur flickers or the panel is grey             | the compositor fell back to software rendering                      |
+| =Invalid layer_effects effect= in sway's log   | a global-only option was put inside =layer_effects=                 |
+
+A blur pass costs the compositor a downscale and a few shader passes per frame
+in the area it covers.  A bar and an occasional panel are cheap; a rule that
+matches the full-screen wallpaper surface is not, which is why the recipes
+exclude it.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].

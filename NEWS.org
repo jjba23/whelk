@@ -11,7 +11,50 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
-** v0.40.1 (2026-11-17)
+** v0.41.0 (2026-11-17)
+
+*** Added
+
+- *Frosted glass, configurable once and painted everywhere.*  A new
+  =(frosted-glass ...)= setting, registered with the rest of the shell as
+  =#:frost=, gives every surface a warm translucent finish: a tint and its
+  opacity, two soft gradients that catch the light like a pane, a grain that
+  keeps a blurred backdrop from banding, a hairline along the top edge and a
+  shadow under floating panes.  The bar, the launcher, the desktop widget cards,
+  the notification centre and its toasts, the network panel and the on-screen
+  display all generate their skin in one place, so one setting reaches them
+  together instead of six near-copies drifting apart.
+- *A materials page.*  =docs/materials.org= explains which half of a frosted
+  look a Wayland client can paint and which half only the compositor can, lists
+  the layer namespace of every whelk surface, and ships working recipes for niri
+  (=layer-rule= with =background-effect=), Hyprland (=hl.layer_rule= and the
+  older =layerrule=) and SwayFX (=layer_effects=), plus what to do on a
+  compositor that has no backdrop blur at all.
+
+*** Changed
+
+- An empty =#:tint= keeps each surface's configured colour, so the finish can be
+  added to an existing bar or theme without repainting its palette.  A settings
+  file that never mentions =#:frost= is unchanged, and the finish is clamped to
+  sane ranges so a typo cannot make a pane unreadable.
+
+*** Fixed
+
+- *Saving a GUI preference no longer drops the finish.*  The settings window
+  re-registers the shell record from the bar it just edited; =#:frost= is now
+  carried across with the wallpaper and the idle and night-light policies, so
+  changing the bar's height does not flatten every pane back to its opaque
+  skin.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and the workspace tests pass, including the new =tests/frost.rs=.
+- =tests/test_frost.scm= covers the constructor, the alist the bridge reads and
+  the GUI-overlay round trip; =test_wallpaper.scm= and =test_defaults.scm= still
+  pass.
+- The Guix and Nix builds, and the smoke install, pass.
+
 
 *** Fixed
 

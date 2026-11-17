@@ -28,6 +28,7 @@ use crate::cli::{FORWARDED_OPTIONS, Request, Requests};
 use crate::clipboard::Clipboard;
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::desktopwidgets::Widgets;
+use crate::frost;
 use crate::idle::Idle;
 use crate::launcherpanel::Launcher;
 use crate::locker;
@@ -429,6 +430,10 @@ impl Shell {
         config_label: String,
         hold: gtk::gio::ApplicationHoldGuard,
     ) -> ShellRef {
+        // Every surface below paints its skin with the finish in force, so it
+        // is installed before the first pane exists.
+        frost::install(loaded.frost.clone());
+
         // The C shell prepares the locker at startup, before a `--lock` or a
         // logind signal can arrive; the Rust shell watches logind at the same
         // point and starts `whelk --lock` when a trigger fires.
@@ -604,6 +609,9 @@ impl Shell {
 
                 self.loaded = loaded;
                 self.config_label = self.loader.label();
+                // A new finish repaints every pane below; a reload that did not
+                // touch it installs the same value and costs one clone.
+                frost::install(self.loaded.frost.clone());
                 start_idle(self.loaded.idle_lock_after);
 
                 let style = self.loaded.bars.first().cloned().unwrap_or_default();

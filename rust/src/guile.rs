@@ -24,6 +24,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 use crate::bar::BarSettings;
+use crate::frost::Frost;
 use crate::menuapps::{self, MenuSources};
 use crate::nightlight::Config as NightLightConfig;
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
@@ -637,6 +638,32 @@ impl Guile {
             end_minute: fields[5].parse().unwrap_or(7 * 60),
             transition_minutes: fields[6].parse().unwrap_or(30),
         })
+    }
+
+    /// Reads the frosted-glass finish from `(frosted-glass ...)`.  An empty
+    /// alist is an unconfigured finish, which stays off.
+    pub fn load_frost(&self, config_path: &Path) -> Result<Frost, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let alist = self.catch(|| {
+            let procedure = sys::public_ref(c"whelk state", c"shell-frost->alist");
+
+            Ok(sys::call_1(procedure, path))
+        })?;
+
+        let _alist_root = Root::new(alist);
+        let values = self.alist(alist)?;
+
+        Ok(Frost::from_alist(&values))
     }
 
     pub fn load_clipboard(&self, config_path: &Path) -> Result<ClipboardSettings, GuileError> {

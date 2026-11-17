@@ -15,6 +15,7 @@ use gtk::gdk::RGBA;
 use gtk4 as gtk;
 
 use crate::bar::BarSettings;
+use crate::frost;
 
 /// The CSS id for a named surface.  Every character GTK might treat specially
 /// becomes a dash, exactly as `whelk_style_widget_id` does.
@@ -88,7 +89,15 @@ pub fn css(
 }
 
 fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
-    let background = color_with_alpha(bar.background.as_deref(), bar.opacity);
+    let frost = frost::current();
+    let frosted_background = frost.background();
+    let has_frosted_background = frosted_background.is_some();
+    let configured_background = bar
+        .background
+        .as_deref()
+        .is_some_and(|value| !value.is_empty());
+    let background = frosted_background
+        .unwrap_or_else(|| color_with_alpha(bar.background.as_deref(), bar.opacity));
 
     let _ = writeln!(output, "{selector} {{");
 
@@ -96,22 +105,21 @@ fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
         let _ = writeln!(output, "  color: {foreground};");
     }
 
-    if bar
-        .background
-        .as_deref()
-        .is_some_and(|value| !value.is_empty())
-    {
+    if configured_background || has_frosted_background {
         let _ = writeln!(output, "  background-color: {background};");
     }
 
-    append_effects(output, bar);
+    append_effects(output, bar, &frost);
 
-    if let Some(border) = bar
+    let border = bar
         .border_color
         .as_deref()
         .filter(|value| !value.is_empty())
-    {
-        let _ = writeln!(output, "  border: 1px solid {border};");
+        .map(|border| format!("1px solid {border}"))
+        .or_else(|| frost.border());
+
+    if let Some(border) = border {
+        let _ = writeln!(output, "  border: {border};");
     }
 
     let _ = writeln!(output, "  border-radius: {}px;", bar.radius);
@@ -124,11 +132,11 @@ fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
         let _ = writeln!(output, "  font-size: {font_size};");
     }
 
-    append_shadow(output, bar);
+    append_shadow(output, bar, &frost);
     output.push_str("}\n");
 }
 
-fn append_effects(output: &mut String, bar: &BarSettings) {
+fn append_effects(output: &mut String, bar: &BarSettings, frost: &frost::Frost) {
     let accent = bar.accent.as_deref().filter(|value| !value.is_empty());
     let mut layers = Vec::new();
 
@@ -156,39 +164,41 @@ fn append_effects(output: &mut String, bar: &BarSettings) {
         ));
     }
 
+    // The finish goes under the configured effects: a bar's own shine or flare
+    // was asked for explicitly and keeps painting on top of the glass.
+    layers.extend(frost.layers());
+
     if !layers.is_empty() {
         let _ = writeln!(output, "  background-image:\n{};", layers.join(",\n"));
     }
 }
 
-fn append_shadow(output: &mut String, bar: &BarSettings) {
-    if bar.shine <= 0.0 && bar.blur <= 0 {
-        return;
-    }
-
-    output.push_str("  box-shadow:");
-
-    let mut comma = false;
+fn append_shadow(output: &mut String, bar: &BarSettings, frost: &frost::Frost) {
+    let mut parts = Vec::new();
 
     if bar.shine > 0.0 {
-        let _ = write!(
-            output,
-            " inset 0 1px rgba(255, 255, 255, {:.3})",
+        parts.push(format!(
+            "inset 0 1px rgba(255, 255, 255, {:.3})",
             (bar.shine * 0.34).clamp(0.0, 1.0)
-        );
-        comma = true;
+        ));
+    } else if let Some(highlight) = frost.highlight() {
+        // A configured shine already draws the top edge; do not paint it twice.
+        parts.push(highlight);
     }
 
     if bar.blur > 0 {
-        let _ = write!(
-            output,
-            "{} 0 4px {}px rgba(0, 0, 0, 0.30)",
-            if comma { "," } else { "" },
-            bar.blur
-        );
+        parts.push(format!("0 4px {}px rgba(0, 0, 0, 0.30)", bar.blur));
     }
 
-    output.push_str(";\n");
+    if let Some(shadow) = frost.drop_shadow() {
+        parts.push(shadow);
+    }
+
+    if parts.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "  box-shadow: {};", parts.join(", "));
 }
 
 fn color_with_alpha(color: Option<&str>, scale: f64) -> String {

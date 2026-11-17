@@ -258,6 +258,7 @@ deliberately is not.
 | [[file:docs/modules.org][Modules]]                                    | the module kinds and the options they take                 |
 | [[file:docs/widgets.org][Desktop widgets]]                            | the Golden Gate cards, placement, dragging                 |
 | [[file:docs/themes.org][Themes]]                                     | the twelve palettes                                       |
+| [[file:docs/materials.org][Materials]]                                  | frosted glass and the compositor's layer rules            |
 | [[file:docs/menus.org][Menus]]                                      | the shell menu and the global menu                         |
 | [[file:docs/launcher.org][The launcher]]                               | the eleven modes, geometry, the menu script protocol       |
 | [[file:docs/clipboard.org][The clipboard]]                              | what is stored, memory, persistence, locking               |

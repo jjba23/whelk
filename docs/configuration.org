@@ -138,6 +138,11 @@ Every colour, font and radius is optional: leave one out and the structural
 stylesheet's colour applies, so a bare =(bar)= is still readable.  A bar can also
 wear a whole palette at once with =#:theme= -- see [[file:themes.org][themes]].
 
+Frosted glass is a shell setting rather than a bar key, because it is painted
+on every surface: =#:frost (frosted-glass #:tint "#17110d" #:warmth 0.4)= next
+to =#:bars= in =configure-shell!=.  The finish, and the compositor rule that
+blurs the wallpaper behind it, are the subject of [[file:materials.org][materials]].
+
 The right row can keep a shelf.  =#:overflow= names modules that are built
 with the bar -- their timers and clicks keep working -- but laid out only while
 the shelf's chevron is open, so a reading that is consulted now and then does

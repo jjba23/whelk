@@ -23,6 +23,7 @@ flowchart TD
     CONFIG --> MODULES["modules.org<br/>the twenty-two kinds and their options"]
     CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
     CONFIG --> THEMES["themes.org<br/>twelve palettes"]
+    CONFIG --> MATERIALS["materials.org<br/>frosted glass, compositor blur"]
     CONFIG --> MENUS["menus.org<br/>the shell menu and the global menu"]
     CONFIG --> WALL["wallpaper.org<br/>engine, picker, rotation"]
 
@@ -54,6 +55,7 @@ flowchart TD
 | [[file:modules.org][Modules]]                    | the module kinds, the options they share, a worked example                |
 | [[file:widgets.org][Desktop widgets]]            | the Golden Gate cards, placement, dragging, the state file               |
 | [[file:themes.org][Themes]]                     | the twelve palettes and what each one sets                               |
+| [[file:materials.org][Materials]]                 | frosted glass, the =#:frost= keys, and the layer rules niri, Hyprland and SwayFX need |
 | [[file:menus.org][Menus]]                      | the shell menu and the focused application's File/Edit/View               |
 | [[file:wallpaper.org][Wallpaper]]                  | the background engine, its Scheme policy, transitions and the picker      |
 | [[file:launcher.org][The launcher]]               | the eleven modes, the card's geometry, the menu script protocol           |

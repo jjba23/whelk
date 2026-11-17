@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::bar::BarSettings;
+use crate::frost::Frost;
 use crate::guile::Guile;
 use crate::menuapps::MenuSources;
 use crate::preferences::PreferenceValue;
@@ -28,6 +29,8 @@ pub struct LoadedConfig {
     pub bars: Vec<BarSettings>,
     pub idle_lock_after: i32,
     pub clipboard: ClipboardSettings,
+    /// The frosted-glass finish every surface is painted with.
+    pub frost: Frost,
     pub menu: Vec<MenuEntry>,
     /// The curated dictionary and Orbit corpus, loaded once per configuration.
     /// Every bar shares the same immutable copy.
@@ -46,6 +49,7 @@ impl LoadedConfig {
             bars: vec![BarSettings::default()],
             idle_lock_after: 0,
             clipboard: ClipboardSettings::default(),
+            frost: Frost::default(),
             menu: MenuEntry::default_menu(),
             menu_sources: Rc::new(MenuSources::default()),
             widgets: Vec::new(),
@@ -109,6 +113,13 @@ impl ConfigLoader {
         let clipboard = guile
             .load_clipboard(&self.path)
             .map_err(|error| format!("clipboard settings could not be loaded: {error}"))?;
+        // A finish that cannot be read leaves the shell usable and every
+        // surface exactly as it looked before the setting existed.
+        let frost = guile.load_frost(&self.path).unwrap_or_else(|error| {
+            eprintln!("whelk: frosted-glass settings could not be loaded: {error}; leaving it off");
+
+            Frost::default()
+        });
         // A menu is configuration, not a reason to refuse a valid shell.  The
         // C bridge returns its short fallback when the Scheme side cannot
         // answer; this does the same, with the full default menu instead.
@@ -153,6 +164,7 @@ impl ConfigLoader {
             bars,
             idle_lock_after,
             clipboard,
+            frost,
             menu,
             menu_sources: Rc::new(menu_sources),
             widgets,
