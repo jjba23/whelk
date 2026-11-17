@@ -51,7 +51,8 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   settles for 180 ms before one write and one reload; Reset deletes the
   overrides and redraws from what the shell now reads.  The model (keys, clock
   text and parsing, launcher labels, the module walk) is pure and tested
-  without a display.
+  without a display.  The window is built on first open -- `--settings` or the
+  menu's Control Panel row -- never at startup.
 - `src/bar.rs` — the typed view of `(shell-bars->alists)`, ported from
   `bar_from_alist`: edge, layer, monitor rules, geometry, material, launcher
   defaults and ordered module specs with typed options.
@@ -102,8 +103,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   submenu, and the shell actions (`launcher`, `force-quit`, `network`,
   `bluetooth`, `notifications`, `dnd`, `lock`, `reload`, `quit`, `about`).
   Commands from the menu run through the shared asynchronous runner.  The
-  settings window is still the C shell's, so `shell:settings` logs that it is
-  not ported yet rather than pretending to open one.
+  Control Panel row's `shell:settings` asks the application for the Rust
+  settings window, which that first request builds and every later one
+  redraws from a fresh snapshot.
 - `src/about.rs` — the menu's About This System window, using the Rust
   host-info readers: host and OS header, processor/memory/display/disk/kernel/
   session/uptime rows, a copyable report (button or Ctrl+C), Escape to close,
@@ -344,8 +346,13 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   through `ext-session-lock-v1` when the compositor has it, one overlay layer
   surface per output otherwise, one password field on the primary output,
   authentication on a worker thread with the password wiped, the persisted
-  retry delay, and no close button, Escape or click-outside.  `watch_logind()`
-  starts the lock once per logind trigger, reusing a still-running process.
+  retry delay, and no close button, Escape or click-outside.  The windows
+  follow the monitor model: the compatibility surfaces rebuild from it on a
+  hotplug, and a protocol lock whose primary output disappears is rebuilt so
+  the password field lands on an output that remains.  One `RebuildState`
+  queues the burst, drops the churn the rebuild itself causes, and refuses
+  once the lock has ended.  `watch_logind()` starts the lock once per logind
+  trigger, reusing a still-running process.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
@@ -656,6 +663,7 @@ The tests are split by what they can prove without a session:
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
 | `tests/wallpaperpicker.rs` | Tile names, the header count, thumbnail and card sizes (including a small monitor and a headless one), and the Scheme string literal a saved choice is written with |
 | `tests/preferences.rs` | Scheme value formatting, module override keys and occurrence numbering across the bar, which options a single field may edit, clock text and parsing, launcher labels, and colour text |
+| `tests/locker.rs` | The lock screen's rebuild queue: one rebuild per burst, the churn a rebuild causes dropped, and a stopped lock never building again |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
@@ -784,8 +792,11 @@ calculator, files, web, generic menus, SSH hosts, force-quit and the session
 menu are wired; the clipboard history, its bar module, picker mode and the
 `--clipboard` shortcut are Rust as well, while live menu items remain C-backed.
 The night light's arithmetic and schedule are Rust; its wlr-gamma-control and
-RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The locker's per-monitor rebuild while the protocol lock is up is still in C, as
-are the settings window and session management.  The global menu follows its
+RandR backends are still C.  The volume/brightness HUD is a Rust surface.  The
+lock screen follows the monitor model on both of its paths now: the
+compatibility surfaces rebuild on a hotplug, and a protocol lock whose primary
+output disappears rebuilds its windows from the outputs that remain.  The
+global menu follows its
 producers live: a `Changed` or `LayoutUpdated` costs one debounced re-read and
 an unchanged tree is not rebuilt.  The Scheme widget bridge and the `scheme`
 bar module are Rust too, and so are the desktop widgets.  Their kinds,
@@ -798,8 +809,9 @@ state file is the one the C shell writes, so a drag in either shell is where
 the other one puts the card.  The wallpaper picker is Rust too: an overlay grid
 of the collection whose click saves the `wallpaper-selected` preference and
 repaints the background, reachable with `--wallpaper-picker`.  The settings
-window is Rust too: `--settings` draws the same nine pages over the same
-overrides the C window writes, so a change in either shell is read by the
-other, and Reset is still one file deletion.  The next slice is making the Rust
+window is Rust too: `--settings` or the menu's Control Panel row builds it on
+first use and draws the same nine pages over the same overrides the C window
+writes, so a change in either shell is read by the other, and Reset is still
+one file deletion.  The next slice is making the Rust
 binary the installed `whelk` once the C and Rust suites both cover the same
 behavior.

@@ -146,6 +146,18 @@ pub fn run(
     });
     application.add_action(&reload);
 
+    // The start menu's Control Panel row asks the shell for its settings
+    // window.  That first request is what builds it; a later one redraws it.
+    let settings = gtk::gio::SimpleAction::new("settings", None);
+    let settings_slot = slot.clone();
+
+    settings.connect_activate(move |_, _| {
+        if let Some(shell) = settings_slot.borrow().as_ref() {
+            present_preferences(shell);
+        }
+    });
+    application.add_action(&settings);
+
     let launcher = gtk::gio::SimpleAction::new("launcher", Some(gtk::glib::VariantTy::STRING));
 
     launcher.connect_activate(|_, parameter| {
@@ -289,81 +301,8 @@ impl Shell {
             }
         }
 
-        // The settings window is created hidden too.  A change is saved as a
-        // GUI preference and answered by a reload, so the bar never shows a
-        // value the next start would not read.
-        {
-            let save_weak = Rc::downgrade(&shell);
-            let save: SaveFn = Rc::new(move |key, value| {
-                let Some(shell) = save_weak.upgrade() else {
-                    return false;
-                };
-                let mut state = shell.borrow_mut();
-
-                match state.loader.save_preference(key, value) {
-                    Ok(()) => true,
-                    Err(error) => {
-                        eprintln!("whelk-rs: could not save '{key}': {error}");
-
-                        false
-                    }
-                }
-            });
-            let reset_weak = Rc::downgrade(&shell);
-            let reset: Rc<dyn Fn() -> bool> = Rc::new(move || {
-                let Some(shell) = reset_weak.upgrade() else {
-                    return false;
-                };
-                let mut state = shell.borrow_mut();
-
-                match state.loader.reset_preferences() {
-                    Ok(answer) => answer,
-                    Err(error) => {
-                        eprintln!("whelk-rs: could not reset the GUI preferences: {error}");
-
-                        false
-                    }
-                }
-            });
-            let read_weak = Rc::downgrade(&shell);
-            let read: ReadFn = Rc::new(move |key| {
-                let shell = read_weak.upgrade()?;
-                let mut state = shell.borrow_mut();
-
-                state.loader.preference_text(key)
-            });
-            let reload_weak = Rc::downgrade(&shell);
-            let reload: ReloadFn = Rc::new(move || {
-                let Some(shell) = reload_weak.upgrade() else {
-                    return Snapshot::fallback();
-                };
-                let mut state = shell.borrow_mut();
-
-                state.reload();
-                state.preferences_snapshot()
-            });
-            let callbacks = Rc::new(preferences::Callbacks {
-                save,
-                reset,
-                read,
-                reload,
-            });
-            let (config_path, snapshot) = {
-                let mut state = shell.borrow_mut();
-
-                (state.loader.path().to_owned(), state.preferences_snapshot())
-            };
-            let preferences = Preferences::new(application, config_path, snapshot, callbacks);
-
-            shell.borrow_mut().preferences = Some(preferences);
-        }
-
         if show_settings {
-            let snapshot = shell.borrow_mut().preferences_snapshot();
-
-            if let Some(preferences) = shell.borrow().preferences.as_ref() {
-                preferences.show(snapshot);
-            }
+            present_preferences(&shell);
         }
 
         watch_config(&shell);
@@ -754,6 +693,97 @@ fn monitor_snapshot() -> (Vec<gtk::gdk::Monitor>, Vec<String>) {
     }
 
     (monitors, connectors)
+}
+
+/// Create the settings window on first use and bring it forward after that.
+///
+/// Building it at startup would read every launcher prefix and theme name
+/// through Guile for a window most runs never open.  The C shell builds its
+/// singleton on the first `whelk_preferences_show` too; a later open still
+/// redraws from a fresh snapshot, so no field is stale.
+fn present_preferences(shell: &ShellRef) {
+    let Some(application) = shell.borrow().application.upgrade() else {
+        return;
+    };
+
+    if shell.borrow().preferences.is_some() {
+        let snapshot = shell.borrow_mut().preferences_snapshot();
+
+        if let Some(preferences) = shell.borrow().preferences.as_ref() {
+            preferences.show(snapshot);
+        }
+
+        return;
+    }
+
+    let save_weak = Rc::downgrade(shell);
+    let save: SaveFn = Rc::new(move |key, value| {
+        let Some(shell) = save_weak.upgrade() else {
+            return false;
+        };
+        let mut state = shell.borrow_mut();
+
+        match state.loader.save_preference(key, value) {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("whelk-rs: could not save '{key}': {error}");
+
+                false
+            }
+        }
+    });
+    let reset_weak = Rc::downgrade(shell);
+    let reset: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(shell) = reset_weak.upgrade() else {
+            return false;
+        };
+        let mut state = shell.borrow_mut();
+
+        match state.loader.reset_preferences() {
+            Ok(answer) => answer,
+            Err(error) => {
+                eprintln!("whelk-rs: could not reset the GUI preferences: {error}");
+
+                false
+            }
+        }
+    });
+    let read_weak = Rc::downgrade(shell);
+    let read: ReadFn = Rc::new(move |key| {
+        let shell = read_weak.upgrade()?;
+        let mut state = shell.borrow_mut();
+
+        state.loader.preference_text(key)
+    });
+    let reload_weak = Rc::downgrade(shell);
+    let reload: ReloadFn = Rc::new(move || {
+        let Some(shell) = reload_weak.upgrade() else {
+            return Snapshot::fallback();
+        };
+        let mut state = shell.borrow_mut();
+
+        state.reload();
+        state.preferences_snapshot()
+    });
+    let callbacks = Rc::new(preferences::Callbacks {
+        save,
+        reset,
+        read,
+        reload,
+    });
+    let (config_path, snapshot) = {
+        let mut state = shell.borrow_mut();
+
+        (state.loader.path().to_owned(), state.preferences_snapshot())
+    };
+    let preferences = Preferences::new(&application, config_path, snapshot, callbacks);
+
+    shell.borrow_mut().preferences = Some(preferences);
+
+    // `Preferences::new` already drew this snapshot; only present it.
+    if let Some(preferences) = shell.borrow().preferences.as_ref() {
+        preferences.present();
+    }
 }
 
 fn watch_config(shell: &ShellRef) {

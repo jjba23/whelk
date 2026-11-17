@@ -505,12 +505,17 @@ impl Preferences {
         self.window.set_visible(false);
     }
 
+    /// Present the pages as they were last built.
+    pub fn present(&self) {
+        self.window.set_visible(true);
+        self.window.present();
+    }
+
     /// Draw the window from `snapshot` and present it.
     pub fn show(&self, snapshot: Snapshot) {
         *self.state.snapshot.borrow_mut() = snapshot;
         self.rebuild();
-        self.window.set_visible(true);
-        self.window.present();
+        self.present();
     }
 
     pub fn toggle(&self, snapshot: Snapshot) {

@@ -406,9 +406,7 @@ fn run_shell_action(name: &str, style: &BarSettings) {
         "reload" => activate("reload"),
         "quit" => quit(),
         "about" => about::show(style),
-        "settings" => {
-            eprintln!("whelk-rs: start: the settings window is not ported to the Rust shell yet")
-        }
+        "settings" => activate("settings"),
         _ => eprintln!("whelk-rs: start: no shell action named '{name}'"),
     }
 }

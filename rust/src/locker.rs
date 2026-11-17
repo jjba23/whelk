@@ -19,7 +19,13 @@
 //! no close button, Escape or click-outside that ends the lock.  There is no
 //! command-line or D-Bus unlock path.
 //!
-//! Not ported yet: the per-monitor rebuild while the protocol lock is up.
+//! The windows follow the monitor model.  A hotplug rebuilds the fallback
+//! surfaces, and a protocol lock whose primary output disappears is rebuilt
+//! from the outputs that remain, so the password field never stays on a window
+//! the compositor has already taken away.  One state machine carries the
+//! policy ([`RebuildState`]): a burst of changes is one rebuild, a change
+//! caused by the rebuild itself is dropped, and an unlocked session never
+//! rebuilds.
 //!
 //! logind's triggers (`Lock`, `PrepareForSleep`, and the session's
 //! `Active=false`) live in [`crate::logind`].  The shell calls
@@ -141,6 +147,58 @@ const CSS: &str = "
     }
 ";
 
+/// When a monitor change may rebuild the lock windows.
+///
+/// This is the C locker's `rebuild_idle`/`rebuilding_session_lock` pair as one
+/// value, so the guards cannot disagree with each other.  A request only
+/// schedules an idle; the idle asks [`RebuildState::start`] and a stopped lock
+/// refuses both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RebuildState {
+    #[default]
+    Idle,
+    Queued,
+    Running,
+    Stopped,
+}
+
+impl RebuildState {
+    /// Queue one rebuild.  False for a burst, a rebuild already running, or a
+    /// lock that has ended.
+    pub fn request(&mut self) -> bool {
+        if *self != Self::Idle {
+            return false;
+        }
+
+        *self = Self::Queued;
+
+        true
+    }
+
+    /// Take the queued rebuild.  False when the lock ended while the idle was
+    /// waiting, which is the case that must not build windows again.
+    pub fn start(&mut self) -> bool {
+        if *self != Self::Queued {
+            return false;
+        }
+
+        *self = Self::Running;
+
+        true
+    }
+
+    pub fn finish(&mut self) {
+        if *self == Self::Running {
+            *self = Self::Idle;
+        }
+    }
+
+    /// The lock ended: no later monitor change or queued idle builds anything.
+    pub fn stop(&mut self) {
+        *self = Self::Stopped;
+    }
+}
+
 struct Locker {
     application: gtk::Application,
     windows: Vec<gtk::ApplicationWindow>,
@@ -155,6 +213,9 @@ struct Locker {
     session_lock: Option<glib::Object>,
     session_primary: bool,
     retry_source: Option<glib::SourceId>,
+    rebuilds: RebuildState,
+    rebuild_source: Option<glib::SourceId>,
+    monitor_model: Option<(gtk::gio::ListModel, glib::SignalHandlerId)>,
     /// Keeps the application alive while no lock window is mapped yet (the
     /// compositor presents the protocol windows itself, after `lock()`).
     hold: Option<gtk::gio::ApplicationHoldGuard>,
@@ -196,6 +257,9 @@ fn lock(application: &gtk::Application) {
         session_lock: None,
         session_primary: false,
         retry_source: None,
+        rebuilds: RebuildState::Idle,
+        rebuild_source: None,
+        monitor_model: None,
         hold: None,
     }));
 
@@ -203,6 +267,7 @@ fn lock(application: &gtk::Application) {
 
     if !session {
         build_fallback_windows(&state);
+        watch_monitors(&state);
     }
 
     // A restart must not give the next guess a free attempt.
@@ -250,6 +315,7 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
             .get(1)
             .and_then(|value| value.get::<gtk::gdk::Monitor>().ok())
             && let Some(state) = weak.upgrade()
+            && !state.borrow().unlocked
         {
             create_session_window(&state, &monitor);
         }
@@ -327,7 +393,55 @@ fn create_session_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monito
 
     let content = build_content(state, primary);
 
-    window.set_child(Some(&content));
+    window.set_child(Some(&content.overlay));
+
+    // The session-lock library destroys a window when its output disappears.
+    // Detach its widgets before GTK frees the children, and rebuild if the
+    // primary output -- the one with the password field -- was the one lost.
+    {
+        let clock = content.clock.clone();
+        let date = content.date.clone();
+        let entry = content.entry.clone();
+        let error = content.error.clone();
+        let handle = window.clone();
+        let weak = Rc::downgrade(state);
+
+        window.connect_destroy(move |_| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let mut lost_primary = false;
+
+            {
+                let mut locker = state.borrow_mut();
+
+                locker.windows.retain(|candidate| candidate != &handle);
+                locker.clocks.retain(|candidate| candidate != &clock);
+                locker.dates.retain(|candidate| candidate != &date);
+
+                if let Some(entry) = &entry
+                    && locker.entry.as_ref() == Some(entry)
+                {
+                    locker.entry = None;
+                }
+
+                if let Some(error) = &error
+                    && locker.error.as_ref() == Some(error)
+                {
+                    locker.error = None;
+                }
+
+                if primary {
+                    locker.session_primary = false;
+                    lost_primary = true;
+                }
+            }
+
+            if lost_primary {
+                schedule_rebuild(&state);
+            }
+        });
+    }
 
     state.borrow_mut().windows.push(window.clone());
 
@@ -354,34 +468,132 @@ fn create_session_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monito
 // The compatibility path
 // ---------------------------------------------------------------------------
 
+fn monitors_of(display: &gtk::gdk::Display) -> Vec<gtk::gdk::Monitor> {
+    let model = display.monitors();
+    let mut monitors = Vec::new();
+
+    for index in 0..model.n_items() {
+        if let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() {
+            monitors.push(monitor);
+        }
+    }
+
+    monitors
+}
+
+fn current_monitors() -> Vec<gtk::gdk::Monitor> {
+    gtk::gdk::Display::default()
+        .map(|display| monitors_of(&display))
+        .unwrap_or_default()
+}
+
 fn build_fallback_windows(state: &Rc<RefCell<Locker>>) {
-    let monitors: Vec<gtk::gdk::Monitor> = gtk::gdk::Display::default()
-        .map(|display| {
-            let model = display.monitors();
-            let mut monitors = Vec::new();
-
-            for index in 0..model.n_items() {
-                if let Some(monitor) = model.item(index).and_downcast::<gtk::gdk::Monitor>() {
-                    monitors.push(monitor);
-                }
-            }
-
-            monitors
-        })
-        .unwrap_or_default();
-
-    if monitors.is_empty() {
+    let Some(display) = gtk::gdk::Display::default() else {
         log("no display to cover: the session is locked without a visible surface");
+
+        return;
+    };
+    let monitors = monitors_of(&display);
+
+    // A display that currently reports no outputs still gets one surface, as
+    // the C locker's monitor-less surface does; a compositor that adds an
+    // output later goes through the rebuild below.
+    if monitors.is_empty() {
+        create_fallback_window(state, None, true);
 
         return;
     }
 
     for (index, monitor) in monitors.iter().enumerate() {
-        create_fallback_window(state, monitor, index == 0);
+        create_fallback_window(state, Some(monitor), index == 0);
     }
 }
 
-fn create_fallback_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monitor, primary: bool) {
+/// Follow the monitor model while the compatibility lock is up.  The protocol
+/// path reports new outputs itself and is rebuilt when its primary window
+/// disappears, so it deliberately does not subscribe here.
+fn watch_monitors(state: &Rc<RefCell<Locker>>) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    let model = display.monitors();
+    let weak = Rc::downgrade(state);
+    let handler = model.connect_items_changed(move |_, _, _, _| {
+        if let Some(state) = weak.upgrade() {
+            schedule_rebuild(&state);
+        }
+    });
+
+    state.borrow_mut().monitor_model = Some((model, handler));
+}
+
+/// One idle per burst, so a hotplug rebuild never happens while the monitor
+/// model is still emitting (a lock surface asks the model for its monitor).
+fn schedule_rebuild(state: &Rc<RefCell<Locker>>) {
+    if !state.borrow_mut().rebuilds.request() {
+        return;
+    }
+
+    let weak = Rc::downgrade(state);
+    let source = glib::idle_add_local_once(move || {
+        if let Some(state) = weak.upgrade() {
+            state.borrow_mut().rebuild_source = None;
+            rebuild_windows(&state);
+        }
+    });
+
+    state.borrow_mut().rebuild_source = Some(source);
+}
+
+/// Destroy every lock window and build the set the current monitor model and
+/// lock path select.  This is the C `locker_rebuild`/`rebuild_session_lock`
+/// pair; the state machine keeps a burst and its own churn from nesting.
+fn rebuild_windows(state: &Rc<RefCell<Locker>>) {
+    let session = {
+        let mut locker = state.borrow_mut();
+
+        if !locker.rebuilds.start() {
+            return;
+        }
+
+        locker.entry = None;
+        locker.error = None;
+        locker.clocks.clear();
+        locker.dates.clear();
+
+        if locker.session_lock.is_some() {
+            locker.session_primary = false;
+        }
+
+        locker.session_lock.is_some()
+    };
+
+    let windows = std::mem::take(&mut state.borrow_mut().windows);
+
+    for window in windows {
+        window.destroy();
+    }
+
+    if session {
+        for monitor in current_monitors() {
+            create_session_window(state, &monitor);
+        }
+    } else {
+        build_fallback_windows(state);
+    }
+
+    if state.borrow().failures > 0 {
+        apply_backoff(state);
+    }
+
+    state.borrow_mut().rebuilds.finish();
+}
+
+fn create_fallback_window(
+    state: &Rc<RefCell<Locker>>,
+    monitor: Option<&gtk::gdk::Monitor>,
+    primary: bool,
+) {
     let window = gtk::ApplicationWindow::builder()
         .application(&state.borrow().application)
         .title("whelk lock")
@@ -390,13 +602,16 @@ fn create_fallback_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monit
     window.set_deletable(false);
     window.add_css_class("whelk-lock");
     window.connect_close_request(|_| glib::Propagation::Stop);
-    window.set_child(Some(&build_content(state, primary)));
+    window.set_child(Some(&build_content(state, primary).overlay));
 
     if crate::ui::layer_shell_available() {
         window.init_layer_shell();
         window.set_layer(Layer::Overlay);
         window.set_namespace(Some("whelk-lock"));
-        window.set_monitor(Some(monitor));
+
+        if let Some(monitor) = monitor {
+            window.set_monitor(Some(monitor));
+        }
 
         for edge in [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left] {
             window.set_anchor(edge, true);
@@ -430,7 +645,18 @@ fn create_fallback_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monit
 // The surfaces' content
 // ---------------------------------------------------------------------------
 
-fn build_content(state: &Rc<RefCell<Locker>>, primary: bool) -> gtk::Overlay {
+/// The widgets one lock window shows.  The handles come back with the tree so
+/// a destroyed session window can be detached from the locker's borrowed
+/// lists before GTK frees its children.
+struct Content {
+    overlay: gtk::Overlay,
+    clock: gtk::Label,
+    date: gtk::Label,
+    entry: Option<gtk::PasswordEntry>,
+    error: Option<gtk::Label>,
+}
+
+fn build_content(state: &Rc<RefCell<Locker>>, primary: bool) -> Content {
     let overlay = gtk::Overlay::new();
     let background = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
@@ -468,12 +694,18 @@ fn build_content(state: &Rc<RefCell<Locker>>, primary: bool) -> gtk::Overlay {
     {
         let mut locker = state.borrow_mut();
 
-        locker.clocks.push(clock);
-        locker.dates.push(date);
+        locker.clocks.push(clock.clone());
+        locker.dates.push(date.clone());
     }
 
     if !primary {
-        return overlay;
+        return Content {
+            overlay,
+            clock,
+            date,
+            entry: None,
+            error: None,
+        };
     }
 
     let entry = gtk::PasswordEntry::new();
@@ -523,11 +755,17 @@ fn build_content(state: &Rc<RefCell<Locker>>, primary: bool) -> gtk::Overlay {
     {
         let mut locker = state.borrow_mut();
 
-        locker.entry = Some(entry);
-        locker.error = Some(error);
+        locker.entry = Some(entry.clone());
+        locker.error = Some(error.clone());
     }
 
-    overlay
+    Content {
+        overlay,
+        clock,
+        date,
+        entry: Some(entry),
+        error: Some(error),
+    }
 }
 
 fn focus_entry(locker: &Locker) {
@@ -737,9 +975,18 @@ fn unlock(state: &Rc<RefCell<Locker>>) {
         locker.unlocked = true;
         locker.retrying = false;
         locker.authenticating = false;
+        locker.rebuilds.stop();
 
         if let Some(source) = locker.retry_source.take() {
             source.remove();
+        }
+
+        if let Some(source) = locker.rebuild_source.take() {
+            source.remove();
+        }
+
+        if let Some((model, handler)) = locker.monitor_model.take() {
+            model.disconnect(handler);
         }
 
         (
@@ -782,9 +1029,18 @@ fn unlock_local(state: &Rc<RefCell<Locker>>) {
         }
 
         locker.unlocked = true;
+        locker.rebuilds.stop();
 
         if let Some(source) = locker.retry_source.take() {
             source.remove();
+        }
+
+        if let Some(source) = locker.rebuild_source.take() {
+            source.remove();
+        }
+
+        if let Some((model, handler)) = locker.monitor_model.take() {
+            model.disconnect(handler);
         }
 
         locker.session_lock = None;
