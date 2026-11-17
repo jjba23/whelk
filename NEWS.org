@@ -11,6 +11,26 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.39.1 (2026-11-17)
+
+*** Changed
+
+- *The Rust dependencies are vendored.*  =rust/vendor= carries every crate in
+  =Cargo.lock=, and the root =Cargo.toml= replacement makes =cargo --offline=
+  build a fresh checkout.  This is what lets the Guix channel package build in
+  a sandbox without a crate registry or network.
+- The Guix channel package now uses the Rust tree and installs through xtask,
+  so it ships the binary, Scheme modules, desktop entry and icons instead of a
+  binary that cannot find its modules.
+
+*** Verified
+
+- =cargo test --workspace --locked --offline= passes: 494 libtest tests plus
+  the Guile harness, 0 failed.
+- =guix time-machine --channels=channels.scm -- build -f guix.scm= builds and
+  installs whelk, and the installed binary answers =--check-config=.
+- The Nix package builds and runs the same suite.
+
 ** v0.39.0 (2026-11-17)
 
 *** Changed

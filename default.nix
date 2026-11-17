@@ -26,7 +26,7 @@
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "whelk";
-  version = "0.39.0";
+  version = "0.39.1";
 
   src = lib.cleanSourceWith {
     src = ./.;
@@ -35,14 +35,20 @@ rustPlatform.buildRustPackage (finalAttrs: {
       let
         base = baseNameOf (toString path);
       in
-      !(builtins.elem base [
+      # Only the workspace's own build directories are dropped.  Vendored
+      # crates have fixtures in directories named target, and cargo refuses
+      # to build when those are missing.
+      !(builtins.elem (toString path) [
+        (toString ./target)
+        (toString ./rust/target)
+      ])
+      && !(builtins.elem base [
         "build"
         "build-asan"
         "build-sanitize"
         "build-release"
         "result"
         ".direnv"
-        "target"
         "dist"
       ])
       && lib.cleanSourceFilter path type;
