@@ -16,6 +16,7 @@ use std::rc::Rc;
 use crate::bar::BarSettings;
 use crate::guile::Guile;
 use crate::menuapps::MenuSources;
+use crate::preferences::PreferenceValue;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
 use crate::shortcutmaps::ShortcutMaps;
 use crate::startmenu::MenuEntry;
@@ -158,6 +159,92 @@ impl ConfigLoader {
         guile
             .remember_wallpaper(&self.path, wallpaper)
             .map_err(|error| error.to_string())
+    }
+
+    /// A Guile handle, initialized on first use so a configuration that was
+    /// missing at startup can still be given GUI overrides.
+    fn guile_mut(&mut self) -> Result<&Guile, String> {
+        if self.guile.is_none() {
+            let guile = Guile::init(&self.scheme_paths)
+                .map_err(|error| format!("Guile could not be initialized: {error}"))?;
+
+            self.guile = Some(guile);
+        }
+
+        Ok(self.guile.as_ref().expect("Guile was initialized"))
+    }
+
+    /// Save one settings-window change as a GUI override.
+    pub fn save_preference(&mut self, key: &str, value: &PreferenceValue) -> Result<(), String> {
+        let path = self.path.clone();
+        let guile = self.guile_mut()?;
+        let scheme = value.to_scheme();
+
+        guile
+            .save_preference(&path, key, &scheme)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Delete the GUI overrides; the settings file is not touched.
+    pub fn reset_preferences(&mut self) -> Result<bool, String> {
+        let path = self.path.clone();
+        let guile = self.guile_mut()?;
+
+        guile
+            .reset_preferences(&path)
+            .map_err(|error| error.to_string())
+    }
+
+    /// One saved override as text, for the fields whose value is not on the bar.
+    pub fn preference_text(&mut self, key: &str) -> Option<String> {
+        let path = self.path.clone();
+
+        match self.guile_mut() {
+            Ok(guile) => match guile.read_preference(&path, key) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("whelk-rs: could not read '{key}': {error}");
+
+                    None
+                }
+            },
+            Err(error) => {
+                eprintln!("whelk-rs: could not read '{key}': {error}");
+
+                None
+            }
+        }
+    }
+
+    /// The theme names the window offers, empty when Scheme cannot answer.
+    pub fn theme_names(&mut self) -> Vec<String> {
+        match self.guile_mut() {
+            Ok(guile) => guile.theme_names().unwrap_or_else(|error| {
+                eprintln!("whelk-rs: could not list the themes: {error}");
+
+                Vec::new()
+            }),
+            Err(error) => {
+                eprintln!("whelk-rs: could not list the themes: {error}");
+
+                Vec::new()
+            }
+        }
+    }
+
+    /// The night light the window edits, defaults included.
+    pub fn night_light(&mut self) -> Option<crate::nightlight::Config> {
+        let path = self.path.clone();
+        let guile = self.guile_mut().ok()?;
+
+        match guile.load_night_light(&path) {
+            Ok(config) => Some(config),
+            Err(error) => {
+                eprintln!("whelk-rs: could not read the night light: {error}");
+
+                None
+            }
+        }
     }
 
     pub fn label(&self) -> String {

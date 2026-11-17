@@ -25,6 +25,7 @@ use std::slice;
 
 use crate::bar::BarSettings;
 use crate::menuapps::{self, MenuSources};
+use crate::nightlight::Config as NightLightConfig;
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 use crate::startmenu::MenuEntry;
 use crate::widgets::WidgetConfig;
@@ -511,6 +512,152 @@ impl Guile {
         )))
     }
 
+    /// Save one GUI override through `(whelk prefs)`, with the value written as
+    /// the Scheme it will be read back as: `#t`, `12`, `0.75`, `"Inter"` or
+    /// `'cua`.  The key is a plain preference symbol, so anything else is
+    /// refused rather than spliced into the source.
+    pub fn save_preference(
+        &self,
+        config_path: &Path,
+        key: &str,
+        scheme: &str,
+    ) -> Result<(), GuileError> {
+        if !is_preference_key(key) {
+            return Err(GuileError::Evaluation(format!(
+                "'{key}' is not a preference key"
+            )));
+        }
+
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let code = format!(
+            "(begin (use-modules (whelk prefs)) (save-preference! {} '{key} {scheme}))",
+            scheme_string_literal(config)
+        );
+        let answer = self.eval_string(&code)?;
+
+        if answer.trim() == "#t" {
+            return Ok(());
+        }
+
+        Err(GuileError::Evaluation(format!(
+            "saving '{key} answered {answer}"
+        )))
+    }
+
+    /// Delete the GUI overrides, leaving the settings file untouched.
+    pub fn reset_preferences(&self, config_path: &Path) -> Result<bool, GuileError> {
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let answer = self.eval_string(&format!(
+            "(begin (use-modules (whelk prefs)) (reset-preferences! {}))",
+            scheme_string_literal(config)
+        ))?;
+
+        Ok(answer.trim() == "#t")
+    }
+
+    /// One saved preference as text, or `None` when the file does not override
+    /// it.  A window field shows the text it can type back; a symbol arrives as
+    /// its name and a number as its digits.
+    pub fn read_preference(
+        &self,
+        config_path: &Path,
+        key: &str,
+    ) -> Result<Option<String>, GuileError> {
+        if !is_preference_key(key) {
+            return Err(GuileError::Evaluation(format!(
+                "'{key}' is not a preference key"
+            )));
+        }
+
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let answer = self.eval_string(&format!(
+            "(begin (use-modules (whelk prefs)) \
+             (let ((value (preference-ref {} '{key}))) \
+             (cond ((not value) \"\") \
+             ((symbol? value) (symbol->string value)) \
+             ((string? value) value) \
+             (else (simple-format #f \"~a\" value)))))",
+            scheme_string_literal(config)
+        ))?;
+
+        Ok((!answer.is_empty()).then_some(answer))
+    }
+
+    /// The names `(whelk themes)` knows, in its own sorted order.
+    pub fn theme_names(&self) -> Result<Vec<String>, GuileError> {
+        let answer = self.eval_string(
+            "(begin (use-modules (whelk themes)) \
+             (with-output-to-string \
+             (lambda () \
+             (for-each (lambda (theme) \
+             (display (if (string? theme) theme (symbol->string theme))) \
+             (newline)) \
+             (themes)))))",
+        )?;
+
+        Ok(answer
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect())
+    }
+
+    /// The night light the shell reads, overrides included.  An unconfigured
+    /// shell answers the filter's defaults, as the C bridge does.
+    pub fn load_night_light(&self, config_path: &Path) -> Result<NightLightConfig, GuileError> {
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let answer = self.eval_string(&format!(
+            "(begin (use-modules (whelk state)) \
+             (let ((alist (get-shell-night-light {}))) \
+             (if (or (not alist) (null? alist)) \"\" \
+             (simple-format #f \"~a ~a ~a ~a ~a ~a ~a\" \
+             (if (assq-ref alist 'configured?) 1 0) \
+             (if (assq-ref alist 'enabled?) 1 0) \
+             (assq-ref alist 'mode) \
+             (assq-ref alist 'temperature) \
+             (assq-ref alist 'start) \
+             (assq-ref alist 'end) \
+             (assq-ref alist 'transition)))))",
+            scheme_string_literal(config)
+        ))?;
+        let fields: Vec<&str> = answer.split_whitespace().collect();
+
+        if fields.len() != 7 {
+            return Ok(NightLightConfig::default());
+        }
+
+        Ok(NightLightConfig {
+            configured: fields[0] == "1",
+            enabled: fields[1] == "1",
+            mode: if fields[2] == "always" {
+                crate::nightlight::Mode::Always
+            } else {
+                crate::nightlight::Mode::Scheduled
+            },
+            temperature: fields[3].parse().unwrap_or(3400),
+            start_minute: fields[4].parse().unwrap_or(19 * 60),
+            end_minute: fields[5].parse().unwrap_or(7 * 60),
+            transition_minutes: fields[6].parse().unwrap_or(30),
+        })
+    }
+
     pub fn load_clipboard(&self, config_path: &Path) -> Result<ClipboardSettings, GuileError> {
         self.load_config(config_path)?;
 
@@ -869,6 +1016,18 @@ fn eval_raw(code: &str) -> Result<sys::Scm, GuileError> {
 
 /// Escape a Rust string as a Scheme string literal.  This is used for load
 /// paths and the settings path, both of which may contain quotes or backslashes.
+/// The characters a preference symbol is made of.  A key is spliced into the
+/// Scheme source, so anything outside this set never reaches it.
+fn is_preference_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '-'
+                || character == '?'
+        })
+}
+
 pub fn scheme_string_literal(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 2);
 

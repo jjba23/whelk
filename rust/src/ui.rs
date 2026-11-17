@@ -34,6 +34,7 @@ use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
 use crate::osd::Osd;
+use crate::preferences::{self, Preferences, ReadFn, ReloadFn, SaveFn, Snapshot};
 use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::startmenu::MenuEntry;
@@ -54,6 +55,7 @@ struct Bootstrap {
     config_label: String,
     launcher: Option<String>,
     show_wallpaper_picker: bool,
+    show_settings: bool,
     hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -66,6 +68,7 @@ pub fn run(
     config_label: String,
     launcher: Option<String>,
     show_wallpaper_picker: bool,
+    show_settings: bool,
 ) -> gtk::glib::ExitCode {
     let application = gtk::Application::builder()
         .application_id("org.jointhefreeworld.whelk.rust")
@@ -82,6 +85,7 @@ pub fn run(
         config_label,
         launcher,
         show_wallpaper_picker,
+        show_settings,
         hold,
     })));
     let slot: ShellSlot = Rc::new(RefCell::new(None));
@@ -103,6 +107,7 @@ pub fn run(
             bootstrap.config_label,
             bootstrap.launcher,
             bootstrap.show_wallpaper_picker,
+            bootstrap.show_settings,
             bootstrap.hold,
         );
 
@@ -176,10 +181,12 @@ struct Shell {
     launcher: Option<Launcher>,
     osd: Option<Osd>,
     picker: Option<Picker>,
+    preferences: Option<Preferences>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
 
 impl Shell {
+    #[allow(clippy::too_many_arguments)]
     fn present(
         application: &gtk::Application,
         loader: ConfigLoader,
@@ -187,6 +194,7 @@ impl Shell {
         config_label: String,
         launcher_mode: Option<String>,
         show_wallpaper_picker: bool,
+        show_settings: bool,
         hold: gtk::gio::ApplicationHoldGuard,
     ) -> ShellRef {
         // The C shell prepares the locker at startup, before a `--lock` or a
@@ -240,6 +248,7 @@ impl Shell {
             launcher: Some(launcher),
             osd: Some(osd),
             picker: None,
+            preferences: None,
             _hold: hold,
         }));
 
@@ -277,6 +286,83 @@ impl Shell {
 
             if let Some(picker) = state.picker.as_ref() {
                 picker.show(&state.loaded.wallpaper);
+            }
+        }
+
+        // The settings window is created hidden too.  A change is saved as a
+        // GUI preference and answered by a reload, so the bar never shows a
+        // value the next start would not read.
+        {
+            let save_weak = Rc::downgrade(&shell);
+            let save: SaveFn = Rc::new(move |key, value| {
+                let Some(shell) = save_weak.upgrade() else {
+                    return false;
+                };
+                let mut state = shell.borrow_mut();
+
+                match state.loader.save_preference(key, value) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        eprintln!("whelk-rs: could not save '{key}': {error}");
+
+                        false
+                    }
+                }
+            });
+            let reset_weak = Rc::downgrade(&shell);
+            let reset: Rc<dyn Fn() -> bool> = Rc::new(move || {
+                let Some(shell) = reset_weak.upgrade() else {
+                    return false;
+                };
+                let mut state = shell.borrow_mut();
+
+                match state.loader.reset_preferences() {
+                    Ok(answer) => answer,
+                    Err(error) => {
+                        eprintln!("whelk-rs: could not reset the GUI preferences: {error}");
+
+                        false
+                    }
+                }
+            });
+            let read_weak = Rc::downgrade(&shell);
+            let read: ReadFn = Rc::new(move |key| {
+                let shell = read_weak.upgrade()?;
+                let mut state = shell.borrow_mut();
+
+                state.loader.preference_text(key)
+            });
+            let reload_weak = Rc::downgrade(&shell);
+            let reload: ReloadFn = Rc::new(move || {
+                let Some(shell) = reload_weak.upgrade() else {
+                    return Snapshot::fallback();
+                };
+                let mut state = shell.borrow_mut();
+
+                state.reload();
+                state.preferences_snapshot()
+            });
+            let callbacks = Rc::new(preferences::Callbacks {
+                save,
+                reset,
+                read,
+                reload,
+            });
+            let (config_path, snapshot) = {
+                let mut state = shell.borrow_mut();
+
+                (state.loader.path().to_owned(), state.preferences_snapshot())
+            };
+            let preferences = Preferences::new(application, config_path, snapshot, callbacks);
+
+            shell.borrow_mut().preferences = Some(preferences);
+        }
+
+        if show_settings {
+            let snapshot = shell.borrow_mut().preferences_snapshot();
+
+            if let Some(preferences) = shell.borrow().preferences.as_ref() {
+                preferences.show(snapshot);
             }
         }
 
@@ -346,6 +432,16 @@ impl Shell {
             &style,
             self.loader.path(),
         );
+    }
+
+    /// The values the settings window draws: the first bar's material and
+    /// modules, the night light Scheme reads, and the themes it knows.
+    fn preferences_snapshot(&mut self) -> Snapshot {
+        Snapshot {
+            bar: self.loaded.bars.first().cloned().unwrap_or_default(),
+            night_light: self.loader.night_light().unwrap_or_default(),
+            themes: self.loader.theme_names(),
+        }
     }
 
     fn reload(&mut self) {
@@ -418,6 +514,7 @@ impl Shell {
         Clipboard::install(None);
         NotificationService::install(None);
 
+        self.preferences.take();
         self.picker.take();
         self.launcher.take();
         self.network.take();

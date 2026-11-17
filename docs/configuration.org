@@ -260,6 +260,12 @@ change is written, the bar and the shell's panels reload, and the window stays
 open for the next one.  Opening the settings window closes any bar popover
 first, so nothing is left floating above it.
 
+The same window exists in the Rust port: =whelk-rs --settings= draws those nine
+pages and writes the same =preferences-<settings-stem>.scm= file, so a change
+made in either shell is read by the other.  The Rust window offers a text field
+only where one value can be written back unchanged; an option that is a list or
+contains a line break stays in the file, and the page says so.
+
 *Modules* mirrors the first bar: one card per module, in the order it is built
 (left, centre, right, overflow), with a *Show in the bar* switch and a control
 for every option the settings file gave that module.  The control follows the

@@ -31,6 +31,7 @@ Options:
   --clipboard       Open the clipboard picker after the shell starts
   --wallpaper-picker
                     Open the wallpaper picker after the shell starts
+  --settings        Open the settings window after the shell starts
   --version, -V     Print the Rust bootstrap version and exit
   -h, --help        Print this help and exit
 
@@ -48,6 +49,7 @@ struct Options {
     launcher_mode: Option<String>,
     clipboard: bool,
     wallpaper_picker: bool,
+    settings: bool,
     version: bool,
     help: bool,
 }
@@ -135,7 +137,15 @@ fn run() -> Result<ExitCode, String> {
         launcher = Some("clipboard".to_owned());
     }
 
-    Ok(ui::run(loader, loaded, label, launcher, options.wallpaper_picker).into())
+    Ok(ui::run(
+        loader,
+        loaded,
+        label,
+        launcher,
+        options.wallpaper_picker,
+        options.settings,
+    )
+    .into())
 }
 
 fn scheme_paths() -> Vec<PathBuf> {
@@ -181,6 +191,7 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
             "--launcher" | "-l" => options.launcher = true,
             "--clipboard" => options.clipboard = true,
             "--wallpaper-picker" => options.wallpaper_picker = true,
+            "--settings" => options.settings = true,
             "--launcher-mode" => {
                 let value = arguments
                     .next()

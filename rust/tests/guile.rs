@@ -236,6 +236,98 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
         assert_eq!(again.animation, Animation::Zoom);
     }
 
+    // The settings window's persistence.  A key that was never overridden
+    // answers nothing, a value is written as the Scheme it will be read as,
+    // and Reset is one file deletion.
+    assert_eq!(
+        guile
+            .read_preference(&config_path, "bar-height")
+            .expect("read an unset preference"),
+        None
+    );
+    assert!(
+        guile
+            .save_preference(&config_path, "bar height", "1")
+            .is_err()
+    );
+    guile
+        .save_preference(&config_path, "bar-height", "48")
+        .expect("save an integer");
+    guile
+        .save_preference(&config_path, "bar-theme", "\"nord\"")
+        .expect("save text");
+    guile
+        .save_preference(&config_path, "menu-accelerator-style", "'emacs")
+        .expect("save a symbol");
+    guile
+        .save_preference(&config_path, "module-clock-0-format", "\"%H\"")
+        .expect("save a module option");
+    guile
+        .save_preference(&config_path, "night-light-enabled?", "#t")
+        .expect("save a boolean");
+    guile
+        .save_preference(&config_path, "night-light-temperature", "3200")
+        .expect("save the white point");
+
+    assert_eq!(
+        guile
+            .read_preference(&config_path, "bar-height")
+            .expect("read the integer"),
+        Some("48".to_owned())
+    );
+    // A string arrives as its text and a symbol as its name, which is what a
+    // window field can type back.
+    assert_eq!(
+        guile
+            .read_preference(&config_path, "bar-theme")
+            .expect("read the text"),
+        Some("nord".to_owned())
+    );
+    assert_eq!(
+        guile
+            .read_preference(&config_path, "menu-accelerator-style")
+            .expect("read the symbol"),
+        Some("emacs".to_owned())
+    );
+
+    // The override wins when the configuration reloads.
+    let overridden = guile
+        .load_bars(&config_path)
+        .expect("reload with overrides");
+    assert_eq!(overridden[0].height, 48);
+    assert_eq!(overridden[0].theme.as_deref(), Some("nord"));
+    assert_eq!(
+        overridden[0].clock_format().as_deref(),
+        Some("%H"),
+        "the module override reaches the clock"
+    );
+
+    let night_light = guile
+        .load_night_light(&config_path)
+        .expect("read the night light");
+    assert!(night_light.enabled);
+    assert_eq!(night_light.temperature, 3200);
+    assert!(night_light.start_minute >= 0);
+    assert!(night_light.end_minute >= 0);
+
+    let themes = guile.theme_names().expect("list the themes");
+    assert!(themes.iter().any(|theme| theme == "gloss-2007"));
+    assert!(themes.iter().all(|theme| !theme.contains(' ')));
+
+    assert!(
+        guile
+            .reset_preferences(&config_path)
+            .expect("reset the overrides")
+    );
+    assert_eq!(
+        guile
+            .read_preference(&config_path, "bar-height")
+            .expect("read after reset"),
+        None
+    );
+    let reset = guile.load_bars(&config_path).expect("reload after reset");
+    assert_eq!(reset[0].height, 40);
+
     let missing = directory.path().join("missing.scm");
     assert!(guile.load_wallpaper(&missing).is_err());
 

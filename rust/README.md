@@ -41,6 +41,17 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   outside to close, and Enter on a focused tile.  A click saves the picture as
   the `wallpaper-selected` GUI preference `(whelk prefs)` already layers over
   `#:current`, then repaints the background immediately.
+- `src/preferences.rs` — the settings window, ported from
+  `src/preferences.c`: one stack of nine pages (Bar, Theme, Night light,
+  Notifications, Wi-Fi, Global menu, Modules, Launcher, More) over the same
+  `(whelk prefs)` overrides the C window writes.  A control's value is written
+  back as the Scheme it came from (`#t`, `12`, `0.75`, `"Inter"`, `'cua`), a
+  module's key is its kind, occurrence and option (`module-clock-0-format`),
+  and only an option one field can represent unchanged is offered.  Typing
+  settles for 180 ms before one write and one reload; Reset deletes the
+  overrides and redraws from what the shell now reads.  The model (keys, clock
+  text and parsing, launcher labels, the module walk) is pure and tested
+  without a display.
 - `src/bar.rs` — the typed view of `(shell-bars->alists)`, ported from
   `bar_from_alist`: edge, layer, monitor rules, geometry, material, launcher
   defaults and ordered module specs with typed options.
@@ -392,7 +403,8 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   bar, applies a reloaded policy, and flushes it during teardown.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
   on Broadway/X11 test displays.
 - `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--launcher`,
-  `--launcher-mode MODE`, `--clipboard`, `--wallpaper-picker`, `--help`, plus
+  `--launcher-mode MODE`, `--clipboard`, `--wallpaper-picker`, `--settings`,
+  `--help`, plus
   the lock screen's `--lock` and `--check-lock`.  `--clipboard-store` is the
   internal helper entry point `wl-paste --watch` runs against this same binary.
 
@@ -582,6 +594,7 @@ cargo run -- --launcher
 cargo run -- --launcher --launcher-mode=window
 cargo run -- --clipboard
 cargo run -- --wallpaper-picker
+cargo run -- --settings
 cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
 cargo xtask dist --output /tmp
 ```
@@ -642,6 +655,7 @@ The tests are split by what they can prove without a session:
 | `tests/collection.rs` | Recursive walk, hidden entries, symlinks, depth limit, video filter, dedupe and sorting |
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
 | `tests/wallpaperpicker.rs` | Tile names, the header count, thumbnail and card sizes (including a small monitor and a headless one), and the Scheme string literal a saved choice is written with |
+| `tests/preferences.rs` | Scheme value formatting, module override keys and occurrence numbering across the bar, which options a single field may edit, clock text and parsing, launcher labels, and colour text |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
@@ -783,6 +797,9 @@ are rebuilt with the bars, so a settings save or a hotplug moves them too.  The
 state file is the one the C shell writes, so a drag in either shell is where
 the other one puts the card.  The wallpaper picker is Rust too: an overlay grid
 of the collection whose click saves the `wallpaper-selected` preference and
-repaints the background, reachable with `--wallpaper-picker`.  The next slice is
-the settings window, then making the Rust binary the installed `whelk` once the
-C and Rust suites both cover the same behavior.
+repaints the background, reachable with `--wallpaper-picker`.  The settings
+window is Rust too: `--settings` draws the same nine pages over the same
+overrides the C window writes, so a change in either shell is read by the
+other, and Reset is still one file deletion.  The next slice is making the Rust
+binary the installed `whelk` once the C and Rust suites both cover the same
+behavior.
