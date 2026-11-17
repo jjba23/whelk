@@ -9,12 +9,17 @@
 //! chooses which one the label says, and `#:max-length` keeps a long title from
 //! eating the row.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gtk4 as gtk;
+use gtk4::prelude::*;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
 use crate::format;
+use crate::riverstatus;
 use crate::session::{FocusedWindow, Session};
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 1;
@@ -47,12 +52,22 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         label.set_xalign(0.0);
     }
 
+    if session == Session::River {
+        start_river_push(&root, &host, max_length);
+    }
+
     host.start(move |host| update(session, max_length, host));
 
     Some(root)
 }
 
 fn update(session: Session, max_length: i32, host: &ModuleHost) {
+    // River has no focused-window command; its title arrives on the status
+    // socket started beside this module.
+    if session == Session::River {
+        return;
+    }
+
     let Some(command_line) = session.focused_window_command() else {
         host.set_text("");
 
@@ -69,11 +84,44 @@ fn update(session: Session, max_length: i32, host: &ModuleHost) {
 
             return;
         };
-        let values = [
-            ("title", window.title.as_str()),
-            ("app-id", window.app_id.as_str()),
-        ];
 
-        callback_host.present("{title}", &values);
+        present_focused(&callback_host, &window);
     });
+}
+
+fn start_river_push(root: &gtk::Box, host: &ModuleHost, max_length: i32) {
+    let weak = host.downgrade();
+    let Some(watch) = riverstatus::Watch::start(move |title| {
+        let Some(host) = weak.upgrade() else {
+            return;
+        };
+        let Some(window) = focused_reading(Session::River, title, max_length) else {
+            host.set_text("");
+
+            return;
+        };
+
+        present_focused(&host, &window);
+    }) else {
+        // A compositor without river-status leaves the module empty, exactly
+        // like a session with no focused-window IPC.
+        return;
+    };
+    // The widget's destroy handler owns the watch: the proxy and the socket
+    // watch live exactly as long as the bar it draws into.
+    let slot = Rc::new(RefCell::new(Some(watch)));
+    let on_destroy = Rc::clone(&slot);
+
+    root.connect_destroy(move |_| {
+        on_destroy.borrow_mut().take();
+    });
+}
+
+fn present_focused(host: &ModuleHost, window: &FocusedWindow) {
+    let values = [
+        ("title", window.title.as_str()),
+        ("app-id", window.app_id.as_str()),
+    ];
+
+    host.present("{title}", &values);
 }

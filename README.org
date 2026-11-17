@@ -231,7 +231,8 @@ click, and the command line a keybinding uses to open a surface.
 |--------------------------+----------------------------------------------------------------------|
 | the jointhefreeworld channel | =guix install whelk=, from [[https://github.com/jjba23/guix-jointhefreeworld][the channel]]                        |
 | Nix                      | =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'= |
-| from source              | =meson setup build && ninja -C build && meson test -C build=           |
+| from source (C shell)    | =meson setup build && ninja -C build && meson test -C build=           |
+| from source (Rust shell) | =cargo build -p whelk-rs --release=                                    |
 | a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build=                   |
 
 [[file:docs/installation.org][Installation]] has the requirements, what the binary links (and why PAM is not on

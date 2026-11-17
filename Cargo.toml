@@ -1,0 +1,18 @@
+# whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+#
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+# The workspace: the Rust shell, and `xtask` -- the jobs cargo does not do on its
+# own (staging an install and writing the source archive).  The C shell and its Meson build remain in the tree while the
+# modules are ported one at a time, but the Rust half is built and installed by
+# cargo alone.
+[workspace]
+members = ["rust", "xtask"]
+resolver = "2"
+
+# One codegen unit per module, so a test that only calls a decision function
+# does not drag the widget code (and GTK) into its link.  Profiles belong to the
+# workspace, not to a member.
+[profile.release]
+codegen-units = 256

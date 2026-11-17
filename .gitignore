@@ -14,5 +14,6 @@ __pycache__/
 # Local overrides
 *.local.scm
 
-# Rust build artifacts
+# Rust build artifacts (the workspace target, and a stale crate-local one)
+/target/
 rust/target/

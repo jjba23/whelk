@@ -904,6 +904,7 @@ dependencies = [
  "tempfile",
  "wayland-client",
  "wayland-protocols-wlr",
+ "wayland-scanner",
  "x11rb",
 ]
 

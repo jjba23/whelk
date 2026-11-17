@@ -139,6 +139,12 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   focused-window commands and per-session parsers, process ids, X11 GTK bus and
   menu paths, the close/fullscreen/maximize/float/move commands, and the
   `wtype`/`xdotool` shortcut lookup.
+- `src/riverstatus.rs` — River's status push, ported from `util/riverstatus.c`:
+  its own Wayland connection binds `zriver_status_manager_v1` and one
+  `zriver_seat_status_v1` per seat, generated from
+  `protocol/river-status-unstable-v1.xml` by `wayland-scanner` at cargo build
+  time.  `focused_view` carries the title the `window` module shows; the watch
+  and the proxies live exactly as long as the widget that started them.
 - `src/workspaces.rs` — the two workspace answers through one shape: niri's
   `idx`/`is_active`/`active_window_id` and Hyprland's `id`/`windows` plus the
   active workspace on its monitors, with special workspaces left out and the
@@ -216,8 +222,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   columns.
 - `src/windowbar.rs` — the `window` module: the session's focused-window
   command and parser, `{title}`/`{app-id}`, UTF-8-safe `#:max-length` truncation
-  (50 by default) and an end-ellipsized label.  River has no Rust push client
-  yet, so it stays empty there like a session without IPC.
+  (50 by default) and an end-ellipsized label.  River has no focused-window
+  command, so this module subscribes to `riverstatus` instead and presents each
+  pushed title.
 - `src/custombar.rs` — the `custom` module: `#:exec`, the first line of its
   output, `{text}` and an optional `#:max-length`; `#:interval 0` makes it a
   static, clickable reading.
@@ -458,7 +465,8 @@ sessions have no workspace IPC, so the module stays empty rather than guessing.
 
 `window` uses the same session's focused-window command and parser, filling
 `{title}` and `{app-id}`.  A session with no focused-window answer leaves the
-module empty; River's push interface is not ported yet.  `clock` is a strftime
+module empty; on River the title arrives as a push on the `river-status`
+protocol instead of a command.  `clock` is a strftime
 pattern, and its tooltip is the month calendar.  `custom` runs `#:exec` and
 shows its first line.  `audio` prefers wpctl and falls back to pactl; `battery`
 reads `/sys/class/power_supply`; `wifi` and `bluetooth` read nmcli and
@@ -603,32 +611,33 @@ Cargo and the Guile library are both resolved through `pkg-config` (Guile in
 
 ## Commands
 
-Run from `rust/`, or use `--manifest-path rust/Cargo.toml` from the repository
-root.
+The repository root is the Cargo workspace, as in lambdock: `rust/` is the
+shell, `xtask/` is the packaging task, and both share one `target/`.
+`.cargo/config.toml` aliases `cargo xtask` to `cargo run -p xtask --`.  Run from
+the workspace root:
 
 ```sh
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo run -- --version
-cargo run -- --check-config
-cargo run -- --config /path/to/settings.scm
-cargo run -- --check-lock
-cargo run -- --lock
-cargo run -- --launcher
-cargo run -- --launcher --launcher-mode=window
-cargo run -- --clipboard
-cargo run -- --wallpaper-picker
-cargo run -- --settings
+cargo test -p whelk-rs
+cargo clippy -p whelk-rs --all-targets -- -D warnings
+cargo run -p whelk-rs -- --version
+cargo run -p whelk-rs -- --check-config
+cargo run -p whelk-rs -- --config /path/to/settings.scm
+cargo run -p whelk-rs -- --check-lock
+cargo run -p whelk-rs -- --lock
+cargo run -p whelk-rs -- --launcher
+cargo run -p whelk-rs -- --launcher --launcher-mode=window
+cargo run -p whelk-rs -- --clipboard
+cargo run -p whelk-rs -- --wallpaper-picker
+cargo run -p whelk-rs -- --settings
 cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
 cargo xtask dist --output /tmp
 ```
 
-The `rust/` package is now a small Cargo workspace with an `xtask` member.  The
-`xtask` target is the first, deliberately narrow piece of the lambdock-style
-packaging: `install` builds the release `whelk-rs` and stages the binary, the
-shared `scheme/whelk` modules and this README under the requested prefix and
-`DESTDIR`; `dist` writes the Git source archive.  It does not install the C
-`whelk`, and the Meson/Nix/Guix/Debian recipes still build the C shell.  Use
+The `xtask` target is the lambdock-style packaging task: `install` builds the
+release `whelk-rs` and stages the binary, the shared `scheme/whelk` modules and
+this README under the requested prefix and `DESTDIR`; `dist` writes the Git
+source archive.  It does not install the C `whelk`, and the Meson/Nix/Guix/
+Debian recipes still build the C shell while its modules are ported.  Use
 `--no-build` to stage an existing target, and `--debug` to stage the debug
 profile.  A custom prefix needs `WHELK_SCHEME_DIR` until the Rust binary becomes
 the installed `whelk` and its final data path is settled.
@@ -709,7 +718,7 @@ The tests are split by what they can prove without a session:
 | `tests/notificationcenter.rs` | App grouping and newest-first cards, empty summaries, toast queue limit/replacement, toast margins, body-markup validation and local time labels |
 | `tests/networkpanel.rs` | Wi-Fi radio/active/access-point parsing, escaped SSIDs, dedupe and signal order; Bluetooth paired/connected sections, malformed rows and both status/empty readings |
 | `tests/notifications_dbus.rs` | Opt-in session-bus round trip: name ownership, `GetCapabilities`, `GetServerInformation`, `Notify` and `CloseNotification`; run with `dbus-run-session -- env WHELK_NOTIFICATION_DBUS_TEST=1 cargo test --test notifications_dbus` |
-| `tests/barmodules.rs` | Clock calendar, window/custom truncation, audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
+| `tests/barmodules.rs` | Clock calendar, window/custom truncation (including a River pushed title and a blank push), audio parsing, CPU/memory/backlight/battery/Caps Lock fixtures, niri layout parsing, Wi-Fi, Bluetooth and power-profile readings |
 | unit tests | Scheme literal escaping, `--config` parsing, text/GTK/DBusMenu menubar parsing, the dictionary/Orbit/desktop/shortcut-map fallbacks and their id rules, the AT-SPI tree walk over a fake accessibility tree, fallback menus and global-menu app paths |
 
 The Guile test deliberately stays in one test function: Guile is process-global

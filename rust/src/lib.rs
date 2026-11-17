@@ -71,6 +71,7 @@ pub mod notificationsbar;
 pub mod osd;
 pub mod powerprofilebar;
 pub mod preferences;
+pub mod riverstatus;
 pub mod rotation;
 pub mod schemebar;
 pub mod session;

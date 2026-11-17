@@ -57,6 +57,14 @@ fn window_reading_truncates_the_title_and_uses_the_session_parser() {
     assert_eq!(window.title, "A very lon…");
     assert_eq!(window.app_id, "org.example.App");
     assert!(windowbar::focused_reading(Session::Wayland, answer, 50).is_none());
+
+    // River's push carries only a title; a blank push clears the row.
+    let river =
+        windowbar::focused_reading(Session::River, "Report.odt\n", 50).expect("river focused view");
+
+    assert_eq!(river.title, "Report.odt");
+    assert_eq!(river.app_id, "");
+    assert!(windowbar::focused_reading(Session::River, "\n", 50).is_none());
 }
 
 #[test]

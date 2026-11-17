@@ -151,6 +151,20 @@ Install it with:
   ninja -C build install
 #+end_src
 
+The Rust shell is a Cargo workspace at the repository root, beside the C tree
+while its modules are ported:
+
+#+begin_src sh
+  cargo build -p whelk-rs --release
+  cargo test -p whelk-rs
+  cargo xtask install --prefix=/usr/local --destdir="$DESTDIR"
+  ./target/release/whelk-rs
+#+end_src
+
+`xtask` stages =whelk-rs=, the shared =scheme/whelk= modules and the Rust README;
+it does not touch an installed C =whelk=.  The Meson build above remains the C
+shell's, because the two binaries still live side by side.
+
 * Distribution packages
 :PROPERTIES:
 :CUSTOM_ID: packages

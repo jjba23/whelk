@@ -5,11 +5,11 @@
 
 //! The small, dependency-free half of the Cargo packaging transition.
 //!
-//! The C shell and its Meson install remain the default.  This task is the
-//! lambdock-style entry point for the Rust side: build `whelk-rs`, stage the
-//! binary, the Guile modules and the README under a prefix, and never touch the
-//! installed C `whelk`.  A packager can call it from a source checkout while
-//! the two implementations still live side by side.
+//! The C shell and its Meson install remain in the tree while the modules are
+//! ported.  This task is the lambdock-style entry point for the Rust half: build
+//! `whelk-rs`, stage the binary, the Guile modules and the README under a
+//! prefix, and never touch the installed C `whelk`.  It runs from the workspace
+//! root, so its target and the shared data files have one location.
 
 use std::env;
 use std::fs;
@@ -128,11 +128,11 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
 
     install_file(&binary, &root.join("bin").join(BINARY), 0o755)?;
     copy_directory(
-        &workspace.join("../scheme/whelk"),
+        &workspace.join("scheme/whelk"),
         &root.join("share/guile/site/3.0/whelk"),
     )?;
     install_file(
-        &workspace.join("README.md"),
+        &workspace.join("rust/README.md"),
         &root.join("share/doc/whelk-rs/README.md"),
         0o644,
     )?;
@@ -165,12 +165,9 @@ fn workspace_root() -> Result<PathBuf, String> {
 }
 
 /// The checkout, rather than the Rust workspace: `git archive` must see the
-/// Meson tree too.
+/// Meson tree too.  The workspace root is now that checkout.
 fn repository_root() -> Result<PathBuf, String> {
-    workspace_root()?
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "the Rust workspace has no repository parent".to_owned())
+    workspace_root()
 }
 
 fn dist(arguments: Vec<String>) -> Result<(), String> {
