@@ -54,10 +54,11 @@
                (setenv "GSK_RENDERER" "cairo")
                (invoke "xvfb-run" "-a" "cargo" "test"
                        "--workspace" "--locked"))))
-         ;; Cargo installs the binary; the Scheme modules, desktop entry and
-         ;; icons have no Cargo target.  The staged layout is also what makes
-         ;; the binary find its modules beside its own prefix.
-         (add-after 'install 'install-runtime-data
+         ;; The workspace root is a virtual manifest, so cargo-build-system's
+         ;; default `cargo install --path .' cannot work here.  xtask installs
+         ;; the already-built binary together with the Scheme modules, desktop
+         ;; entry and icons that have no Cargo target.
+         (replace 'install
            (lambda* (#:key outputs #:allow-other-keys)
              (invoke "cargo" "run" "--offline" "--locked"
                      "-p" "xtask" "--" "install"

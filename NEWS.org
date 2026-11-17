@@ -61,6 +61,9 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 - =scripts/release-smoke.sh --source= installs the binary, Scheme modules,
   desktop entry and documentation into a staged prefix, and the installed
   binary answers =--version= and =--check-config=.
+- =guix time-machine --channels=channels.scm -- build -f guix.scm= passes the
+  same suite and installs the binary with its Scheme modules; the installed
+  binary answers =--check-config= without source-tree environment variables.
 - The supervisor was exercised live: a SIGKILL of the UI restarted it after the
   one-second backoff, and SIGTERM took the graceful shutdown path.
 - The GTK and Wayland surfaces were not visually exercised against a live
