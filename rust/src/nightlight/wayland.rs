@@ -19,7 +19,7 @@
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -100,50 +100,39 @@ impl State {
         true
     }
 
-    fn write_output(&mut self, name: u32) {
+    fn write_output(&mut self, name: u32) -> bool {
         let Some(rgb) = self.wants else {
-            return;
+            return false;
         };
         let Some(index) = self.output_index(name) else {
-            return;
+            return false;
         };
         let output = &self.outputs[index];
 
         if output.size == 0 {
-            return;
+            return false;
         }
         let Some(control) = &output.control else {
-            return;
+            return false;
         };
-
-        let ramp = GammaRamp::new(output.size as usize, rgb);
-        let Some(fd) = gamma_fd(ramp.size()) else {
-            return;
+        let Some(fd) = gamma_table(GammaRamp::new(output.size as usize, rgb)) else {
+            return false;
         };
-        let mut file = std::fs::File::from(fd);
-        let mut bytes = Vec::with_capacity(ramp.size() * 6);
-
-        for channel in [ramp.red(), ramp.green(), ramp.blue()] {
-            for value in channel {
-                bytes.extend_from_slice(&value.to_ne_bytes());
-            }
-        }
-
-        if file.write_all(&bytes).is_err() {
-            return;
-        }
-
-        let fd: OwnedFd = file.into();
 
         control.set_gamma(fd.as_fd());
+
+        true
     }
 
-    fn write_all(&mut self) {
+    fn write_all(&mut self) -> bool {
         let names: Vec<u32> = self.outputs.iter().map(|output| output.name).collect();
+        let mut wrote = false;
 
         for name in names {
-            self.write_output(name);
+            wrote |= self.write_output(name);
         }
+
+        wrote
     }
 
     /// Give every output back to the compositor.
@@ -282,8 +271,6 @@ impl Dispatch<ZwlrGammaControlV1, u32> for State {
                 if let Some(control) = output.control.take() {
                     control.destroy();
                 }
-
-                state.wants = None;
             }
             _ => {}
         }
@@ -379,7 +366,16 @@ impl Backend for WaylandBackend {
                 let _ = queue.roundtrip(&mut state);
             }
 
-            state.write_all();
+            if !state.write_all() {
+                // Nothing was written: no output has a usable control yet, or
+                // they are all in their retry window.  Answering false is what
+                // keeps the engine trying instead of believing the screen is
+                // warm.
+                drop(state);
+                let _ = self.connection.flush();
+
+                return false;
+            }
         }
 
         drop(state);
@@ -406,6 +402,30 @@ impl Drop for WaylandBackend {
         self.state.borrow_mut().release();
         let _ = self.connection.flush();
     }
+}
+
+/// Write RAMP into a descriptor and leave it at offset zero.
+///
+/// The compositor reads the table from the descriptor it is handed, and not
+/// every compositor maps it from the start: niri reads from the current file
+/// offset and answers `failed` when that offset is the end of a table that was
+/// just written, while wlroots maps the descriptor from zero and never noticed.
+/// Rewinding is what makes the same table work on both.
+fn gamma_table(ramp: GammaRamp) -> Option<OwnedFd> {
+    let fd = gamma_fd(ramp.size() * 6)?;
+    let mut file = std::fs::File::from(fd);
+    let mut bytes = Vec::with_capacity(ramp.size() * 6);
+
+    for channel in [ramp.red(), ramp.green(), ramp.blue()] {
+        for value in channel {
+            bytes.extend_from_slice(&value.to_ne_bytes());
+        }
+    }
+
+    file.write_all(&bytes).ok()?;
+    file.rewind().ok()?;
+
+    Some(file.into())
 }
 
 /// A memfd with `bytes` of space, or an unlinked temporary file where a
@@ -441,4 +461,31 @@ fn gamma_fd(bytes: usize) -> Option<OwnedFd> {
     file.set_len(bytes as u64).ok()?;
 
     Some(OwnedFd::from(file))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn the_gamma_table_reads_back_from_its_start() {
+        // A compositor that reads the descriptor instead of mapping it sees
+        // whatever the offset points at: the table must start at zero, or niri
+        // answers `failed` and the screen never warms.
+        let ramp = GammaRamp::new(4, Rgb::new([1.0, 0.5, 0.25]));
+        let mut file = std::fs::File::from(gamma_table(ramp.clone()).expect("a table"));
+        let mut read = Vec::new();
+
+        file.read_to_end(&mut read).expect("read back");
+
+        let expected: Vec<u8> = ramp
+            .channels()
+            .iter()
+            .flat_map(|channel| channel.iter().flat_map(|value| value.to_ne_bytes()))
+            .collect();
+
+        assert_eq!(read.len(), ramp.size() * 6);
+        assert_eq!(read, expected);
+    }
 }
