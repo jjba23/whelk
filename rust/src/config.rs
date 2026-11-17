@@ -172,8 +172,6 @@ impl ConfigLoader {
         })
     }
 
-    /// The label the bar's name widget wears: the real path, or the deprecated
-    /// but useful note that this process is running from defaults.
     /// Persist a wallpaper choice through the same `(whelk prefs)` override the
     /// settings window writes, so the shell and the settings file never
     /// disagree about which picture is current.
@@ -276,6 +274,8 @@ impl ConfigLoader {
         }
     }
 
+    /// The settings file's path, or the note that this process is running from
+    /// the defaults.  The bar wears it as its hover text.
     pub fn label(&self) -> String {
         if self.path.is_file() {
             self.path.display().to_string()

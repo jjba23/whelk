@@ -20,7 +20,7 @@ use gtk4 as gtk;
 use crate::about;
 use crate::bar::{BarSettings, ModuleSpec};
 use crate::barfactory::ModuleContext;
-use crate::barmodule::ModuleHost;
+use crate::barmodule::{self, ModuleHost};
 use crate::command;
 use crate::format;
 use crate::launcherpanel::Launcher;
@@ -98,6 +98,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     fill_menu(&popover, &entries, &style);
     attach_keys(&popover);
     button.set_popover(Some(&popover));
+    barmodule::attach_exclusive_popover(&button, &popover);
     root.append(&button);
 
     if let Some(provider) = install_css(&context.bar) {
@@ -216,7 +217,15 @@ fn add_entry(menu: &gtk::Box, entry: &MenuEntry, parent: &gtk::Popover, style: &
                         popover.popdown();
                     }
 
-                    run_action(&action, &style);
+                    // The row runs after the popover is down: a command that
+                    // types a chord or asks the compositor to act needs the
+                    // window the menu describes to hold the keyboard again.
+                    let action = action.clone();
+                    let style = style.clone();
+
+                    gtk::glib::timeout_add_local_once(barmodule::ACTION_GRACE, move || {
+                        run_action(&action, &style);
+                    });
                 });
             }
 

@@ -575,3 +575,84 @@ fn attach_click(root: &gtk::Box, button: u32, command_line: Option<&str>) {
     gesture.connect_pressed(move |_, _, _, _| command::spawn(&command_line));
     root.add_controller(gesture);
 }
+
+/// How long a chosen menu row waits before it runs.
+///
+/// A row pops its popover down first, and the compositor then hands the
+/// keyboard back to the window the menu describes.  A chord typed by the
+/// shortcut tool, or a compositor verb such as Close Window, acts on whichever
+/// window holds the keyboard: run in the same turn as the click, it reaches the
+/// bar instead of the application.
+pub const ACTION_GRACE: Duration = Duration::from_millis(120);
+
+thread_local! {
+    /// The popovers a bar item can open, held weakly so a destroyed bar leaves
+    /// nothing behind.
+    ///
+    /// A layer surface can have one grabbing popup at a time: a second one
+    /// mapped while the first is still up is refused by GDK ("Tried to map a
+    /// grabbing popup with a non-top most parent") and the click that asked
+    /// for it does nothing at all.  Bar items therefore close the others
+    /// before they open their own.
+    static BAR_POPOVERS: RefCell<Vec<gtk::glib::WeakRef<gtk::Popover>>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// Register a bar-level popover so another item can close it first.
+///
+/// Only popovers opened from the bar itself belong here: a submenu inside an
+/// open menu is nested in it, and closing the parent would take the submenu
+/// with it.
+pub fn watch_popover(popover: &gtk::Popover) {
+    BAR_POPOVERS.with(|popovers| {
+        let mut popovers = popovers.borrow_mut();
+
+        popovers.retain(|held| held.upgrade().is_some());
+
+        if !popovers
+            .iter()
+            .any(|held| held.upgrade().as_ref() == Some(popover))
+        {
+            popovers.push(popover.downgrade());
+        }
+    });
+}
+
+/// Pop down every registered bar popover except `keep`.
+///
+/// The list is copied out before anything is popped down, so a closed signal
+/// that walks the same registry cannot re-enter the borrow.
+pub fn close_popovers(keep: Option<&gtk::Popover>) {
+    let open: Vec<gtk::Popover> = BAR_POPOVERS.with(|popovers| {
+        let mut popovers = popovers.borrow_mut();
+
+        popovers.retain(|held| held.upgrade().is_some());
+        popovers.iter().filter_map(|held| held.upgrade()).collect()
+    });
+
+    for popover in open {
+        if Some(&popover) != keep && popover.is_visible() {
+            popover.popdown();
+        }
+    }
+}
+
+/// Make `button` the only bar item with a popover open.
+///
+/// `GtkMenuButton` toggles its popover from the class handler of "clicked",
+/// which runs before a handler connected here could; a capture-phase gesture
+/// on the press is early enough to get the previous popover out of the way, and
+/// it denies the sequence so the button still handles the click itself.
+pub fn attach_exclusive_popover(button: &impl IsA<gtk::Widget>, popover: &gtk::Popover) {
+    watch_popover(popover);
+
+    let gesture = gtk::GestureClick::new();
+    let popover = popover.clone();
+
+    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+    gesture.connect_pressed(move |gesture, _, _, _| {
+        close_popovers(Some(&popover));
+        gesture.set_state(gtk::EventSequenceState::Denied);
+    });
+    button.add_controller(gesture);
+}

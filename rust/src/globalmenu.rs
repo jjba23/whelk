@@ -39,7 +39,7 @@ use gtk4 as gtk;
 use crate::atspi;
 use crate::bar::{BarSettings, ModuleSpec};
 use crate::barfactory::ModuleContext;
-use crate::barmodule::ModuleHost;
+use crate::barmodule::{self, ModuleHost};
 use crate::chord::ChordStyle;
 use crate::command;
 use crate::menuapps::{self, MenuSources};
@@ -201,7 +201,7 @@ fn update(host: &ModuleHost, state: &Rc<RefCell<MenuState>>, session: Session) {
     let Some(command_line) = session.focused_window_command() else {
         // No query verb (River, plain Wayland): there is still a shell-owned
         // application menu and the user's own `#:menu-command`.
-        build_empty_if_needed(state);
+        show_shell_menu_if_uninitialized(state);
 
         return;
     };
@@ -209,7 +209,7 @@ fn update(host: &ModuleHost, state: &Rc<RefCell<MenuState>>, session: Session) {
 
     host.run_command(&command_line, move |text| {
         let Some(text) = text else {
-            build_empty_if_needed(&state);
+            show_shell_menu_if_uninitialized(&state);
 
             return;
         };
@@ -221,7 +221,7 @@ fn update(host: &ModuleHost, state: &Rc<RefCell<MenuState>>, session: Session) {
 fn on_focused_window(state: &Rc<RefCell<MenuState>>, text: &str) {
     let session = state.borrow().session;
     let Some(window) = session.parse_focused(text) else {
-        build_empty_if_needed(state);
+        show_shell_menu_if_uninitialized(state);
 
         return;
     };
@@ -239,14 +239,17 @@ fn on_focused_window(state: &Rc<RefCell<MenuState>>, text: &str) {
     rebuild(state, &window.app_id, paths, pid);
 }
 
-fn build_empty_if_needed(state: &Rc<RefCell<MenuState>>) {
-    let needs_rebuild = {
-        let state = state.borrow();
-
-        !state.initialized || !state.app_id.is_empty()
-    };
-
-    if needs_rebuild {
+/// Put the shell's own menu on the bar when no application has been shown yet.
+///
+/// An empty answer is not the same thing as a different application: the
+/// compositor reports no focused window while the desktop, the overview or one
+/// of whelk's own surfaces holds the keyboard -- which is exactly the case
+/// while the user is clicking one of these menus.  Rebuilding there would
+/// replace the application's menus with the shell's fallback and destroy the
+/// popover that opened in the first place, so the row is left alone; the next
+/// answer that names a window updates it.
+fn show_shell_menu_if_uninitialized(state: &Rc<RefCell<MenuState>>) {
+    if !state.borrow().initialized {
         rebuild(state, "", FocusedPaths::default(), 0);
     }
 }
@@ -365,6 +368,9 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
     fill_popover(state, &popover, &menu.entries);
     attach_keys(&popover, state);
     button.set_popover(Some(&popover));
+    // The bar has one grabbing popup at a time: a menu opened on top of the
+    // start menu or a tray menu would be refused, so the others go first.
+    barmodule::attach_exclusive_popover(&button, &popover);
 
     let map_button = Rc::downgrade(state);
 
@@ -384,6 +390,7 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
                 .any(|button| button.is_active());
 
             if any_open && !button.is_active() {
+                barmodule::close_popovers(None);
                 button.popup();
             }
         }
@@ -404,6 +411,9 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
             .any(|button| button.is_active());
 
         if any_open && !motion_button.is_active() {
+            // The menu bar follows the pointer: leaving one menu for another
+            // opens the other, and the one it left is dismissed first.
+            barmodule::close_popovers(None);
             motion_button.popup();
         }
     });
@@ -498,15 +508,24 @@ fn add_entry(
                         popover.popdown();
                     }
 
-                    if let Some(state) = weak.upgrade() {
-                        activate_action(&state, &action);
-                    }
+                    let Some(state) = weak.upgrade() else {
+                        return;
+                    };
+                    let action = action.clone();
+
+                    after_popover_close(move || activate_action(&state, &action));
                 });
             }
 
             menu.append(&button);
         }
     }
+}
+
+/// Run a chosen row's action once the popover is down and the application has
+/// the keyboard again.
+fn after_popover_close<F: FnOnce() + 'static>(action: F) {
+    glib::timeout_add_local_once(barmodule::ACTION_GRACE, action);
 }
 
 fn activate_action(state: &Rc<RefCell<MenuState>>, action: &MenuAction) {

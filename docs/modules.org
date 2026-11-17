@@ -18,7 +18,11 @@ accept the shared options:
 | =#:css-class=                      | an extra CSS class on the module's own widget                  |
 
 Unknown options are ignored rather than rejected: a settings file can be ahead
-of the binary, which is what makes upgrading whelk safe.  Nor do options have to
+of the binary, which is what makes upgrading whelk safe.  A boolean switch takes
+=#t= or =#f= as written: =#f= is how a switch that defaults to on is turned off
+(the built-in bar's =(menu-module #:app-name? #f)=), and for a value that is not
+a boolean -- a string, a number or a symbol -- =#f= means "no value", so the
+module's own default applies.  Nor do options have to
 be edited in the file: the settings window's *Modules* page writes each module's
 options as GUI overrides, and its *Show in the bar* switch hides a module while
 leaving the configuration untouched.

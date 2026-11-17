@@ -81,11 +81,14 @@
   (options shell-module-options))
 
 (define (option-pairs kv)
-  "Return KEYWORD VALUE ... as an alist of (symbol . value), dropping #f values.
+  "Return KEYWORD VALUE ... as an alist of (symbol . value).
 
-A #f is how a configuration says \"leave this one to the module\", which is not
-the same as \"set it to false\": dropping it here means the C side sees a missing
-option and applies its own default."
+Every pair is kept, #f included: the option readers on the C side match the
+Scheme type they expect and ignore anything else, so a #f is a missing option
+for a string, a number or a symbol, and it is the one way to write \"off\" for a
+switch that defaults to on -- `(menu-module #:app-name? #f)', for instance.
+Dropping #f here would make every such switch silently fall back to its
+default."
   (let loop ((rest kv) (acc '()))
     (cond
       ((null? rest) (reverse acc))
@@ -95,13 +98,11 @@ option and applies its own default."
       (else
        (let ((key (car rest)) (value (cadr rest)))
          (loop (cddr rest)
-               (if (eq? value #f)
-                   acc
-                   (cons (cons (if (keyword? key)
-                                   (keyword->symbol key)
-                                   key)
-                               value)
-                         acc))))))))
+               (cons (cons (if (keyword? key)
+                               (keyword->symbol key)
+                               key)
+                           value)
+                     acc)))))))
 
 (define* (module kind #:rest kv)
   "Build a <shell-module> of KIND from KEYWORD VALUE ... pairs.

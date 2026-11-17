@@ -28,7 +28,7 @@ use gtk4 as gtk;
 
 use crate::bar::ModuleSpec;
 use crate::barfactory::ModuleContext;
-use crate::barmodule::ModuleHost;
+use crate::barmodule::{self, ModuleHost};
 use crate::chord::ChordStyle;
 use crate::tray::{self, Pixmap};
 use crate::trayicon::tray_icon_file;
@@ -77,6 +77,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     overflow_popover.set_has_arrow(false);
     overflow_popover.set_child(Some(&overflow));
     more.set_popover(Some(&overflow_popover));
+    barmodule::attach_exclusive_popover(&more, &overflow_popover);
     root.append(&more);
 
     let state = Rc::new(RefCell::new(TrayState {
@@ -683,6 +684,8 @@ fn show_menu(state: &Rc<RefCell<TrayState>>, entry: &str) {
 
     loading.add_css_class("whelk-tray-empty");
     popover.set_child(Some(&loading));
+    // One grabbing popup per bar surface: whatever menu is open goes first.
+    barmodule::close_popovers(Some(&popover));
     popover.popup();
 
     let serial = item.request.get().wrapping_add(1);

@@ -816,10 +816,9 @@ fn build_bar_window(
     let bar = gtk::CenterBox::new();
     bar.add_css_class("whelk-bar");
     bar.set_size_request(-1, bar_settings.height);
-
-    let name = gtk::Label::new(Some("whelk"));
-    name.add_css_class("whelk-name");
-    name.set_tooltip_text(Some(config_label));
+    // The name label that used to open the left row is gone; the settings file
+    // it named is still a hover away, on the bar's own gaps.
+    bar.set_tooltip_text(Some(config_label));
 
     let wallpaper = gtk::Label::new(Some(&wallpaper_settings.summary()));
     wallpaper.add_css_class("whelk-status");
@@ -832,7 +831,6 @@ fn build_bar_window(
     start.add_css_class("whelk-start");
     center.add_css_class("whelk-center");
     end.add_css_class("whelk-end");
-    start.append(&name);
 
     let mut context = ModuleContext::from_bar(bar_settings, session);
 
@@ -1422,6 +1420,7 @@ fn build_folded_shelf(end: &gtk::Box) -> FoldedShelf {
     button.set_tooltip_text(Some("Readings that did not fit"));
     button.set_popover(Some(&popover));
     button.set_visible(false);
+    crate::barmodule::attach_exclusive_popover(&button, &popover);
     end.append(&button);
 
     FoldedShelf {
@@ -1563,6 +1562,7 @@ fn build_bar_context_menu(
     popover.set_autohide(true);
     popover.set_has_arrow(false);
     popover.set_parent(bar);
+    crate::barmodule::watch_popover(&popover);
 
     let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
 
@@ -1628,6 +1628,9 @@ fn build_bar_context_menu(
             return;
         }
 
+        // The bar's own menu is one more grabbing popup: the module menus and
+        // the start menu go first, or GDK refuses to map this one.
+        crate::barmodule::close_popovers(Some(&popover));
         popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
     });
@@ -1652,9 +1655,6 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-bar {
             padding: 0;
-        }
-        .whelk-name {
-            font-weight: 800;
         }
         .whelk-status {
             opacity: 0.72;
