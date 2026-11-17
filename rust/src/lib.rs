@@ -85,6 +85,7 @@ pub mod ui;
 pub mod wallpaper;
 pub mod wallpaper_surface;
 pub mod wallpaper_view;
+pub mod wallpaperpicker;
 pub mod widgets;
 pub mod widgetstate;
 pub mod wifibar;

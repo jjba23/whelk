@@ -400,7 +400,9 @@ mentions it should leave the compositor's background alone.
 *F11* or *Ctrl+F* expands to the monitor, arrow keys and *Enter* navigate,
 *Esc* or a click outside dismisses.  The chosen path is saved as the
 =wallpaper-selected= GUI preference; *Reset GUI settings* returns to
-=#:current= or the first picture.  Bind it from the compositor:
+=#:current= or the first picture.  The Rust bootstrap has the same overlay, as
+=whelk-rs --wallpaper-picker=, and saves the same preference.  Bind it from the
+compositor:
 
 #+begin_src sh
   bindsym $mod+Shift+w exec whelk --wallpaper-picker   # sway

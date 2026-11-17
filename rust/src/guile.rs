@@ -479,6 +479,38 @@ impl Guile {
         Ok(WallpaperSettings::from_alist(&values))
     }
 
+    /// Save the picture chosen in the picker as the configuration's
+    /// `wallpaper-selected` GUI preference, the key `(whelk prefs)` layers over
+    /// `#:current` on the next start.  The primary settings file is untouched.
+    pub fn remember_wallpaper(
+        &self,
+        config_path: &Path,
+        wallpaper: &Path,
+    ) -> Result<(), GuileError> {
+        self.load_config(config_path)?;
+
+        let config = config_path
+            .to_str()
+            .ok_or_else(|| GuileError::Evaluation("settings path is not valid UTF-8".to_owned()))?;
+        let choice = wallpaper.to_str().ok_or_else(|| {
+            GuileError::Evaluation("wallpaper path is not valid UTF-8".to_owned())
+        })?;
+        let code = format!(
+            "(begin (use-modules (whelk prefs)) (save-preference! {} 'wallpaper-selected {}))",
+            scheme_string_literal(config),
+            scheme_string_literal(choice)
+        );
+        let answer = self.eval_string(&code)?;
+
+        if answer.trim() == "#t" {
+            return Ok(());
+        }
+
+        Err(GuileError::Evaluation(format!(
+            "saving the wallpaper choice answered {answer}"
+        )))
+    }
+
     pub fn load_clipboard(&self, config_path: &Path) -> Result<ClipboardSettings, GuileError> {
         self.load_config(config_path)?;
 

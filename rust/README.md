@@ -30,7 +30,17 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   still images through `GdkTexture`, videos through `GtkMediaFile`, drives
   animated GIF/WebP frames through `GdkPixbufAnimation`, starts a layer-shell
   background on Wayland and a normal window on Broadway/X11, and drives rotation
-  from the collection/playlist.
+  from the collection/playlist.  A repaint replaces the surfaces it presented
+  last (windows and rotation timer), so a chosen picture, a settings save or a
+  monitor change never stacks a second background on one output.
+- `src/wallpaperpicker.rs` — the wallpaper picker, ported from
+  `src/wallpaper_picker.c`: an overlay surface with a centred card, the
+  collection as a flow-box grid of thumbnails decoded one per idle (so opening
+  it never waits on a directory of 4K files), the count and the
+  not-drawing warning, F11 or Ctrl+F to expand to the output, Escape or a click
+  outside to close, and Enter on a focused tile.  A click saves the picture as
+  the `wallpaper-selected` GUI preference `(whelk prefs)` already layers over
+  `#:current`, then repaints the background immediately.
 - `src/bar.rs` — the typed view of `(shell-bars->alists)`, ported from
   `bar_from_alist`: edge, layer, monitor rules, geometry, material, launcher
   defaults and ordered module specs with typed options.
@@ -382,9 +392,9 @@ small audited Scheme boundary are proven here before any C surface is deleted.
   bar, applies a reloaded policy, and flushes it during teardown.  It uses `gtk4-layer-shell` on Wayland and falls back to normal windows
   on Broadway/X11 test displays.
 - `src/main.rs` — `--version`, `--check-config`, `--config PATH`, `--launcher`,
-  `--launcher-mode MODE`, `--clipboard`, `--help`, plus the lock screen's
-  `--lock` and `--check-lock`.  `--clipboard-store` is the internal helper
-  entry point `wl-paste --watch` runs against this same binary.
+  `--launcher-mode MODE`, `--clipboard`, `--wallpaper-picker`, `--help`, plus
+  the lock screen's `--lock` and `--check-lock`.  `--clipboard-store` is the
+  internal helper entry point `wl-paste --watch` runs against this same binary.
 
 ## Bar modules
 
@@ -571,6 +581,7 @@ cargo run -- --lock
 cargo run -- --launcher
 cargo run -- --launcher --launcher-mode=window
 cargo run -- --clipboard
+cargo run -- --wallpaper-picker
 cargo xtask install --prefix /usr/local --destdir /tmp/whelk-stage
 cargo xtask dist --output /tmp
 ```
@@ -630,6 +641,7 @@ The tests are split by what they can prove without a session:
 | `tests/settings.rs` | Defaults, clamps, unknown values, HOME expansion, XDG path rules |
 | `tests/collection.rs` | Recursive walk, hidden entries, symlinks, depth limit, video filter, dedupe and sorting |
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
+| `tests/wallpaperpicker.rs` | Tile names, the header count, thumbnail and card sizes (including a small monitor and a headless one), and the Scheme string literal a saved choice is written with |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy, including the 100 ms zero-delay fallback |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists and typed options |
@@ -726,7 +738,8 @@ The Rust surface is deliberately a first slice, not a feature-for-feature copy
 of the C engine:
 
 - It creates one background surface per monitor, all showing the same current
-  item. Per-monitor media cleanup and the C picker are not ported yet.
+  item. Per-monitor media cleanup is not ported yet; the picker is, as
+  `--wallpaper-picker`.
 - Still images use `GdkTexture`; animated GIF/WebP images use
   `GdkPixbufAnimation` with the C engine's 100 ms zero-delay fallback. Videos
   use `GtkMediaFile`, loop, and respect `mute-video?`.
@@ -768,6 +781,8 @@ arithmetic live in `src/widgets.rs` and `src/widgetstate.rs`; the cards
 per widget, its skin, its grip-drag, and every kind's paint and refresh.  They
 are rebuilt with the bars, so a settings save or a hotplug moves them too.  The
 state file is the one the C shell writes, so a drag in either shell is where
-the other one puts the card.  The next slice is the settings window, then
-making the Rust binary the installed `whelk` once the C and Rust suites both
-cover the same behavior.
+the other one puts the card.  The wallpaper picker is Rust too: an overlay grid
+of the collection whose click saves the `wallpaper-selected` preference and
+repaints the background, reachable with `--wallpaper-picker`.  The next slice is
+the settings window, then making the Rust binary the installed `whelk` once the
+C and Rust suites both cover the same behavior.

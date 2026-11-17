@@ -38,6 +38,7 @@ use crate::session::Session;
 use crate::settings::WallpaperSettings;
 use crate::startmenu::MenuEntry;
 use crate::style;
+use crate::wallpaperpicker::Picker;
 
 const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -52,6 +53,7 @@ struct Bootstrap {
     loaded: LoadedConfig,
     config_label: String,
     launcher: Option<String>,
+    show_wallpaper_picker: bool,
     hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -63,6 +65,7 @@ pub fn run(
     loaded: LoadedConfig,
     config_label: String,
     launcher: Option<String>,
+    show_wallpaper_picker: bool,
 ) -> gtk::glib::ExitCode {
     let application = gtk::Application::builder()
         .application_id("org.jointhefreeworld.whelk.rust")
@@ -78,6 +81,7 @@ pub fn run(
         loaded,
         config_label,
         launcher,
+        show_wallpaper_picker,
         hold,
     })));
     let slot: ShellSlot = Rc::new(RefCell::new(None));
@@ -98,6 +102,7 @@ pub fn run(
             bootstrap.loaded,
             bootstrap.config_label,
             bootstrap.launcher,
+            bootstrap.show_wallpaper_picker,
             bootstrap.hold,
         );
 
@@ -170,6 +175,7 @@ struct Shell {
     network: Option<NetworkPanel>,
     launcher: Option<Launcher>,
     osd: Option<Osd>,
+    picker: Option<Picker>,
     _hold: gtk::gio::ApplicationHoldGuard,
 }
 
@@ -180,6 +186,7 @@ impl Shell {
         loaded: LoadedConfig,
         config_label: String,
         launcher_mode: Option<String>,
+        show_wallpaper_picker: bool,
         hold: gtk::gio::ApplicationHoldGuard,
     ) -> ShellRef {
         // The C shell prepares the locker at startup, before a `--lock` or a
@@ -232,6 +239,7 @@ impl Shell {
             network: Some(network),
             launcher: Some(launcher),
             osd: Some(osd),
+            picker: None,
             _hold: hold,
         }));
 
@@ -239,6 +247,37 @@ impl Shell {
             let mut state = shell.borrow_mut();
 
             state.rebuild();
+        }
+
+        // The picker is created hidden: a `--wallpaper-picker` run, a menu row
+        // or the shell's own action presents it, and a chosen picture is
+        // saved as the GUI preference the loader already knows how to read.
+        {
+            let weak = Rc::downgrade(&shell);
+            let on_choose: Rc<dyn Fn(&Path)> = Rc::new(move |path| {
+                if let Some(shell) = weak.upgrade() {
+                    shell.borrow_mut().choose_wallpaper(path);
+                }
+            });
+            let (style, wallpaper) = {
+                let state = shell.borrow();
+
+                (
+                    state.loaded.bars.first().cloned().unwrap_or_default(),
+                    state.loaded.wallpaper.clone(),
+                )
+            };
+            let picker = Picker::new(application, &style, &wallpaper, on_choose);
+
+            shell.borrow_mut().picker = Some(picker);
+        }
+
+        if show_wallpaper_picker {
+            let state = shell.borrow();
+
+            if let Some(picker) = state.picker.as_ref() {
+                picker.show(&state.loaded.wallpaper);
+            }
         }
 
         watch_config(&shell);
@@ -338,6 +377,10 @@ impl Shell {
                     osd.set_style(&style);
                 }
 
+                if let Some(picker) = self.picker.as_ref() {
+                    picker.set_style(&style);
+                }
+
                 self.rebuild();
             }
             Err(error) => {
@@ -348,6 +391,25 @@ impl Shell {
         }
     }
 
+    /// Save the picture chosen in the picker as the configuration's GUI
+    /// preference and repaint the background now, so the choice is both what
+    /// this session shows and what the next one starts on.
+    fn choose_wallpaper(&mut self, path: &Path) {
+        let mut settings = self.loaded.wallpaper.clone();
+
+        settings.current = Some(path.to_path_buf());
+
+        if let Err(error) = self.loader.remember_wallpaper(path) {
+            eprintln!("whelk-rs: could not save the wallpaper choice: {error}");
+        }
+
+        if let Some(application) = self.application.upgrade() {
+            crate::wallpaper_surface::present(&application, &settings);
+        }
+
+        self.loaded.wallpaper = settings;
+    }
+
     fn teardown(&mut self) {
         Osd::install(None);
         Launcher::install(None);
@@ -356,6 +418,7 @@ impl Shell {
         Clipboard::install(None);
         NotificationService::install(None);
 
+        self.picker.take();
         self.launcher.take();
         self.network.take();
         self.center.take();

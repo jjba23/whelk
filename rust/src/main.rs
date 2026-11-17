@@ -29,6 +29,8 @@ Options:
   --launcher-mode M Open the launcher in M (app, window, run, calc, file, web,
                     menu, ssh, quit, clipboard, menuitem or session)
   --clipboard       Open the clipboard picker after the shell starts
+  --wallpaper-picker
+                    Open the wallpaper picker after the shell starts
   --version, -V     Print the Rust bootstrap version and exit
   -h, --help        Print this help and exit
 
@@ -45,6 +47,7 @@ struct Options {
     launcher: bool,
     launcher_mode: Option<String>,
     clipboard: bool,
+    wallpaper_picker: bool,
     version: bool,
     help: bool,
 }
@@ -132,7 +135,7 @@ fn run() -> Result<ExitCode, String> {
         launcher = Some("clipboard".to_owned());
     }
 
-    Ok(ui::run(loader, loaded, label, launcher).into())
+    Ok(ui::run(loader, loaded, label, launcher, options.wallpaper_picker).into())
 }
 
 fn scheme_paths() -> Vec<PathBuf> {
@@ -177,6 +180,7 @@ fn parse_args(arguments: impl Iterator<Item = String>) -> Result<Options, String
             "--check-lock" => options.check_lock = true,
             "--launcher" | "-l" => options.launcher = true,
             "--clipboard" => options.clipboard = true,
+            "--wallpaper-picker" => options.wallpaper_picker = true,
             "--launcher-mode" => {
                 let value = arguments
                     .next()

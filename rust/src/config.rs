@@ -146,6 +146,20 @@ impl ConfigLoader {
 
     /// The label the bar's name widget wears: the real path, or the deprecated
     /// but useful note that this process is running from defaults.
+    /// Persist a wallpaper choice through the same `(whelk prefs)` override the
+    /// settings window writes, so the shell and the settings file never
+    /// disagree about which picture is current.
+    pub fn remember_wallpaper(&self, wallpaper: &Path) -> Result<(), String> {
+        let guile = self
+            .guile
+            .as_ref()
+            .ok_or_else(|| "the configuration has not been loaded yet".to_owned())?;
+
+        guile
+            .remember_wallpaper(&self.path, wallpaper)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn label(&self) -> String {
         if self.path.is_file() {
             self.path.display().to_string()

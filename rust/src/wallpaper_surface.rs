@@ -28,6 +28,14 @@ use crate::ui::layer_shell_available;
 use crate::wallpaper::{Animation, Kind, kind_for_path};
 use crate::wallpaper_view::WhelkWallpaperView;
 
+thread_local! {
+    /// The windows this module presented last.  A repaint (a chosen picture, a
+    /// settings save, a hotplug) replaces them instead of stacking a second
+    /// background on the same outputs.
+    static LIVE: RefCell<Vec<gtk::ApplicationWindow>> = const { RefCell::new(Vec::new()) };
+    static ROTATION: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
+}
+
 struct Surface {
     view: WhelkWallpaperView,
     generation: Rc<Cell<u64>>,
@@ -42,7 +50,24 @@ impl Clone for Surface {
     }
 }
 
+/// Destroy the backgrounds and the rotation timer presented last.
+pub fn clear() {
+    ROTATION.with(|slot| {
+        if let Some(timer) = slot.borrow_mut().take() {
+            timer.remove();
+        }
+    });
+    LIVE.with(|live| {
+        for window in live.borrow_mut().drain(..) {
+            window.set_child(None::<&gtk::Widget>);
+            window.destroy();
+        }
+    });
+}
+
 pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
+    clear();
+
     if !settings.enabled {
         return;
     }
@@ -111,6 +136,8 @@ pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
         window.present();
     }
 
+    LIVE.with(|live| *live.borrow_mut() = windows);
+
     let rotate = playlist.should_rotate(true, settings.interval_seconds);
     let playlist = Rc::new(RefCell::new(playlist));
     let interval = settings.interval_seconds;
@@ -122,8 +149,7 @@ pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
 
     if rotate {
         let timer_surfaces = surfaces;
-
-        glib::timeout_add_seconds_local(interval, move || {
+        let timer = glib::timeout_add_seconds_local(interval, move || {
             let next = playlist.borrow_mut().advance(shuffle).map(Path::to_owned);
 
             if let Some(path) = next {
@@ -134,6 +160,8 @@ pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
 
             glib::ControlFlow::Continue
         });
+
+        ROTATION.with(|slot| *slot.borrow_mut() = Some(timer));
     }
 }
 
