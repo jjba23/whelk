@@ -13,6 +13,30 @@ Nothing yet.
 
 *[Released]
 
+** v0.38.0 (2026-11-17)
+
+*** Changed
+
+- *Opaque SCM values.*  =sys::Scm= is now a =#[repr(transparent)]= newtype
+  with a private field instead of a public type alias for =*mut c_void=.
+  Safe code can only obtain one from libguile, so it cannot pass an arbitrary
+  address into the Guile boundary.  A layout test pins its pointer size,
+  alignment and =Copy=; the shell's public API is unchanged.
+- Corrected the v0.37.0 safety figures.  A =grep -o unsafe rust/src= count is
+  **113**, not 111 (208 before the cleanup), and the Guile bridge is **55**
+  (146 before).  The crate-wide figure includes the new
+  =#[deny(unsafe_op_in_unsafe_fn)]= attribute and two documentation mentions.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace --locked= pass: 486 passed, 0 failed,
+  0 ignored.  The new test is the =Scm= pointer-layout check.
+- The C host suite passes 48 tests, 0 failed and 2 skipped (the X11
+  night-light integration and CLI tests need a display).
+- The GTK and Wayland surfaces were not visually exercised against a live
+  compositor in this release.
+
 ** v0.37.0 (2026-11-17)
 
 *** Changed
@@ -21,7 +45,7 @@ Nothing yet.
   through a safe function in =rust/src/guile/sys.rs=.  =guile.rs= and
   =guile/widget.rs= contain no =unsafe= blocks except the two =extern "C"=
   callbacks Guile calls back into.  Across the crate the =unsafe= token count
-  falls from 208 to 111; in the Guile bridge it falls from 146 to 55, and the
+  falls from 208 to 113; in the Guile bridge it falls from 146 to 55, and the
   rest is the C ABI itself.
 - *No C exports.*  The Rust crate exports no =#[no_mangle]= symbols.  Scheme
   reaches Rust only through =scm_c_define_gsubr= callbacks, not through a

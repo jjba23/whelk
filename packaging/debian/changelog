@@ -1,7 +1,16 @@
+whelk (0.38.0-1) unstable; urgency=medium
+
+  * Seal the Guile Scm value behind a private-field repr(transparent) newtype,
+    so safe code cannot construct one from an arbitrary pointer.
+  * Pin the pointer ABI with a layout test, and correct the unsafe figures in
+    NEWS to 208 -> 113 crate-wide and 146 -> 55 in the Guile bridge.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Tue, 17 Nov 2026 12:00:00 +0100
+
 whelk (0.37.0-1) unstable; urgency=medium
 
   * Route every libguile call through the safe wrappers in guile/sys.rs; the
-    unsafe token count falls from 208 to 111 and the Guile bridge from 146 to
+    unsafe token count falls from 208 to 113 and the Guile bridge from 146 to
     55, with the rest confined to the C ABI.
   * Export no #[no_mangle] symbols from the Rust crate, read the kernel release
     from procfs instead of uname, and wrap the GTK session-lock entry points in
