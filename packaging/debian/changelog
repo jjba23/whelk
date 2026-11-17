@@ -1,3 +1,16 @@
+whelk (0.37.0-1) unstable; urgency=medium
+
+  * Route every libguile call through the safe wrappers in guile/sys.rs; the
+    unsafe token count falls from 208 to 111 and the Guile bridge from 146 to
+    55, with the rest confined to the C ABI.
+  * Export no #[no_mangle] symbols from the Rust crate, read the kernel release
+    from procfs instead of uname, and wrap the GTK session-lock entry points in
+    safe helpers.
+  * Deny unsafe_op_in_unsafe_fn and add tests for preference-key escaping, the
+    PAM fallback policy, strict-mode spellings and the kernel release.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Tue, 17 Nov 2026 10:30:00 +0100
+
 whelk (0.36.0-1) unstable; urgency=medium
 
   * The Rust bar folds trailing readings into a +N popover and opens the shell

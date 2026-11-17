@@ -13,6 +13,39 @@ Nothing yet.
 
 *[Released]
 
+** v0.37.0 (2026-11-17)
+
+*** Changed
+
+- *Safe Guile boundary.*  Every libguile call in the Rust shell now goes
+  through a safe function in =rust/src/guile/sys.rs=.  =guile.rs= and
+  =guile/widget.rs= contain no =unsafe= blocks except the two =extern "C"=
+  callbacks Guile calls back into.  Across the crate the =unsafe= token count
+  falls from 208 to 111; in the Guile bridge it falls from 146 to 55, and the
+  rest is the C ABI itself.
+- *No C exports.*  The Rust crate exports no =#[no_mangle]= symbols.  Scheme
+  reaches Rust only through =scm_c_define_gsubr= callbacks, not through a
+  second, hand-written C ABI.
+- *No uname FFI.*  =kernel_release= reads
+  =/proc/sys/kernel/osrelease= and the compile-time target architecture instead
+  of filling a =libc::utsname= structure.
+- *Safe session-lock helpers.*  The five GTK session-lock entry points are
+  declared once and wrapped in safe functions that own the returned =GObject=
+  and the pointer casts, instead of at each call site.
+- The crate now denies =unsafe_op_in_unsafe_fn=, so a pointer dereference in an
+  =extern "C"= callback cannot hide inside the function's unsafety.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace --locked= pass: 485 passed, 0 failed,
+  0 ignored.  New tests pin preference-key escaping, the PAM fallback policy,
+  strict-mode spellings and the procfs kernel release.
+- The C host suite passes 48 tests, 0 failed and 2 skipped (the X11
+  night-light integration and CLI tests need a display).
+- The GTK and Wayland surfaces were not visually exercised against a live
+  compositor in this release.
+
 ** v0.36.0 (2026-11-17)
 
 *** Added
