@@ -21,7 +21,22 @@ use std::slice;
 
 use libc::{c_char, c_int, c_void, size_t};
 
-pub type Scm = *mut c_void;
+/// One Guile `SCM` value.
+///
+/// The field is private to this module, so safe code cannot manufacture a
+/// value from an arbitrary pointer: every `Scm` must come back from the
+/// libguile functions below.  The transparent representation is the C ABI.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Scm(*mut c_void);
+
+impl Scm {
+    /// Guile's missing-procedure sentinel, as returned by `scm_c_public_ref`.
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+}
+
 pub type ScmSubr = unsafe extern "C" fn() -> Scm;
 pub type CatchBody = unsafe extern "C" fn(*mut c_void) -> Scm;
 pub type CatchHandler = unsafe extern "C" fn(*mut c_void, Scm, Scm) -> Scm;
@@ -221,4 +236,20 @@ pub fn internal_catch(
     handler_data: *mut c_void,
 ) -> Scm {
     unsafe { raw::scm_internal_catch(tag, body, body_data, handler, handler_data) }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::{align_of, size_of};
+
+    use super::Scm;
+
+    #[test]
+    fn scm_keeps_the_pointer_abi() {
+        fn assert_copy<T: Copy>() {}
+
+        assert_copy::<Scm>();
+        assert_eq!(size_of::<Scm>(), size_of::<*mut std::ffi::c_void>());
+        assert_eq!(align_of::<Scm>(), align_of::<*mut std::ffi::c_void>());
+    }
 }
