@@ -122,6 +122,9 @@ A configuration is one call:
 | =#:height=        | thickness: the row's height, or a vertical bar's width; a vertical bar widens to its widest module and reserves that width |
 | =#:margin=        | pixels, or a CSS-style list (top right bottom left)                     |
 | =#:exclusive?=    | reserve the thickness so maximised windows stop at the bar              |
+| =#:auto-hide?=    | start off screen and give the pixels back; a 4-pixel hot edge or =whelk --reveal-bar= brings it back |
+| =#:auto-hide-delay= | milliseconds after the pointer leaves before it hides again (900)     |
+| =#:keyboard?=     | let the keyboard reach the bar: on-demand focus, Tab/arrows between readings, Return to run one |
 | =#:spacing=       | pixels between modules                                                  |
 | =#:padding=       | pixels between the bar's ends and its first/last module                 |
 | =#:font=, =#:font-size=, =#:icon-font= | the text face, its size, and the face glyphs are drawn from |
@@ -200,6 +203,75 @@ To get that behaviour from whelk, put the bar on the bottom layer:
   (bar #:name 'main #:position 'top #:layer 'bottom
        #:left (list (start-module)) #:right (list (clock-module)))
 #+end_src
+
+* Accessibility and the keyboard
+:PROPERTIES:
+:CUSTOM_ID: accessibility
+:END:
+
+Every reading on the bar is described to assistive technology, with or without
+any configuration: the name is the text the reading draws ("23:41", a task
+button's title, "Now playing: Nightcall"), or, for an icon-only reading, the
+first line of its tooltip, or finally what the kind means ("volume",
+"brightness", "status icons").  A reading with a click is offered as a button, a
+plain one as a label, so a screen reader announces and offers the right thing.
+The bar itself is a toolbar.
+
+Reaching the bar from the keyboard is opt-in, because a bar that takes focus on
+its own would steal it from the window a reader is typing in:
+
+#+begin_src scheme
+  (bar #:name 'main
+       #:keyboard? #t
+       #:right (list (clock-module) (battery-module)))
+#+end_src
+
+With =#:keyboard? #t= the bar asks the compositor for on-demand keyboard focus
+(it takes the keyboard when clicked, and gives it back when the window behind is
+clicked), every reading becomes focusable, and one key controller walks the rows
+in reading order: *Tab* and *Shift+Tab* move one reading forwards or back, the
+arrow keys do the same in either direction, *Home* and *End* jump to the ends,
+and *Return*, *KP Enter* or *Space* runs the focused reading's click command --
+the same command a left click runs, so =#:on-click= is the keyboard action too.
+A reading that owns its behaviour in-process (do not disturb, the wallpaper card)
+is still reached with the pointer; its name and role are announced either way.
+
+* Auto-hide
+:PROPERTIES:
+:CUSTOM_ID: auto-hide
+:END:
+
+A bar on a laptop's screen is pixels a window could have.  =#:auto-hide? #t=
+starts the bar off screen and gives its edge back: a layer surface that is not
+mapped reserves no exclusive zone, so a maximised window really does grow into
+the space instead of leaving a strip of desktop behind.
+
+#+begin_src scheme
+  (bar #:name 'main
+       #:position 'top
+       #:height 32
+       #:exclusive? #t
+       #:auto-hide? #t
+       #:auto-hide-delay 900        ; ms after the pointer leaves
+       #:right (list (clock-module)))
+#+end_src
+
+Two things bring it back:
+
+- the *hot edge*: four pixels of surface at the bar's edge, which reveal the bar
+  when the pointer reaches it (or a click lands on it).  The strip exists only
+  while the bar is hidden, so it cannot swallow a click meant for the bar;
+- =whelk --reveal-bar=, or the =reveal-bar= application action, for a
+  compositor keybinding:
+
+#+begin_src kdl
+  Mod+Shift+b { spawn "whelk" "--reveal-bar"; }
+#+end_src
+
+The bar hides again =#:auto-hide-delay= milliseconds after the pointer leaves
+it -- and not while one of its popovers is open, because a bar that vanishes
+under a menu the reader is using is worse than one that keeps a few pixels.
+Auto-hide needs layer shell; on X11 or Broadway the option does nothing.
 
 The bar still reserves its edge, because =#:exclusive?= is independent of the
 layer.  A bottom-layer bar is drawn below ordinary windows, however, so menus

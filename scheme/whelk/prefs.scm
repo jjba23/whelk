@@ -384,6 +384,14 @@ settings window numbers it."
      (bar-config-margin-bottom bar)
      (bar-config-margin-left bar)
      (boolean-preference prefs 'bar-exclusive? (bar-config-exclusive? bar))
+     ;; Not edited by a control: an auto-hiding bar is a configuration choice,
+     ;; and the record is built positionally here, so the two fields have to be
+     ;; carried across in the record's own order.
+     (bar-config-auto-hide? bar)
+     (bar-config-auto-hide-delay bar)
+     ;; The keyboard path is a configuration choice too, and the record is
+     ;; positional here: it is carried across in the record's own order.
+     (bar-config-keyboard? bar)
      (integer-preference prefs 'bar-spacing (bar-config-spacing bar))
      (integer-preference prefs 'bar-padding (bar-config-padding bar))
      (string-preference prefs 'bar-font (bar-config-font bar))

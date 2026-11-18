@@ -39,6 +39,9 @@
             bar-config-margin-bottom
             bar-config-margin-left
             bar-config-exclusive?
+            bar-config-auto-hide?
+            bar-config-auto-hide-delay
+            bar-config-keyboard?
             bar-config-spacing
             bar-config-padding
             bar-config-font
@@ -112,7 +115,7 @@
 (define-record-type <bar-config>
   (make-bar-config name theme edge layer monitor monitors when height
                    margin-top margin-right margin-bottom margin-left
-                   exclusive? spacing padding
+                   exclusive? auto-hide? auto-hide-delay keyboard? spacing padding
                    font font-size icon-font
                    foreground background accent border-color radius
                    opacity blur shine reflection flare css
@@ -134,6 +137,9 @@
   (margin-bottom bar-config-margin-bottom)
   (margin-left bar-config-margin-left)
   (exclusive? bar-config-exclusive?)
+  (auto-hide? bar-config-auto-hide?)
+  (auto-hide-delay bar-config-auto-hide-delay)
+  (keyboard? bar-config-keyboard?)
   (spacing bar-config-spacing)
   (padding bar-config-padding)
   (font bar-config-font)
@@ -387,6 +393,9 @@ becomes the same list so the C side has one shape to evaluate."
               (height 32)
               (margin 0)
               (exclusive? #t)
+              (auto-hide? #f)
+              (auto-hide-delay 900)
+              (keyboard? #f)
               (spacing 6)
               (padding 12)
               (font #f)
@@ -489,6 +498,9 @@ their clicks keep working while the area is closed."
                      (list-ref margins 2)
                      (list-ref margins 3)
                      (if exclusive? #t #f)
+                     (if auto-hide? #t #f)
+                     (as-int auto-hide-delay 900)
+                     (if keyboard? #t #f)
                      (as-int spacing 6)
                      (as-int padding 12)
                      font
@@ -992,6 +1004,9 @@ because a settings file may want to read the menu it configured."
         (cons 'margin-bottom (bar-config-margin-bottom b))
         (cons 'margin-left (bar-config-margin-left b))
         (cons 'exclusive? (bar-config-exclusive? b))
+        (cons 'auto-hide? (bar-config-auto-hide? b))
+        (cons 'auto-hide-delay (bar-config-auto-hide-delay b))
+        (cons 'keyboard? (bar-config-keyboard? b))
         (cons 'spacing (bar-config-spacing b))
         (cons 'padding (bar-config-padding b))
         (cons 'font (bar-config-font b))

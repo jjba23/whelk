@@ -36,6 +36,10 @@ fn defaults_match_the_c_bar_config() {
     assert_eq!(bar.radius, 0);
     assert_eq!(bar.opacity, 1.0);
     assert!(bar.exclusive);
+    // A bar that hides itself is opt-in: the shipped bar keeps its space.
+    assert!(!bar.auto_hide);
+    assert_eq!(bar.auto_hide_delay_ms, 900);
+    assert!(!bar.keyboard);
     assert_eq!(bar.launcher_width, 660);
     assert_eq!(bar.launcher_height, 640);
     assert_eq!(bar.launcher_icon_size, 24);
@@ -63,6 +67,9 @@ fn the_scheme_alist_becomes_a_typed_bar() {
         ("margin-bottom", SchemeValue::Integer(3)),
         ("margin-left", SchemeValue::Integer(4)),
         ("exclusive?", SchemeValue::Bool(false)),
+        ("auto-hide?", SchemeValue::Bool(true)),
+        ("auto-hide-delay", SchemeValue::Integer(2500)),
+        ("keyboard?", SchemeValue::Bool(true)),
         ("spacing", SchemeValue::Integer(8)),
         ("padding", SchemeValue::Integer(16)),
         ("font", SchemeValue::Text("Inter".into())),
@@ -126,6 +133,9 @@ fn the_scheme_alist_becomes_a_typed_bar() {
     assert_eq!(bar.margin_bottom, 3);
     assert_eq!(bar.margin_left, 4);
     assert!(!bar.exclusive);
+    assert!(bar.auto_hide);
+    assert_eq!(bar.auto_hide_delay_ms, 2500);
+    assert!(bar.keyboard);
     assert_eq!(bar.spacing, 8);
     assert_eq!(bar.padding, 16);
     assert_eq!(bar.font.as_deref(), Some("Inter"));

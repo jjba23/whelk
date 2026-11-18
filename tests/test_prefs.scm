@@ -156,6 +156,20 @@
 (define applied (car (get-shell-bars config-path)))
 (define frost (theme-palette 'frost))
 
+;; `apply-bar` rebuilds the record positionally, so a new field added to
+;; `<bar-config>` and not carried across shifts every field after it -- which is
+;; how a launcher scale once ended up where the module list belongs.  Comparing
+;; the applied bar's shape with a fresh one is what catches that.
+(check "an applied bar has every field of a bar"
+       (equal? (map car (bar->alist applied))
+               (map car (bar->alist (bar #:name 'probe)))))
+(check "an applied bar keeps its module lists"
+       (equal? (map shell-module-kind (bar-config-modules-right applied))
+               '(wifi notifications menu tray clock clock)))
+(check "an applied bar does not move its launcher geometry"
+       (and (= (bar-config-launcher-width applied) 740)
+            (= (bar-config-launcher-font-scale applied) 130)))
+
 (check "a GUI height overrides the settings file"
        (= (bar-config-height applied) 44))
 (check "a GUI edge overrides the settings file"

@@ -81,6 +81,9 @@
                bar-config-margin-bottom
                bar-config-margin-left
                bar-config-exclusive?
+               bar-config-auto-hide?
+               bar-config-auto-hide-delay
+               bar-config-keyboard?
                bar-config-spacing
                bar-config-padding
                bar-config-font

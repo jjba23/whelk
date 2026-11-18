@@ -14,10 +14,12 @@
 
 mod posix;
 
+pub mod a11y;
 pub mod about;
 pub mod applets;
 pub mod atspi;
 pub mod audiobar;
+pub mod autohide;
 pub mod backlightbar;
 pub mod bar;
 pub mod barfactory;

@@ -95,59 +95,56 @@ trust.
 
 ## The bar after the overflow shelf
 
-0.42.0 shipped the first five entries of the previous version of this list, so
-the bar now has a task list, a fold that knows what must stay, presets that can
-be overridden and switched from the command line, a battery that answers "how
-long" and sums two packs, and a native MPRIS tile in place of the `playerctl`
-one.  What is left is ranked the same way: by the value it adds to a desktop
+0.42.0 shipped the first five entries of the previous version of this list, and
+0.43.0 shipped the two that followed -- auto-hide and a bar a screen reader can
+read and a keyboard can drive -- so the bar now has a task list, a fold that
+knows what must stay, presets that can be overridden and switched from the
+command line, a battery that answers "how long" and sums two packs, a native
+MPRIS tile in place of the `playerctl` one, an edge that gives its pixels back,
+and accessible names, roles and a keyboard path.  What is left is ranked the same way: by the value it adds to a desktop
 that uses whelk every day, and by how much of the foundation is already there.
 The order is an argument, not a promise.
 
-1. **Accessibility and keyboard navigation.** AT-SPI roles and names for every
-   module and popover, a tab/arrow path through the bar, focus that does not
-   jump when a popover opens, and a screen-reader pass in CI.  *Why:* the bar is
-   mouse-first; a shell that ignores assistive technology excludes people from
-   the part of the desktop they look at most.  This is the most valuable
-   unglamorous work on the list, and it is the one item the batch that produced
-   0.42.0 left untouched.  Effort: medium-high.
+1. **A screen-reader pass in CI.** The names, roles and keyboard path landed;
+   what is missing is the proof that a real reader hears them.  A CI job that
+   runs AT-SPI against a test bar -- asserting every reading's name, its role,
+   and the order Tab walks -- is the difference between "we set the properties"
+   and "it is usable with Orca".  Focus that does not jump when a popover opens
+   belongs here too.  *Why:* assistive technology is exactly the consumer that
+   never gets tested by hand.  Effort: medium.
 
-2. **Auto-hide and reveal.** Hide the bar except for a hot edge or keybinding,
-   toggling the exclusive zone so maximised windows use the space.  *Why:*
-   vertical space matters on laptops and for fullscreen media; auto-hide is the
-   one common bar behaviour whelk still lacks.  Effort: medium.
-
-3. **A quick-settings popover.** One bar module opening volume, brightness,
+2. **A quick-settings popover.** One bar module opening volume, brightness,
    Wi-Fi, Bluetooth, battery and power profile in a single card.  *Why:* the
    data and panels exist separately; a single obvious place is what people
    expect from a modern bar, and it gives the network and power readings a home
    that is not a chevron.  Effort: high.
 
-4. **A per-monitor window tile.** The window module shows the focused window on
+3. **A per-monitor window tile.** The window module shows the focused window on
    the bar's own monitor, with the application icon, click-to-focus and
    scroll-to-cycle.  *Why:* with two monitors the global focus title is wrong on
    every bar but one; the task list answers the multi-window half of that, and
    this answers the single-window half.  Effort: low-medium.
 
-5. **A bar and preset preview.** `whelk --preview` (or a button in the settings
+4. **A bar and preset preview.** `whelk --preview` (or a button in the settings
    window) renders a chosen preset, bar or theme in a floating surface or a
    PNG.  *Why:* trying the XP preset no longer means editing the live
    configuration -- `whelk --preset xp` switches it -- but seeing one without
    taking over the session is still a separate thing worth having, and a preview
    is how a screenshot in the README stops going stale.  Effort: low-medium.
 
-6. **A bar inspector and icon fallback.** `whelk --inspect-bar` prints module
+5. **A bar inspector and icon fallback.** `whelk --inspect-bar` prints module
    widths, the fold boundary and what is hidden, and a startup check falls
    back from a missing icon font to symbolic icons.  *Why:* `+3` is hard to
    debug from the outside, the fold now answers to priorities as well as
    position, and a fresh machine with no Font Awesome shows boxes instead of
    glyphs.  Both are small and protect first impressions.  Effort: low.
 
-7. **A sparkline module.** A small history of CPU, memory or network
+6. **A sparkline module.** A small history of CPU, memory or network
    throughput, drawn as a graph rather than a number.  *Why:* a bar is for
    glancing, and a number without a trend is half the story; the module
    protocol already supplies the timer and the widget tree.  Effort: medium.
 
-8. **MPRIS polish left on the table.** The tile speaks to the player directly,
+7. **MPRIS polish left on the table.** The tile speaks to the player directly,
    has play/pause, next, previous, a position and a local cover, but it has no
    popover, no seek bar and no remote art.  *Why:* a card with the track, a
    scrubber and the queue is what a native player tile is for; the proxy work

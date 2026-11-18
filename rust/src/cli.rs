@@ -42,6 +42,8 @@ pub enum Request {
     /// Switch the shell to a preset and remember the choice; an empty name
     /// forgets the remembered choice and follows the settings file again.
     Preset(Option<String>),
+    /// Bring every auto-hiding bar on screen.
+    Reveal,
     Inhibit(Option<String>),
     IdleStatus,
     Network(Option<String>),
@@ -70,6 +72,7 @@ pub struct Requests {
     pub dnd: bool,
     pub night_light: bool,
     pub preset: Option<String>,
+    pub reveal: bool,
     pub inhibit: bool,
     pub inhibit_reason: Option<String>,
     pub idle_status: bool,
@@ -148,6 +151,10 @@ impl Requests {
 
         if self.night_light {
             commands.push(Request::NightLight);
+        }
+
+        if self.reveal {
+            commands.push(Request::Reveal);
         }
 
         if let Some(preset) = self.preset.as_ref() {
@@ -278,6 +285,12 @@ pub const FORWARDED_OPTIONS: &[OptionSpec] = &[
         short: None,
         value: None,
         description: "Turn do-not-disturb on or off",
+    },
+    OptionSpec {
+        long: "reveal-bar",
+        short: None,
+        value: None,
+        description: "Reveal an auto-hiding bar (#:auto-hide? #t)",
     },
     OptionSpec {
         long: "night-light",
@@ -423,6 +436,7 @@ impl Options {
             "notifications" => self.requests.notifications = true,
             "dnd" => self.requests.dnd = true,
             "night-light" => self.requests.night_light = true,
+            "reveal-bar" => self.requests.reveal = true,
             "preset" => self.requests.preset = Some(value(joined, arguments, name)?),
             "inhibit" => self.requests.inhibit = true,
             "inhibit-reason" => {
@@ -589,6 +603,14 @@ mod tests {
         assert_eq!(
             parse(&["--preset="]).requests.commands(),
             vec![Request::Preset(None)]
+        );
+    }
+
+    #[test]
+    fn the_bar_can_be_asked_to_reveal_itself() {
+        assert_eq!(
+            parse(&["--reveal-bar"]).requests.commands(),
+            vec![Request::Reveal]
         );
     }
 

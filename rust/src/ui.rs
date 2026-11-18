@@ -215,6 +215,7 @@ pub fn run(mut loader: ConfigLoader, config_label: String) -> gtk::glib::ExitCod
 
     add_quit_action(&application);
     add_simple_action(&application, &slot, "reload", Request::Reload);
+    add_simple_action(&application, &slot, "reveal-bar", Request::Reveal);
     add_simple_action(&application, &slot, "settings", Request::Settings);
     add_simple_action(&application, &slot, "notifications", Request::Notifications);
     add_simple_action(&application, &slot, "dnd", Request::Dnd);
@@ -259,6 +260,7 @@ fn requests_from(command_line: &gtk::gio::ApplicationCommandLine) -> Requests {
         notifications: flag("notifications"),
         dnd: flag("dnd"),
         night_light: flag("night-light"),
+        reveal: flag("reveal-bar"),
         preset: text("preset"),
         inhibit: flag("inhibit"),
         inhibit_reason: text("inhibit-reason"),
@@ -438,6 +440,7 @@ fn perform(
                 );
             }
         }
+        Request::Reveal => crate::autohide::reveal_all(),
         Request::Inhibit(reason) => toggle_inhibit(reason.as_deref()),
         Request::IdleStatus => say(command_line, &idle_status()),
         Request::Network(page) => {
@@ -917,6 +920,10 @@ impl Drop for BarWindow {
             gtk::style_context_remove_provider_for_display(&display, &css);
         }
 
+        // A strip and a hide timer belong to this window, not to the next one
+        // a reload builds.
+        crate::autohide::forget(&self.window);
+
         // Detach the CenterBox explicitly so the module roots receive their
         // destroy signal before the window itself goes away.
         self.window.set_child(None::<&gtk::Widget>);
@@ -1045,6 +1052,13 @@ fn build_bar_window(
         window.set_default_size(720, bar_settings.height.max(32));
     }
 
+    if bar_settings.keyboard {
+        crate::a11y::install_keyboard_navigation(
+            &window,
+            &[start.clone(), center.clone(), end.clone()],
+        );
+    }
+
     fold_after_map(
         FoldState {
             bar: bar.clone(),
@@ -1060,6 +1074,10 @@ fn build_bar_window(
         &window,
     );
     window.present();
+
+    // An auto-hiding bar is hidden here, with a strip at the edge that brings
+    // it back; `#:auto-hide? #f` leaves this doing nothing.
+    crate::autohide::install(&window, bar_settings, monitor);
 
     BarWindow {
         window,
@@ -1389,7 +1407,14 @@ fn configure_layer_shell(
     window.set_margin(Edge::Bottom, bar.margin_bottom);
     window.set_margin(Edge::Left, bar.margin_left);
     window.set_exclusive_zone(if bar.exclusive { bar.height } else { -1 });
-    window.set_keyboard_mode(KeyboardMode::None);
+    // A bar is not a keyboard surface unless its configuration asks for one:
+    // on-demand keeps the compositor's focus on the window the reader is in
+    // until they click the bar.
+    window.set_keyboard_mode(if bar.keyboard {
+        KeyboardMode::OnDemand
+    } else {
+        KeyboardMode::None
+    });
 
     if let Some(monitor) = monitor {
         window.set_monitor(Some(monitor));
@@ -1429,7 +1454,7 @@ fn apply_surface_size(
     window.set_default_size(width.max(1), height);
 }
 
-fn edge_for(edge: BarEdge) -> Edge {
+pub(crate) fn edge_for(edge: BarEdge) -> Edge {
     match edge {
         BarEdge::Top => Edge::Top,
         BarEdge::Bottom => Edge::Bottom,
@@ -1438,7 +1463,7 @@ fn edge_for(edge: BarEdge) -> Edge {
     }
 }
 
-fn layer_for(layer: BarLayer) -> Layer {
+pub(crate) fn layer_for(layer: BarLayer) -> Layer {
     match layer {
         BarLayer::Background => Layer::Background,
         BarLayer::Bottom => Layer::Bottom,

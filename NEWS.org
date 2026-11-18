@@ -11,6 +11,49 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.43.0 (2026-11-18)
+
+*** Added
+
+- *Auto-hide and reveal.*  =#:auto-hide? #t= starts a bar off screen and gives
+  its edge back: an unmapped layer surface reserves no exclusive zone, so a
+  maximised window grows into the pixels instead of leaving a strip of desktop
+  behind.  Two things bring the bar back: a four-pixel *hot edge* at the bar's
+  own edge, which reveals it when the pointer reaches it and exists only while
+  the bar is hidden, and =whelk --reveal-bar= (also the =reveal-bar=
+  application action) for a compositor keybinding.  It hides again
+  =#:auto-hide-delay= milliseconds (900 by default) after the pointer leaves --
+  and not while one of its popovers is open, because a bar that vanishes under a
+  menu the reader is using is worse than one that keeps a few pixels.
+- *The bar can be read and driven.*  Every reading now has an accessible name
+  and role: the text it draws, or its tooltip's first line for an icon-only
+  reading, or what its kind means ("volume", "brightness", "status icons"), with
+  a clickable reading offered as a button and a plain one as a label, and the
+  bar as a toolbar.  =#:keyboard? #t= asks the compositor for on-demand keyboard
+  focus and makes the rows traversable: Tab and Shift+Tab, the arrows, Home and
+  End move between readings, and Return, KP Enter or Space runs the focused
+  reading's click command -- the same command a left click runs.
+
+*** Fixed
+
+- A bar rebuilt from the settings window's overrides carries every field of
+  the record across, and a check in =tests/test_prefs.scm= compares the applied
+  bar's shape with a fresh one, so a new field cannot silently shift the fields
+  after it.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (563 tests), and so do the Guile
+  suites.
+- Auto-hide was checked in a live session on a private bus: the bar was not on
+  screen, and =whelk --reveal-bar= brought it back.
+- The accessible names and roles, and the reading order the keyboard walks, are
+  pinned by tests; no screen reader was run against the bar in this release, and
+  the Tab path was not exercised with real key events -- both are what a
+  screen-reader pass in CI would add.
+- The Guix and Nix builds, and the smoke install, pass.
+
 ** v0.42.0 (2026-11-18)
 
 *** Added

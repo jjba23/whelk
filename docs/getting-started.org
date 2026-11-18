@@ -48,6 +48,7 @@ the first one.  That is how a keybinding opens a surface:
   whelk --notifications                  # open/close the centre
   whelk --dnd                            # do not disturb on/off
   whelk --night-light                    # night light on/off
+  whelk --reveal-bar                     # bring an auto-hiding bar back
   whelk --preset xp                      # switch preset and remember it
   whelk --preset forget                  # forget it; settings.scm decides
   whelk --inhibit                        # presentation inhibitor on/off

@@ -157,6 +157,8 @@ type UpdateCallback = dyn Fn(&ModuleHost) + 'static;
 
 struct HostInner {
     root: gtk::glib::WeakRef<gtk::Box>,
+    /// The configured kind, so the accessible name can say what this is.
+    kind: String,
     settings: ModuleSettings,
     icon_font: Option<String>,
     label: RefCell<Option<gtk::Label>>,
@@ -234,10 +236,20 @@ impl ModuleHost {
         }
 
         attach_actions(&root, &settings.actions);
+        // A screen reader gets the reading's role and name from the first
+        // paint on; `present`/`set_text` keep the name current.
+        crate::a11y::describe(
+            &root,
+            &module.kind,
+            "",
+            settings.tooltip.as_deref(),
+            settings.actions.has_clicks(),
+        );
 
         let host = Self {
             inner: Rc::new(HostInner {
                 root: root.downgrade(),
+                kind: module.kind.clone(),
                 settings,
                 icon_font: icon_font.map(str::to_owned),
                 label: RefCell::new(None),
@@ -255,6 +267,10 @@ impl ModuleHost {
         // reference to the widget.  Destroying the widget therefore stops the
         // timer and cancels an in-flight command without a GTK/Rust cycle.
         root.connect_destroy(move |_| destroy_host.shutdown());
+
+        if host.inner.settings.actions.primary.is_some() {
+            register_activatable(&host);
+        }
 
         (root, host)
     }
@@ -440,6 +456,12 @@ impl ModuleHost {
             label.set_markup(&markup);
         }
 
+        if let Some(root) = self.root() {
+            let tooltip = tooltip.or(self.inner.settings.tooltip.as_deref());
+
+            self.describe(&root, &plain, tooltip);
+        }
+
         if let Some(tooltip_format) = tooltip.or(self.inner.settings.tooltip.as_deref()) {
             let mut tooltip_values = values.to_vec();
 
@@ -463,6 +485,40 @@ impl ModuleHost {
         }
 
         self.refresh_tooltip();
+
+        if let Some(root) = self.root() {
+            let tooltip = self.inner.settings.tooltip.as_deref();
+
+            self.describe(&root, text, tooltip);
+        }
+    }
+
+    /// Keep the root's accessible name in step with the reading it draws.
+    fn describe(&self, root: &gtk::Box, text: &str, tooltip: Option<&str>) {
+        crate::a11y::describe(
+            root,
+            &self.inner.kind,
+            text,
+            tooltip,
+            self.inner.settings.actions.has_clicks(),
+        );
+    }
+
+    /// Run the reading's own click command, for the keyboard path.  False means
+    /// this module has no command to run -- a switch the module owns itself
+    /// (do-not-disturb, the wallpaper card) is reached with the pointer.
+    pub fn activate(&self) -> bool {
+        let Some(command_line) = self.inner.settings.actions.primary.as_deref() else {
+            return false;
+        };
+
+        if command_line.is_empty() {
+            return false;
+        }
+
+        command::spawn(command_line);
+
+        true
     }
 
     fn refresh_tooltip(&self) {
@@ -635,6 +691,66 @@ pub fn close_popovers(keep: Option<&gtk::Popover>) {
             popover.popdown();
         }
     }
+}
+
+thread_local! {
+    /// The module hosts whose root is on the bar, held weakly: the keyboard
+    /// path asks "what does Return do on this widget?", and a rebuilt bar must
+    /// not answer with the previous one's commands.
+    static ACTIVATABLE: RefCell<Vec<ModuleHost>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Make HOST reachable from the bar's keyboard path.
+pub fn register_activatable(host: &ModuleHost) {
+    ACTIVATABLE.with(|hosts| {
+        let mut hosts = hosts.borrow_mut();
+
+        hosts.retain(|host| host.is_alive());
+        hosts.push(host.clone());
+    });
+}
+
+/// Run the click command of the module that owns WIDGET, if it has one.
+pub fn activate(widget: &gtk::Widget) -> bool {
+    let mut owner = Some(widget.clone());
+
+    while let Some(candidate) = owner {
+        let found = ACTIVATABLE.with(|hosts| {
+            hosts
+                .borrow()
+                .iter()
+                .find(|host| {
+                    host.root()
+                        .is_some_and(|root| root.upcast_ref::<gtk::Widget>() == &candidate)
+                })
+                .cloned()
+        });
+
+        if let Some(host) = found {
+            return host.activate();
+        }
+
+        owner = candidate.parent();
+    }
+
+    false
+}
+
+/// True while any bar popover is on screen.
+///
+/// An auto-hiding bar asks this before it disappears: a menu the reader is in
+/// the middle of was opened from the bar, so the pointer having left the bar is
+/// not the same as the reader having left the menu.
+pub fn any_popover_open() -> bool {
+    BAR_POPOVERS.with(|popovers| {
+        let mut popovers = popovers.borrow_mut();
+
+        popovers.retain(|held| held.upgrade().is_some());
+        popovers
+            .iter()
+            .filter_map(|held| held.upgrade())
+            .any(|popover| popover.is_visible())
+    })
 }
 
 /// Make `button` the only bar item with a popover open.

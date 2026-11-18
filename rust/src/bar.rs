@@ -160,6 +160,15 @@ pub struct BarSettings {
     pub margin_bottom: i32,
     pub margin_left: i32,
     pub exclusive: bool,
+    /// Hide the bar and give its space back, revealing it on a hot edge or a
+    /// keybinding.  A hidden layer surface keeps no exclusive zone, so a
+    /// maximised window really does use the pixels.
+    pub auto_hide: bool,
+    /// Ask the compositor for on-demand keyboard focus and make the modules
+    /// traversable: Tab and the arrows between readings, Return to run one.
+    pub keyboard: bool,
+    /// How long the bar waits after the pointer leaves before it hides again.
+    pub auto_hide_delay_ms: u32,
     pub spacing: i32,
     pub padding: i32,
     pub font: Option<String>,
@@ -186,6 +195,14 @@ pub struct BarSettings {
     pub overflow: Vec<ModuleSpec>,
     pub overflow_expanded: bool,
 }
+
+/// How long an auto-hiding bar waits after the pointer leaves it, in
+/// milliseconds.  Long enough to cross a gap to the next surface, short enough
+/// that the pixels are worth reclaiming.
+pub const DEFAULT_AUTO_HIDE_DELAY_MS: u32 = 900;
+/// A configured delay is clamped to this: a bar that never comes back is worse
+/// than one that never left.
+pub const MAX_AUTO_HIDE_DELAY_MS: u32 = 60_000;
 
 /// The room kept for the fold's `+N` label; the label can reach two digits, so
 /// it is a little wider than the chevron it replaced.
@@ -296,6 +313,9 @@ impl Default for BarSettings {
             margin_bottom: 0,
             margin_left: 0,
             exclusive: true,
+            auto_hide: false,
+            keyboard: false,
+            auto_hide_delay_ms: DEFAULT_AUTO_HIDE_DELAY_MS,
             spacing: 6,
             padding: 12,
             font: None,
@@ -345,6 +365,11 @@ impl BarSettings {
         bar.margin_bottom = integer(alist, "margin-bottom").unwrap_or(0) as i32;
         bar.margin_left = integer(alist, "margin-left").unwrap_or(0) as i32;
         bar.exclusive = boolean(alist, "exclusive?").unwrap_or(true);
+        bar.auto_hide = boolean(alist, "auto-hide?").unwrap_or(false);
+        bar.keyboard = boolean(alist, "keyboard?").unwrap_or(false);
+        bar.auto_hide_delay_ms = integer(alist, "auto-hide-delay")
+            .map(|delay| delay.clamp(0, i64::from(MAX_AUTO_HIDE_DELAY_MS)) as u32)
+            .unwrap_or(DEFAULT_AUTO_HIDE_DELAY_MS);
         bar.spacing = integer(alist, "spacing").unwrap_or(6) as i32;
         bar.padding = integer(alist, "padding").unwrap_or(12) as i32;
         bar.font = optional_text(alist, "font");
