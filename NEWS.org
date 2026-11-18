@@ -11,7 +11,7 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
-** v0.42.0 (2026-11-17)
+** v0.42.0 (2026-11-18)
 
 *** Added
 
@@ -75,6 +75,19 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 - A bar's rows are rebuilt when the surface is resized, which is also when the
   fold answers again; the fold used to be a single pass after the first map.
 
+*** Fixed
+
+- *The wallpaper covers the whole screen again.*  A layer surface anchored on
+  all four edges is clipped to the output but never enlarged to it, and a GTK
+  window has to ask for a size; the background surface now asks for the
+  monitor's geometry, which is the same rule the bar already followed.  It was
+  drawn in one corner of the screen before this.
+- *The wallpapers are picked by whelk, not by `heks-toon`.*  The bar's picture
+  tile is `(wallpaper-module)`: a click opens whelk's own card of thumbnails
+  and a right click the full picker, so choosing a picture no longer leaves the
+  shell for another program.  The shelf loses the duplicate wallpaper tile and
+  the `heks-toon palettes` tile beside it.
+
 *** Verified
 
 - =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
@@ -88,6 +101,8 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 - Presets were switched in a live shell: =WHELK_PRESET=xp= and a saved
   =(preset . xp)= both registered the XP bar over a settings file that asked for
   something else, and the GUI overrides were layered on top of it.
+- The wallpaper was checked on an empty niri workspace: it filled the whole
+  1880x1253 output, with the desktop widgets over it.
 - The MPRIS parsing, player choice and time formatting are pinned by 12 tests;
   the tile itself has *not* been seen against a real player yet, and its
   controls have not been clicked -- it is the one part of this release that
