@@ -117,6 +117,8 @@
                widget-config-width
                widget-config-height
                widget-config-monitor
+               widget-config-size
+               widget-config-anchor
                widget-config-options
                desktop-widget
                widget->alist

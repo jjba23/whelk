@@ -144,13 +144,14 @@ flowchart TD
   after the native menu was opened once has no passive tree to read, and falls
   back to the dictionary like before.
 - *The dictionary.*  Most applications publish nothing, so their menus are
-  written from their documented shortcuts: ninety-five applications answering
-  to two hundred and eighty ids -- the browsers, terminals, editors (Emacs
-  among them, with its multi-key chords stored as sequences), file managers,
-  office suites, mail clients, graphics tools, media players,
-  PDF readers, chat clients, video editors, DAWs, note-taking applications,
-  developer tools, archive managers, system panels and the CAD and 3D
-  applications a desktop actually has -- each with the menus it really has.
+  written from their documented shortcuts: one hundred and thirteen
+  applications answering to three hundred and fifteen ids -- the browsers,
+  terminals, editors (Emacs among them, with its multi-key chords stored as
+  sequences), file managers, office suites, mail clients, graphics tools, media
+  players, PDF readers, chat clients, video editors, DAWs, note-taking
+  applications, developer tools, archive managers, system panels, GNOME's own
+  small programs, a few games and the CAD and 3D applications a desktop
+  actually has -- each with the menus it really has.
   Every entry shows its chord on the right and types it into the focused
   window when it is chosen (=wtype= on Wayland, =xdotool= on X11).  An
   application the dictionary does not know is not given a File menu it might
@@ -371,11 +372,11 @@ registrar are used first.  A window action (=win.*=) is sent to the
 application's first window object, and an Orbit action that needs an integer
 =target= stays greyed because whelk's action model carries only a string
 parameter.
-The dictionary covers ninety-five applications and their documented
-shortcuts: it is a curated list, not a guess, and an application that is not in
-it gets the shared Edit and View -- unless a settings file adds it.  The
-panels, the toasts and the menus open on the compositor's first monitor; a
-bar's =#:monitor= is its own.
+The dictionary covers one hundred and thirteen applications and their
+documented shortcuts: it is a curated list, not a guess, and an application
+that is not in it gets the shared Edit and View -- unless a settings file adds
+it.  The panels, the toasts and the menus open on the compositor's first
+monitor; a bar's =#:monitor= is its own.
 
 ------------------
 

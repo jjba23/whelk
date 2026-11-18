@@ -20,7 +20,7 @@
 
 use gtk4 as gtk;
 
-use crate::bar::ModuleSpec;
+use crate::bar::{BarSettings, ModuleSpec};
 use crate::json::Json;
 use crate::settings::SchemeValue;
 
@@ -58,6 +58,275 @@ pub const WEATHER_URL: &str = "https://api.open-meteo.com/v1/forecast";
 
 /// The quote request's fixed half.
 pub const STOCKS_URL: &str = "https://query1.finance.yahoo.com/v8/finance/spark";
+
+/// The grid a card's size is snapped to, in pixels -- the same one a drag
+/// snaps to, so a family size and a dragged card land on the same lines.
+pub const GRID: i32 = 8;
+
+/// Apple's three widget families.  A card's family scales the size its kind
+/// takes by default, which is how a settings file says "the big weather card"
+/// without writing pixels that then have to be maintained by hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SizeFamily {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl SizeFamily {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "small" => Some(Self::Small),
+            "medium" => Some(Self::Medium),
+            "large" => Some(Self::Large),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+
+    /// The multiplier a family applies to its kind's standard size.
+    pub fn scale(self) -> f64 {
+        match self {
+            Self::Small => 0.75,
+            Self::Medium => 1.0,
+            Self::Large => 1.5,
+        }
+    }
+}
+
+fn snapped(value: i32) -> i32 {
+    let steps = (f64::from(value) / f64::from(GRID)).round() as i32;
+
+    (steps * GRID).max(MIN_SIZE)
+}
+
+/// A card's size in FAMILY: its kind's standard size scaled, snapped to the
+/// grid and never smaller than [`MIN_SIZE`].
+pub fn family_size(standard: (i32, i32), family: SizeFamily) -> (i32, i32) {
+    // Medium is the kind's own size, untouched: snapping it would move every
+    // card anyone already placed, for no gain.  The other two families are
+    // new sizes, so they land on the grid a drag snaps to.
+    if family == SizeFamily::Medium {
+        return (standard.0.max(MIN_SIZE), standard.1.max(MIN_SIZE));
+    }
+
+    let scale = family.scale();
+
+    (
+        snapped((f64::from(standard.0) * scale).round() as i32),
+        snapped((f64::from(standard.1) * scale).round() as i32),
+    )
+}
+
+/// Where a card is pinned.  A pinned card keeps its distance from its edges
+/// when the output is a different size, which is what a card in a corner is
+/// for: `top-right` at 24 pixels is 24 pixels from the right on any screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Anchor {
+    #[default]
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl Anchor {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "top-left" => Some(Self::TopLeft),
+            "top" => Some(Self::Top),
+            "top-right" => Some(Self::TopRight),
+            "left" => Some(Self::Left),
+            "center" | "centre" => Some(Self::Center),
+            "right" => Some(Self::Right),
+            "bottom-left" => Some(Self::BottomLeft),
+            "bottom" => Some(Self::Bottom),
+            "bottom-right" => Some(Self::BottomRight),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top-left",
+            Self::Top => "top",
+            Self::TopRight => "top-right",
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::BottomLeft => "bottom-left",
+            Self::Bottom => "bottom",
+            Self::BottomRight => "bottom-right",
+        }
+    }
+
+    /// How the card sits on each axis: 0 is the near edge (left/top), 1 the
+    /// far edge (right/bottom) and 2 the centre.
+    fn axes(self) -> (u8, u8) {
+        match self {
+            Self::TopLeft => (0, 0),
+            Self::Top => (2, 0),
+            Self::TopRight => (1, 0),
+            Self::Left => (0, 2),
+            Self::Center => (2, 2),
+            Self::Right => (1, 2),
+            Self::BottomLeft => (0, 1),
+            Self::Bottom => (2, 1),
+            Self::BottomRight => (1, 1),
+        }
+    }
+}
+
+fn place(near: u8, area: i32, offset: i32, size: i32) -> i32 {
+    match near {
+        0 => offset,
+        1 => area - size - offset,
+        _ => (area - size) / 2 + offset,
+    }
+}
+
+fn unplace(near: u8, area: i32, origin: i32, size: i32) -> i32 {
+    match near {
+        0 => origin,
+        1 => area - size - origin,
+        _ => origin - (area - size) / 2,
+    }
+}
+
+/// The top-left origin a card has when it is pinned to ANCHOR at OFFSET.
+///
+/// OFFSET is the card's distance from its anchor's edges: `(24, 24)` on
+/// `bottom-right` is 24 pixels in from the corner, and the same value is what a
+/// drag saves, so a card keeps its place when a monitor is a different size.
+pub fn anchored_origin(
+    anchor: Anchor,
+    area: Area,
+    offset: (i32, i32),
+    size: (i32, i32),
+) -> (i32, i32) {
+    let (horizontal, vertical) = anchor.axes();
+
+    (
+        place(horizontal, area.width, offset.0, size.0),
+        place(vertical, area.height, offset.1, size.1),
+    )
+}
+
+/// The inverse of [`anchored_origin`]: the offset a dragged card is saved as.
+pub fn anchored_offset(
+    anchor: Anchor,
+    area: Area,
+    origin: (i32, i32),
+    size: (i32, i32),
+) -> (i32, i32) {
+    let (horizontal, vertical) = anchor.axes();
+
+    (
+        unplace(horizontal, area.width, origin.0, size.0),
+        unplace(vertical, area.height, origin.1, size.1),
+    )
+}
+
+/// The colours and finish a card can wear instead of the bar's.
+///
+/// A widget is skinned from the first bar's palette so the desktop looks like
+/// one shell, but a card that sits over a photo may want to be quieter or
+/// warmer than the bar upstairs.  Every field is optional: a card that names
+/// none is exactly the bar's skin, and a card that names one changes one thing.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WidgetSkin {
+    pub foreground: Option<String>,
+    pub background: Option<String>,
+    pub accent: Option<String>,
+    pub opacity: Option<f64>,
+    pub blur: Option<i32>,
+    pub radius: Option<i32>,
+    pub shine: Option<f64>,
+    pub reflection: Option<f64>,
+    pub flare: Option<f64>,
+}
+
+impl WidgetSkin {
+    /// Read the skin keys out of a widget's options; `None` when it named none.
+    pub fn from_spec(spec: &ModuleSpec) -> Option<Self> {
+        let number = |key: &str| match spec.options.get(key) {
+            Some(SchemeValue::Number(value)) if value.is_finite() => Some(*value),
+            Some(SchemeValue::Integer(value)) => Some(*value as f64),
+            _ => None,
+        };
+        let skin = Self {
+            foreground: spec.text("foreground"),
+            background: spec.text("background"),
+            accent: spec.text("accent"),
+            opacity: number("opacity").map(|value| value.clamp(0.0, 1.0)),
+            blur: spec.integer("blur").map(|value| value.clamp(0, 64) as i32),
+            radius: spec
+                .integer("radius")
+                .map(|value| value.clamp(0, 64) as i32),
+            shine: number("shine").map(|value| value.clamp(0.0, 1.0)),
+            reflection: number("reflection").map(|value| value.clamp(0.0, 1.0)),
+            flare: number("flare").map(|value| value.clamp(0.0, 1.0)),
+        };
+
+        if skin == Self::default() {
+            None
+        } else {
+            Some(skin)
+        }
+    }
+
+    /// Lay this skin over a bar's material.
+    pub fn apply(&self, bar: &mut BarSettings) {
+        if let Some(value) = self.foreground.as_ref() {
+            bar.foreground = Some(value.clone());
+        }
+
+        if let Some(value) = self.background.as_ref() {
+            bar.background = Some(value.clone());
+        }
+
+        if let Some(value) = self.accent.as_ref() {
+            bar.accent = Some(value.clone());
+        }
+
+        if let Some(value) = self.opacity {
+            bar.opacity = value;
+        }
+
+        if let Some(value) = self.blur {
+            bar.blur = value;
+        }
+
+        if let Some(value) = self.radius {
+            bar.radius = value;
+        }
+
+        if let Some(value) = self.shine {
+            bar.shine = value;
+        }
+
+        if let Some(value) = self.reflection {
+            bar.reflection = value;
+        }
+
+        if let Some(value) = self.flare {
+            bar.flare = value;
+        }
+    }
+}
 
 /// One of the card kinds the factory table knows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +389,11 @@ impl WidgetKind {
         }
     }
 
+    /// The size this kind takes in FAMILY.
+    pub fn family_size(self, family: SizeFamily) -> (i32, i32) {
+        family_size(self.standard_size(), family)
+    }
+
     pub fn default_title(self) -> &'static str {
         match self {
             Self::Clock => "Clock",
@@ -175,6 +449,10 @@ pub struct WidgetConfig {
     pub height: i32,
     /// `"default"` or a connector name such as `"DP-1"`.
     pub monitor: String,
+    /// The family the card belongs to: what a bare size is derived from.
+    pub size: SizeFamily,
+    /// The edge the card is pinned to.
+    pub anchor: Anchor,
 }
 
 impl WidgetConfig {
@@ -205,7 +483,35 @@ impl WidgetConfig {
             } else {
                 monitor.to_owned()
             },
+            size: SizeFamily::Medium,
+            anchor: Anchor::TopLeft,
         }
+    }
+
+    /// The card's size in FAMILY, for a builder that asks before it has pixels.
+    pub fn in_family(mut self, family: SizeFamily) -> Self {
+        if let Some(kind) = WidgetKind::from_name(&self.spec.kind) {
+            let (width, height) = kind.family_size(family);
+
+            self.width = width;
+            self.height = height;
+        }
+
+        self.size = family;
+
+        self
+    }
+
+    /// The card pinned to ANCHOR.
+    pub fn anchored(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+
+        self
+    }
+
+    /// The card's own material, when it named one.
+    pub fn skin(&self) -> Option<WidgetSkin> {
+        WidgetSkin::from_spec(&self.spec)
     }
 
     /// Read one `shell-widgets->alists` row.
@@ -216,6 +522,8 @@ impl WidgetConfig {
         let mut width = None;
         let mut height = None;
         let mut monitor = "default".to_owned();
+        let mut size = SizeFamily::Medium;
+        let mut anchor = Anchor::TopLeft;
         let mut options = std::collections::BTreeMap::new();
 
         for (key, value) in entries {
@@ -226,6 +534,18 @@ impl WidgetConfig {
                 "width" => width = value_int(value),
                 "height" => height = value_int(value),
                 "monitor" => monitor = value_text(value).unwrap_or(monitor),
+                "size" => {
+                    size = value_text(value)
+                        .as_deref()
+                        .and_then(SizeFamily::from_name)
+                        .unwrap_or(SizeFamily::Medium);
+                }
+                "anchor" => {
+                    anchor = value_text(value)
+                        .as_deref()
+                        .and_then(Anchor::from_name)
+                        .unwrap_or(Anchor::TopLeft);
+                }
                 "options" => {
                     if let SchemeValue::Alist(values) = value {
                         options = values.iter().cloned().collect();
@@ -235,7 +555,7 @@ impl WidgetConfig {
             }
         }
 
-        Some(Self::new(
+        let mut card = Self::new(
             ModuleSpec {
                 kind: kind?,
                 options,
@@ -245,7 +565,17 @@ impl WidgetConfig {
             width,
             height,
             &monitor,
-        ))
+        );
+
+        // A family only decides the size nobody wrote down: an explicit
+        // width or height is the configuration's word.
+        if width.is_none() && height.is_none() {
+            card = card.in_family(size);
+        } else {
+            card.size = size;
+        }
+
+        Some(card.anchored(anchor))
     }
 
     pub fn kind(&self) -> Option<WidgetKind> {
@@ -306,6 +636,22 @@ impl WidgetConfig {
     /// when it was given one, and a custom card never refreshes faster than
     /// five seconds.
     pub fn interval(&self) -> u32 {
+        // An explicit `interval` wins over the kind's cadence: a card that says
+        // how often to read is not overruled by what its kind usually does.  A
+        // custom card keeps its floor, because a command every second is a
+        // process every second.
+        if let Some(interval) = self.spec.integer("interval") {
+            if self.kind() == Some(WidgetKind::Custom) {
+                return custom_interval(Some(interval));
+            }
+
+            return if interval > 0 {
+                interval.min(i64::from(u32::MAX)) as u32
+            } else {
+                0
+            };
+        }
+
         match self.kind() {
             Some(WidgetKind::Notes) => {
                 if self.spec.text("file").is_some() {
@@ -324,10 +670,12 @@ impl WidgetConfig {
     /// settings file, and a saved position is clamped into the monitor again
     /// because the screen may have shrunk or been replaced since.
     pub fn restore_position(&self, saved: Option<(i32, i32)>, area: Area) -> (i32, i32) {
-        match saved {
-            Some((x, y)) => clamp_into(x, y, self.width, self.height, area),
-            None => (self.x, self.y),
-        }
+        // A saved position is an *offset from the anchor*, which is what makes
+        // a card in a corner stay in that corner on a differently sized screen.
+        let offset = saved.unwrap_or((self.x, self.y));
+        let (x, y) = anchored_origin(self.anchor, area, offset, (self.width, self.height));
+
+        clamp_into(x, y, self.width, self.height, area)
     }
 }
 

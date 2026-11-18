@@ -29,6 +29,44 @@
             (= (widget-config-width clock) 220)
             (= (widget-config-height clock) 240)))
 
+;; A family scales that standard size: 'medium is the size above, untouched,
+;; and the other two land on the 8-pixel grid a dragged card snaps to.  The
+;; numbers are the ones `family_size' in rust/src/widgets.rs answers for the
+;; same card, so the two halves of the shell cannot disagree.
+(check "a small clock is a quarter smaller and on the grid"
+       (let ((small (desktop-widget 'clock #:size 'small)))
+         (and (= (widget-config-width small) 168)
+              (= (widget-config-height small) 184)
+              (eq? (widget-config-size small) 'small))))
+(check "a large weather card is half again as big"
+       (let ((large (desktop-widget 'weather #:size 'large)))
+         (and (= (widget-config-width large) 512)
+              (= (widget-config-height large) 328))))
+(check "medium is the standard size, not a snapped one"
+       (let ((medium (desktop-widget 'clock #:size 'medium)))
+         (and (= (widget-config-width medium) 220)
+              (= (widget-config-height medium) 240))))
+(check "pixels written down win over the family"
+       (let ((written (desktop-widget 'weather #:size 'large #:width 400 #:height 300)))
+         (and (= (widget-config-width written) 400)
+              (= (widget-config-height written) 300))))
+(check "an unknown family falls back to medium"
+       (let ((odd (desktop-widget 'clock #:size 'enormous)))
+         (and (eq? (widget-config-size odd) 'medium)
+              (= (widget-config-width odd) 220))))
+
+;; Where a card is pinned, and how far from that edge it sits.
+(check "a widget is pinned to its anchor"
+       (let ((pinned (desktop-widget 'notes #:anchor 'bottom-right)))
+         (and (eq? (widget-config-anchor pinned) 'bottom-right)
+              (eq? (widget-config-anchor (desktop-widget 'notes)) 'top-left))))
+(check "the British spelling of the centre is the centre"
+       (eq? (widget-config-anchor (desktop-widget 'notes #:anchor 'centre))
+            'center))
+(check "an unknown anchor falls back to the top left"
+       (eq? (widget-config-anchor (desktop-widget 'notes #:anchor 'middle-ish))
+            'top-left))
+
 (check "a calendar has its own standard size"
        (let ((calendar (desktop-widget 'calendar)))
          (and (= (widget-config-width calendar) 340)

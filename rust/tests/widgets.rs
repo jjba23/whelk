@@ -455,3 +455,226 @@ fn a_placement_belongs_to_the_monitor_it_names_or_the_one_it_is_on() {
     assert_eq!(widgets::monitor_key("default", None), None);
     assert_eq!(widgets::monitor_key("default", Some("")), None);
 }
+
+// ---------------------------------------------------------------------------
+// Families, anchors and a card's own material
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_family_scales_a_kind_and_snaps_it_to_the_grid() {
+    use widgets::{SizeFamily, family_size};
+
+    // The same numbers `widget-family-size` in `(whelk state)` produces: two
+    // halves of the shell asking about one card must not disagree.
+    assert_eq!(family_size((220, 240), SizeFamily::Small), (168, 184));
+    assert_eq!(family_size((220, 240), SizeFamily::Medium), (220, 240));
+    assert_eq!(family_size((340, 220), SizeFamily::Large), (512, 328));
+
+    // Medium is the kind's own size and is left alone; the other two are new
+    // sizes and land on the drag grid.
+    assert_eq!(family_size((340, 330), SizeFamily::Medium), (340, 330));
+
+    for family in [SizeFamily::Small, SizeFamily::Large] {
+        let (width, height) = family_size((340, 330), family);
+
+        assert_eq!(width % widgets::GRID, 0, "{family:?} width off the grid");
+        assert_eq!(height % widgets::GRID, 0, "{family:?} height off the grid");
+        assert!(width >= widgets::MIN_SIZE && height >= widgets::MIN_SIZE);
+    }
+}
+
+#[test]
+fn a_family_only_decides_the_size_nobody_wrote_down() {
+    let bare = config("weather", &[]);
+    let large = bare.clone().in_family(widgets::SizeFamily::Large);
+
+    assert_eq!((bare.width, bare.height), (340, 220));
+    assert_eq!((large.width, large.height), (512, 328));
+
+    // A configuration that wrote pixels keeps them, whatever family it names.
+    let written = WidgetConfig::new(spec("weather", &[]), 10, 20, Some(400), Some(300), "DP-1");
+    let card = WidgetConfig::from_alist(&[
+        ("kind".to_owned(), text("weather")),
+        ("width".to_owned(), SchemeValue::Integer(400)),
+        ("height".to_owned(), SchemeValue::Integer(300)),
+        ("size".to_owned(), SchemeValue::Symbol("large".to_owned())),
+    ])
+    .expect("a card reads");
+
+    assert_eq!((card.width, card.height), (400, 300));
+    assert_eq!((written.width, written.height), (400, 300));
+    assert_eq!(card.size, widgets::SizeFamily::Large);
+}
+
+#[test]
+fn an_anchor_is_the_offset_from_its_own_edges() {
+    use widgets::{Anchor, FALLBACK_AREA, anchored_offset, anchored_origin};
+
+    let area = Area {
+        width: 1000,
+        height: 700,
+    };
+    let size = (200, 100);
+    let offset = (10, 20);
+
+    assert_eq!(
+        anchored_origin(Anchor::TopLeft, area, offset, size),
+        (10, 20)
+    );
+    assert_eq!(
+        anchored_origin(Anchor::TopRight, area, offset, size),
+        (790, 20)
+    );
+    assert_eq!(
+        anchored_origin(Anchor::BottomLeft, area, offset, size),
+        (10, 580)
+    );
+    assert_eq!(
+        anchored_origin(Anchor::BottomRight, area, offset, size),
+        (790, 580)
+    );
+    // A centred card is centred, and its offset nudges it from the middle.
+    assert_eq!(
+        anchored_origin(Anchor::Center, area, (0, 0), size),
+        (400, 300)
+    );
+    assert_eq!(anchored_origin(Anchor::Top, area, (0, 0), size), (400, 0));
+    assert_eq!(
+        anchored_origin(Anchor::Right, FALLBACK_AREA, (24, 0), size),
+        (1920 - 200 - 24, (1080 - 100) / 2)
+    );
+
+    // The inverse is what a drag saves: every anchor round-trips.
+    for anchor in [
+        Anchor::TopLeft,
+        Anchor::Top,
+        Anchor::TopRight,
+        Anchor::Left,
+        Anchor::Center,
+        Anchor::Right,
+        Anchor::BottomLeft,
+        Anchor::Bottom,
+        Anchor::BottomRight,
+    ] {
+        let origin = anchored_origin(anchor, area, offset, size);
+
+        assert_eq!(
+            anchored_offset(anchor, area, origin, size),
+            offset,
+            "{anchor:?} does not round-trip"
+        );
+    }
+}
+
+#[test]
+fn a_corner_card_stays_in_its_corner_on_a_smaller_screen() {
+    use widgets::{Anchor, anchored_origin};
+
+    let wide = Area {
+        width: 1920,
+        height: 1080,
+    };
+    let small = Area {
+        width: 1280,
+        height: 800,
+    };
+    let size = (340, 220);
+    let offset = (24, 24);
+
+    let on_wide = anchored_origin(Anchor::BottomRight, wide, offset, size);
+    let on_small = anchored_origin(Anchor::BottomRight, small, offset, size);
+
+    assert_eq!(on_wide, (1920 - 340 - 24, 1080 - 220 - 24));
+    assert_eq!(on_small, (1280 - 340 - 24, 800 - 220 - 24));
+    // The same distance from the corner, which is the point of an anchor.
+    assert_eq!(wide.width - on_wide.0, small.width - on_small.0);
+    assert_eq!(wide.height - on_wide.1, small.height - on_small.1);
+}
+
+#[test]
+fn a_restored_position_is_an_offset_from_the_anchor() {
+    use widgets::Anchor;
+
+    let card = config("stocks", &[]).anchored(Anchor::BottomRight);
+    let area = Area {
+        width: 1000,
+        height: 700,
+    };
+
+    let first = card.restore_position(None, area);
+    let restored = card.restore_position(Some((24, 24)), area);
+
+    assert_eq!(first, (1000 - card.width - 48, 700 - card.height - 64));
+    assert_eq!(restored, (1000 - card.width - 24, 700 - card.height - 24));
+}
+
+#[test]
+fn a_card_wears_only_the_material_it_names() {
+    use whelk_rs::bar::BarSettings;
+
+    let plain = config("weather", &[]);
+
+    assert_eq!(plain.skin(), None);
+
+    let card = config(
+        "weather",
+        &[
+            ("opacity", SchemeValue::Number(0.6)),
+            ("accent", text("#80ff80")),
+            ("radius", SchemeValue::Integer(18)),
+        ],
+    );
+    let material = card.skin().expect("the card names a material");
+    let mut bar = BarSettings {
+        opacity: 0.9,
+        background: Some("#101010".to_owned()),
+        blur: 12,
+        ..BarSettings::default()
+    };
+
+    material.apply(&mut bar);
+
+    assert_eq!(bar.opacity, 0.6);
+    assert_eq!(bar.radius, 18);
+    assert_eq!(bar.accent.as_deref(), Some("#80ff80"));
+    // What the card did not name is still the bar's.
+    assert_eq!(bar.background.as_deref(), Some("#101010"));
+    assert_eq!(bar.blur, 12);
+}
+
+#[test]
+fn a_card_says_how_often_it_reads() {
+    assert_eq!(config("weather", &[]).interval(), 1800);
+    assert_eq!(
+        config("weather", &[("interval", SchemeValue::Integer(5))]).interval(),
+        5
+    );
+    assert_eq!(
+        config("weather", &[("interval", SchemeValue::Integer(0))]).interval(),
+        0
+    );
+    // A command a second is a process a second: a custom card keeps its floor.
+    assert_eq!(
+        config("custom", &[("interval", SchemeValue::Integer(1))]).interval(),
+        widgets::custom_interval(Some(1))
+    );
+}
+
+#[test]
+fn the_family_and_the_anchor_survive_the_bridge() {
+    let card = WidgetConfig::from_alist(&[
+        ("kind".to_owned(), text("calendar")),
+        ("x".to_owned(), SchemeValue::Integer(12)),
+        ("y".to_owned(), SchemeValue::Integer(16)),
+        ("size".to_owned(), SchemeValue::Symbol("small".to_owned())),
+        (
+            "anchor".to_owned(),
+            SchemeValue::Symbol("bottom-right".to_owned()),
+        ),
+    ])
+    .expect("a card reads");
+
+    assert_eq!(card.size, widgets::SizeFamily::Small);
+    assert_eq!(card.anchor, widgets::Anchor::BottomRight);
+    assert_eq!((card.width, card.height), (256, 248));
+}

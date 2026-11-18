@@ -5,8 +5,10 @@
 
 ;; The menu dictionary is data, and data goes wrong in ways the C tests cannot
 ;; see: an id two applications both claim, an entry whose chord was never
-;; written, a menu with a label and nothing behind it.  The runtime test loads
-;; the same table and asks it what a compositor would; this one reads it.
+;; written, a chord the runtime's parser cannot read and will therefore never
+;; type, a menu with a label and nothing behind it, a label repeated in one
+;; menu.  The runtime test loads the same table and asks it what a compositor
+;; would; this one reads it.
 
 (use-modules (whelk menudict)
              (srfi srfi-1)
@@ -26,7 +28,7 @@
 
 ;; The dictionary has to be worth having: the applications a desktop actually
 ;; runs, not a handful of examples.
-(check "the dictionary knows many applications" (>= (length apps) 90))
+(check "the dictionary knows many applications" (>= (length apps) 113))
 
 ;; Names are what the menu's log line says, so two entries cannot share one.
 (let ((names (map (lambda (app) (assq-ref app 'name)) apps)))
@@ -45,6 +47,102 @@
        (every (lambda (id) (not (string-any char-set:whitespace id))) ids))
 (check "ids differ even ignoring case"
        (= (length ids) (length (delete-duplicates (map string-downcase ids)))))
+
+;; ---------------------------------------------------------------------------
+;; The chords the runtime can read
+;; ---------------------------------------------------------------------------
+;; The runtime passes every chord through `rust/src/chord.rs': Emacs notation
+;; (C-c, M-F4, s-e), CUA notation (Ctrl+C, Alt+F4) or a bare key (F11, Space,
+;; Delete), and a short item may hold several chords separated by spaces
+;; (C-x C-s).  A chord it cannot read is a row the menu shows greyed and types
+;; nothing for, so a chord the parser rejects is a dead entry rather than a
+;; shortcut.  What follows is that grammar written out again, so the dictionary
+;; can be checked without Cargo.
+
+(define (key-shaped? text)
+  (and (string? text)
+       (not (string-null? (string-trim-both text)))
+       (not (string-any char-set:whitespace (string-trim-both text)))))
+
+(define modifier-names
+  '("ctrl" "control" "primary" "alt" "meta" "option" "shift"
+    "super" "win" "cmd" "command"))
+
+(define (unknown-modifier head)
+  (find (lambda (part) (not (member (string-downcase part) modifier-names)))
+        (remove string-null? (map string-trim-both (string-split head #\+)))))
+
+;; One C-, M-, S- or s- prefix per modifier, in any order, is Emacs notation;
+;; what is left is the key.
+(define (strip-emacs-prefixes text)
+  "TEXT without its Emacs prefixes, and how many were taken off."
+  (let loop ((rest text) (count 0))
+    (if (and (>= (string-length rest) 2)
+             (char=? (string-ref rest 1) #\-)
+             (memv (string-ref rest 0) (list #\C #\M #\S #\s)))
+        (loop (substring rest 2) (+ count 1))
+        (values count rest))))
+
+(define (cua-parts-problem text head key)
+  "Why HEAD+KEY is not a CUA chord such as Ctrl+Shift+P, or #f when it is."
+  (let ((unknown (unknown-modifier head)))
+    (cond
+      ((not (key-shaped? key))
+       (format #f "~a has no key after its modifiers" text))
+      (unknown (format #f "~a names ~a, which is not a modifier" text unknown))
+      (else #f))))
+
+;; Ctrl+Shift+P: the last plus separates the key.  Ctrl++ is Ctrl and the plus
+;; key, and a plus with nothing before it is not a chord.
+(define (cua-chord-problem text)
+  (if (string-suffix? "+" text)
+      (let ((head (substring text 0 (- (string-length text) 1))))
+        (cua-parts-problem text
+                           (if (string-suffix? "+" head)
+                               (substring head 0 (- (string-length head) 1))
+                               head)
+                           "+"))
+      (let ((last (string-rindex text #\+)))
+        (if (and last (> last 0))
+            (cua-parts-problem text (substring text 0 last) (substring text (+ last 1)))
+            (format #f "~a has nothing before its plus" text)))))
+
+(define (chord-problem chord)
+  "Why CHORD is not one chord the runtime can read, or #f when it is."
+  (let ((text (string-trim-both chord)))
+    (call-with-values (lambda () (strip-emacs-prefixes text))
+      (lambda (prefixes rest)
+        (cond
+          ((> prefixes 0)
+           (and (not (key-shaped? rest))
+                (format #f "~a has no key behind its modifiers" text)))
+          ((string-contains text "+") (cua-chord-problem text))
+          ((key-shaped? text) #f)
+          (else (format #f "~a is not a key" text)))))))
+
+(define (chords-problem written)
+  "Why WRITTEN is not one or more chords the runtime can read, or #f when it is."
+  (let ((chords (string-tokenize written)))
+    (or (and (null? chords) (format #f "~a has no chord in it" written))
+        (any (lambda (chord)
+               (let ((problem (chord-problem chord)))
+                 (and problem (format #f "~a: ~a" written problem))))
+             chords))))
+
+(define (item-chord-problem item)
+  "Why ITEM's chord would not be typed, or #f when it would."
+  (if (= (length item) 2)
+      (chords-problem (list-ref item 1))
+      ;; The long form: the runtime joins the modifiers with + and reads that,
+      ;; so #f and an empty string mean the same thing.
+      (let* ((modifiers (list-ref item 2))
+             (key (string-trim-both (list-ref item 3)))
+             (words (if (eq? modifiers #f)
+                        '()
+                        (string-tokenize modifiers))))
+        (chords-problem (if (null? words)
+                            key
+                            (string-append (string-join words "+") "+" key))))))
 
 ;; A menu needs a label and at least one thing in it; an item needs a label
 ;; and a chord, either as (label chord) or as the long four-field form.  A
@@ -71,20 +169,42 @@
            (check (format #f "~a has modifiers or #f" where)
                   (or (eq? (list-ref item 2) #f)
                       (non-empty-string? (list-ref item 2))))
-           (check (format #f "~a has a key" where) (non-empty-string? (list-ref item 3))))))
+           (check (format #f "~a has a key" where) (non-empty-string? (list-ref item 3))))
+         ;; A chord the runtime's parser refuses is drawn greyed and types
+         ;; nothing: the entry exists but the shortcut does not.
+         (check (format #f "~a types a chord the parser reads" where)
+                (not (item-chord-problem item)))))
      items)
 
     ;; Two entries that type the same chord in one menu: one of them is a typo,
     ;; and the other would be unreachable.
     (let ((chords (map item-signature items)))
       (check (format #f "~a > ~a has no duplicate chords" name label)
-             (= (length chords) (length (delete-duplicates chords)))))))
+             (= (length chords) (length (delete-duplicates chords)))))
+
+    ;; A menu is a list a person reads: two rows with one label make the second
+    ;; one meaningless, and the copy-and-paste that produced it usually left the
+    ;; chord wrong as well.
+    (let ((labels (map car items)))
+      (check (format #f "~a > ~a does not repeat a label" name label)
+             (= (length labels) (length (delete-duplicates labels)))))))
 
 (for-each
  (lambda (app)
    (let ((name (assq-ref app 'name))
          (menus (assq-ref app 'menus)))
      (check (format #f "~a has menus" name) (pair? menus))
+     ;; Appending a shared menu to an application that already wrote one of that
+     ;; label leaves two Edit menus, and only the first is ever opened.
+     (let ((labels (map car (if (pair? menus) menus '()))))
+       (check (format #f "~a does not repeat a menu" name)
+              (= (length labels) (length (delete-duplicates labels)))))
+     ;; An application with an id but nothing behind it can be focused and
+     ;; still show an empty menubar, which is worse than a dictionary that does
+     ;; not know it.
+     (check (format #f "~a offers a row for its ids" name)
+            (and (pair? (assq-ref app 'ids))
+                 (any (lambda (menu) (and (pair? menu) (pair? (cdr menu)))) menus)))
      (for-each (lambda (menu) (check-menu app (car menu) menu)) menus)))
  apps)
 
@@ -233,3 +353,8 @@
         (length apps)
         (length ids)
         (apply + (map (lambda (app) (length (assq-ref app 'menus))) apps)))
+
+;; The suite's other scripts say "ok <name>" when they pass; this one says what
+;; the table holds and then the same word.
+(display "ok menudict\n")
+(exit 0)

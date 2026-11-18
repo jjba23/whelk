@@ -46,14 +46,21 @@ output:
 
 | Key             | Meaning                                                              |
 |-----------------+----------------------------------------------------------------------|
-| =#:x=, =#:y=       | pixels from the top-left of the chosen monitor                       |
-| =#:width=, =#:height= | the card's size; a bare widget gets its kind's standard size       |
+| =#:x=, =#:y=       | pixels from the edges of =#:anchor= (top-left when nothing is pinned) |
+| =#:width=, =#:height= | the card's size; wins over =#:size= when given                    |
+| =#:size=          | ='small=, ='medium= (default) or ='large=: the kind's size in one of Apple's three families |
+| =#:anchor=        | ='top-left= (default), ='top=, ='top-right=, ='left=, ='center=, ='right=, ='bottom-left=, ='bottom=, ='bottom-right= |
 | =#:monitor=       | ="default"= or a connector such as ="DP-1"=                            |
 | =#:options=       | the widget's own alist; an unknown key is ignored                     |
 
-Every kind accepts =#:title=, =#:css=, =#:tooltip= and the mouse actions in that
-option alist: =on-click=, =on-click-middle=, =on-click-right=, =on-scroll-up=
-and =on-scroll-down=, each a command line.  The kind-specific options are:
+Every kind accepts =#:title=, =#:css=, =#:tooltip=, =interval= (seconds between
+reads; zero paints once, and it wins over the kind's own cadence), the mouse
+actions =on-click=, =on-click-middle=, =on-click-right=, =on-scroll-up= and
+=on-scroll-down= (each a command line), and a material of its own:
+=foreground=, =background=, =accent=, =opacity=, =blur=, =radius=, =shine=,
+=reflection= and =flare=.  A card with no material is the first bar's skin, so
+the desktop looks like one shell; a card that names one changes only what it
+names.  The kind-specific options are:
 
 | Kind        | Options                                                              |
 |-------------+----------------------------------------------------------------------|
@@ -73,6 +80,36 @@ both keep their request off the main loop.  A card sits on the layer-shell
 =bottom= layer, takes no keyboard and reserves no screen space, so it is
 visible on the desktop and under the windows rather than over them.  Saving the
 settings file rebuilds every card with the bars.
+
+* Families, anchors and a card's own material
+
+Three things make a card a card rather than a fixed picture of one:
+
+#+begin_src scheme
+  (list
+   ;; The big weather card, pinned 24px in from the bottom-right corner.
+   (desktop-widget 'weather #:size 'large #:anchor 'bottom-right #:x 24 #:y 24)
+   ;; A small clock that reads the time every ten seconds instead of one.
+   (desktop-widget 'clock #:size 'small #:x 24 #:y 24
+                   #:options '((interval . 10)
+                               (opacity . 0.72)
+                               (background . "rgba(20, 22, 28, 0.55)")
+                               (accent . "#8fd16a"))))
+#+end_src
+
+- **Families.**  =#:size 'small= is three quarters of the kind's standard size
+  and ='large= is half again as much, both rounded to the 8-pixel grid a drag
+  snaps to and never smaller than 100 pixels; ='medium= is the standard size,
+  untouched, so nothing anyone already placed moves.  =#:width= and =#:height=
+  still win when they are written, because pixels are the configuration's word.
+- **Anchors.**  =#:x= and =#:y= are distances from the anchor's own edges, so
+  =#:anchor 'bottom-right #:x 24= is 24 pixels in from the right on any screen.
+  A card keeps its corner when an output is a different size, which is what a
+  card in a corner is for; a dragged position is saved as the same offset, so a
+  drag on one screen is not undone by unplugging another.
+- **Material.**  A card is skinned from the first bar's palette; naming one
+  material key changes that one thing (a quieter background over a photograph,
+  a warmer accent, a firmer radius) and leaves the rest of the bar's skin.
 
 * Clicking, dragging and the grid
 

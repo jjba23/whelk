@@ -406,6 +406,8 @@ impl Card {
             );
         }
 
+        crate::a11y::describe(&card, &config.spec.kind, &config.title(), None, false);
+
         let skin = install_skin(&widget_id, style, config);
 
         if layer_shell_available() {
@@ -462,14 +464,13 @@ impl Drop for Card {
 fn label(text: &str, class: &str, xalign: f32) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
 
+    // `xalign` puts the text where the card wants it *inside* the label, so the
+    // label itself fills whatever width it is given.  Aligning the widget
+    // instead (`halign` = Start for a left-aligned label) handed a wrapping
+    // card only its natural width, which is how a note ended up wrapping five
+    // characters to a line inside a card half a screen wide.
     label.set_xalign(xalign);
-    label.set_halign(if xalign < 0.5 {
-        gtk::Align::Start
-    } else if xalign > 0.5 {
-        gtk::Align::End
-    } else {
-        gtk::Align::Center
-    });
+    label.set_halign(gtk::Align::Fill);
 
     if !class.is_empty() {
         label.add_css_class(class);
@@ -616,6 +617,8 @@ fn attach_drag(
         let handle = grip.clone();
         let window = window.clone();
         let monitor = config.monitor.clone();
+        let anchor = config.anchor;
+        let size = (config.width, config.height);
         let id = id.to_owned();
         let state_path = state_path.map(Path::to_path_buf);
         let landing = Rc::clone(&position);
@@ -626,9 +629,13 @@ fn attach_drag(
 
             if let Some(path) = state_path.as_deref() {
                 let connector = monitor_key(&window, &monitor);
-                let (x, y) = landing.get();
+                let area = current_area(Some(&window), &monitor);
+                // The state file stores the card's distance from its anchor,
+                // so a card pinned to a corner keeps that corner when the
+                // output is resized.
+                let offset = widgets::anchored_offset(anchor, area, landing.get(), size);
 
-                widgetstate::save_position_for(path, &id, connector.as_deref(), x, y);
+                widgetstate::save_position_for(path, &id, connector.as_deref(), offset.0, offset.1);
             }
         });
     }
@@ -725,9 +732,17 @@ fn install_skin(
     config: &WidgetConfig,
 ) -> Option<gtk::CssProvider> {
     let display = gtk::gdk::Display::default()?;
+    // A card is skinned from the first bar's palette so the desktop looks like
+    // one shell; a card that named its own material changes only what it named.
+    let mut skin = style.clone();
+
+    if let Some(material) = config.skin() {
+        material.apply(&mut skin);
+    }
+
     let generated = style::css(
         widget_id,
-        style,
+        &skin,
         "whelk-widget-card",
         config.css().as_deref(),
     );

@@ -75,6 +75,8 @@
             widget-config-width
             widget-config-height
             widget-config-monitor
+            widget-config-size
+            widget-config-anchor
             widget-config-options
             desktop-widget
             widget->alist
@@ -175,7 +177,7 @@
 ;; alist key rather than another Scheme accessor.
 
 (define-record-type <widget-config>
-  (make-widget-config kind x y width height monitor options)
+  (make-widget-config kind x y width height monitor size anchor options)
   widget-config?
   (kind widget-config-kind)
   (x widget-config-x)
@@ -183,6 +185,8 @@
   (width widget-config-width)
   (height widget-config-height)
   (monitor widget-config-monitor)
+  (size widget-config-size)
+  (anchor widget-config-anchor)
   (options widget-config-options))
 
 ;; The sizes the standard Apple widgets use, in the order Clock, Calendar,
@@ -198,6 +202,59 @@
     (reminders 340 300)
     (world-clock 260 260)
     (stocks 300 260)))
+
+;; Apple's three families: a card's family scales its kind's standard size, so a
+;; settings file says "the big weather card" instead of writing pixels it then
+;; has to maintain.  The arithmetic is the same as `family_size' in
+;; rust/src/widgets.rs -- half-up rounding, snapped to the 8-pixel grid, never
+;; below 100 pixels -- so a card is the same size whichever half of the shell
+;; asks.
+(define %widget-families '(small medium large))
+
+(define (normalize-widget-family family)
+  "Return FAMILY as a symbol, warning and falling back to 'medium."
+  (let ((name (cond ((symbol? family) family)
+                    ((string? family) (string->symbol family))
+                    (else family))))
+    (if (memq name %widget-families)
+        name
+        (begin
+          (log-warn "State" "Widget size should be small, medium or large, got: ~s"
+                    family)
+          'medium))))
+
+(define (widget-family-size size family)
+  "Return SIZE, a (width . height) pair, scaled into FAMILY.
+
+  'medium is the kind's own size, untouched; the other two land on the grid a
+  drag snaps to, which is the arithmetic `family_size' in rust/src/widgets.rs
+  performs."
+  (define (snap value)
+    (max 100 (* 8 (quotient (+ value 4) 8))))
+  (define (scale value)
+    (case family
+      ((small) (quotient (+ (* value 3) 2) 4))
+      ((large) (quotient (+ (* value 3) 1) 2))
+      (else value)))
+  (if (eq? family 'medium)
+      (cons (max 100 (car size)) (max 100 (cdr size)))
+      (cons (snap (scale (car size))) (snap (scale (cdr size))))))
+
+(define %widget-anchors
+  '(top-left top top-right left center right bottom-left bottom bottom-right))
+
+(define (normalize-widget-anchor anchor)
+  "Return ANCHOR as a symbol from %widget-anchors, warning and falling back."
+  (let ((name (cond ((symbol? anchor) anchor)
+                    ((string? anchor) (string->symbol anchor))
+                    (else anchor))))
+    (cond ((memq name %widget-anchors) name)
+          ((eq? name 'centre) 'center)
+          (else
+           (log-warn "State"
+                     "Widget anchor should be one of ~s, got: ~s"
+                     %widget-anchors anchor)
+           'top-left))))
 
 (define (normalize-widget-kind kind)
   "Return KIND as a symbol, warning when it is not a name at all."
@@ -234,13 +291,20 @@ reaching C as a shape it cannot read."
                          (width #f)
                          (height #f)
                          (monitor "default")
+                         (size 'medium)
+                         (anchor 'top-left)
                          (options '()))
   "Describe one floating desktop widget.
 
 KIND is one of 'clock, 'calendar, 'weather, 'battery, 'notes, 'reminders,
 'world-clock, 'stocks, 'custom, or a kind a later whelk adds.  X and Y are
-pixels from the top-left of MONITOR (\"default\" or a connector such as
-\"DP-1\").  WIDTH and HEIGHT default to the standard size for KIND.  OPTIONS is
+the distance from ANCHOR's edges on MONITOR (\"default\" or a connector such as
+\"DP-1\").  ANCHOR is where the card is pinned -- 'top-left (the default), 'top,
+'top-right, 'left, 'center, 'right, 'bottom-left, 'bottom or 'bottom-right -- so
+a card in a corner keeps that corner on a differently sized screen.  SIZE is
+'small, 'medium or 'large and scales the kind's standard size (Apple's three
+families, on the same 8-pixel grid); WIDTH and HEIGHT, when given, win over it.
+OPTIONS is
 an alist of the widget's own keys: the weather takes latitude, longitude and
 location, Notes takes text or file, Reminders takes items, and every widget
 accepts title, css, tooltip and the mouse actions on-click, on-click-middle,
@@ -249,9 +313,11 @@ does not know, exactly as a module does.  Where a card sits is only the start:
 the grip in its header drags it, and the position is saved as runtime state
 rather than written back into this file."
   (let* ((kind (normalize-widget-kind kind))
+         (family (normalize-widget-family size))
          (preset (or (assq kind %widget-sizes) '(default 320 220)))
-         (preset-width (cadr preset))
-         (preset-height (caddr preset)))
+         (scaled (widget-family-size (cons (cadr preset) (caddr preset)) family))
+         (preset-width (car scaled))
+         (preset-height (cdr scaled)))
     (make-widget-config kind
                         (max 0 (as-int x 48))
                         (max 0 (as-int y 64))
@@ -260,6 +326,8 @@ rather than written back into this file."
                         (cond ((symbol? monitor) (symbol->string monitor))
                               ((string? monitor) monitor)
                               (else "default"))
+                        family
+                        (normalize-widget-anchor anchor)
                         (normalize-widget-options options))))
 
 ;; =============================================================================
@@ -1064,6 +1132,8 @@ because a settings file may want to read the menu it configured."
         (cons 'width (widget-config-width w))
         (cons 'height (widget-config-height w))
         (cons 'monitor (widget-config-monitor w))
+        (cons 'size (widget-config-size w))
+        (cons 'anchor (widget-config-anchor w))
         (cons 'options (widget-config-options w))))
 
 (define (shell-widgets->alists . args)

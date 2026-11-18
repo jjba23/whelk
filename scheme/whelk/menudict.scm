@@ -1323,6 +1323,34 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
    '("gnumeric" "org.gnumeric.Gnumeric")
    (append standard-document-file standard-edit-y standard-view)))
 
+;; Math and Base spell the File and Edit menus the way the other four
+;; LibreOffice applications above do; only the View menu is theirs.
+(define libreoffice_math
+  (dict-app
+   "LibreOffice Math"
+   '("libreoffice-math" "org.libreoffice.LibreOffice.math")
+   '(("File"
+      ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+      ("Print" "C-p") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-y")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f") ("Find and Replace" "C-h"))
+     ("View"
+      ("Full Screen" "C-S-j")))))
+
+(define libreoffice_base
+  (dict-app
+   "LibreOffice Base"
+   '("libreoffice-base" "org.libreoffice.LibreOffice.base")
+   '(("File"
+      ("New" "C-n") ("Open" "C-o") ("Save" "C-s") ("Save As" "C-S-s")
+      ("Print" "C-p") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-y")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Select All" "C-a")
+      ("Find" "C-f") ("Find and Replace" "C-h")))))
+
 ;;; --- mail, continued -------------------------------------------------------
 
 (define geary
@@ -1556,6 +1584,34 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
      ("Edit"
       ("Copy" "C-c") ("Select All" "C-a") ("Find" "C-f")))))
 
+;; git-gui builds its menubar in Tcl and writes the accelerators beside each
+;; entry: Repository, Edit, Branch, Commit, Merge and Remote, with the chord
+;; its own documentation gives.  The menus can be absent -- Branch, Merge and
+;; Remote only exist for a repository that has them -- but what it shows is
+;; this.
+(define git_gui
+  (dict-app
+   "Git GUI"
+   '("git-gui")
+   '(("Repository"
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-y")
+      ("Cut" "C-x") ("Copy" "C-c") ("Paste" "C-v") ("Delete" "Delete")
+      ("Select All" "C-a"))
+     ("Branch"
+      ("Create" "C-n") ("Checkout" "C-o"))
+     ("Commit"
+      ("Amend Last Commit" "C-e") ("Rescan" "F5")
+      ("Stage To Commit" "C-t") ("Stage Changed Files To Commit" "C-i")
+      ("Unstage From Commit" "C-u") ("Revert Changes" "C-j")
+      ("Show Less Context" "C--") ("Show More Context" "C-=")
+      ("Sign Off" "C-s") ("Commit" "C-Return"))
+     ("Merge"
+      ("Local Merge" "C-m"))
+     ("Remote"
+      ("Add" "C-a") ("Push" "C-p")))))
+
 ;;; --- desktop utilities -----------------------------------------------------
 
 (define flameshot
@@ -1712,6 +1768,202 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
      ("View"
       ("Refresh" "F5")))))
 
+;;; --- image viewers, continued ----------------------------------------------
+;; feh is not a menu application at all: its keys act on the image in front,
+;; and its manual lists them one by one.  The chords are therefore bare keys --
+;; pressing q quits, s saves the image under the name feh's own manual gives --
+;; and the two Delete bindings are feh's own distinction between dropping a
+;; file from the list and deleting it from the disk.
+
+(define feh
+  (dict-app
+   "feh"
+   '("feh")
+   '(("File"
+      ("Save Image" "s") ("Remove from Filelist" "Delete")
+      ("Delete File" "C-Delete") ("Quit" "q"))
+     ("View"
+      ("Next Image" "n") ("Previous Image" "p")
+      ("First Image" "Home") ("Last Image" "End")
+      ("Zoom In" "Up") ("Zoom Out" "Down")
+      ("Zoom to Fit" "/") ("Zoom to 100%" "*")
+      ("Reload Image" "r") ("Toggle Fullscreen" "f")
+      ("Toggle Info" "i")))))
+
+;;; --- the system's own applications -----------------------------------------
+;; GNOME's own small programs publish a shortcuts window rather than a menubar,
+;; and that window is the documentation read here.  What it lists without a
+;; chord -- a New Window that only the menu button offers, a Preferences with no
+;; accelerator -- is left out rather than given one.
+
+(define calculator
+  (dict-app
+   "Calculator"
+   '("org.gnome.Calculator" "gnome-calculator" "gcalctool")
+   '(("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z")
+      ("Copy" "C-c") ("Paste" "C-v")
+      ("Previous Equation" "M-Left") ("Next Equation" "M-Right")
+      ("Factorize" "C-f") ("Clear Display" "Escape"))
+     ("View"
+      ("Keyboard Mode" "C-M-k") ("Keyboard Mode (alt.)" "C-M-t")))))
+
+(define system_monitor
+  (dict-app
+   "System Monitor"
+   '("org.gnome.SystemMonitor" "gnome-system-monitor")
+   '(("File"
+      ("Close Window" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Search" "C-f") ("Refresh" "C-r"))
+     ("View"
+      ("Resources" "M-1") ("Processes" "M-2") ("File Systems" "M-3")
+      ("Dependencies" "C-d"))
+     ("Process"
+      ("Properties" "M-Return") ("Memory Maps" "C-m") ("Open Files" "C-o")
+      ("Set Affinity" "M-s")
+      ("Stop" "C-s") ("Continue" "C-c")
+      ("Terminate" "C-t") ("Kill" "C-k")))))
+
+(define logs
+  (dict-app
+   "Logs"
+   '("org.gnome.Logs" "gnome-logs")
+   '(("File"
+      ("New Window" "C-n") ("Close Window" "C-w"))
+     ("Edit"
+      ("Find" "C-f") ("Export" "C-e")))))
+
+(define connections
+  (dict-app
+   "Connections"
+   '("org.gnome.Connections" "gnome-connections")
+   '(("File"
+      ("Quit" "C-q"))
+     ("Edit"
+      ("Search" "C-f"))
+     ("View"
+      ("Fullscreen" "F11")))))
+
+(define clocks
+  (dict-app
+   "Clocks"
+   '("org.gnome.clocks" "gnome-clocks")
+   '(("View"
+      ("World Clocks" "M-1") ("Alarms" "M-2")
+      ("Stopwatch" "M-3") ("Timer" "M-4")))))
+
+(define calendar
+  (dict-app
+   "Calendar"
+   '("org.gnome.Calendar" "gnome-calendar")
+   '(("File"
+      ("New Event" "C-n") ("Close Window" "C-w") ("Quit" "C-q"))
+     ("Edit"
+      ("Search" "C-f"))
+     ("View"
+      ("Toggle Sidebar" "F9")
+      ("Month View" "M-1") ("Week View" "M-2")
+      ("Previous View" "C-Page_Up") ("Next View" "C-Page_Down")
+      ("Go Back" "M-Left") ("Go Forward" "M-Right")
+      ("Today" "M-Down")))))
+
+(define contacts
+  (dict-app
+   "Contacts"
+   '("org.gnome.Contacts" "gnome-contacts")
+   '(("File"
+      ("New Contact" "C-n"))
+     ("Edit"
+      ("Search Contacts" "C-f") ("Save Contact" "C-Return")
+      ("Cancel" "Escape")))))
+
+(define photos
+  (dict-app
+   "Photos"
+   '("org.gnome.Photos" "gnome-photos")
+   '(("File"
+      ("Export" "C-x") ("Print" "C-p") ("Quit" "C-q"))
+     ("Edit"
+      ("Search" "C-f") ("Select All" "C-a")
+      ("Edit Photo" "C-e") ("Delete" "Delete"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Best Fit" "C-0")
+      ("Go Back" "M-Left") ("Fullscreen" "F11")))))
+
+(define cheese
+  (dict-app
+   "Cheese"
+   '("org.gnome.Cheese" "cheese")
+   '(("File"
+      ("Open" "C-o") ("Save As" "C-s")
+      ("Move to Trash" "Delete") ("Delete" "S-Delete")
+      ("Quit" "C-q"))
+     ("View"
+      ("Fullscreen" "F11")))))
+
+(define yelp
+  (dict-app
+   "Help"
+   '("org.gnome.Yelp" "yelp")
+   '(("File"
+      ("New Window" "C-n") ("Print" "C-p") ("Close Window" "C-w"))
+     ("Edit"
+      ("Find in Page" "C-f"))
+     ("View"
+      ("Go Back" "M-Left") ("Go Forward" "M-Right")
+      ("Previous Page" "C-Page_Up") ("Next Page" "C-Page_Down")
+      ("Larger Text" "C-+") ("Smaller Text" "C--")
+      ("Reset Text Size" "C-0")))))
+
+(define seahorse
+  (dict-app
+   "Passwords and Keys"
+   '("seahorse" "org.gnome.Seahorse")
+   '(("View"
+      ("Previous Keyring" "M-Up") ("Next Keyring" "M-Down")
+      ("Show Sidebar" "M-Left") ("Show Keyring Contents" "M-Right")))))
+
+;;; --- games -----------------------------------------------------------------
+;; A game has no File/Edit/View worth the name: what it has is a Game menu and
+;; the board keys its own shortcuts window lists.
+
+(define chess
+  (dict-app
+   "Chess"
+   '("org.gnome.Chess" "gnome-chess")
+   '(("File"
+      ("New Game" "C-n") ("Open Saved Game" "C-o")
+      ("Save Game" "C-s") ("Save Game As" "C-S-s") ("Quit" "C-q"))
+     ("Edit"
+      ("Undo Move" "C-z"))
+     ("Game"
+      ("Pause Game" "C-p")
+      ("Rewind to Game Start" "Up") ("Previous Move" "Left")
+      ("Next Move" "Right") ("Show Last Move" "Down")))))
+
+(define mines
+  (dict-app
+   "Mines"
+   '("org.gnome.Mines" "gnome-mines")
+   '(("Game"
+      ("New Game" "C-n") ("Restart Game" "C-r")
+      ("Pause" "Pause") ("Quit" "C-q"))
+     ("View"
+      ("Small Board" "1") ("Medium Board" "2")
+      ("Large Board" "3") ("Custom Board" "4")))))
+
+(define sudoku
+  (dict-app
+   "Sudoku"
+   '("org.gnome.Sudoku" "gnome-sudoku")
+   '(("File"
+      ("New Game" "C-n"))
+     ("Edit"
+      ("Undo" "C-z") ("Redo" "C-S-z"))
+     ("View"
+      ("Zoom In" "C-+") ("Zoom Out" "C--") ("Reset Zoom" "C-0")))))
+
 ;;; --- the table -------------------------------------------------------------
 
 ;; Every application the dictionary knows, in the order it is written.
@@ -1778,6 +2030,8 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
         onlyoffice
         abiword
         gnumeric
+        libreoffice_math
+        libreoffice_base
         geary
         darktable
         scribus
@@ -1796,6 +2050,7 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
         dbeaver
         meld
         bitwarden
+        git_gui
         flameshot
         file_roller
         ark
@@ -1810,7 +2065,22 @@ chord the parser cannot spell, with #f for the modifiers of a bare key."
         gnome_settings
         gnome_tweaks
         virt_manager
-        filezilla))
+        filezilla
+        feh
+        calculator
+        system_monitor
+        logs
+        connections
+        clocks
+        calendar
+        contacts
+        photos
+        cheese
+        yelp
+        seahorse
+        chess
+        mines
+        sudoku))
 
 ;;; =========================================================================
 ;;; WHAT A SETTINGS FILE MAY ADD
