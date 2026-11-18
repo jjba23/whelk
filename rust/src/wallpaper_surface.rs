@@ -420,6 +420,13 @@ fn create_surface(
         if let Some(monitor) = monitor {
             window.set_monitor(Some(monitor));
         }
+
+        // A GTK window does not take its size from the compositor's configure:
+        // a layer client asks for one.  An anchored surface without a size is
+        // only as large as its content -- which is how a desktop ended up with
+        // the picture drawn in one corner of the screen.
+        let (width, height) = surface_size(monitor);
+        window.set_default_size(width, height);
     } else {
         // Broadway and X11 have no layer shell.  Keep the same widget tree in
         // a normal window so the backend can still be developed and smoke
@@ -435,6 +442,24 @@ fn create_surface(
             media: RefCell::new(None),
         },
     )
+}
+
+/// The size a background surface asks for: its output's whole geometry.
+///
+/// A background is anchored on all four edges, so the compositor would clip it
+/// to the output -- but it will not *enlarge* a GTK window that never asked for
+/// a size, which is a wallpaper painted in one corner.  A monitor that reports
+/// nothing usable keeps the fallback, so a headless backend still runs.
+pub fn surface_size(monitor: Option<&gtk::gdk::Monitor>) -> (i32, i32) {
+    let fallback = gtk::gdk::Display::default()
+        .and_then(|display| display.monitors().item(0))
+        .and_downcast::<gtk::gdk::Monitor>();
+    let Some(monitor) = monitor.or(fallback.as_ref()) else {
+        return (960, 540);
+    };
+    let geometry = monitor.geometry();
+
+    (geometry.width().max(1), geometry.height().max(1))
 }
 
 fn load_into_surface(

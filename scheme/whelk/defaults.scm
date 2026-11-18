@@ -225,6 +225,15 @@ Click: devices")
                                   #:tooltip "Notifications: {count}
 Click: centre · Right-click: do not disturb")
 
+            ;; The wallpapers, picked by whelk itself: a click opens the card
+            ;; of thumbnails, a right click the full picker.  No heks-toon, no
+            ;; second program -- the picture is applied through whelk's own
+            ;; GUI preference.
+            (wallpaper-module #:icon "\uf03e"
+                              #:format "{icon}"
+                              #:tooltip "Wallpaper: pick one
+Click: the wallpapers · Right-click: the full picker")
+
             ;; The two at the far right: search, then the clock.
             (custom-module #:exec "printf '\\uf002'"
                            #:interval 0
@@ -263,18 +272,6 @@ Click: system monitor · Right-click: btop"
 Click: read · Right-click: the API reference"
                               #:on-click "heks-toon docs"
                               #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
-               (wallpaper-module #:icon "\uf03e"
-                                 #:format "{icon}"
-                                 #:tooltip "Wallpaper: pick one
-Click: the wallpapers · Right-click: the full picker")
-               (custom-module #:exec "printf '\\uf53f'"
-                              #:interval 0
-                              #:format "{icon}"
-                              #:icon "\uf53f"
-                              #:tooltip "Palette: browse the palettes
-Click: browse · Right-click: the material settings"
-                              #:on-click "heks-toon palettes"
-                              #:on-click-right "whelk --settings")
                (language-module #:codes "us,nl"
                                 #:interval 2
                                 #:format " {text}"

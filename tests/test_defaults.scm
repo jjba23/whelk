@@ -192,15 +192,15 @@
 (check "the right half keeps the reference's order"
        (equal? (kinds (bar-config-modules-right built-in))
                '(mpris clipboard custom dnd custom custom memory audio keyboard
-                 battery power-profile wifi bluetooth tray notifications custom
-                 clock)))
+                 battery power-profile wifi bluetooth tray notifications wallpaper
+                 custom clock)))
 
 ;; The readings that are consulted rather than glanced at -- the load, the ways
 ;; into the machine's own tools, the keyboard layout and the brightness -- live
 ;; on the row's shelf instead of taking its width all day.
 (check "the reference shelf is the configured overflow"
        (equal? (kinds (bar-config-modules-overflow built-in))
-               '(cpu custom wallpaper custom language backlight)))
+               '(cpu custom language backlight)))
 
 (check "the overflow starts closed"
        (not (bar-config-overflow-expanded? built-in)))
