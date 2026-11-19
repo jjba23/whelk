@@ -824,6 +824,47 @@ fn schedule(interval: u32, update: Rc<dyn Fn() -> bool>) -> Option<gtk::glib::So
 /// any one; Open-Meteo does not care either way.
 const USER_AGENT: &str = concat!("whelk/", env!("CARGO_PKG_VERSION"));
 
+/// Why a card has no reading.
+///
+/// The two failures need different words.  A refused or timed-out request may
+/// answer on the next tick, but a missing `curl` never will, and a card that
+/// says "unavailable" for both leaves the user with nothing to fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchError {
+    /// `curl` is not on `PATH`; nothing about the network was tried.
+    NoCurl,
+    /// `curl` ran and answered nothing usable: refused, timed out, or empty.
+    Failed,
+}
+
+/// What a card says when it has no reading: a headline, and the line under it.
+///
+/// The headline names `curl` when `curl` is the reason, because that is the one
+/// failure the user has to fix; `what` only appears in the ordinary case, so a
+/// Weather card reads "Weather unavailable" and a Stocks footnote "Quotes
+/// unavailable", as they always have.
+pub fn failure_lines(error: FetchError, what: &str) -> (String, &'static str) {
+    match error {
+        FetchError::NoCurl => (
+            "curl is not installed".to_owned(),
+            "install curl, or put it on PATH",
+        ),
+        FetchError::Failed => (format!("{what} unavailable"), ""),
+    }
+}
+
+/// The one line a session with no `curl` gets, so a card that never loads has
+/// an explanation in the journal and not only in its own pixels.
+fn warn_missing_curl() {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+
+    WARNED.call_once(|| {
+        eprintln!(
+            "whelk: weather and stock cards read the network with curl, which is not on PATH"
+        );
+    });
+}
+
 /// One asynchronous answer, dropped when the card that asked is gone.
 ///
 /// The request is `curl`'s, not GIO's: `gio::File::for_uri` reaches the network
@@ -832,8 +873,23 @@ const USER_AGENT: &str = concat!("whelk/", env!("CARGO_PKG_VERSION"));
 /// sat on "unavailable" on a machine where `curl` fetched the same URL in a
 /// second.  `command::run` keeps the child off the main loop and delivers its
 /// answer there, so the card still never blocks.
-fn fetch(url: String, busy: Rc<Cell<bool>>, done: impl FnOnce(Option<String>) + 'static) {
+fn fetch(
+    url: String,
+    busy: Rc<Cell<bool>>,
+    done: impl FnOnce(Result<String, FetchError>) + 'static,
+) {
     if busy.replace(true) {
+        return;
+    }
+
+    // A missing `curl` is not a network failure: asking the shell for it first
+    // means the card can say what is wrong instead of retrying a program that
+    // is not there, every tick, forever.
+    if crate::session::program_in_path("curl").is_none() {
+        busy.set(false);
+        warn_missing_curl();
+        done(Err(FetchError::NoCurl));
+
         return;
     }
 
@@ -848,7 +904,10 @@ fn fetch(url: String, busy: Rc<Cell<bool>>, done: impl FnOnce(Option<String>) + 
 
         // `curl --fail` reports a refusal as a failure, so an error page is not
         // parsed as a reading; an empty answer is not one either.
-        done(answer.filter(|text| !text.trim().is_empty()));
+        done(match answer {
+            Some(text) if !text.trim().is_empty() => Ok(text),
+            _ => Err(FetchError::Failed),
+        });
     });
 }
 
@@ -1216,11 +1275,13 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
             place_label.set_visible(true);
         }
 
-        fetch(url.clone(), Rc::clone(&busy), move |text| {
-            match text
-                .as_deref()
-                .and_then(|text| widgets::parse_weather(text, !imperial))
-            {
+        fetch(url.clone(), Rc::clone(&busy), move |answer| {
+            let reading = match &answer {
+                Ok(text) => widgets::parse_weather(text, !imperial),
+                Err(_) => None,
+            };
+
+            match reading {
                 Some(reading) => {
                     icon_label.set_text(reading.glyph);
                     temperature_label.set_text(&reading.temperature);
@@ -1229,11 +1290,19 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
                     details_label.set_text(&reading.details);
                 }
                 None => {
+                    // A body that parsed to nothing is a failed read too, and
+                    // the card says which failure it was.
+                    let error = match answer {
+                        Ok(_) => FetchError::Failed,
+                        Err(error) => error,
+                    };
+                    let (headline, hint) = failure_lines(error, "Weather");
+
                     icon_label.set_text("·");
                     temperature_label.set_text("—");
-                    condition_label.set_text("Weather unavailable");
+                    condition_label.set_text(&headline);
                     range_label.set_text("");
-                    details_label.set_text("");
+                    details_label.set_text(hint);
                 }
             }
         });
@@ -1560,18 +1629,26 @@ fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
         let footnote_answer = footnote.clone();
         let wanted = symbols.clone();
 
-        fetch(url.clone(), Rc::clone(&busy), move |text| {
-            let quotes = text
-                .as_deref()
-                .map(|text| widgets::parse_stocks(text, &wanted))
-                .unwrap_or_default();
+        fetch(url.clone(), Rc::clone(&busy), move |answer| {
+            let quotes = match &answer {
+                Ok(text) => widgets::parse_stocks(text, &wanted),
+                Err(_) => Vec::new(),
+            };
 
             apply_quotes(&quoted, &quotes);
-            footnote_answer.set_text(if quotes.is_empty() {
-                "Quotes unavailable"
+
+            let footnote_text = if quotes.is_empty() {
+                let error = match answer {
+                    Ok(_) => FetchError::Failed,
+                    Err(error) => error,
+                };
+
+                failure_lines(error, "Quotes").0
             } else {
-                "Delayed quotes · Yahoo Finance"
-            });
+                "Delayed quotes · Yahoo Finance".to_owned()
+            };
+
+            footnote_answer.set_text(&footnote_text);
         });
 
         true

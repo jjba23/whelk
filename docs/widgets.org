@@ -80,10 +80,17 @@ both keep their request off the main loop: the request is made by =curl= in a
 child process, not by GIO, because a shell started by a compositor commonly has
 no GVfs daemon and no HTTP backend behind it -- which is why these two cards
 used to sit on "unavailable" while =curl= fetched the same URL in a second.
-whelk's packages carry =curl= for that reason.  The request also names itself:
-Yahoo answers 429 to a request with no =User-Agent= and 200 to the same URL
-with one.  A failed request leaves the card's last reading in place rather than
-painting an error over it.  A card sits on the layer-shell
+whelk's packages carry =curl= for that reason -- Nix puts its store path on the
+wrapped binary's =PATH=, and the Guix package wraps the binary the same way, so
+a compositor-spawned shell finds it without a login shell's environment.  The
+request also names itself: Yahoo answers 429 to a request with no =User-Agent=
+and 200 to the same URL with one.
+
+A failed request leaves the card's last reading in place rather than painting an
+error over it, but a =curl= that is not on =PATH= is said out loud: the Weather
+card reads *curl is not installed* with *install curl, or put it on PATH* under
+it, a Stocks card puts the same words in its footnote, and the shell prints one
+line to its log rather than retrying a program that is not there every tick.  A card sits on the layer-shell
 =bottom= layer, takes no keyboard and reserves no screen space, so it is
 visible on the desktop and under the windows rather than over them.  Saving the
 settings file rebuilds every card with the bars.

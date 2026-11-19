@@ -87,7 +87,7 @@ with no login manager is ended by the compositor itself.
 | Media players          | MPRIS on the session bus                                    | the module hides                                         |
 | Power profiles         | =power-profiles-daemon= and =powerprofilesctl=              | the module hides                                         |
 | Night light            | =wlr-gamma-control-unstable-v1=, or RandR on X11            | the picker explains that this display refuses gamma      |
-| Weather, stocks        | =curl=                                                      | the card shows its error instead of figures              |
+| Weather, stocks        | =curl=                                                      | the card names curl and how to fix it              |
 | Typing accelerators    | =wtype=                                                     | rows keep their labels and lose the shortcut keys        |
 | Launcher, app menus    | XDG desktop entries and directories                         | it lists what the machine has, which is nothing          |
 

@@ -64,7 +64,21 @@
              (invoke "cargo" "run" "--offline" "--locked"
                      "-p" "xtask" "--" "install"
                      "--prefix" (assoc-ref outputs "out")
-                     "--no-build"))))))
+                     "--no-build")))
+         ;; `wtype` and `curl` are called by name at run time, and a compositor
+         ;; starts the shell with the PATH it inherited -- not a login shell's,
+         ;; and not necessarily the profile that carries propagated inputs.  A
+         ;; propagated input only reaches the profile of whoever installs the
+         ;; package, so the binary carries both store paths itself; the cards
+         ;; and the menu shortcuts then work however the session was started.
+         (add-after 'install 'wrap-runtime-tools
+           (lambda* (#:key inputs outputs #:allow-other-keys)
+             (let* ((binary (string-append (assoc-ref outputs "out")
+                                           "/bin/whelk"))
+                    (tools (list (dirname (search-input-file inputs "/bin/wtype"))
+                                 (dirname (search-input-file inputs "/bin/curl")))))
+               (wrap-program binary
+                 `("PATH" ":" prefix (,@tools)))))))))
     (native-inputs
      (list (list glib "bin")
            dbus ; the notification tests use a private session bus
@@ -79,7 +93,11 @@
             gtk4-layer-shell
             guile-3.0
             linux-pam
-            wayland)))
+            wayland
+            ;; Called by name at run time; found by the wrap phase below, and
+            ;; propagated as well so a profile carries them for scripts.
+            curl
+            wtype)))
     ;; whelk invokes wtype by name to type a menu shortcut, and curl to read a
     ;; weather or stock card.  Both have to be in the package's profile, not
     ;; only in the build environment, or a shell and a desktop launch would not

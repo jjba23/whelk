@@ -156,3 +156,33 @@ fn a_reminder_marker_in_the_text_is_escaped_too() {
         "a &gt; b"
     );
 }
+
+#[test]
+fn a_missing_curl_is_named_instead_of_saying_unavailable() {
+    // "unavailable" does not tell anyone what to fix; a missing curl does, and
+    // it is the one failure the user can fix without a network.
+    let (headline, hint) =
+        desktopwidgets::failure_lines(desktopwidgets::FetchError::NoCurl, "Weather");
+
+    assert_eq!(headline, "curl is not installed");
+    assert_eq!(hint, "install curl, or put it on PATH");
+
+    // The stocks card names the same fault, and its card has no second line.
+    let (headline, _) = desktopwidgets::failure_lines(desktopwidgets::FetchError::NoCurl, "Quotes");
+
+    assert_eq!(headline, "curl is not installed");
+}
+
+#[test]
+fn an_ordinary_failed_read_keeps_the_old_wording() {
+    for (what, expected) in [
+        ("Weather", "Weather unavailable"),
+        ("Quotes", "Quotes unavailable"),
+    ] {
+        let (headline, hint) =
+            desktopwidgets::failure_lines(desktopwidgets::FetchError::Failed, what);
+
+        assert_eq!(headline, expected);
+        assert_eq!(hint, "", "a network failure has no advice to give");
+    }
+}
