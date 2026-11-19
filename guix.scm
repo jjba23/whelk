@@ -11,6 +11,7 @@
              ((guix licenses)
               #:prefix license:)
              (gnu packages admin)
+             (gnu packages curl)
              (gnu packages freedesktop)
              (gnu packages glib)
              (gnu packages gtk)
@@ -79,10 +80,11 @@
             guile-3.0
             linux-pam
             wayland)))
-    ;; whelk invokes wtype by name to type a menu shortcut.  It has to be in
-    ;; the package's profile, not only the build environment, or a shell and a
-    ;; desktop launch would not put it on PATH.
-    (propagated-inputs (list wtype))
+    ;; whelk invokes wtype by name to type a menu shortcut, and curl to read a
+    ;; weather or stock card.  Both have to be in the package's profile, not
+    ;; only in the build environment, or a shell and a desktop launch would not
+    ;; put them on PATH.
+    (propagated-inputs (list wtype curl))
     (home-page "https://github.com/jjba23/whelk")
     (synopsis "Wayland shell configured with GNU Guile Scheme")
     (description

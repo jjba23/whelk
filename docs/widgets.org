@@ -69,14 +69,21 @@ names.  The kind-specific options are:
 | =weather=     | =latitude=, =longitude=, =location=, =units= (=metric= or =imperial=)   |
 | =battery=     | =device=, =warning=, =critical=                                        |
 | =notes=       | =text=, or =file= to read the note from disk                          |
-| =reminders=   | =items=, a list; prefix an item with =x= to mark it done; a row toggles when clicked |
+| =reminders=   | =items=, a list; prefix an item with =x= to mark it done; a row toggles when clicked; the card counts what is left |
 | =world-clock= | =cities=, as ="Name=Zone"= entries separated by commas                |
 | =stocks=      | =symbols=, a list of Yahoo Finance tickers                            |
 | =custom=      | =exec=, =interval=, =empty=; anything a command can print              |
 
 Weather asks [[https://open-meteo.com][Open-Meteo]] for the current conditions and today's high and low;
 Stocks asks Yahoo Finance for delayed quotes.  Neither needs an API key, and
-both keep their request off the main loop.  A card sits on the layer-shell
+both keep their request off the main loop: the request is made by =curl= in a
+child process, not by GIO, because a shell started by a compositor commonly has
+no GVfs daemon and no HTTP backend behind it -- which is why these two cards
+used to sit on "unavailable" while =curl= fetched the same URL in a second.
+whelk's packages carry =curl= for that reason.  The request also names itself:
+Yahoo answers 429 to a request with no =User-Agent= and 200 to the same URL
+with one.  A failed request leaves the card's last reading in place rather than
+painting an error over it.  A card sits on the layer-shell
 =bottom= layer, takes no keyboard and reserves no screen space, so it is
 visible on the desktop and under the windows rather than over them.  Saving the
 settings file rebuilds every card with the bars.
@@ -129,9 +136,14 @@ commands from the settings file, so a Notes card can open the note in an editor,
 a Weather card can refresh a script and a right click can show a menu.  What
 needs no configuration is built in: the calendar's =‹= and =›= buttons change
 the month and its month title returns to today; a Reminders row toggles between
-done and not done and that state is saved in the same state file; a clock, a
-weather card and a stock card keep their own refresh timers.  Notes remains
-read-only: its text is what the settings file or the note file says.
+done and not done and that state is saved in the same state file, with a line
+above the rows that says how many are done and an empty state that says what to
+configure; a clock, a weather card and a stock card keep their own refresh
+timers.  Notes remains read-only: its text is what the settings file or the
+note file says.  It is drawn as prose rather than as a dump of a file -- words
+wrap at word boundaries, paragraphs keep one blank line between them, tabs are
+expanded and trailing spaces go -- and a card with no =#:text= and no =#:file=
+says so quietly instead of showing the note placeholder.
 
 The standard set is a starting layout down the left and middle of a 1080p
 desktop, aligned to the same eight-pixel grid a dragged card snaps to.  It is

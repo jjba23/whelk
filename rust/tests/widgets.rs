@@ -661,6 +661,20 @@ fn a_card_says_how_often_it_reads() {
 }
 
 #[test]
+fn a_note_loses_its_ragged_whitespace_and_not_its_paragraphs() {
+    assert_eq!(
+        widgets::note_display("  Groceries  \n\n\n\n- milk\n\t- bread   \n\n"),
+        "  Groceries\n\n- milk\n    - bread",
+        "one blank line between paragraphs, no tabs, no trailing spaces"
+    );
+    assert_eq!(
+        widgets::note_display("\n\n\nsingle line\n\n"),
+        "single line"
+    );
+    assert_eq!(widgets::note_display(""), "");
+}
+
+#[test]
 fn the_family_and_the_anchor_survive_the_bridge() {
     let card = WidgetConfig::from_alist(&[
         ("kind".to_owned(), text("calendar")),

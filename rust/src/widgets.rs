@@ -1115,6 +1115,39 @@ pub fn note_text(file: Option<&str>, text: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_NOTE.to_owned())
 }
 
+/// A note as a card draws it.
+///
+/// A note is usually a file someone typed in an editor: trailing spaces,
+/// tabs, and the two or three blank lines a person leaves between thoughts.
+/// Drawn as they are, those read as ragged text in a narrow card.  This keeps
+/// the paragraph breaks that mean something, expands a tab to four spaces,
+/// drops trailing whitespace from every line and collapses every run of blank
+/// lines to one -- so a paragraph gap is the same height wherever it happens.
+pub fn note_display(text: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut pending_blank = false;
+
+    for line in text.lines() {
+        let expanded = line.replace('\t', "    ");
+        let trimmed = expanded.trim_end();
+
+        if trimmed.trim().is_empty() {
+            // A blank line only separates anything once something precedes it.
+            pending_blank = !lines.is_empty();
+            continue;
+        }
+
+        if pending_blank {
+            lines.push(String::new());
+            pending_blank = false;
+        }
+
+        lines.push(trimmed.to_owned());
+    }
+
+    lines.join("\n")
+}
+
 /// A custom card's reading: the command's output, the configured empty answer,
 /// or the one that says how to configure it.
 pub fn custom_text(output: Option<&str>, empty: Option<&str>) -> String {

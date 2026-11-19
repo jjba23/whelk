@@ -111,13 +111,38 @@ const CARD_CSS: &str = "
     }
     .whelk-widget-note {
         font-size: 13px;
+        margin-top: 2px;
+    }
+    .whelk-widget-note.empty {
+        opacity: 0.5;
+        font-style: italic;
     }
     .whelk-widget-reminder {
         font-size: 13px;
     }
+    .whelk-widget-reminder-list {
+        margin-top: 2px;
+    }
     .whelk-widget-reminder-row {
-        padding: 2px 4px;
-        border-radius: 6px;
+        padding: 3px 6px;
+        border-radius: 7px;
+        min-height: 26px;
+    }
+    .whelk-widget-reminder-row:hover {
+        background-color: alpha(currentColor, 0.07);
+    }
+    .whelk-widget-reminder-mark {
+        opacity: 0.45;
+    }
+    .whelk-widget-reminder-done {
+        opacity: 1;
+    }
+    .whelk-widget-reminder.done {
+        opacity: 0.5;
+    }
+    .whelk-widget-progress {
+        font-size: 11px;
+        opacity: 0.5;
     }
     .whelk-widget-city {
         font-size: 14px;
@@ -127,7 +152,18 @@ const CARD_CSS: &str = "
         font-weight: 700;
         font-feature-settings: \"tnum\";
     }
+    .whelk-widget-stock-row {
+        padding: 3px 0;
+    }
     .whelk-widget-stock-symbol {
+        font-weight: 700;
+        font-size: 13px;
+    }
+    .whelk-widget-stock-price {
+        font-feature-settings: \"tnum\";
+    }
+    .whelk-widget-stock-change {
+        font-size: 12px;
         font-weight: 700;
     }
     .whelk-widget-stock-change.up {
@@ -783,22 +819,36 @@ fn schedule(interval: u32, update: Rc<dyn Fn() -> bool>) -> Option<gtk::glib::So
     Some(repeat(interval, update))
 }
 
+/// The name the cards introduce themselves with.  Yahoo answers 429 to a
+/// request that carries no `User-Agent` at all and 200 to the same URL with
+/// any one; Open-Meteo does not care either way.
+const USER_AGENT: &str = concat!("whelk/", env!("CARGO_PKG_VERSION"));
+
 /// One asynchronous answer, dropped when the card that asked is gone.
+///
+/// The request is `curl`'s, not GIO's: `gio::File::for_uri` reaches the network
+/// through GVfs, and a shell started by a compositor commonly has no GVfs
+/// daemon or HTTP backend at all -- which is why a Weather and a Stocks card
+/// sat on "unavailable" on a machine where `curl` fetched the same URL in a
+/// second.  `command::run` keeps the child off the main loop and delivers its
+/// answer there, so the card still never blocks.
 fn fetch(url: String, busy: Rc<Cell<bool>>, done: impl FnOnce(Option<String>) + 'static) {
     if busy.replace(true) {
         return;
     }
 
-    let file = gtk::gio::File::for_uri(&url);
+    let command_line = format!(
+        "curl --fail --silent --show-error --location --max-time 20 --user-agent {} {}",
+        gtk::glib::shell_quote(USER_AGENT).to_string_lossy(),
+        gtk::glib::shell_quote(url.as_str()).to_string_lossy()
+    );
 
-    file.load_contents_async(None::<&gtk::gio::Cancellable>, move |result| {
+    command::run(&command_line, move |answer| {
         busy.set(false);
 
-        let text = result
-            .ok()
-            .map(|(bytes, _etag)| String::from_utf8_lossy(&bytes).into_owned());
-
-        done(text);
+        // `curl --fail` reports a refusal as a failure, so an error page is not
+        // parsed as a reading; an empty answer is not one either.
+        done(answer.filter(|text| !text.trim().is_empty()));
     });
 }
 
@@ -1102,20 +1152,26 @@ fn render_month(grid: &gtk::Grid, heading: &gtk::Button, month: (i32, u32)) {
 
 fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
     let place = label("", "whelk-widget-subtle", 0.0);
-    let reading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let reading = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let icon = label("·", "whelk-widget-weather-icon", 0.5);
     let temperature = label("—", "whelk-widget-temperature", 0.0);
     let condition = label("", "whelk-widget-reading", 0.0);
     let range = label("", "whelk-widget-subtle", 0.0);
     let details = label("", "whelk-widget-subtle", 0.0);
 
+    // The glyph, the degrees and the condition are one line; the place is only
+    // written when the card was told where it is, because "San Francisco" on a
+    // card pointed at another city is worse than no name at all.
     reading.set_hexpand(true);
     icon.set_valign(gtk::Align::Center);
+    temperature.set_valign(gtk::Align::Baseline);
+    condition.set_valign(gtk::Align::Baseline);
+    place.set_visible(false);
     reading.append(&icon);
     reading.append(&temperature);
+    reading.append(&condition);
     card.append(&place);
     card.append(&reading);
-    card.append(&condition);
     card.append(&range);
     card.append(&details);
 
@@ -1129,10 +1185,7 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
         .unwrap_or_else(|| "-122.4194".to_owned());
     let imperial = config.spec.text("units").as_deref() == Some("imperial");
     let url = widgets::weather_url(&latitude, &longitude, imperial);
-    let location = config
-        .spec
-        .text("location")
-        .unwrap_or_else(|| "San Francisco".to_owned());
+    let location = config.spec.text("location");
     let busy = Rc::new(Cell::new(false));
     let (weak_place, weak_icon) = (place.downgrade(), icon.downgrade());
     let (weak_temperature, weak_condition) = (temperature.downgrade(), condition.downgrade());
@@ -1158,7 +1211,10 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
             return false;
         };
 
-        place_label.set_text(&location);
+        if let Some(location) = location.as_deref() {
+            place_label.set_text(location);
+            place_label.set_visible(true);
+        }
 
         fetch(url.clone(), Rc::clone(&busy), move |text| {
             match text
@@ -1265,9 +1321,12 @@ fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
     let body = label("", "whelk-widget-note", 0.0);
 
     body.set_wrap(true);
-    body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    // Words, not characters: a note is read, and `WordChar` split words across
+    // lines whenever a line was a pixel short of the next word.
+    body.set_wrap_mode(gtk::pango::WrapMode::Word);
     body.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    body.set_lines(7);
+    body.set_lines(9);
+    body.set_justify(gtk::Justification::Left);
     body.set_yalign(0.0);
     body.set_vexpand(true);
     body.set_hexpand(true);
@@ -1275,6 +1334,7 @@ fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
 
     let file = config.spec.text("file");
     let text = config.spec.text("text");
+    let configured = file.is_some() || text.is_some();
     let interval = config.interval();
     let weak_body = body.downgrade();
 
@@ -1283,7 +1343,15 @@ fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
             return false;
         };
 
-        body.set_text(&widgets::note_text(file.as_deref(), text.as_deref()));
+        let note = widgets::note_display(&widgets::note_text(file.as_deref(), text.as_deref()));
+
+        if !configured {
+            body.set_text("No note yet — set #:text or #:file.");
+            body.add_css_class("empty");
+        } else {
+            body.set_text(&note);
+            body.remove_css_class("empty");
+        }
 
         true
     });
@@ -1294,9 +1362,11 @@ fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
 fn build_reminders(card: &gtk::Box, config: &WidgetConfig, state_path: Option<&Path>, id: &str) {
     let saved = state_path.and_then(|path| widgetstate::get(path, id, widgets::REMINDER_STATE_KEY));
     let reminders = Reminders::restore(saved.as_deref(), config.spec.text("items").as_deref());
-    let list = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let progress = label("", "whelk-widget-progress", 0.0);
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
     let state = Rc::new(ReminderCard {
         list: list.clone(),
+        progress,
         reminders: RefCell::new(reminders),
         state_path: state_path.map(Path::to_path_buf),
         id: id.to_owned(),
@@ -1304,6 +1374,7 @@ fn build_reminders(card: &gtk::Box, config: &WidgetConfig, state_path: Option<&P
 
     list.add_css_class("whelk-widget-reminder-list");
     list.set_vexpand(true);
+    card.append(&state.progress);
     card.append(&list);
     state.render();
 }
@@ -1313,6 +1384,9 @@ fn build_reminders(card: &gtk::Box, config: &WidgetConfig, state_path: Option<&P
 /// not be toggled back to life.
 struct ReminderCard {
     list: gtk::Box,
+    /// "2 of 5 done", or a line saying what to configure when there is nothing
+    /// to tick.
+    progress: gtk::Label,
     reminders: RefCell<Reminders>,
     state_path: Option<PathBuf>,
     id: String,
@@ -1324,7 +1398,18 @@ impl ReminderCard {
             child.unparent();
         }
 
-        for (index, row) in self.reminders.borrow().rows().iter().enumerate() {
+        let rows = self.reminders.borrow().rows();
+        let done = rows.iter().filter(|row| row.done).count();
+
+        self.progress.set_text(&if rows.is_empty() {
+            "No reminders — add #:items.".to_owned()
+        } else if done == rows.len() {
+            format!("All {} done", rows.len())
+        } else {
+            format!("{done} of {} done", rows.len())
+        });
+
+        for (index, row) in rows.iter().enumerate() {
             let button = gtk::Button::new();
             let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
             let mark = label(
@@ -1341,8 +1426,12 @@ impl ReminderCard {
 
             text.set_markup(&reminder_markup(row));
             text.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            text.set_max_width_chars(28);
             text.set_hexpand(true);
+
+            if row.done {
+                text.add_css_class("done");
+            }
+
             content.append(&mark);
             content.append(&text);
             button.set_child(Some(&content));
@@ -1429,7 +1518,12 @@ fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
         let price = label("—", "whelk-widget-stock-price", 1.0);
         let change = label("", "whelk-widget-stock-change", 1.0);
 
+        // Two fixed columns so the prices and the changes line up down the
+        // card instead of each row finding its own width.
         name.set_hexpand(true);
+        price.set_width_chars(9);
+        change.set_width_chars(8);
+        line.add_css_class("whelk-widget-stock-row");
         line.append(&name);
         line.append(&price);
         line.append(&change);
@@ -1504,11 +1598,12 @@ fn build_custom(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
     let body = label("", "whelk-widget-note", 0.0);
 
     body.set_wrap(true);
-    body.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    body.set_wrap_mode(gtk::pango::WrapMode::Word);
     body.set_ellipsize(gtk::pango::EllipsizeMode::End);
     body.set_lines(8);
     body.set_yalign(0.0);
     body.set_vexpand(true);
+    body.set_hexpand(true);
     card.append(&body);
 
     let exec = config.spec.text("exec");
