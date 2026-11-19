@@ -49,6 +49,11 @@ stable before committing:
 and the new tag, creates the release and uploads the tarball; that is an explicit
 release action, not a side effect of running the tests.
 
+=verify= also names the bar's CSS fixtures ([[file:development.org][the development guide]]) and
+refuses to start with =WHELK_BLESS= set: the goldens under
+=tests/fixtures/css/= are there to catch a stylesheet regression, and a gate
+that blessed them would hide the change it is meant to catch.
+
 * What publish does, in order
 
 #+name: publish

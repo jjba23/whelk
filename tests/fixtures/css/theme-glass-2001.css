@@ -1,0 +1,24 @@
+window#whelk-main .whelk-bar {
+  color: #1b1f24;
+  background-color: rgb(232, 235, 239);
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(47, 111, 208, 0.024) 0%, rgba(47, 111, 208, 0.000) 48%),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.099) 0%, rgba(255, 255, 255, 0.000) 36%),
+    linear-gradient(to top, rgba(255, 255, 255, 0.018) 0%, rgba(255, 255, 255, 0.000) 32%);
+  border: 1px solid #b4bcc7;
+  border-radius: 6px;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.187), 0 4px 3px rgba(0, 0, 0, 0.30);
+}
+window#whelk-main .whelk-bar { padding: 0 12px; }
+window#whelk-main .whelk-module,
+window#whelk-main .whelk-overflow-toggle,
+window#whelk-main .whelk-overflow-more {
+  padding: 0 3px;
+}
+window#whelk-main .whelk-workspace.active { color: #2f6fd0; }
+window#whelk-main .whelk-battery.charging { color: #2f6fd0; }
+window#whelk-main .whelk-accent { color: #2f6fd0; }
+window#whelk-main button.accent { background-color: #e8ebef; color: #2f6fd0; }
+/* The configuration's own rules */
+.whelk-bar .whelk-start-button { font-weight: 700; }
+

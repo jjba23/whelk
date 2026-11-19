@@ -9,6 +9,58 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+** Added
+
+- *=whelk --status= says why the bar is blank.*  A module that has nothing to
+  show looks the same whether the tool it shells out to is missing, the session
+  is not the compositor it speaks to, or the system bus has no =login1=, and
+  finding out meant running the module's own =command -v= by hand.  One
+  read-only command now prints the session and the variable or probe that
+  named it, the process behind =org.freedesktop.login1= (=systemd-logind= or
+  =elogind=, with its pid), where each run-time tool (=curl=, =wtype=,
+  =wl-copy=, =nmcli=, =bluetoothctl=, =wpctl= or =pactl=, =brightnessctl=,
+  =systemd-inhibit= or =elogind-inhibit=) was found, and one line per
+  configured module: =ok= with what it found, =blank= with the reason, or
+  =unchecked= for the two that need a live service (a player, a tray host).
+  =--status --json= prints the same facts for a script.  It changes nothing
+  and starts no shell, and the existing =--check-config=, =--check-lock= and
+  =--idle-status= keep their answers.
+- *A Weather or Stocks card says how old its reading is.*  A failed refresh
+  used to leave the last reading on the card with nothing to say whether it
+  was a minute or a day old, and a card that never loaded said "unavailable"
+  over and over.  Both cards now share one =Health= value -- ready with the
+  time of the last good read, stale with that time and the error that stopped
+  the refresh, failed with the error and when it last tried -- and once the
+  reading is older than twice the card's own interval (an hour for Weather,
+  ten minutes for Stocks) one quiet line appears under it, *42 min ago*.  The
+  age is re-read every thirty seconds so it keeps moving between fetches, a
+  card with a reading keeps its reading through a failed refresh, and the last
+  error is in the hover title of the whole card.
+- *=whelk --print-css= prints the skin the shell would generate.*  A bar's CSS
+  is built from its theme and its own numbers, and until now the only way to
+  see it was to read =src/style.rs= or to guess.  The flag loads the settings
+  file, resolves the theme exactly as the shell does, and prints each bar's
+  sheet under a comment naming the bar, its theme and its widget id -- the
+  bar's =#:css=, the theme's =css= and the =#:frost= finish included, and no
+  display needed.  =docs/themes.org= now also lists the metrics that sheet
+  derives (the module inset and glyph gap from =#:spacing=, =#:padding=,
+  =#:height= and the radius), the classes and ids =#:css= may target, and which
+  of two competing rules the cascade picks.
+
+** Changed
+
+- *The lock screen refuses to lock a session it could not unlock.*  Before it
+  builds a surface, whelk now checks that this machine can both cover the
+  session and check a password: a display, =ext-session-lock-v1= or layer
+  shell, and a PAM stack it can start (or the host's =unix_chkpwd= where no
+  administrator policy exists).  A missing piece used to surface only after
+  the screen was already covered -- the session stayed locked with
+  "Authentication is unavailable" and the way back was a VT switch or a shell
+  restart.  It now logs =whelk-lock: not locking: <reason>= and exits with
+  failure, leaving the session unlocked, and releases a suspend's sleep delay
+  at once instead of at its ten-second timeout.  =whelk --check-lock= ends
+  with =authentication preflight:= and the same answer.
+
 *[Released]
 
 ** v0.46.0 (2026-11-19)

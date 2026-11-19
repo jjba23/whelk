@@ -8,7 +8,9 @@ The lock screen, the two ways it can be presented, and what every failure messag
 #+caption: One way in, one way out.  The compositor path is the hardened one; the fallback keeps the session locked where no protocol exists.
 #+begin_src mermaid
 flowchart TD
-    A["whelk --lock<br/>shell:lock<br/>logind's Lock signal<br/>the idle timer, suspend, a VT switch"] --> B{"compositor implements<br/>ext-session-lock-v1?"}
+    A["whelk --lock<br/>shell:lock<br/>logind's Lock signal<br/>the idle timer, suspend, a VT switch"] --> P{"a display, a presentation path<br/>and a password stack?"}
+    P -->|no| X["log why, exit<br/>the session stays unlocked"]
+    P -->|yes| B{"compositor implements<br/>ext-session-lock-v1?"}
     B -->|yes| C["GtkSessionLockInstance<br/>the compositor owns the surfaces"]
     B -->|no| D["one overlay per output<br/>keyboard exclusive on the primary"]
     C --> E["every output locked"]
@@ -24,7 +26,18 @@ flowchart TD
 
 =whelk --lock= locks every output; =shell:lock= in the shell menu and
 logind's =Lock= signal (which is what =loginctl lock-session= sends) reach the
-same code.  On a Wayland compositor that implements =ext-session-lock-v1= --
+same code.  Before it builds a surface, whelk checks that it can both cover the
+session and let the owner back in: a display, either
+=ext-session-lock-v1= or layer shell, and a password path -- a PAM stack it can
+start, or the host's setuid =unix_chkpwd= where no administrator policy
+exists.  A machine missing one of those would present a lock screen no password
+can end, so whelk logs =whelk-lock: not locking: <reason>= and exits with
+failure instead, leaving the session exactly as it was.  A suspend's sleep delay
+is released at the same moment rather than at its ten-second timeout.  On a
+machine that passes the check, every later failure still leaves the session
+locked (the fail-closed rules below).
+
+On a Wayland compositor that implements =ext-session-lock-v1= --
 niri, Sway, Hyprland, River and other compositors that implement it -- whelk asks
 the compositor for a session lock through =gtk4-layer-shell='s
 =GtkSessionLockInstance=.  The compositor owns the lock surfaces: another
@@ -47,8 +60,9 @@ removes the lock is a successful PAM authentication for the session user.
 
 The security properties are deliberate:
 
-- fail closed -- a missing PAM, a conversation error, a failed account check or
-a missing display leaves the session locked;
+- fail closed once it has locked -- a conversation error or a failed account
+check leaves the session locked; the preflight above refuses to lock at all
+when no password could be checked;
 - no username field -- PAM is asked about =g_get_user_name()=, never about a
 name typed at the lock screen;
 - one attempt at a time, on a worker thread; the password is wiped as soon as
@@ -101,7 +115,9 @@ others cannot write, and its password goes over stdin, never a command line.
 =whelk --check-lock= prints the
 same decision without asking for a password: the candidate list, the library
 that loads, the service that would answer, whether a helper was found, whether
-strict mode is on, and whether the helper would be allowed to run.
+strict mode is on, and whether the helper would be allowed to run.  It ends
+with =authentication preflight:=, the answer the lock screen itself would reach
+before covering the session.
 
 * Keeping it strictly fail-closed
 :PROPERTIES:

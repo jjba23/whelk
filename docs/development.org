@@ -86,7 +86,8 @@ that can answer its question.
 | Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs=, =widgets.rs= | readings, menu trees and panel data without a compositor |
 | Shell + Guile | =config.rs=, =scheme.rs= and the custom-harness test in =tests/guile.rs= | the real Scheme modules, one Guile handle and repeated loads |
 
-The full suite is 502 tests as of 0.39.3.  Most of it is ordinary Cargo:
+The full suite is 617 tests; =tests/guile.rs= runs its own harness outside
+libtest and is not part of that number.  Most of it is ordinary Cargo:
 
 #+begin_src sh
   cargo test --workspace --locked --offline
@@ -103,6 +104,22 @@ notification round trip and the AT-SPI menu test run under =dbus-run-session=.
 A test that cannot get its bus skips rather than failing.  The GTK surfaces
 still need a real compositor for a visual check; the suite tests their data and
 geometry, not their pixels.
+
+The bar's CSS has goldens.  =tests/fixtures/css/= holds one small settings file
+per representative bar -- the built-in one, the XP preset, one per theme, both
+ends of the =#:spacing= clamp, and one with =#:css= -- beside the sheet
+=whelk --print-css= prints for it.  =rust/tests/style_golden.rs= compares them
+byte for byte, so a selector, an inset or a material formula that moves fails a
+test instead of waiting for someone to look at the bar.  The fixtures are inputs
+to review, not output to regenerate: read the diff, then refresh deliberately
+with
+
+#+begin_src sh
+  WHELK_BLESS=1 cargo test -p whelk-rs --test style_golden
+#+end_src
+
+Only the printed sheet's first line -- the header naming the release -- is
+dropped; everything after it is what the shell would install.
 
 * The change recipe
 
@@ -208,6 +225,8 @@ module, and test its model and geometry before its pixels.
 
 #+begin_src sh
   whelk --check-config          # load the config, print the bar/wallpaper policy
+  whelk --print-css             # the CSS each configured bar would wear
+  whelk --status                # session, logind, tools, each module's blank reason
   whelk --check-lock            # authentication candidates and fallback policy
   whelk --idle-status           # why the idle timer will or will not lock
   WHELK_NO_SUPERVISE=1 whelk    # run without the restart supervisor

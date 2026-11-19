@@ -7,7 +7,27 @@
 
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-use whelk_rs::lockauth;
+use whelk_rs::lockauth::{self, PasswordPath, password_path};
+
+#[test]
+fn a_password_path_is_pam_then_the_helper_then_nothing() {
+    // A stack this process can start is enough on its own.
+    assert_eq!(password_path(true, false, false, false), PasswordPath::Pam);
+    assert_eq!(password_path(true, true, false, false), PasswordPath::Pam);
+
+    // Without PAM, only a machine with no administrator policy, a helper and
+    // strict mode off can still check a password.
+    assert_eq!(
+        password_path(false, false, true, false),
+        PasswordPath::Helper
+    );
+    assert_eq!(password_path(false, true, true, false), PasswordPath::None);
+    assert_eq!(password_path(false, false, true, true), PasswordPath::None);
+    assert_eq!(
+        password_path(false, false, false, false),
+        PasswordPath::None
+    );
+}
 
 #[test]
 fn candidates_are_absolute_unique_and_host_first() {

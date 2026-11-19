@@ -7,7 +7,24 @@
 // `locker_rebuild`/`queue_session_rebuild` flags are one small state machine,
 // and every transition here is one a monitor change can hit.
 
-use whelk_rs::locker::RebuildState;
+use whelk_rs::locker::{RebuildState, presentation_blocker};
+
+#[test]
+fn a_lock_needs_a_display_and_a_presentation_path() {
+    assert_eq!(
+        presentation_blocker(false, true, true),
+        Some("there is no display to cover")
+    );
+    assert_eq!(
+        presentation_blocker(true, false, false),
+        Some("the compositor has neither ext-session-lock-v1 nor layer shell")
+    );
+
+    // Either path is enough: the hardened one where the compositor has it,
+    // the layer-shell overlay where it does not.
+    assert_eq!(presentation_blocker(true, true, false), None);
+    assert_eq!(presentation_blocker(true, false, true), None);
+}
 
 #[test]
 fn a_monitor_change_queues_one_rebuild() {

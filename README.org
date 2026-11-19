@@ -102,12 +102,13 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   and Stocks fetch live data; every card can be moved, resized, restyled or
   replaced by a command-backed =custom= widget from =settings.scm=; see
   [[file:docs/widgets.org][Desktop widgets]].
-- *Twenty-two module kinds, one shape.* Clock, CPU, memory, battery, backlight,
+- *Twenty-five module kinds, one shape.* Clock, CPU, memory, battery, backlight,
   audio, power profile, workspaces, focused window, keyboard layout, Caps Lock,
   Wi-Fi, Bluetooth, notifications, do not disturb, the clipboard, tray, the
-  shell menu, the global menu, =custom-module=, and =scheme-module= for a Guile
-  procedure that returns a widget.  All of them take the same keyword options:
-  an icon, a format, an interval, a tooltip and six mouse actions.
+  shell menu, the global menu, the window list, the player, the wallpaper, the
+  idle inhibitor, =custom-module=, and =scheme-module= for a Guile procedure
+  that returns a widget.  All of them take the same keyword options: an icon, a
+  format, an interval, a tooltip and six mouse actions.
 - *The configuration is a program.* =settings.scm= is evaluated, not parsed:
   bars can be built with =map=, a module list can be computed, and a settings
   file may define procedures of its own.
@@ -281,7 +282,7 @@ deliberately is not.
 :CUSTOM_ID: status
 :END:
 
-The shell is usable every day: the bar, its twenty-two module kinds, the
+The shell is usable every day: the bar, its twenty-five module kinds, the
 launcher, notifications, the network panel, the clipboard, the lock screen, the
 idle manager and the desktop widgets all work, on the sessions that support
 them.  [[file:docs/roadmap.org][Status and roadmap]] has the table and the next pieces,

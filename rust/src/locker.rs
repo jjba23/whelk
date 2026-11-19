@@ -381,6 +381,40 @@ struct Locker {
 
 use gtk::glib;
 
+/// Why the lock screen cannot cover this session, or `None` when one of the
+/// two presentation paths can.  Pure, so the rule can be read and tested
+/// without a display.
+pub fn presentation_blocker(
+    has_display: bool,
+    session_lock: bool,
+    layer_shell: bool,
+) -> Option<&'static str> {
+    if !has_display {
+        Some("there is no display to cover")
+    } else if !session_lock && !layer_shell {
+        Some("the compositor has neither ext-session-lock-v1 nor layer shell")
+    } else {
+        None
+    }
+}
+
+/// Why this machine cannot lock, or `None` when it can.
+///
+/// Asked before the first lock surface exists.  A lock this compositor cannot
+/// enforce, or a screen whose password this machine cannot check, is not a
+/// lock worth taking: it would leave the session covered with no way back in.
+pub fn blocker() -> Option<String> {
+    let display = gtk::gdk::Display::default();
+    let session_lock = display.is_some() && sys::is_supported();
+    let layer_shell = display.is_some() && crate::ui::layer_shell_available();
+
+    if let Some(reason) = presentation_blocker(display.is_some(), session_lock, layer_shell) {
+        return Some(reason.to_owned());
+    }
+
+    lockauth::blocker()
+}
+
 /// Runs the lock screen until a password is accepted.
 pub fn run() -> glib::ExitCode {
     let application = gtk::Application::builder()
@@ -404,6 +438,15 @@ pub fn run() -> glib::ExitCode {
 fn lock(application: &gtk::Application) {
     if LOCKING.with(|locking| locking.replace(true)) {
         log("a lock screen is already up; ignoring another activation");
+
+        return;
+    }
+
+    // Nothing has been covered yet, and nothing will be: fail here rather
+    // than after the screen belongs to a lock that cannot be undone.
+    if let Some(reason) = blocker() {
+        log(&format!("not locking: {reason}"));
+        fail_lock(application);
 
         return;
     }
@@ -482,7 +525,23 @@ fn lock(application: &gtk::Application) {
 fn fail_lock(application: &gtk::Application) {
     LOCK_FAILED.with(|failed| failed.set(true));
     CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
+    // A suspend may be waiting for `mark_ready`; there will be no lock, so
+    // end that wait now rather than at its timeout.
+    finish_ready_wait();
     application.quit();
+}
+
+/// Releases a suspend's wait for the readiness file after a failed lock.
+fn finish_ready_wait() {
+    let Some(path) = std::env::var_os("WHELK_LOCK_READY_FILE") else {
+        return;
+    };
+
+    if !std::path::Path::new(&path).exists()
+        && let Err(error) = fs::write(&path, b"failed")
+    {
+        log(&format!("could not signal lock failure: {error}"));
+    }
 }
 
 // ---------------------------------------------------------------------------

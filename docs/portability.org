@@ -117,9 +117,13 @@ system: what changes is the session manager, not the shell.
 
 * Checking a machine
 
-Three commands answer "what will this machine give me" without starting the
+Four commands answer "what will this machine give me" without starting the
 shell:
 
+- =whelk --status= -- the whole picture, read-only: the session and compositor,
+  who owns =org.freedesktop.login1= (=systemd-logind= or =elogind=), the run-time
+  tools on =PATH=, and one line per configured module saying why it is blank.
+  =whelk --status --json= is the same report for a script.
 - =whelk --check-config= -- the settings file parses and every module name is
   one the shell has.
 - =whelk --check-lock= -- which PAM service the lock screen would use, and why.

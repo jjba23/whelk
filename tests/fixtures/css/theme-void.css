@@ -1,0 +1,16 @@
+window#whelk-main .whelk-bar {
+  color: #ffffff;
+  background-color: rgb(0, 0, 0);
+  border: 1px solid #1a1a1a;
+  border-radius: 0px;
+}
+window#whelk-main .whelk-bar { padding: 0 12px; }
+window#whelk-main .whelk-module,
+window#whelk-main .whelk-overflow-toggle,
+window#whelk-main .whelk-overflow-more {
+  padding: 0 3px;
+}
+window#whelk-main .whelk-workspace.active { color: #ffffff; }
+window#whelk-main .whelk-battery.charging { color: #ffffff; }
+window#whelk-main .whelk-accent { color: #ffffff; }
+window#whelk-main button.accent { background-color: #000000; color: #ffffff; }

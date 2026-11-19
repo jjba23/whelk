@@ -380,7 +380,7 @@ impl Default for Widgets {
 struct Card {
     window: gtk::ApplicationWindow,
     css: Option<gtk::CssProvider>,
-    timer: Option<gtk::glib::SourceId>,
+    timers: Vec<gtk::glib::SourceId>,
 }
 
 impl Card {
@@ -425,7 +425,7 @@ impl Card {
             .and_then(|path| widgetstate::load_position_for(path, &id, connector.as_deref()));
         let position = config.restore_position(saved, current_area(None, &config.monitor));
 
-        let timer = build_content(&card, config, style, state_path, &id);
+        let timers = build_content(&card, config, style, state_path, &id);
 
         // The drag gesture reads the card back off its window, so the tree is
         // in place before the controller is attached.
@@ -471,14 +471,14 @@ impl Card {
         Some(Self {
             window,
             css: skin,
-            timer,
+            timers,
         })
     }
 }
 
 impl Drop for Card {
     fn drop(&mut self) {
-        if let Some(timer) = self.timer.take() {
+        for timer in self.timers.drain(..) {
             sources::remove(timer);
         }
 
@@ -824,6 +824,16 @@ fn schedule(interval: u32, update: Rc<dyn Fn() -> bool>) -> Option<gtk::glib::So
 /// any one; Open-Meteo does not care either way.
 const USER_AGENT: &str = concat!("whelk/", env!("CARGO_PKG_VERSION"));
 
+/// How often a Weather card asks Open-Meteo and a Stocks card asks Yahoo.
+/// Each card's quiet age line closes in once its reading is older than twice
+/// its own interval, so the two are kept beside the numbers they explain.
+const WEATHER_INTERVAL: u32 = 1800;
+const STOCKS_INTERVAL: u32 = 300;
+
+/// How often a card re-reads its own age.  Short enough that "x min ago" is
+/// current, slow enough that it is not a clock.
+const FRESHNESS_TICK: u32 = 30;
+
 /// Why a card has no reading.
 ///
 /// The two failures need different words.  A refused or timed-out request may
@@ -850,6 +860,113 @@ pub fn failure_lines(error: FetchError, what: &str) -> (String, &'static str) {
             "install curl, or put it on PATH",
         ),
         FetchError::Failed => (format!("{what} unavailable"), ""),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// How old a reading is
+// ---------------------------------------------------------------------------
+
+/// The card clock: seconds since the first card asked for the time.
+///
+/// Only differences between two readings of it are ever compared, so a change
+/// to the wall clock cannot make a reading look older or fresher than it is.
+pub fn now_seconds() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs()
+}
+
+/// A reading's age in whole minutes, and never "0 min ago".
+///
+/// A card only asks for the age once the reading is old enough to talk about,
+/// so the coarseness is the point: the line is a note under the reading, not a
+/// second hand.
+pub fn age_text(seconds: u64) -> String {
+    format!("{} min ago", (seconds / 60).max(1))
+}
+
+/// How a card's last reading stands, as one value the networked cards share.
+///
+/// The three states are the three questions a user has about a card that has
+/// stopped moving: is this now, when was it, and why did it stop?  The reading
+/// keeps its own timestamp rather than an age, because an age stored at the
+/// moment of failure would freeze: Weather retries every half hour, so a line
+/// written then would still say "1 h ago" four hours later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Health {
+    /// The last read answered; `at` is when, on the card clock.
+    Ready { at: u64 },
+    /// The last read failed and the reading still on the card was taken at
+    /// `since`; `error` is what the failed refresh said.
+    Stale { since: u64, error: FetchError },
+    /// Nothing has ever been read; `error` is why, `at` when it last failed.
+    Failed { error: FetchError, at: u64 },
+}
+
+impl Health {
+    /// The state after a read that answered `answer` at `now`.
+    ///
+    /// A success replaces everything, because the error it would otherwise keep
+    /// no longer explains anything on the card.  A failure keeps the last good
+    /// reading and only remembers why the refresh did not replace it.
+    pub fn after(previous: Option<Self>, answer: Result<(), FetchError>, now: u64) -> Self {
+        match answer {
+            Ok(()) => Self::Ready { at: now },
+            Err(error) => match previous {
+                Some(Self::Ready { at }) | Some(Self::Stale { since: at, .. }) => {
+                    Self::Stale { since: at, error }
+                }
+                Some(Self::Failed { .. }) | None => Self::Failed { error, at: now },
+            },
+        }
+    }
+
+    /// How old the reading on the card is, in seconds; `None` when nothing has
+    /// ever been read.
+    pub fn age(&self, now: u64) -> Option<u64> {
+        match self {
+            Self::Ready { at } | Self::Stale { since: at, .. } => Some(now.saturating_sub(*at)),
+            Self::Failed { .. } => None,
+        }
+    }
+
+    /// The quiet line under a reading older than two intervals: "x min ago".
+    ///
+    /// Two intervals is late enough that an ordinary refresh never shows it --
+    /// one missed tick is not worth a sentence -- and early enough that a card
+    /// which really has stopped says so while its numbers are still worth
+    /// believing.
+    pub fn quiet_age(&self, now: u64, interval: u64) -> Option<String> {
+        let age = self.age(now)?;
+
+        (age > interval.saturating_mul(2)).then(|| age_text(age))
+    }
+
+    /// The hover title: the error that stopped the last refresh, and for a card
+    /// that has never loaded, how long ago that last try was.  A card with a
+    /// good reading has nothing to report.
+    pub fn tooltip(&self, what: &str, now: u64) -> Option<String> {
+        let (error, failed_at) = match self {
+            Self::Ready { .. } => return None,
+            Self::Stale { error, .. } => (*error, None),
+            Self::Failed { error, at } => (*error, Some(*at)),
+        };
+        let (headline, hint) = failure_lines(error, what);
+        let mut lines = vec![headline];
+
+        if let Some(at) = failed_at {
+            lines.push(format!("failed {}", age_text(now.saturating_sub(at))));
+        }
+
+        if !hint.is_empty() {
+            lines.push(hint.to_owned());
+        }
+
+        Some(lines.join("\n"))
     }
 }
 
@@ -921,11 +1038,17 @@ fn build_content(
     style: &BarSettings,
     state_path: Option<&Path>,
     id: &str,
-) -> Option<gtk::glib::SourceId> {
-    match config.kind()? {
+) -> Vec<gtk::glib::SourceId> {
+    let Some(kind) = config.kind() else {
+        return Vec::new();
+    };
+    let timer = match kind {
+        // The two networked cards carry a second timer that only re-reads
+        // their age, so they answer with every source they own.
+        WidgetKind::Weather => return build_weather(card, config),
+        WidgetKind::Stocks => return build_stocks(card, config),
         WidgetKind::Clock => build_clock(card, config, style),
         WidgetKind::Calendar => build_calendar(card),
-        WidgetKind::Weather => build_weather(card, config),
         WidgetKind::Battery => build_battery(card, config),
         WidgetKind::Notes => build_notes(card, config),
         WidgetKind::Reminders => {
@@ -934,9 +1057,42 @@ fn build_content(
             None
         }
         WidgetKind::WorldClock => build_world_clock(card, config),
-        WidgetKind::Stocks => build_stocks(card, config),
         WidgetKind::Custom => build_custom(card, config),
+    };
+
+    timer.into_iter().collect()
+}
+
+/// Draw what a card's [`Health`] says: the quiet age under a reading that has
+/// gone old, and the error that stopped the last refresh in the hover title.
+///
+/// The title falls back to the card's configured tooltip when there is no
+/// error, so a card that is working still says whatever the settings file told
+/// it to say.
+fn paint_health(
+    card: &gtk::Box,
+    freshness: &gtk::Label,
+    health: Option<Health>,
+    interval: u64,
+    what: &str,
+    configured_tooltip: Option<&str>,
+) {
+    let now = now_seconds();
+
+    match health.and_then(|value| value.quiet_age(now, interval)) {
+        Some(text) => {
+            freshness.set_text(&text);
+            freshness.set_visible(true);
+        }
+        None => {
+            freshness.set_text("");
+            freshness.set_visible(false);
+        }
     }
+
+    let tooltip = health.and_then(|value| value.tooltip(what, now));
+
+    card.set_tooltip_text(tooltip.as_deref().or(configured_tooltip));
 }
 
 fn ink(style: &BarSettings) -> gtk::gdk::RGBA {
@@ -1209,7 +1365,7 @@ fn render_month(grid: &gtk::Grid, heading: &gtk::Button, month: (i32, u32)) {
     }
 }
 
-fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Vec<gtk::glib::SourceId> {
     let place = label("", "whelk-widget-subtle", 0.0);
     let reading = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let icon = label("·", "whelk-widget-weather-icon", 0.5);
@@ -1217,6 +1373,8 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
     let condition = label("", "whelk-widget-reading", 0.0);
     let range = label("", "whelk-widget-subtle", 0.0);
     let details = label("", "whelk-widget-subtle", 0.0);
+    // The card's age, written only once the reading has gone old.
+    let freshness = label("", "whelk-widget-subtle", 0.0);
 
     // The glyph, the degrees and the condition are one line; the place is only
     // written when the card was told where it is, because "San Francisco" on a
@@ -1226,6 +1384,7 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
     temperature.set_valign(gtk::Align::Baseline);
     condition.set_valign(gtk::Align::Baseline);
     place.set_visible(false);
+    freshness.set_visible(false);
     reading.append(&icon);
     reading.append(&temperature);
     reading.append(&condition);
@@ -1233,6 +1392,7 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
     card.append(&reading);
     card.append(&range);
     card.append(&details);
+    card.append(&freshness);
 
     let latitude = config
         .spec
@@ -1246,9 +1406,15 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
     let url = widgets::weather_url(&latitude, &longitude, imperial);
     let location = config.spec.text("location");
     let busy = Rc::new(Cell::new(false));
+    let health: Rc<Cell<Option<Health>>> = Rc::new(Cell::new(None));
+    let (update_health, tick_health) = (Rc::clone(&health), Rc::clone(&health));
+    let configured_tooltip = config.tooltip();
+    let tick_tooltip = configured_tooltip.clone();
+    let own_tooltip = configured_tooltip;
     let (weak_place, weak_icon) = (place.downgrade(), icon.downgrade());
     let (weak_temperature, weak_condition) = (temperature.downgrade(), condition.downgrade());
     let (weak_range, weak_details) = (range.downgrade(), details.downgrade());
+    let (weak_card, weak_freshness) = (card.downgrade(), freshness.downgrade());
 
     let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
         let (
@@ -1258,6 +1424,8 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
             Some(condition_label),
             Some(range_label),
             Some(details_label),
+            Some(card),
+            Some(freshness),
         ) = (
             weak_place.upgrade(),
             weak_icon.upgrade(),
@@ -1265,6 +1433,8 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
             weak_condition.upgrade(),
             weak_range.upgrade(),
             weak_details.upgrade(),
+            weak_card.upgrade(),
+            weak_freshness.upgrade(),
         )
         else {
             return false;
@@ -1275,28 +1445,32 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
             place_label.set_visible(true);
         }
 
-        fetch(url.clone(), Rc::clone(&busy), move |answer| {
-            let reading = match &answer {
-                Ok(text) => widgets::parse_weather(text, !imperial),
-                Err(_) => None,
-            };
+        let record = Rc::clone(&update_health);
+        let tooltip = own_tooltip.clone();
 
-            match reading {
-                Some(reading) => {
+        fetch(url.clone(), Rc::clone(&busy), move |answer| {
+            // A body that parsed to nothing is a failed read too.
+            let outcome = match &answer {
+                Ok(text) => widgets::parse_weather(text, !imperial).ok_or(FetchError::Failed),
+                Err(error) => Err(*error),
+            };
+            let now = now_seconds();
+            let previous = record.get();
+            let had_reading = previous.and_then(|value| value.age(now)).is_some();
+
+            match &outcome {
+                Ok(reading) => {
                     icon_label.set_text(reading.glyph);
                     temperature_label.set_text(&reading.temperature);
                     condition_label.set_text(reading.condition);
                     range_label.set_text(&reading.range);
                     details_label.set_text(&reading.details);
                 }
-                None => {
-                    // A body that parsed to nothing is a failed read too, and
-                    // the card says which failure it was.
-                    let error = match answer {
-                        Ok(_) => FetchError::Failed,
-                        Err(error) => error,
-                    };
-                    let (headline, hint) = failure_lines(error, "Weather");
+                // A card that has never loaded says why.  One that has keeps the
+                // reading it is showing, and the age line and the hover title
+                // carry the failure instead of painting over it.
+                Err(error) if !had_reading => {
+                    let (headline, hint) = failure_lines(*error, "Weather");
 
                     icon_label.set_text("·");
                     temperature_label.set_text("—");
@@ -1304,13 +1478,59 @@ fn build_weather(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::So
                     range_label.set_text("");
                     details_label.set_text(hint);
                 }
+                Err(_) => {}
             }
+
+            let next = Health::after(
+                previous,
+                outcome.as_ref().map(|_| ()).map_err(|error| *error),
+                now,
+            );
+
+            record.set(Some(next));
+            paint_health(
+                &card,
+                &freshness,
+                Some(next),
+                u64::from(WEATHER_INTERVAL),
+                "Weather",
+                tooltip.as_deref(),
+            );
         });
 
         true
     });
 
-    schedule(1800, update)
+    // The reading's age keeps moving between refreshes; without this tick the
+    // line would be written once and then disagree with the clock for half an
+    // hour.
+    let tick_card = card.downgrade();
+    let tick_freshness = freshness.downgrade();
+    let ticker: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (Some(card), Some(freshness)) = (tick_card.upgrade(), tick_freshness.upgrade()) else {
+            return false;
+        };
+
+        paint_health(
+            &card,
+            &freshness,
+            tick_health.get(),
+            u64::from(WEATHER_INTERVAL),
+            "Weather",
+            tick_tooltip.as_deref(),
+        );
+
+        true
+    });
+    let mut timers = Vec::new();
+
+    if let Some(timer) = schedule(WEATHER_INTERVAL, update) {
+        timers.push(timer);
+    }
+
+    timers.push(repeat(FRESHNESS_TICK, ticker));
+
+    timers
 }
 
 fn build_battery(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
@@ -1576,7 +1796,7 @@ fn build_world_clock(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib
     schedule(30, update)
 }
 
-fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::SourceId> {
+fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Vec<gtk::glib::SourceId> {
     let symbols =
         widgets::stock_symbols(config.spec.text("symbols").as_deref().unwrap_or_default());
     let mut rows = Vec::new();
@@ -1602,15 +1822,29 @@ fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
     }
 
     let footnote = label("", "whelk-widget-footnote", 0.0);
+    // The quotes' age, written only once they have gone old.
+    let freshness = label("", "whelk-widget-subtle", 0.0);
 
+    freshness.set_visible(false);
     card.append(&footnote);
+    card.append(&freshness);
 
     let url = widgets::stocks_url(&symbols);
     let busy = Rc::new(Cell::new(false));
+    let health: Rc<Cell<Option<Health>>> = Rc::new(Cell::new(None));
+    let (update_health, tick_health) = (Rc::clone(&health), Rc::clone(&health));
+    let configured_tooltip = config.tooltip();
+    let tick_tooltip = configured_tooltip.clone();
+    let own_tooltip = configured_tooltip;
     let weak_footnote = footnote.downgrade();
+    let (weak_card, weak_freshness) = (card.downgrade(), freshness.downgrade());
 
     let update: Rc<dyn Fn() -> bool> = Rc::new(move || {
-        let Some(footnote) = weak_footnote.upgrade() else {
+        let (Some(footnote), Some(card), Some(freshness)) = (
+            weak_footnote.upgrade(),
+            weak_card.upgrade(),
+            weak_freshness.upgrade(),
+        ) else {
             return false;
         };
 
@@ -1628,33 +1862,90 @@ fn build_stocks(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
             .collect();
         let footnote_answer = footnote.clone();
         let wanted = symbols.clone();
+        let record = Rc::clone(&update_health);
+        let tooltip = own_tooltip.clone();
 
         fetch(url.clone(), Rc::clone(&busy), move |answer| {
-            let quotes = match &answer {
-                Ok(text) => widgets::parse_stocks(text, &wanted),
-                Err(_) => Vec::new(),
+            let outcome = match &answer {
+                Ok(text) => {
+                    let quotes = widgets::parse_stocks(text, &wanted);
+
+                    if quotes.is_empty() {
+                        Err(FetchError::Failed)
+                    } else {
+                        Ok(quotes)
+                    }
+                }
+                Err(error) => Err(*error),
             };
+            let now = now_seconds();
+            let previous = record.get();
+            let had_reading = previous.and_then(|value| value.age(now)).is_some();
+            let delayed = "Delayed quotes · Yahoo Finance".to_owned();
 
-            apply_quotes(&quoted, &quotes);
-
-            let footnote_text = if quotes.is_empty() {
-                let error = match answer {
-                    Ok(_) => FetchError::Failed,
-                    Err(error) => error,
-                };
-
-                failure_lines(error, "Quotes").0
-            } else {
-                "Delayed quotes · Yahoo Finance".to_owned()
+            let footnote_text = match &outcome {
+                Ok(quotes) => {
+                    apply_quotes(&quoted, quotes);
+                    delayed
+                }
+                // The rows still hold the last quotes, so the card keeps its
+                // usual footnote and says how old they are below it; the hover
+                // title carries the reason they stopped moving.
+                Err(_) if had_reading => delayed,
+                Err(error) => failure_lines(*error, "Quotes").0,
             };
 
             footnote_answer.set_text(&footnote_text);
+
+            let next = Health::after(
+                previous,
+                outcome.as_ref().map(|_| ()).map_err(|error| *error),
+                now,
+            );
+
+            record.set(Some(next));
+            paint_health(
+                &card,
+                &freshness,
+                Some(next),
+                u64::from(STOCKS_INTERVAL),
+                "Quotes",
+                tooltip.as_deref(),
+            );
         });
 
         true
     });
 
-    schedule(300, update)
+    // Quotes go stale between refreshes as well; the tick rewrites the age and
+    // the hover title without asking Yahoo anything.
+    let tick_card = card.downgrade();
+    let tick_freshness = freshness.downgrade();
+    let ticker: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let (Some(card), Some(freshness)) = (tick_card.upgrade(), tick_freshness.upgrade()) else {
+            return false;
+        };
+
+        paint_health(
+            &card,
+            &freshness,
+            tick_health.get(),
+            u64::from(STOCKS_INTERVAL),
+            "Quotes",
+            tick_tooltip.as_deref(),
+        );
+
+        true
+    });
+    let mut timers = Vec::new();
+
+    if let Some(timer) = schedule(STOCKS_INTERVAL, update) {
+        timers.push(timer);
+    }
+
+    timers.push(repeat(FRESHNESS_TICK, ticker));
+
+    timers
 }
 
 fn apply_quotes(rows: &[(String, gtk::Label, gtk::Label)], quotes: &[StockQuote]) {

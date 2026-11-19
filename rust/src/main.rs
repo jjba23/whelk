@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use whelk_rs::bar::BarSettings;
 use whelk_rs::clipboard;
 use whelk_rs::collection::collect;
 use whelk_rs::config::ConfigLoader;
@@ -13,7 +14,7 @@ use whelk_rs::lockauth::{self, Stack};
 use whelk_rs::locker;
 use whelk_rs::rotation::Playlist;
 use whelk_rs::settings::default_config_path;
-use whelk_rs::{cli, supervisor, ui};
+use whelk_rs::{cli, frost, status, style, supervisor, ui};
 
 const USAGE: &str = "\
 whelk -- a Wayland shell, GTK4 and GNU Guile Scheme
@@ -24,6 +25,10 @@ Options:
   --config PATH          Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
   --check-config         Load the configuration, print the wallpaper policy and exit
   --check-lock           Print how this machine would authenticate and exit
+  --print-css            Print the CSS generated for each configured bar and exit
+  --status               Report the session, logind, the runtime tools and why
+                         each configured module is blank
+  --json                 With --status, print the report as JSON
   --launcher, -l         Open the launcher in the running shell
   --launcher-mode MODE   Launcher mode: app, window, run, calc, file, web, menu,
                          ssh, quit, clipboard, menuitem or session
@@ -83,6 +88,10 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    if options.json && !options.status {
+        return Err("--json needs --status".to_owned());
+    }
+
     if options.check_lock {
         print_lock_report();
 
@@ -134,6 +143,32 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    if options.status {
+        let loaded = loader.load()?;
+        let report = status::collect(&loaded.bars, &config_path);
+
+        if options.json {
+            print!("{}", report.json());
+        } else {
+            print!("{}", report.text());
+        }
+
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if options.print_css {
+        let loaded = loader.load()?;
+
+        // The finish is part of the skin, so it is installed before the sheet
+        // is generated: a printed bar with `#:frost` has its gradients and its
+        // shadow, exactly as the shell would paint them.
+        frost::install(loaded.frost.clone());
+
+        print_css(&loaded.bars);
+
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let label = loader.label();
 
     // The supervisor forks before GTK or Guile is initialized.  The child
@@ -143,6 +178,33 @@ fn run() -> Result<ExitCode, String> {
     }
 
     Ok(ui::run(loader, label).into())
+}
+
+/// The skin `--print-css` prints: one bar's generated sheet per configured
+/// bar, under a comment naming what it belongs to.  It is the same output
+/// `ui::install_css` loads, minus the structural rules the shell compiles in.
+fn print_css(bars: &[BarSettings]) {
+    for (index, bar) in bars.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+
+        println!(
+            "/* whelk {}: bar \"{}\", theme {} */",
+            env!("CARGO_PKG_VERSION"),
+            bar.name,
+            bar.theme.as_deref().unwrap_or("none")
+        );
+        print!(
+            "{}",
+            style::css(
+                &style::widget_id(&bar.name),
+                bar,
+                "whelk-bar",
+                bar.css.as_deref()
+            )
+        );
+    }
 }
 
 fn scheme_paths() -> Vec<PathBuf> {
@@ -235,6 +297,13 @@ fn print_lock_report() {
             "refused (strict mode)"
         } else {
             "refused (no trustworthy helper)"
+        }
+    );
+    println!(
+        "authentication preflight: {}",
+        match lockauth::blocker() {
+            None => "allowed (a password can be checked)".to_owned(),
+            Some(reason) => format!("refused ({reason})"),
         }
     );
 }

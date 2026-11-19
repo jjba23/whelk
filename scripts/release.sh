@@ -140,6 +140,15 @@ verify() {
   cargo clippy --workspace --all-targets --locked -- -D warnings
   cargo test --workspace --locked
 
+  # The bar's CSS fixtures are compared inside `cargo test`, but the gate names
+  # them: a stylesheet change is a decision, not a silent rewrite.  Blessing
+  # them here would hide exactly the regression they exist to catch.
+  if [ -n "${WHELK_BLESS:-}" ]; then
+    die "WHELK_BLESS is set; unset it so the gate compares the CSS fixtures"
+  fi
+
+  cargo test --workspace --locked --test style_golden
+
   if command -v guix >/dev/null 2>&1; then
     # The channel pin is also the toolchain pin: this checkout needs Rust
     # 1.92, and a host Guix older than that fails before it reaches Cargo.

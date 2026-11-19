@@ -117,6 +117,12 @@ pub fn supports(kind: &str) -> bool {
     factory(kind).is_some()
 }
 
+/// Every kind the table answers to, in the table's order.  The status report
+/// walks this so a module it has never heard of cannot pass unmentioned.
+pub fn kinds() -> impl Iterator<Item = &'static str> {
+    FACTORIES.iter().map(|(kind, _)| *kind)
+}
+
 /// Build one configured module, or leave it out with a diagnostic.
 pub fn build(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> {
     let Some(factory) = factory(&module.kind) else {

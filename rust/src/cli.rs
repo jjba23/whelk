@@ -357,6 +357,12 @@ pub struct Options {
     pub version: bool,
     pub check_config: bool,
     pub check_lock: bool,
+    /// Print the skin each configured bar would install, as CSS.
+    pub print_css: bool,
+    /// Report the session, logind, the runtime tools and each module's verdict.
+    pub status: bool,
+    /// With `--status`: print the report as JSON.
+    pub json: bool,
     /// The internal entry point the shell's logind trigger starts.  A public
     /// `--lock` is forwarded to the running shell, as C's is.
     pub lock_now: bool,
@@ -408,6 +414,9 @@ impl Options {
             "version" => self.version = true,
             "check-config" => self.check_config = true,
             "check-lock" => self.check_lock = true,
+            "print-css" => self.print_css = true,
+            "status" => self.status = true,
+            "json" => self.json = true,
             "lock-now" => self.lock_now = true,
             "config" => {
                 let path = value(joined, arguments, name)?;
@@ -635,10 +644,21 @@ mod tests {
 
     #[test]
     fn local_options_do_not_need_a_shell() {
-        let options = parse(&["--check-lock", "--check-config", "--version", "-h"]);
+        let options = parse(&[
+            "--check-lock",
+            "--check-config",
+            "--print-css",
+            "--status",
+            "--json",
+            "--version",
+            "-h",
+        ]);
 
         assert!(options.check_lock);
         assert!(options.check_config);
+        assert!(options.print_css);
+        assert!(options.status);
+        assert!(options.json);
         assert!(options.version);
         assert!(options.help);
         assert!(options.requests.commands().is_empty());

@@ -1,0 +1,24 @@
+window#whelk-xp .whelk-bar {
+  color: #ffffff;
+  background-color: rgb(36, 94, 219);
+  background-image:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.063) 0%, rgba(255, 255, 255, 0.000) 36%);
+  border: 1px solid #0b3fa8;
+  border-radius: 0px;
+  font-family: "Tahoma";
+  font-size: 9pt;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.119);
+}
+window#whelk-xp .whelk-bar { padding: 0 0px; }
+window#whelk-xp .whelk-module,
+window#whelk-xp .whelk-overflow-toggle,
+window#whelk-xp .whelk-overflow-more {
+  padding: 0 2px;
+}
+window#whelk-xp .whelk-icon {
+  font-family: "Font Awesome 6 Free Solid";
+}
+window#whelk-xp .whelk-workspace.active { color: #ffd45e; }
+window#whelk-xp .whelk-battery.charging { color: #ffd45e; }
+window#whelk-xp .whelk-accent { color: #ffd45e; }
+window#whelk-xp button.accent { background-color: #245edb; color: #ffd45e; }

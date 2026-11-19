@@ -15,8 +15,9 @@ same file that describes the bar.  The standard collection is one value:
 
 The widget gallery this shell can
 power from GNU/Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
-*Notes**, **Reminders**, **World Clock** and **Stocks**.  Each card drags by
-its grip, snaps to an 8px grid and stays inside its monitor.  The position is
+**Notes**, **Reminders**, **World Clock**, **Stocks** and **Custom**.  Each card
+drags by its grip, snaps to an 8px grid and stays inside its monitor.  The
+position is
 remembered per monitor, so the same widget can sit somewhere different on the
 laptop panel and the desk screen; a monitor that is unplugged falls back to the
 last place the widget was seen, clamped into the screen that is left.
@@ -86,14 +87,27 @@ a compositor-spawned shell finds it without a login shell's environment.  The
 request also names itself: Yahoo answers 429 to a request with no =User-Agent=
 and 200 to the same URL with one.
 
-A failed request leaves the card's last reading in place rather than painting an
-error over it, but a =curl= that is not on =PATH= is said out loud: the Weather
-card reads *curl is not installed* with *install curl, or put it on PATH* under
-it, a Stocks card puts the same words in its footnote, and the shell prints one
-line to its log rather than retrying a program that is not there every tick.  A card sits on the layer-shell
-=bottom= layer, takes no keyboard and reserves no screen space, so it is
-visible on the desktop and under the windows rather than over them.  Saving the
-settings file rebuilds every card with the bars.
+A failed request never paints over a reading the card already has: the Weather
+card keeps its conditions, a Stocks card keeps its quotes, and the reason moves
+into the hover title -- *curl is not installed* with *install curl, or put it on
+PATH* under it, or *Weather unavailable* for a network that did not answer.  A
+card that has never loaded has nothing to keep, so it says the same words on the
+card itself, and the shell prints one line to its log for a missing =curl=
+rather than retrying a program that is not there every tick.
+
+Ageing is the other half.  Every networked card carries the same =Health=:
+=Ready= with the time of the last good read, =Stale= with the reading's
+timestamp and the error that stopped the refresh, or =Failed= with the error and
+when it last tried.  Once the reading is older than twice the card's refresh
+interval -- an hour for Weather, ten minutes for Stocks -- one quiet line
+appears under it, *42 min ago*, and is rewritten every thirty seconds so it does
+not disagree with the clock between fetches.  A single failed refresh is silent:
+a card that missed one tick is not worth a sentence, and the hover title has the
+error for anyone who asks.
+
+A card sits on the layer-shell =bottom= layer, takes no keyboard and reserves no
+screen space, so it is visible on the desktop and under the windows rather than
+over them.  Saving the settings file rebuilds every card with the bars.
 
 * Families, anchors and a card's own material
 
@@ -198,8 +212,8 @@ module is Rust as well: =rust/src/schemebar.rs= calls =#:update= through
 The cards are drawn by =rust/src/desktopwidgets.rs=: one bottom-layer surface per
 configured widget, anchored at its saved or configured place, skinned from the
 first bar's palette, moved by its grip (snapped to the grid and clamped into
-the monitor), with a timer per kind and one asynchronous request at a time for
-Weather and Stocks.  A card that goes away drops its timer, its skin and its
+the monitor), with a timer per kind, a second tick on Weather and Stocks that
+only re-reads their age, and one asynchronous request at a time for those two.  A card that goes away drops its timer, its skin and its
 surface, and an answer that arrives late paints nothing.  The manager is
 rebuilt with the bars, so a settings save or a monitor hotplug re-places every
 card; the same =widgets-<stem>.ini= means a drag survives a restart and is

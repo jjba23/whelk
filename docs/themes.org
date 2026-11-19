@@ -2,7 +2,8 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-Twelve palettes named after materials and years, and how a bar wears one.
+Twelve palettes named after materials and years, the numbers a bar's skin is
+built from, and the rules a theme can add.
 
 * Wearing a palette
 
@@ -35,8 +36,167 @@ the top shine, the lower reflection, the accent flare and the few rules a
 palette cannot express (a gradient, an inset highlight).  Any value the bar or
 the settings window sets itself wins over the theme's, =(themes)= lists what
 the build has, and a name the build does not know leaves the bar's own colours
-alone with one warning.  The built-in bar uses =gloss-2007=; its CSS keeps the
-menu bar square while popovers keep the palette's rounded corners.
+alone with one warning.  The built-in bar uses =gloss-2007=, whose palette
+carries a rule of its own for the square menu bar; the cascade below says how
+far a rule like that reaches.
+
+* What the sheet is built from
+
+A theme brings colours and material numbers; the bar brings proportions.  The
+generated sheet turns both into CSS, and the numbers it derives from the bar's
+own settings are worth knowing before writing a rule against it:
+
+| Value                             | Comes from                  | Default | Where it lands                                  |
+|-----------------------------------+-----------------------------+---------+-------------------------------------------------|
+| the bar's end inset               | =#:padding=                 | =12=    | =padding: 0 12px= on the bar                    |
+| the gap between two modules       | =#:spacing=                 | =6=     | the row box's spacing, not a rule               |
+| the inset inside a module         | =#:spacing= / 2, held between 2 and 12 | =3= | =padding= on =.whelk-module= and the fold       |
+| the gap between a glyph and label | =#:spacing= * 2/3, at least 2 | =4=   | the module's own box, not a rule                |
+| the bar's thickness               | =#:height=                  | =32=    | the layer surface, not a rule                   |
+| the corner radius                 | =#:radius=, else the theme's =radius= | =0= | =border-radius= on the bar                      |
+
+The two insets are derived from =#:spacing=, so one number moves the whole
+rhythm: at the default 6 a module is inset 3px inside its pill and two
+neighbouring readings stand 12px apart from text to text (3 + 6 + 3); at
+=#:spacing 12= the inset is 6 and the readings stand 24 apart.  The inset stops
+growing at 12, so a spacing past 24 widens only the gaps.  No number is written
+twice, which is why the row looks even instead of collecting a per-module
+fudge, and why a theme that changes a module's padding is fighting the bar's
+own geometry rather than decorating it.
+
+What a palette supplies becomes these declarations:
+
+| Palette key     | In the sheet                                                    |
+|-----------------+-----------------------------------------------------------------|
+| =background=    | =background-color=, its own alpha multiplied by =opacity=       |
+| =foreground=    | =color=                                                         |
+| =accent=        | the active workspace, a charging battery, =.whelk-accent=, accent buttons, and the =flare= |
+| =border-color=  | =border: 1px solid=                                             |
+| =radius=        | =border-radius=                                                 |
+| =opacity=       | a multiplier on the background's alpha, not a replacement       |
+| =blur=          | =0 4px <blur>px rgba(0, 0, 0, 0.30)= in =box-shadow=            |
+| =shine=         | a top highlight in =box-shadow= and a white gradient from the top |
+| =reflection=    | a white gradient from the bottom                                |
+| =flare=         | a radial =accent= glow along the top edge                       |
+
+A number at zero writes nothing at all, a colour the bar sets itself replaces
+the theme's, and a bar without a theme paints only what it set -- which is why
+such a bar is a flat sheet with square corners.
+
+There is a second layer: when =#:frost= is on, the finish's tint, two warm
+gradients, grain, hairline and shadow are appended to the same block.  See
+[[file:materials.org][materials]] for those settings; the point here is that the printed sheet already
+includes them, so the same bar prints differently with the frost on.
+
+* The selectors
+
+Everything the shell generates is scoped to one bar:
+
+#+begin_src css
+  window#whelk-main .whelk-bar { ... }
+#+end_src
+
+The id is =whelk-= followed by the bar's =#:name=, with every character other
+than an ASCII letter, a digit, =-= or =_= turned into a dash: =#:name 'main=
+gives =whelk-main=, and a name that was empty would give =whelk-surface=.
+=whelk --print-css= writes the id above each sheet, so it never has to be
+worked out by hand.
+
+Inside the bar, a module carries a class for its role and one for its kind:
+
+| Class                                                         | What it is                                    |
+|---------------------------------------------------------------+-----------------------------------------------|
+| =.whelk-bar=                                                  | the row, and the surface the material paints  |
+| =.whelk-start=, =.whelk-center=, =.whelk-end=                 | the three halves                              |
+| =.whelk-module=                                               | the pill around one reading                   |
+| =.whelk-<kind>=                                               | the module's kind: =.whelk-clock=, =.whelk-wifi=, =.whelk-bluetooth=, =.whelk-battery=, =.whelk-window=, and so on |
+| =.whelk-label=                                                | the text of a reading                         |
+| =.whelk-icon=                                                 | a glyph drawn from =#:icon-font=              |
+| =.whelk-workspaces=, =.whelk-workspace=                       | the workspace strip, and one workspace: =.active=, =.inactive=, =.empty=, =.urgent= |
+| =.whelk-battery=                                              | =.charging=, =.warning=, =.critical=          |
+| =.whelk-wifi=, =.whelk-bluetooth=                             | the two radios, with =.off= when one is off   |
+| =.whelk-start-button=                                         | the application menu button                   |
+| =.whelk-tasks=, =.whelk-task=                                 | the window list and one window                |
+| =.whelk-tray-item=, =.whelk-tray-more=, =.whelk-tray-overflow= | status icons, and their fold                 |
+| =.whelk-overflow-toggle=, =.whelk-overflow-more=, =.whelk-overflow-box= | the fold at the end of a row, its button and the panel behind it |
+| =.whelk-scheme-widget=, =.whelk-scheme-*=                     | a Scheme module and the readings inside it    |
+| =.whelk-accent=, =button.accent=                              | the two accent targets                        |
+| =.whelk-bar-menu=, =.whelk-bar-menu-heading=                  | the bar's own right-click menu                |
+
+A module's =#:css-class= adds one more class to its pill, which is the way to
+paint a single reading without depending on where it sits.
+
+* Writing =#:css=
+
+The bar's =#:css= and the theme's =css= are the same setting.  A theme carries
+its rules in its palette, a bar's own =#:css= replaces them rather than adding
+to them, and the shell appends whichever it got to the generated sheet under
+one comment:
+
+#+begin_src scheme
+  (bar #:name 'main #:theme 'ember #:spacing 9 #:padding 16
+       #:css "window#whelk-main .whelk-module { border-radius: 4px; }
+              window#whelk-main .whelk-label { font-weight: 600; }")
+#+end_src
+
+Neither setting is scoped.  The rules go into the shell's stylesheet exactly as
+written, so a bare =.whelk-bar= paints every bar, and on a two-bar setup the id
+is what separates them.
+
+Being appended last is not the same as winning.  The generated material rule
+carries the bar's id -- =window#whelk-main .whelk-bar= -- so a bare
+=.whelk-bar { border-radius: 0; }= is outranked by it no matter how late it
+comes; a square bar says
+=window#whelk-main .whelk-bar { border-radius: 0; }=.  Match the generated
+selector to repaint something the material already sets; anything the material
+leaves alone (the module's radius and hover wash, the label's numerals, the
+warning colours) is reachable with a plain class rule.  =whelk --print-css=
+shows both halves, so it also shows which of the two a given property is.
+
+* Seeing what whelk generates
+
+#+begin_src sh
+  whelk --print-css                    # the bars this settings file configures
+  whelk --print-css --config FILE      # another settings file
+  whelk --print-css > /tmp/skin.css    # plain CSS, ready to diff
+#+end_src
+
+The flag loads the settings file the way the shell does, so the theme is
+already resolved into concrete values by the time the sheet is written; a
+missing settings file prints the built-in default bar.  Each bar is introduced
+by a comment naming the version, the bar and its theme.  Here is the built-in
+bar's sheet, shortened to the lines this page talks about:
+
+#+begin_src css
+  /* whelk 0.46.0: bar "main", theme gloss-2007 */
+  window#whelk-main .whelk-bar {
+    color: #f4f4f6;
+    background-color: rgba(26, 26, 28, 0.820);
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(59, 158, 255, 0.036) 0%, rgba(59, 158, 255, 0.000) 48%),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.068) 0%, rgba(255, 255, 255, 0.000) 36%),
+      linear-gradient(to top, rgba(255, 255, 255, 0.010) 0%, rgba(255, 255, 255, 0.000) 32%);
+    border: 1px solid rgba(0, 0, 0, 0.92);
+    border-radius: 10px;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.129), 0 4px 18px rgba(0, 0, 0, 0.30);
+  }
+  window#whelk-main .whelk-bar { padding: 0 12px; }
+  window#whelk-main .whelk-module,
+  window#whelk-main .whelk-overflow-toggle,
+  window#whelk-main .whelk-overflow-more {
+    padding: 0 3px;
+  }
+#+end_src
+
+What it prints is the skin, not the whole of what whelk loads: the structural
+rules (the module radius, the hover wash, the tabular numerals, the warning
+colours) are compiled into the shell, and every panel, card and popover has its
+own sheet scoped to its own id.  It needs no display, so it answers over ssh
+and from a tty.
+
+That makes it a derivation tool as much as a debugging one.  Print the palette
+you like, change one number, print again and diff: the distance between the two
+sheets is exactly the distance between the two themes.
 
 ------------------
 

@@ -21,7 +21,7 @@ flowchart TD
     START --> CONFIG["configuration.org<br/>settings.scm, bar keys, overrides, presets, REPL"]
     START --> USAGE["usage documents<br/>launcher, clipboard, notifications, network, tray"]
 
-    CONFIG --> MODULES["modules.org<br/>the twenty-two kinds and their options"]
+    CONFIG --> MODULES["modules.org<br/>the twenty-five kinds and their options"]
     CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
     CONFIG --> THEMES["themes.org<br/>twelve palettes"]
     CONFIG --> MATERIALS["materials.org<br/>frosted glass, compositor blur"]
@@ -104,7 +104,8 @@ is judged by.
 [[file:installation.org][Installation]] for what the binary needs, [[file:sessions.org][Sessions]] for a compositor
 that was not recognised, [[file:lock-screen.org][The lock screen]] for
 "Authentication is unavailable", [[file:idle.org][Idle]] for a screen that did or did not
-lock, and =whelk --idle-status= for the shell's own account of its decision.
+lock, =whelk --status= for the session, logind and every module's blank reason,
+and =whelk --idle-status= for the shell's own account of its decision.
 
 * Conventions in these pages
 

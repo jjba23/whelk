@@ -455,6 +455,172 @@ pub fn strict_mode() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Before the screen is covered
+// ---------------------------------------------------------------------------
+
+/// What can check the session password on this machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordPath {
+    /// A PAM stack this process can start.
+    Pam,
+    /// The host's setuid helper, with no administrator policy in the way.
+    Helper,
+    /// Nothing: the lock screen could only ever say "authentication is
+    /// unavailable".
+    None,
+}
+
+/// The preflight's rule in one place: PAM first, then the helper exactly when
+/// [`fallback_allowed`] says so.  Exposed so the decision can be read and
+/// tested without a PAM library or a display.
+pub fn password_path(
+    pam_ready: bool,
+    admin_policy: bool,
+    helper_available: bool,
+    strict: bool,
+) -> PasswordPath {
+    if pam_ready {
+        PasswordPath::Pam
+    } else if fallback_allowed(admin_policy, helper_available, strict) {
+        PasswordPath::Helper
+    } else {
+        PasswordPath::None
+    }
+}
+
+/// Why this machine could not check a password, or `None` when it could.
+///
+/// The lock screen asks this before it builds a surface.  A lock that no
+/// password can end is a session the owner cannot get back into, so whelk
+/// refuses to lock at all rather than presenting one.  The decision is the one
+/// [`authenticate`] makes later -- the same library, the same stack and the
+/// same helper rule -- so preflight and the password path cannot disagree
+/// about what is available.
+///
+/// Starting the stack is the one thing asked of PAM here: a library that
+/// cannot read the administrator's service file would refuse every password
+/// with `PAM_AUTHINFO_UNAVAIL`, and learning that at the first attempt is the
+/// late failure this check exists to move forward.  No password is involved:
+/// `pam_start` only reads the stack, and `pam_end` releases it.
+pub fn blocker() -> Option<String> {
+    let Some(user) = session_user() else {
+        return Some("the session user could not be determined".to_owned());
+    };
+    let Ok(user) = CString::new(user) else {
+        return Some("the session user is not a valid account name".to_owned());
+    };
+
+    let stack = stack_plan();
+    let admin_policy = matches!(stack, Stack::Admin(_));
+    let strict = strict_mode();
+    let helper = local_helper().is_some();
+
+    let (pam_ready, note) = match pam() {
+        Some(pam) => {
+            let ready = stack_starts(pam, &stack, &user);
+
+            (
+                ready,
+                if ready {
+                    String::new()
+                } else {
+                    unstarted_stack(&stack)
+                },
+            )
+        }
+        None => (false, "no PAM library could be loaded".to_owned()),
+    };
+
+    match password_path(pam_ready, admin_policy, helper, strict) {
+        PasswordPath::Pam | PasswordPath::Helper => None,
+        PasswordPath::None => Some(refusal(&note, admin_policy, helper, strict)),
+    }
+}
+
+/// The stack's name in a refusal.  Only read when [`stack_starts`] said no.
+fn unstarted_stack(stack: &Stack) -> String {
+    match stack {
+        Stack::Admin(service) => {
+            format!("the loaded PAM library could not start the {service} service")
+        }
+        Stack::Private(directory) => format!(
+            "the per-user PAM stack in {} could not start",
+            directory.display()
+        ),
+        Stack::LocalFallback => "no PAM service file and no per-user PAM directory".to_owned(),
+    }
+}
+
+/// Why nothing could answer, named as the troubleshooting page names it.
+fn refusal(note: &str, admin_policy: bool, helper: bool, strict: bool) -> String {
+    if admin_policy {
+        format!("{note}; an administrator's PAM service is authoritative")
+    } else if strict {
+        format!("{note}; strict lock mode is on and the helper may not answer")
+    } else if !helper {
+        format!("{note}; no setuid unix_chkpwd is available")
+    } else {
+        note.to_owned()
+    }
+}
+
+/// A conversation the preflight never expects to be called: `pam_start` reads
+/// the stack, it does not hold a password conversation.
+unsafe extern "C" fn refuse_conversation(
+    _count: c_int,
+    _messages: *const *const PamMessage,
+    _responses: *mut *mut PamResponse,
+    _data: *mut c_void,
+) -> c_int {
+    PAM_CONV_ERR
+}
+
+/// Whether PAM can start the stack `stack` names.  This is a read of the
+/// configuration, not an authentication: no module is asked for a password.
+fn stack_starts(pam: &Pam, stack: &Stack, user: &CStr) -> bool {
+    let conversation = PamConv {
+        conv: Some(refuse_conversation),
+        appdata_ptr: std::ptr::null_mut(),
+    };
+    let mut handle: *mut c_void = std::ptr::null_mut();
+
+    let status = match stack {
+        Stack::Admin(service) => {
+            let Ok(service) = CString::new(*service) else {
+                return false;
+            };
+
+            unsafe { (pam.start)(service.as_ptr(), user.as_ptr(), &conversation, &mut handle) }
+        }
+        Stack::Private(directory) => {
+            let Some(start_confdir) = pam.start_confdir else {
+                return false;
+            };
+            let Ok(directory) = CString::new(directory.as_os_str().as_encoded_bytes()) else {
+                return false;
+            };
+
+            unsafe {
+                start_confdir(
+                    c"whelk-lock".as_ptr(),
+                    user.as_ptr(),
+                    &conversation,
+                    directory.as_ptr(),
+                    &mut handle,
+                )
+            }
+        }
+        Stack::LocalFallback => return false,
+    };
+
+    if !handle.is_null() {
+        unsafe { (pam.end)(handle, status) };
+    }
+
+    status == PAM_SUCCESS
+}
+
+// ---------------------------------------------------------------------------
 // The conversation
 // ---------------------------------------------------------------------------
 

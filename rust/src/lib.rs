@@ -92,6 +92,7 @@ pub mod signals;
 pub mod sources;
 pub mod startbar;
 pub mod startmenu;
+pub mod status;
 pub mod style;
 pub mod supervisor;
 pub mod taskbar;

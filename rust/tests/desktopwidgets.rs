@@ -2,7 +2,7 @@
 // monitor a drag may cross, the clock hands' angles, the battery card's words
 // and classes, and the markup a reminder row is drawn with.
 
-use whelk_rs::desktopwidgets;
+use whelk_rs::desktopwidgets::{self, FetchError, Health};
 use whelk_rs::widgets::{Area, FALLBACK_AREA, ReminderRow};
 
 fn monitor(connector: &str, width: i32, height: i32) -> desktopwidgets::MonitorArea {
@@ -171,6 +171,98 @@ fn a_missing_curl_is_named_instead_of_saying_unavailable() {
     let (headline, _) = desktopwidgets::failure_lines(desktopwidgets::FetchError::NoCurl, "Quotes");
 
     assert_eq!(headline, "curl is not installed");
+}
+
+#[test]
+fn a_card_that_never_loaded_is_failed_with_its_last_try() {
+    let health = Health::after(None, Err(FetchError::Failed), 40);
+
+    assert_eq!(
+        health,
+        Health::Failed {
+            error: FetchError::Failed,
+            at: 40
+        }
+    );
+    assert_eq!(health.age(90), None, "nothing has been read yet");
+    assert_eq!(
+        health.quiet_age(90_000, 300),
+        None,
+        "there is no age to show"
+    );
+    assert_eq!(
+        health.tooltip("Weather", 100).as_deref(),
+        Some("Weather unavailable\nfailed 1 min ago")
+    );
+}
+
+#[test]
+fn a_failed_refresh_keeps_the_reading_and_the_error_apart() {
+    let ready = Health::after(None, Ok(()), 100);
+
+    assert_eq!(ready, Health::Ready { at: 100 });
+    assert_eq!(ready.tooltip("Weather", 100), None);
+    assert_eq!(ready.quiet_age(100, 300), None);
+
+    let stale = Health::after(Some(ready), Err(FetchError::NoCurl), 700);
+
+    assert_eq!(
+        stale,
+        Health::Stale {
+            since: 100,
+            error: FetchError::NoCurl
+        }
+    );
+    assert_eq!(stale.age(700), Some(600), "the reading keeps its own time");
+    // Two intervals is the line: one missed tick says nothing, and the count
+    // keeps moving because the timestamp is the reading's, not the failure's.
+    assert_eq!(stale.quiet_age(699, 300), None);
+    assert_eq!(stale.quiet_age(701, 300).as_deref(), Some("10 min ago"));
+    assert_eq!(stale.quiet_age(2_500, 300).as_deref(), Some("40 min ago"));
+    assert_eq!(
+        stale.tooltip("Weather", 700).as_deref(),
+        Some("curl is not installed\ninstall curl, or put it on PATH")
+    );
+}
+
+#[test]
+fn a_late_answer_forgets_the_error_it_answered_over() {
+    let stale = Health::Stale {
+        since: 100,
+        error: FetchError::Failed,
+    };
+    let ready = Health::after(Some(stale), Ok(()), 800);
+
+    assert_eq!(ready, Health::Ready { at: 800 });
+    assert_eq!(ready.tooltip("Quotes", 800), None);
+    assert_eq!(ready.quiet_age(800, 300), None);
+}
+
+#[test]
+fn a_card_still_failing_remembers_the_last_try_not_the_first() {
+    let first = Health::after(None, Err(FetchError::Failed), 10);
+    let second = Health::after(Some(first), Err(FetchError::NoCurl), 500);
+
+    assert_eq!(
+        second,
+        Health::Failed {
+            error: FetchError::NoCurl,
+            at: 500
+        }
+    );
+    assert!(
+        second
+            .tooltip("Quotes", 560)
+            .is_some_and(|text| text.contains("failed 1 min ago")),
+        "the title should date the last attempt"
+    );
+}
+
+#[test]
+fn an_age_is_read_in_whole_minutes_and_never_as_zero() {
+    assert_eq!(desktopwidgets::age_text(5), "1 min ago");
+    assert_eq!(desktopwidgets::age_text(60), "1 min ago");
+    assert_eq!(desktopwidgets::age_text(3_600), "60 min ago");
 }
 
 #[test]

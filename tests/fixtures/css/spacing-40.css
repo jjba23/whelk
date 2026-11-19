@@ -1,0 +1,9 @@
+window#whelk-main .whelk-bar {
+  border-radius: 0px;
+}
+window#whelk-main .whelk-bar { padding: 0 12px; }
+window#whelk-main .whelk-module,
+window#whelk-main .whelk-overflow-toggle,
+window#whelk-main .whelk-overflow-more {
+  padding: 0 12px;
+}

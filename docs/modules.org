@@ -2,7 +2,7 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-Twenty-two module kinds, one shape: the options they share, the options each one adds, and a worked example.
+Twenty-five module kinds, one shape: the options they share, the options each one adds, and a worked example.
 
 All constructors are the same shape -- a kind plus keyword options -- and all
 accept the shared options:
