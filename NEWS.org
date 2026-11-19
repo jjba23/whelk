@@ -11,6 +11,73 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.44.0 (2026-11-19)
+
+*** Changed
+
+- *One rhythm for the bar's horizontal spacing.*  The gaps between modules came
+  from three numbers that did not know about each other: a hard-coded 6px inset
+  inside every module, the row's =#:spacing= between modules, and the extra
+  pixel or two the workspace, tray and folded controls each added themselves.
+  The inset is half of =#:spacing= now, every module and control takes it from
+  the same generated rule, and the icon-to-label gap uses that metric too -- at
+  the default spacing of 6 a reading is inset 3px and two readings stand 12px
+  apart, the proportion macOS's menu bar uses.  =#:spacing= changes the whole
+  row evenly instead of one part of it.
+- *A launcher is its card.*  The layer surface used to be the card plus 36px of
+  shadow room on every side.  A compositor blurs a layer surface's whole
+  geometry, so that margin was blurred desktop showing as a band around the
+  launcher.  The surface is exactly the card now, and the outer =box-shadow=
+  that needed the room is gone.
+- *Desktop cards are text first.*  Notes wraps at word boundaries and draws a
+  note as prose (tabs expanded, trailing spaces dropped, one blank line between
+  paragraphs, and a quiet empty state instead of a placeholder pretending to be
+  the note); a custom card wraps the same way; a weather card names the place
+  only when one was configured instead of always claiming San Francisco; and a
+  stock card keeps its prices and changes in two aligned columns.
+
+*** Added
+
+- *A reminders card says how much is left.*  A line above the rows counts what
+  is done ("2 of 5 done", "All 4 done"), an empty card says what to configure,
+  the rows are taller with a hover surface, and a finished row is struck
+  through and dimmed as a whole rather than only its text.
+- *The launcher lists every application.*  An empty entry ranked the whole
+  catalogue against the launcher's 40-row result limit, so most of a normal
+  machine's applications were simply not in the list.  A bare launcher now
+  lists the set -- the list scrolls -- while a typed query keeps the short,
+  ranked answer a query asks for.
+
+*** Fixed
+
+- *Weather and Stocks work.*  Both cards fetched through =gio::File::for_uri=,
+  which reaches the network through GVfs, and a shell started by a compositor
+  commonly has no GVfs daemon or HTTP backend: =curl= fetched the same URL in a
+  second while the cards sat on "unavailable".  The request is =curl='s now,
+  still off the main loop and still one at a time per card.  It also introduces
+  itself with a =User-Agent=, because Yahoo answers 429 to a request without
+  one and 200 to the same URL with one.  Both packages carry =curl= as a
+  runtime dependency.
+- *The launcher finds the applications a session does not name.*  The
+  =.desktop= scan read only =$XDG_DATA_DIRS=, and a compositor's environment is
+  as small as its startup file made it.  The Guix, Nix, Flatpak and Snap
+  application roots are appended when the session does not already name them,
+  with the session's own order untouched, and the refresh sends no request to a
+  card that already has one in flight.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (572 tests).
+- The two card requests were run as the shell runs them: =curl --fail --silent
+  --show-error --location --max-time 20 --user-agent whelk/0.44.0= against the
+  Open-Meteo forecast for the default coordinates and the Yahoo spell endpoint
+  for =AAPL,MSFT,NVDA=; both answered with the JSON the cards parse, and the
+  same Yahoo URL without a =User-Agent= answered 429.
+- The launcher's placement arithmetic and the desktop cards' policy are covered
+  by =tests/launcher.rs=, =tests/widgets.rs= and =tests/desktopwidgets.rs=; the
+  surfaces themselves were not opened on a live session for this release.
+
 ** v0.43.0 (2026-11-18)
 
 *** Added
