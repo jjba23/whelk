@@ -132,16 +132,17 @@ fn appearance_bounds() {
 
 #[test]
 fn the_launcher_surface_is_the_card_not_the_output() {
-    // A 1880x1253 output with the default 660x640 card: the surface keeps room
-    // for the shadow, sits centred, and holds the card's top at 120.
+    // A 1880x1253 output with the default 660x640 card: the surface is exactly
+    // the card, centred, with its top at 120 and nothing around it.
     let placement = launcher::surface_placement(1880, 1253, 660, 640, 120);
 
-    assert_eq!(placement.width, 660 + 2 * launcher::SHADOW_ROOM);
-    assert_eq!(placement.height, 640 + 2 * launcher::SHADOW_ROOM);
-    assert_eq!(placement.left, (1880 - placement.width) / 2);
-    assert_eq!(placement.top + launcher::SHADOW_ROOM, 120);
-    // The point of the cut: a fullscreen blur is expensive, a card-sized one
-    // is not, and the surface stays far below the output's area.
+    assert_eq!(placement.width, 660);
+    assert_eq!(placement.height, 640);
+    assert_eq!(placement.left, (1880 - 660) / 2);
+    assert_eq!(placement.top, 120);
+    // The point of the cut: a fullscreen blur is expensive, a card-sized one is
+    // not, and any margin around the card would be blurred desktop showing as a
+    // halo around the launcher.
     assert!(
         placement.width * placement.height < 1880 * 1253 / 4,
         "the surface must stay a fraction of the output"
@@ -172,9 +173,10 @@ fn the_launcher_surface_fits_a_small_output() {
 #[test]
 fn the_card_keeps_its_place_when_the_output_is_short() {
     // A card taller than the room under the top edge is pushed up, never off
-    // the output.
+    // the output: 120 would hang its bottom 40px past the edge, so it sits 40.
     let placement = launcher::surface_placement(1280, 720, 720, 680, 120);
 
-    assert_eq!(placement.top, 0);
-    assert!(placement.height <= 720);
+    assert_eq!(placement.top, 40);
+    assert_eq!(placement.height, 680);
+    assert!(placement.top + placement.height <= 720);
 }

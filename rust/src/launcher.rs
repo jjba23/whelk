@@ -59,11 +59,6 @@ pub fn clamp_font_scale(percent: i32) -> i32 {
     percent.clamp(75, 200)
 }
 
-/// The room the card's own CSS shadow needs inside the surface: it paints
-/// `0 24px 70px` under the card, and a surface cut to the card's border box
-/// would clip it.
-pub const SHADOW_ROOM: i32 = 36;
-
 /// Where the launcher's layer surface goes, in output-relative logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SurfacePlacement {
@@ -73,15 +68,16 @@ pub struct SurfacePlacement {
     pub height: i32,
 }
 
-/// The smallest surface a launcher card can sit in.
+/// Where the launcher's card goes, in output-relative logical pixels.
 ///
-/// A layer surface that covers the whole output makes the compositor blur the
-/// whole output: niri applies a layer rule's `background-effect { blur true }`
-/// to the surface's own geometry, so a fullscreen launcher means a fullscreen
-/// blur on every keystroke and every caret blink, which is what made the
-/// launcher feel slow on a machine with blur enabled.  The surface is therefore
-/// the card plus the room its shadow needs, centred horizontally and hung
-/// `top` below the output's top edge through layer-shell margins.
+/// The surface *is* the card: a layer surface that covers the whole output
+/// makes the compositor blur the whole output, because niri applies a layer
+/// rule's `background-effect { blur true }` to the surface's own geometry.  A
+/// surface with shadow room around the card has the same problem one size
+/// smaller -- the blur covers the card plus a transparent margin, which reads
+/// as a halo of blurred desktop around it.  The card is therefore centred
+/// horizontally and hung `top` below the output's top edge through layer-shell
+/// margins, with nothing around it.
 pub fn surface_placement(
     output_width: i32,
     output_height: i32,
@@ -91,10 +87,10 @@ pub fn surface_placement(
 ) -> SurfacePlacement {
     let output_width = output_width.max(1);
     let output_height = output_height.max(1);
-    let width = (card_width.max(1) + 2 * SHADOW_ROOM).min(output_width);
-    let height = (card_height.max(1) + 2 * SHADOW_ROOM).min(output_height);
+    let width = card_width.max(1).min(output_width);
+    let height = card_height.max(1).min(output_height);
     let left = ((output_width - width) / 2).max(0);
-    let top = (top - SHADOW_ROOM).clamp(0, (output_height - height).max(0));
+    let top = top.clamp(0, (output_height - height).max(0));
 
     SurfacePlacement {
         left,

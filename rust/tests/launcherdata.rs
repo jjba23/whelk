@@ -191,4 +191,13 @@ fn desktop_entries_are_looked_up_in_the_applications_subdirectory() {
             .all(|directory| directory.ends_with("applications")),
         "a desktop entry lives in <data-dir>/applications, not in the data directory: {directories:?}"
     );
+    // A compositor starts whelk with an environment of its own, so the roots
+    // Guix, Nix, Flatpak and Snap use are added when the session does not name
+    // them; without that the launcher showed a fraction of what is installed.
+    assert!(
+        directories.contains(&PathBuf::from(
+            "/var/lib/flatpak/exports/share/applications"
+        )),
+        "the flatpak root is a fallback, not something a session must export"
+    );
 }

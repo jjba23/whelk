@@ -20,7 +20,7 @@ prefix picks the mode.
 
 | Mode     | What it searches                                  | Prefix   |
 |----------+---------------------------------------------------+----------|
-| =app=      | every =.desktop= entry on the system (default)     |          |
+| =app=      | every =.desktop= entry on the system (default); an empty entry lists all of them, scrolling |          |
 | =window=   | the focused window (niri, sway, Hyprland, X11)     | =@=        |
 | =run=      | a command, plus completions from =$PATH=           | =>=        |
 | =calc=     | arithmetic; =Enter= copies the result              | ===        |
@@ -33,6 +33,11 @@ prefix picks the mode.
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
 * The card's geometry
+
+The layer surface is the card, with no margin around it.  A compositor blurs a
+layer surface's whole geometry, so a surface with shadow room around the card
+showed a halo of blurred desktop behind the launcher; the card's own material
+and border are the whole surface now.
 
 The card is resizable.  Drag the lower-right grip, or use the footer's *Icons*
 and *Text* buttons; the current icon size and text percentage sit beside the

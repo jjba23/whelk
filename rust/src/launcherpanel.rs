@@ -25,7 +25,6 @@ use crate::clipboard::{
 use crate::command;
 use crate::filesearch;
 use crate::launcher as launcher_geometry;
-use crate::launcher::SHADOW_ROOM;
 use crate::launcherdata::{self, ItemKind, LauncherItem, RESULT_LIMIT};
 use crate::launcherkeys::LauncherKeys;
 use crate::menusearch;
@@ -36,6 +35,13 @@ const DEBOUNCE: Duration = Duration::from_millis(120);
 const FILE_DEBOUNCE: Duration = Duration::from_millis(260);
 const WALK_MAX_AGE: Duration = Duration::from_secs(30);
 const CARD_TOP: i32 = 120;
+/// How many applications a launcher with an empty entry lists.
+///
+/// The results list scrolls, and a normal machine has two or three hundred
+/// applications; ranking against [`RESULT_LIMIT`] before anyone typed anything
+/// is what made the launcher look as though it had lost most of them.  A query
+/// keeps the short, ranked list a query is asking for.
+const APP_LIMIT: usize = 600;
 const HINT: &str = "> run   = calc   / files   ? web   @ windows   % ssh   ! close   ; clipboard   : menu items   ·   Tab completes   ·   Esc closes";
 
 thread_local! {
@@ -224,13 +230,6 @@ impl Launcher {
         card.append(&footer);
         card.set_halign(gtk::Align::Center);
         card.set_valign(gtk::Align::Start);
-        // The card keeps the surface's shadow room around it instead of the
-        // whole output: the layer surface is cut to the card, so a compositor
-        // that blurs the surface blurs the card and not the screen.
-        card.set_margin_top(SHADOW_ROOM);
-        card.set_margin_bottom(SHADOW_ROOM);
-        card.set_margin_start(SHADOW_ROOM);
-        card.set_margin_end(SHADOW_ROOM);
         card.set_hexpand(false);
 
         let holder = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -769,11 +768,16 @@ impl Launcher {
             _ => {
                 self.ensure_apps();
                 let state = self.inner.borrow();
+                let limit = if query.is_empty() {
+                    APP_LIMIT
+                } else {
+                    RESULT_LIMIT
+                };
 
                 state
                     .apps
                     .as_deref()
-                    .map(|items| ranked(items, &query))
+                    .map(|items| ranked_with(items, &query, limit))
                     .unwrap_or_default()
             }
         };
@@ -1486,7 +1490,13 @@ fn resolve_mode(mode: &str) -> &'static str {
 }
 
 fn ranked(items: &[LauncherItem], query: &str) -> Vec<LauncherItem> {
-    launcherdata::rank_indices(items, query, RESULT_LIMIT)
+    ranked_with(items, query, RESULT_LIMIT)
+}
+
+/// [`ranked`] against a limit the caller chooses: an empty entry asks for the
+/// catalogue, a typed one for the best few matches.
+fn ranked_with(items: &[LauncherItem], query: &str, limit: usize) -> Vec<LauncherItem> {
+    launcherdata::rank_indices(items, query, limit)
         .into_iter()
         .map(|index| items[index].clone())
         .collect()
@@ -1605,7 +1615,6 @@ const BASE_CSS: &str = "
         border-radius: 16px;
         background-image: linear-gradient(to bottom, alpha(white, 0.06),
                                           alpha(white, 0) 92px);
-        box-shadow: 0 24px 70px alpha(black, 0.48), 0 2px 8px alpha(black, 0.20);
     }
     .whelk-launcher-header {
         padding: 0 2px 4px 2px;

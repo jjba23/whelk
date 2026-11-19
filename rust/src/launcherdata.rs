@@ -147,10 +147,38 @@ pub fn desktop_dirs() -> Vec<PathBuf> {
             .map(PathBuf::from),
     );
 
+    // The session's list first, then the roots a compositor tends not to hand a
+    // shell.  A directory that is already named is not repeated, so a session
+    // that does export the profile still decides the order.
+    for directory in well_known_data_dirs(&home) {
+        if !directories.iter().any(|named| named == &directory) {
+            directories.push(directory);
+        }
+    }
+
     directories
         .into_iter()
         .map(|directory| directory.join("applications"))
         .collect()
+}
+
+/// The application roots a session may not have put in `XDG_DATA_DIRS`.
+///
+/// whelk is started by a compositor, and a compositor's environment is as small
+/// as its startup file made it: Guix, Nix, Flatpak and Snap each keep their own
+/// applications directory, and a shell that only read the inherited list found
+/// a fraction of what is installed.  These follow the session's directories, so
+/// the user's own entries and the session's precedence are untouched.
+fn well_known_data_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".guix-profile/share"),
+        home.join(".nix-profile/share"),
+        PathBuf::from("/run/current-system/sw/share"),
+        PathBuf::from("/nix/var/nix/profiles/default/share"),
+        home.join(".local/share/flatpak/exports/share"),
+        PathBuf::from("/var/lib/flatpak/exports/share"),
+        PathBuf::from("/var/lib/snapd/desktop"),
+    ]
 }
 
 fn desktop_bool(value: Option<&String>) -> bool {
