@@ -758,10 +758,148 @@ pub fn app_name(app_id: &str, desktop: Option<&DesktopEntry>) -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltMenus {
+    /// The application's own top-level menus: File, Edit, View, Window and
+    /// whatever the dictionary, corpus or producer answered.
     pub menus: Vec<Menu>,
+    /// The menu behind the application's name.  It is not a copy of one of the
+    /// rows above: it holds what belongs to the application rather than to a
+    /// document or a window.
+    pub application: Menu,
     pub app_name: String,
     /// `Some(name)` when the curated dictionary answered for this application.
     pub dictionary_name: Option<String>,
+}
+
+/// Which of an application's own rows an application menu borrows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppRow {
+    About,
+    Preferences,
+    Help,
+}
+
+/// The category a row belongs to, when an application menu should borrow it.
+///
+/// The match is on the row's own wording, so it works for an application that
+/// publishes English menus and for one whose labels were already localised:
+/// only the three shapes the platform's application menu has are recognised.
+fn app_row(label: &str) -> Option<AppRow> {
+    let label = label.trim();
+    let label = label.strip_suffix('\u{2026}').unwrap_or(label).trim();
+    let lower = label.to_ascii_lowercase();
+
+    if lower == "about" || lower.starts_with("about ") {
+        Some(AppRow::About)
+    } else if matches!(lower.as_str(), "preferences" | "settings" | "options") {
+        Some(AppRow::Preferences)
+    } else if lower == "help" || lower.starts_with("help ") || lower == "keyboard shortcuts" {
+        Some(AppRow::Help)
+    } else {
+        None
+    }
+}
+
+/// The About, Preferences and Help rows the application publishes itself.
+///
+/// They are the application's own entries, cloned with their own action, so
+/// choosing one goes through whichever producer answered (a GTK action, a
+/// DBusMenu id, an accessibility object) instead of guessing at a command.
+/// Preferences usually sits one level down, under Edit, so the walk descends.
+pub fn borrowed_rows(menus: &[Menu]) -> Vec<MenuEntry> {
+    let mut found: Vec<(AppRow, MenuEntry)> = Vec::new();
+
+    for menu in menus {
+        collect_app_rows(&menu.entries, &mut found, 0);
+    }
+
+    [AppRow::About, AppRow::Preferences, AppRow::Help]
+        .iter()
+        .filter_map(|wanted| {
+            found
+                .iter()
+                .find(|(row, _)| row == wanted)
+                .map(|(_, entry)| entry.clone())
+        })
+        .collect()
+}
+
+fn collect_app_rows(entries: &[MenuEntry], found: &mut Vec<(AppRow, MenuEntry)>, depth: usize) {
+    if depth > 2 {
+        return;
+    }
+
+    for entry in entries {
+        let MenuEntry::Item { label, submenu, .. } = entry else {
+            continue;
+        };
+
+        if let Some(row) = app_row(label)
+            && !found.iter().any(|(seen, _)| *seen == row)
+        {
+            found.push((row, entry.clone()));
+
+            continue;
+        }
+
+        if !submenu.is_empty() {
+            collect_app_rows(submenu, found, depth + 1);
+        }
+    }
+}
+
+/// The menu behind the application's name.
+///
+/// The application name used to open the Window menu's verbs followed by
+/// Close, which made two buttons with one meaning.  The verbs stay in Window
+/// and Close stays in File; this menu is the application's own: the About and
+/// Preferences rows it publishes, the extra ways its desktop entry says it can
+/// be started, and the way out of it.
+pub fn application_menu(
+    app_name: &str,
+    menus: &[Menu],
+    desktop: Option<&DesktopEntry>,
+    actions: &WindowActions,
+) -> Menu {
+    let mut entries = borrowed_rows(menus);
+    let mut opens = Vec::new();
+
+    if let Some(desktop) = desktop {
+        if let Some(command) = desktop.new_window_command() {
+            opens.push(MenuEntry::command("New Window", command));
+        }
+
+        for action in &desktop.actions {
+            if action.id == "new-window" && desktop.new_window_command().is_some() {
+                continue;
+            }
+
+            let command = action.command();
+
+            opens.push(MenuEntry::Item {
+                label: action.name.clone(),
+                enabled: command.is_some(),
+                accel: None,
+                action: command.map(|command| MenuAction::DesktopAction {
+                    desktop_file: format!("{}.desktop", desktop.id),
+                    action: action.id.clone(),
+                    command,
+                }),
+                submenu: Vec::new(),
+            });
+        }
+    }
+
+    if !opens.is_empty() {
+        push_separator(&mut entries);
+        entries.extend(opens);
+    }
+
+    if let Some(close) = actions.close.as_deref().filter(|close| !close.is_empty()) {
+        push_separator(&mut entries);
+        entries.push(MenuEntry::command(format!("Quit {app_name}"), close));
+    }
+
+    Menu::with_entries(app_name, entries)
 }
 
 /// Build the application-specific fallback, in the same order as the C shell:
@@ -786,42 +924,10 @@ pub fn build_menus(
     let known_dictionary = sources.dictionary_for(app_id);
     let dictionary = can_type.then_some(known_dictionary).flatten();
     let mut bar = Vec::new();
+    // File is the application's file rows and the way to close one: the extra
+    // ways to start the application are the application menu's (see
+    // [`application_menu`]), so a row does not appear in two menus.
     let mut file = Vec::new();
-    let new_window = desktop.and_then(DesktopEntry::new_window_command);
-
-    if let Some(command) = new_window.as_deref() {
-        file.push(MenuEntry::command("New Window", command));
-    }
-
-    if let Some(desktop) = desktop {
-        let mut action_rows = false;
-
-        for action in &desktop.actions {
-            if new_window.is_some() && action.id == "new-window" {
-                continue;
-            }
-
-            if !action_rows && !file.is_empty() {
-                push_separator(&mut file);
-            }
-
-            action_rows = true;
-
-            let command = action.command();
-
-            file.push(MenuEntry::Item {
-                label: action.name.clone(),
-                enabled: command.is_some(),
-                accel: None,
-                action: command.map(|command| MenuAction::DesktopAction {
-                    desktop_file: format!("{}.desktop", desktop.id),
-                    action: action.id.clone(),
-                    command,
-                }),
-                submenu: Vec::new(),
-            });
-        }
-    }
 
     if let Some(dictionary) = dictionary
         && let Some(dictionary_file) = dictionary
@@ -921,9 +1027,11 @@ pub fn build_menus(
     let app_name = dictionary_name
         .clone()
         .unwrap_or_else(|| app_name(app_id, desktop));
+    let application = application_menu(&app_name, &bar, desktop, window_actions);
 
     BuiltMenus {
         menus: bar,
+        application,
         app_name,
         dictionary_name,
     }
@@ -1367,18 +1475,116 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["File", "Edit", "Window"]
         );
+        // File is the application's file rows and Close Window; the way to
+        // start another window is the application menu's row, not File's.
         assert!(matches!(
             &built.menus[0].entries[0],
-            MenuEntry::Item { label, .. } if label == "New Window"
-        ));
-        assert!(matches!(&built.menus[0].entries[1], MenuEntry::Separator));
-        assert!(matches!(
-            &built.menus[0].entries[2],
             MenuEntry::Item { label, .. } if label == "Close Window"
         ));
         assert!(matches!(
-            &built.menus[0].entries[3],
+            &built.menus[0].entries[1],
             MenuEntry::Item { label, .. } if label == "Quit"
+        ));
+        assert_eq!(built.application.label, "Example");
+        assert!(matches!(
+            &built.application.entries[0],
+            MenuEntry::Item { label, .. } if label == "New Window"
+        ));
+        assert!(matches!(
+            &built.application.entries[1],
+            MenuEntry::Separator
+        ));
+        assert!(matches!(
+            &built.application.entries[2],
+            MenuEntry::Item { label, .. } if label == "Quit Example"
+        ));
+    }
+
+    #[test]
+    fn application_menu_borrows_the_rows_the_application_publishes() {
+        let menus = vec![
+            Menu::with_entries(
+                "File",
+                vec![MenuEntry::command("Quit", "quit"), MenuEntry::separator()],
+            ),
+            Menu::with_entries(
+                "Edit",
+                vec![MenuEntry::Item {
+                    label: "Preferences".to_owned(),
+                    enabled: true,
+                    accel: Some("Ctrl+,".to_owned()),
+                    action: Some(MenuAction::Command("prefs".to_owned())),
+                    submenu: Vec::new(),
+                }],
+            ),
+            Menu::with_entries(
+                "Help",
+                vec![
+                    MenuEntry::command("Help", "help"),
+                    MenuEntry::command("About Example", "about"),
+                ],
+            ),
+        ];
+        let actions = WindowActions {
+            close: Some("close".to_owned()),
+            fullscreen: Some("fullscreen".to_owned()),
+            ..WindowActions::default()
+        };
+        let application = application_menu("Example", &menus, None, &actions);
+        let labels: Vec<&str> = application
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                MenuEntry::Item { label, .. } => Some(label.as_str()),
+                MenuEntry::Separator => None,
+            })
+            .collect();
+
+        // Identity first, then preferences, then help, then the way out.
+        assert_eq!(
+            labels,
+            vec!["About Example", "Preferences", "Help", "Quit Example"]
+        );
+        // The borrowed row keeps the application's own action and accelerator.
+        assert!(matches!(
+            &application.entries[1],
+            MenuEntry::Item { accel: Some(accel), action: Some(MenuAction::Command(command)), .. }
+                if accel == "Ctrl+," && command == "prefs"
+        ));
+        // Window verbs belong to the Window menu, not to this one.
+        assert!(!labels.contains(&"Fullscreen"));
+        assert!(!labels.contains(&"Close Window"));
+    }
+
+    #[test]
+    fn an_application_with_nothing_but_a_close_still_has_a_menu() {
+        let actions = WindowActions {
+            close: Some("close".to_owned()),
+            ..WindowActions::default()
+        };
+        let application = application_menu("Foo", &[], None, &actions);
+
+        assert_eq!(application.entries.len(), 1);
+        assert!(matches!(
+            &application.entries[0],
+            MenuEntry::Item { label, action: Some(MenuAction::Command(command)), .. }
+                if label == "Quit Foo" && command == "close"
+        ));
+    }
+
+    #[test]
+    fn only_one_row_of_each_borrowed_kind_is_taken() {
+        let menus = vec![
+            Menu::with_entries("File", vec![MenuEntry::command("About Foo", "about-file")]),
+            Menu::with_entries("Help", vec![MenuEntry::command("About Foo", "about-help")]),
+        ];
+        let rows = borrowed_rows(&menus);
+
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            &rows[0],
+            MenuEntry::Item { action: Some(MenuAction::Command(command)), .. }
+                if command == "about-file"
         ));
     }
 

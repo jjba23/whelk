@@ -35,6 +35,7 @@ fn x11_registrar_comes_after_exact_gtk_paths() {
             "/org/example/App/menus/AppMenu",
             "/org/example/App/menus/menubar",
             "/org/example/App/menus/AppMenu",
+            "/org/example/App/menus/appmenu",
             "/org/example/App/window/0/menus/menubar",
             "/org/gtk/Application/anonymous/menus/menubar",
         ]
@@ -80,7 +81,7 @@ fn registrar_needs_an_x11_window() {
     let order = menuprobe::order_new(Some(&paths), true, Some("/org/example/App"));
 
     assert!(!order.ask_registrar);
-    assert_eq!(order.gtk_paths.len(), 7);
+    assert_eq!(order.gtk_paths.len(), 8);
 }
 
 #[test]
@@ -94,6 +95,7 @@ fn wayland_uses_conventional_paths_only() {
         vec![
             "/org/example/App/menus/menubar",
             "/org/example/App/menus/AppMenu",
+            "/org/example/App/menus/appmenu",
             "/org/example/App/window/0/menus/menubar",
             "/org/gtk/Application/anonymous/menus/menubar",
         ]

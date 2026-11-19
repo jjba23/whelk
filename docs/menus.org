@@ -53,11 +53,16 @@ instead of children is a slot the shell fills when it opens.
          (menu-separator)
          (menu-item "Force Quit…" "shell:force-quit")
          (menu-separator)
-         (menu-item "Sleep" "systemctl suspend")
+         (menu-item "Sleep"
+                    "loginctl suspend 2>/dev/null || systemctl suspend 2>/dev/null || zzz")
          (menu-item "Lock Screen" "shell:lock")
          (menu-item "Search…" "shell:launcher"))
    #:bars (list (default-bar)))
 #+end_src
+
+The default menu's ways out are chains rather than =systemctl= verbs, so the
+same menu sleeps and shuts down on a systemd machine, an elogind one and a
+machine with neither; [[file:portability.org][Portability]] lists the chains.
 
 The mark is one ribbon spiralling from a thin spire out to a wide lip, drawn
 from a formula in the bar's own ink at =#:icon-size= pixels (18 by default), so
@@ -194,13 +199,25 @@ and it is stored and printed as the Emacs user writes it.  =wtype= and
 =xdotool= receive one command per chord, so the prefix is not lost between
 them.
 
-The name of the application in front can come first -- a menu button whose
-popover holds the window verbs for every application: maximize/restore,
-toggle floating, move left/right/up/down, full screen and =Close Window=,
-using the session's own commands.  It is the variant a bar wants when it does
-not put =start-module= and =window-module= before this one.  On the default bar
-it is off (=#:app-name? #f=), because the window module beside it already says
-whose window you are in, and a menu bar says it once.
+The name of the application in front can come first -- a menu button named
+after the application, holding what belongs to the application rather than to a
+document or a window:
+
+- the =About=, =Preferences= / =Settings= (or =Options=) and =Help= rows the
+  application publishes itself, lifted from its own menus with their own
+  actions and accelerators, at any depth (Preferences is usually one level
+down, under Edit);
+- the extra ways its desktop entry says it can be started -- =New Window= and
+  the entry's declared =Actions=, built from its =Exec= lines;
+- =Quit <Application>=, the session's close command.
+
+The window verbs (maximize/restore, toggle floating, move, full screen) stay in
+the Window menu and =Close Window= stays in File, so no row appears in two
+menus.  An application that publishes no About or Preferences row simply has a
+shorter menu; one with no close command on this session has only the rows it
+does publish.  On the default bar the application button is off
+(=#:app-name? #f=), because the window module beside it already says whose
+window you are in, and a menu bar says it once.
 
 The menu bar is usable from the keyboard: Down and Up walk the entries, Home
 and End go to the ends, Left and Right move between File, Edit and View, Right
@@ -216,10 +233,10 @@ them, so a known editor gets them too.
 
 The shortcut menus need something that can type a chord: with neither =wtype=
 nor =xdotool= installed, an application gets no shared Edit and View, rather
-than entries that could not work.  Its own desktop actions and =New Window=
-still fill File, =Close Window= is there when the compositor can close, and the
-=Window= menu still carries its arranging verbs, so a sparse menu is useful even
-without a typing tool.  An application that publishes its own menubar keeps the
+than entries that could not work.  Its desktop actions and =New Window= still
+fill the application menu, =Close Window= is there in File when the compositor
+can close, and the =Window= menu still carries its arranging verbs, so a sparse
+menu is useful even without a typing tool.  An application that publishes its own menubar keeps the
 application's own Window menu instead.
 
 The dictionary is not a placeholder.  A Wayland shell learns a GTK
@@ -329,7 +346,9 @@ popovers and keyboard navigation.  =#:menu-command=, =#:shortcuts?=,
 The producer order is deliberate:
 
 1. =#:menu-command=;
-2. =org.gtk.Menus=, exact X11 paths first then the conventional ones;
+2. =org.gtk.Menus=, exact X11 paths first then the conventional ones --
+   =menubar=, =AppMenu= and the lower-case =appmenu= that
+   =GtkApplication::set_app_menu= publishes;
 3. =com.canonical.dbusmenu=, after the X11 registrar has supplied the exact
    bus and object path;
 4. AT-SPI, read on a worker thread and followed live through
@@ -339,7 +358,9 @@ The producer order is deliberate:
 
 A dictionary or Orbit row types its documented chord into the focused window;
 AT-SPI rows use =DoAction= on the accessibility bus.  Desktop entries supply
-New Window from their =Exec=, their named actions, and Close Window in File.
+New Window and the entry's named actions from their =Exec= lines to the
+application menu, and Close Window in File.  A menu a producer sends with an
+empty label gets no button: it is a placeholder, not a menu.
 
 Current boundaries are narrow, and stated rather than hidden:
 

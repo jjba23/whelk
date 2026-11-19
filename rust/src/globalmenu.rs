@@ -82,6 +82,9 @@ struct MenuState {
     pid: i32,
     app_name: String,
     actions: WindowActions,
+    /// The focused application's desktop entry, when one was found: the
+    /// application menu reads its declared startup actions from it.
+    desktop: Option<menuapps::DesktopEntry>,
     menus: Vec<Menu>,
     buttons: Vec<gtk::MenuButton>,
     /// The `#:menu-command` child.  Keeping the handle is what makes the
@@ -169,6 +172,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         pid: 0,
         app_name: String::new(),
         actions: WindowActions::default(),
+        desktop: None,
         menus: Vec::new(),
         buttons: Vec::new(),
         script: RefCell::new(None),
@@ -281,6 +285,7 @@ fn rebuild(state: &Rc<RefCell<MenuState>>, app_id: &str, paths: FocusedPaths, pi
 
         state.app_name = built.app_name;
         state.menus = built.menus;
+        state.desktop = desktop;
         (state.generation, state.menu_command.clone())
     };
 
@@ -296,7 +301,7 @@ fn rebuild(state: &Rc<RefCell<MenuState>>, app_id: &str, paths: FocusedPaths, pi
 }
 
 fn render(state: &Rc<RefCell<MenuState>>) {
-    let (menus, app_name, actions, show_app_name) = {
+    let (menus, app_name, actions, desktop, show_app_name) = {
         let mut menu_state = state.borrow_mut();
 
         menu_state.close_menus();
@@ -327,19 +332,26 @@ fn render(state: &Rc<RefCell<MenuState>>) {
             menus,
             app_name,
             menu_state.actions.clone(),
+            menu_state.desktop.clone(),
             menu_state.show_app_name,
         )
     };
 
-    if show_app_name && !app_name.is_empty() {
-        let application = menubar::application_menu(&actions);
+    // The application menu is built from whatever menus are on screen now, so a
+    // producer that answers after the desktop lookup (GTK's app menu, DBusMenu,
+    // AT-SPI, a menu command) still lends its About and Preferences rows.
+    let application = menuapps::application_menu(&app_name, &menus, desktop.as_ref(), &actions);
 
-        if MenuEntry::has_items(&application.entries) {
-            add_top_button(state, &application, "whelk-menu-app-button", &app_name);
-        }
+    if show_app_name && !app_name.is_empty() && MenuEntry::has_items(&application.entries) {
+        add_top_button(state, &application, "whelk-menu-app-button", &app_name);
     }
 
-    for menu in menus.iter().filter(|menu| !menu.entries.is_empty()) {
+    // A menu with no label is a producer's placeholder, not a menu: it gets no
+    // button, and its rows are not a menu the user can open.
+    for menu in menus
+        .iter()
+        .filter(|menu| !menu.entries.is_empty() && !menu.label.trim().is_empty())
+    {
         add_top_button(state, menu, "whelk-menu-button", &menu.label);
     }
 

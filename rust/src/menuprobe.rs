@@ -53,6 +53,10 @@ pub fn order_new(
         if let Some(app_path) = app_path.filter(|path| !path.is_empty()) {
             order.gtk_paths.push(format!("{app_path}/menus/menubar"));
             order.gtk_paths.push(format!("{app_path}/menus/AppMenu"));
+            // `GtkApplication::set_app_menu` publishes under this lower-case
+            // name, and it is the only menu some GTK3 applications export at
+            // all: without it those applications had a bar with no rows.
+            order.gtk_paths.push(format!("{app_path}/menus/appmenu"));
             order
                 .gtk_paths
                 .push(format!("{app_path}/window/0/menus/menubar"));

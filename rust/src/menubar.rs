@@ -677,22 +677,6 @@ pub fn fallback_menus(
     bar
 }
 
-/// The shell-owned menu behind the application name: arranging verbs and
-/// Close Window, with no File/Edit/View copy of the application's own menus.
-pub fn application_menu(actions: &WindowActions) -> Menu {
-    let mut entries = window_menu(actions);
-
-    if let Some(close) = actions.close.as_deref().filter(|value| !value.is_empty()) {
-        if MenuEntry::has_items(&entries) {
-            entries.push(MenuEntry::Separator);
-        }
-
-        entries.push(MenuEntry::command("Close Window", close));
-    }
-
-    Menu::with_entries("Application", entries)
-}
-
 /// The arranging verbs for the focused window.  Kept public so the desktop
 /// fallback can put the same rows under its own Window menu.
 pub fn window_entries(actions: &WindowActions) -> Vec<MenuEntry> {
