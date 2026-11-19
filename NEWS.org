@@ -9,7 +9,11 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
-** Added
+*[Released]
+
+** v0.47.0 (2026-11-19)
+
+*** Added
 
 - *=whelk --status= says why the bar is blank.*  A module that has nothing to
   show looks the same whether the tool it shells out to is missing, the session
@@ -47,7 +51,7 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   =#:height= and the radius), the classes and ids =#:css= may target, and which
   of two competing rules the cascade picks.
 
-** Changed
+*** Changed
 
 - *The lock screen refuses to lock a session it could not unlock.*  Before it
   builds a surface, whelk now checks that this machine can both cover the
@@ -61,7 +65,16 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   at once instead of at its ten-second timeout.  =whelk --check-lock= ends
   with =authentication preflight:= and the same answer.
 
-*[Released]
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets --locked
+  -- -D warnings= and =cargo test --workspace --locked= pass (617 tests),
+  including the status verdicts, the CSS goldens and the lock preflight.
+- =scripts/release-smoke.sh --source= builds and installs the source tree, and
+  the installed binary reports =whelk 0.47.0=; the Guix and Nix builds pass.
+- =--status= and =--status --json= were run against a niri session with
+  =systemd-logind=, and =--check-lock= reports =authentication preflight:
+  allowed= for the =login= service this host uses.
 
 ** v0.46.0 (2026-11-19)
 
