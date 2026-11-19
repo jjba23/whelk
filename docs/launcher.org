@@ -32,6 +32,30 @@ prefix picks the mode.
 | =menuitem= | every entry of the focused app's menu, path and chord | =:=       |
 | =menu=     | a command's =label<TAB>command= lines               | =--menu=   |
 
+* What the app mode reads
+
+The scan reads every =.desktop= file under the session's application roots
+once, in the order =desktop_dirs= lists them, and the file name is the desktop
+id: the user's =firefox.desktop= shadows the system one.
+
+- *A byte-order mark is not part of the header.*  A file that starts with
+  =\u{feff}= still opens with =[Desktop Entry]=, so its entry is read instead of
+  silently disappearing.
+- *A file that is not valid UTF-8 is still listed.*  Bytes are decoded lossily
+  rather than the whole entry being dropped, because one latin-1 character in a
+  translated comment should not cost an application.
+- *=Name[de]= and its relatives are read.*  The session's =LC_ALL=, then
+  =LC_MESSAGES=, then =LANG= picks the translation, from the country form down
+  to the language, and an empty translation falls back to =Name=.  The same
+  lookup fills =GenericName=, =Comment= and =Keywords=, so a German session
+  searches German words.
+- *A hidden copy hides the application.*  =Hidden=true= ("the user deleted
+  this") and =NoDisplay=true= ("do not show this") in an earlier directory claim
+  the id, so the system copy underneath does not bring the entry back.  A file
+  that is unreadable, is not =Type=Application=, or has no name claims nothing,
+  and the next directory is asked, so a broken file does not lose an
+  application either.
+
 * The card's geometry
 
 The layer surface is the card, with no margin around it.  A compositor blurs a

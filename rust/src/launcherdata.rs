@@ -11,7 +11,7 @@
 //! those rules can be checked without a display, while `launcherpanel` only
 //! paints their result and starts the chosen action.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -216,14 +216,131 @@ pub(crate) fn desktop_unescape(value: &str) -> String {
     output
 }
 
-/// Parse the `[Desktop Entry]` section of a `.desktop` file.  Directories and
-/// hidden entries are not launchable things; a missing `Name` is likewise not
-/// an application.
-pub fn parse_desktop_entry(text: &str, filename: &str, path: &Path) -> Option<LauncherItem> {
-    let mut in_entry = false;
-    let mut values = std::collections::HashMap::<String, String>::new();
+/// What a `.desktop` file says about the id it is stored under.
+///
+/// Three answers, and the third is the one a scan usually gets wrong: a file
+/// that hides its id has *claimed* that id, so a later directory must not answer
+/// for it, while a file that is merely unusable has not, so the next directory
+/// may still provide the application.  Collapsing both into "skip" either
+/// resurrects an application the user deleted or loses one because a single
+/// file is malformed.
+enum Verdict {
+    /// A launchable application.  Boxed because the row is much larger than
+    /// the other two answers, which are read far more often than a row is.
+    Shown(Box<LauncherItem>),
+    /// `Hidden=true` or `NoDisplay=true`: the id is deleted at this level.
+    Hidden,
+    /// Not an application, or nothing usable in it.
+    Unusable,
+}
 
-    for line in text.lines() {
+/// The locale the session asks for: `LC_ALL`, then `LC_MESSAGES`, then `LANG`.
+///
+/// A desktop file carries translated keys beside the untranslated ones, and the
+/// first variable a session sets is the one it means, so they are not merged.
+pub fn session_locale() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+/// The `Name[...]` suffixes to try for a locale, most specific first.
+///
+/// GLib's order is kept -- the country form with encoding and modifier, the
+/// country form alone, then the language -- because that is the order a desktop
+/// file's own translations were written for.  `C` and `POSIX` name no language,
+/// so they produce nothing and the plain key answers.
+pub fn locale_keys(locale: &str) -> Vec<String> {
+    let locale = locale.trim();
+
+    if locale.is_empty() || locale == "C" || locale == "POSIX" {
+        return Vec::new();
+    }
+
+    let (body, modifier) = match locale.split_once('@') {
+        Some((body, modifier)) => (body, Some(modifier)),
+        None => (locale, None),
+    };
+    let (body, encoding) = match body.split_once('.') {
+        Some((body, encoding)) => (body, Some(encoding)),
+        None => (body, None),
+    };
+    let (language, country) = match body.split_once('_') {
+        Some((language, country)) => (language, Some(country)),
+        None => (body, None),
+    };
+    let mut keys = Vec::new();
+
+    if let Some(country) = country {
+        let base = format!("{language}_{country}");
+
+        if let Some(encoding) = encoding {
+            if let Some(modifier) = modifier {
+                keys.push(format!("{base}.{encoding}@{modifier}"));
+            }
+
+            keys.push(format!("{base}.{encoding}"));
+        }
+
+        if let Some(modifier) = modifier {
+            keys.push(format!("{base}@{modifier}"));
+        }
+
+        keys.push(base);
+    }
+
+    if let Some(modifier) = modifier {
+        keys.push(format!("{language}@{modifier}"));
+    }
+
+    keys.push(language.to_owned());
+    keys
+}
+
+/// The value of a localised key, falling back to the untranslated one.
+///
+/// An empty translation is not an answer -- a file with `Name[de]=` beside
+/// `Name=Firefox` should read "Firefox" -- so the search continues past it.
+fn localized<'a>(
+    values: &'a HashMap<String, String>,
+    key: &str,
+    languages: &[String],
+) -> Option<&'a String> {
+    languages
+        .iter()
+        .filter_map(|language| values.get(&format!("{key}[{language}]")))
+        .find(|value| !value.trim().is_empty())
+        .or_else(|| values.get(key))
+}
+
+/// Read a `.desktop` file as text, whatever bytes it holds.
+///
+/// `fs::read_to_string` refuses a file that is not valid UTF-8, and a scan that
+/// drops the whole file loses an application every other menu shows, because one
+/// translated `Comment` was written in latin-1.  A byte-order mark is legal at
+/// the start of the file too, and it is not part of the first section's name:
+/// read verbatim, the header becomes `\u{feff}[Desktop Entry]` and the entry is
+/// invisible.  The bytes are therefore stripped of the mark and decoded
+/// lossily, which costs one mangled character instead of one missing app.
+pub fn read_desktop_file(path: &Path) -> Option<String> {
+    Some(desktop_text(&fs::read(path).ok()?))
+}
+
+fn desktop_text(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn entry_values(text: &str) -> HashMap<String, String> {
+    let mut in_entry = false;
+    let mut values = HashMap::<String, String>::new();
+
+    // A mark that survived the byte-level strip (a caller passed text it had
+    // already decoded) is not part of the key either.
+    for line in text.trim_start_matches('\u{feff}').lines() {
         let line = line.trim();
 
         if line.is_empty() || line.starts_with('#') {
@@ -244,22 +361,29 @@ pub fn parse_desktop_entry(text: &str, filename: &str, path: &Path) -> Option<La
         }
     }
 
+    values
+}
+
+fn verdict(text: &str, filename: &str, path: &Path, languages: &[String]) -> Verdict {
+    let values = entry_values(text);
+
     if desktop_bool(values.get("NoDisplay")) || desktop_bool(values.get("Hidden")) {
-        return None;
+        return Verdict::Hidden;
     }
 
     if values.get("Type").map(String::as_str) != Some("Application") {
-        return None;
+        return Verdict::Unusable;
     }
 
-    let name = values.get("Name")?.trim();
+    let Some(name) = localized(&values, "Name", languages).map(|name| name.trim()) else {
+        return Verdict::Unusable;
+    };
 
     if name.is_empty() {
-        return None;
+        return Verdict::Unusable;
     }
 
-    let detail = values
-        .get("GenericName")
+    let detail = localized(&values, "GenericName", languages)
         .map(String::as_str)
         .filter(|value| !value.is_empty())
         .or_else(|| values.get("Exec").map(String::as_str))
@@ -269,20 +393,51 @@ pub fn parse_desktop_entry(text: &str, filename: &str, path: &Path) -> Option<La
         .with_icon(values.get("Icon").map(String::as_str));
 
     for key in ["GenericName", "Comment", "Keywords"] {
-        if let Some(value) = values.get(key) {
+        if let Some(value) = localized(&values, key, languages) {
             item.add_search(value);
         }
     }
 
     item.add_search(filename);
 
-    Some(item)
+    Verdict::Shown(Box::new(item))
+}
+
+/// Parse the `[Desktop Entry]` section of a `.desktop` file.  Directories and
+/// hidden entries are not launchable things; a missing `Name` is likewise not
+/// an application.
+pub fn parse_desktop_entry(text: &str, filename: &str, path: &Path) -> Option<LauncherItem> {
+    parse_desktop_entry_in_locale(text, filename, path, &session_locale())
+}
+
+/// Parse an entry as a session with this locale would read it.
+///
+/// The locale comes from the caller so the decision is testable without
+/// changing the environment of the test process, and so a picker that lists
+/// another language can ask for that language directly.
+pub fn parse_desktop_entry_in_locale(
+    text: &str,
+    filename: &str,
+    path: &Path,
+    locale: &str,
+) -> Option<LauncherItem> {
+    match verdict(text, filename, path, &locale_keys(locale)) {
+        Verdict::Shown(item) => Some(*item),
+        Verdict::Hidden | Verdict::Unusable => None,
+    }
 }
 
 /// Scan application directories once per directory, first filename wins.  The
 /// filename is the desktop id, so the user's copy of `firefox.desktop` shadows
 /// the system copy.
+///
+/// "Wins" is decided by the file, not by whether it produced a row: `Hidden=true`
+/// and `NoDisplay=true` are how a user deletes an entry a package installed, so
+/// such a file claims its id and the copy further down the search path must not
+/// bring the application back.  A file that is unreadable, is not an
+/// application, or has no name claims nothing, and the next directory is asked.
 pub fn scan_desktop_dirs(directories: &[PathBuf]) -> Vec<LauncherItem> {
+    let languages = locale_keys(&session_locale());
     let mut seen = HashSet::new();
     let mut items = Vec::new();
 
@@ -307,13 +462,19 @@ pub fn scan_desktop_dirs(directories: &[PathBuf]) -> Vec<LauncherItem> {
             }
 
             let path = directory.join(&name);
-            let Ok(text) = fs::read_to_string(&path) else {
+            let Some(text) = read_desktop_file(&path) else {
                 continue;
             };
 
-            if let Some(item) = parse_desktop_entry(&text, &name, &path) {
-                seen.insert(name);
-                items.push(item);
+            match verdict(&text, &name, &path, &languages) {
+                Verdict::Shown(item) => {
+                    seen.insert(name);
+                    items.push(*item);
+                }
+                Verdict::Hidden => {
+                    seen.insert(name);
+                }
+                Verdict::Unusable => {}
             }
         }
     }
@@ -708,8 +869,9 @@ pub fn web_url(query: &str, base: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ItemKind, desktop_unescape, file_items, parse_desktop_entry, parse_menu_bytes,
-        parse_ssh_hosts, scaled_font_size, web_url,
+        ItemKind, desktop_text, desktop_unescape, file_items, locale_keys, parse_desktop_entry,
+        parse_desktop_entry_in_locale, parse_menu_bytes, parse_ssh_hosts, scaled_font_size,
+        web_url,
     };
 
     #[test]
@@ -766,6 +928,115 @@ mod tests {
         assert_eq!(item.action, "/tmp/firefox.desktop");
         assert!(item.search.contains("browse the web"));
         assert!(item.search.contains("firefox.desktop"));
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_header() {
+        let item = parse_desktop_entry(
+            "\u{feff}[Desktop Entry]\nType=Application\nName=Marked\nExec=marked\n",
+            "marked.desktop",
+            std::path::Path::new("/tmp/marked.desktop"),
+        )
+        .expect("an entry behind a mark");
+
+        assert_eq!(item.name, "Marked");
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_keep_their_entry() {
+        // One latin-1 byte in a translated comment, which is what a package
+        // built on an older system writes.
+        let text = desktop_text(b"[Desktop Entry]\nType=Application\nName=Caf\xe9\nExec=cafe\n");
+        let item = parse_desktop_entry(
+            &text,
+            "cafe.desktop",
+            std::path::Path::new("/tmp/cafe.desktop"),
+        )
+        .expect("an entry with a lossy byte");
+
+        assert!(item.name.starts_with("Caf"));
+        // The same bytes with a mark in front of them.
+        let marked = desktop_text(b"\xEF\xBB\xBF[Desktop Entry]\nType=Application\nName=Ok\n");
+
+        assert_eq!(
+            parse_desktop_entry(
+                &marked,
+                "ok.desktop",
+                std::path::Path::new("/tmp/ok.desktop")
+            )
+            .expect("an entry behind a mark")
+            .name,
+            "Ok"
+        );
+    }
+
+    #[test]
+    fn locale_keys_run_from_the_most_specific_form_to_the_language() {
+        assert_eq!(
+            locale_keys("de_DE.UTF-8@euro"),
+            [
+                "de_DE.UTF-8@euro",
+                "de_DE.UTF-8",
+                "de_DE@euro",
+                "de_DE",
+                "de@euro",
+                "de"
+            ]
+        );
+        assert_eq!(locale_keys("pt_BR.UTF-8"), ["pt_BR.UTF-8", "pt_BR", "pt"]);
+        assert_eq!(locale_keys("sr@latin"), ["sr@latin", "sr"]);
+        assert_eq!(locale_keys("fr"), ["fr"]);
+        assert!(locale_keys("C").is_empty());
+        assert!(locale_keys("POSIX").is_empty());
+        assert!(locale_keys("").is_empty());
+    }
+
+    #[test]
+    fn a_translated_name_wins_over_the_untranslated_one() {
+        let text = "[Desktop Entry]\nType=Application\nName=Files\nName[de]=Dateien\nName[de_DE]=Dateien (DE)\nName[fr]=Fichiers\nGenericName=File Manager\nGenericName[de]=Dateiverwaltung\nExec=files\n";
+        let path = std::path::Path::new("/tmp/files.desktop");
+        let german = parse_desktop_entry_in_locale(text, "files.desktop", path, "de_DE.UTF-8")
+            .expect("a German entry");
+
+        assert_eq!(german.name, "Dateien (DE)");
+        assert_eq!(german.detail, "Dateiverwaltung");
+        assert_eq!(
+            parse_desktop_entry_in_locale(text, "files.desktop", path, "de_AT.UTF-8")
+                .expect("the country form falls back to the language")
+                .name,
+            "Dateien"
+        );
+        assert_eq!(
+            parse_desktop_entry_in_locale(text, "files.desktop", path, "fr_FR.UTF-8")
+                .expect("a French entry")
+                .name,
+            "Fichiers"
+        );
+        assert_eq!(
+            parse_desktop_entry_in_locale(text, "files.desktop", path, "C")
+                .expect("an untranslated entry")
+                .name,
+            "Files"
+        );
+        assert_eq!(
+            parse_desktop_entry_in_locale(text, "files.desktop", path, "es_ES.UTF-8")
+                .expect("a locale with no translation")
+                .name,
+            "Files"
+        );
+    }
+
+    #[test]
+    fn an_empty_translation_falls_back_instead_of_emptying_the_name() {
+        let item = parse_desktop_entry_in_locale(
+            "[Desktop Entry]\nType=Application\nName=Notes\nName[de]=\nExec=notes\n",
+            "notes.desktop",
+            std::path::Path::new("/tmp/notes.desktop"),
+            "de_DE.UTF-8",
+        )
+        .expect("an entry with an empty translation");
+
+        assert_eq!(item.name, "Notes");
     }
 
     #[test]
