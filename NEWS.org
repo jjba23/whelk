@@ -11,6 +11,52 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.46.0 (2026-11-19)
+
+*** Fixed
+
+- *A Weather or Stocks card with no =curl= says so.*  The cards read the network
+  with =curl= and reported only "unavailable" when it was not on =PATH=, which
+  is the one failure a retry never fixes: the card stayed blank forever with
+  nothing to act on.  The Weather card now reads *curl is not installed* with
+  *install curl, or put it on PATH* under it, the Stocks card puts the same
+  words in its footnote, and the shell writes one line to its log instead of
+  repeating the attempt every tick.  A refused or timed-out request keeps the
+  old wording, because that one may answer on the next refresh.
+- *The Guix packages make =curl= and =wtype= reachable, not just installable.*
+  A propagated input only reaches the profile of whoever installs the package,
+  and a compositor starts the shell with the PATH it inherited rather than a
+  login shell's.  Both Guix recipes now wrap the binary with the two store
+  paths, as the Nix wrapper already did, so a session started by the
+  compositor finds them too.
+
+- *The launcher's desktop scan keeps the entries it used to drop.*  A file that
+  opened with a byte-order mark lost its =[Desktop Entry]= header and vanished
+  from the list; a file that was not valid UTF-8 (one latin-1 character in a
+  translated comment is enough) was skipped whole; and =Name[de]= and its
+  relatives were ignored, so a translated application showed its untranslated
+  name and a translated session found none of its own words.  All three are read
+  now, with =LC_ALL=, then =LC_MESSAGES=, then =LANG= choosing the translation
+  and the plain key as the fallback.
+- *A hidden copy of an entry hides it, and a broken one does not.*  =Hidden=true=
+  and =NoDisplay=true= are how a user deletes or hides an entry a package
+  installed, but the scan treated them as unreadable and let the system copy
+  answer, so the application came back.  Those two keys now claim the desktop id
+  for the rest of the search path; a file that is unreadable, is not
+  =Type=Application=, or has no name still yields to the next directory.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (589 tests), including the four
+  scan cases (byte-order mark, non-UTF-8 bytes, =Name[de]=, hidden and broken
+  copies) and the two card messages.
+- The packaged wrappers were run with an empty environment.  The Guix binary's
+  wrapper sets =PATH= to its own =wtype= and =curl= store paths before it
+  execs the real binary, and the Nix wrapper carries the same two paths as a
+  =PATH= prefix: =env -i PATH=/nonexistent= reaches both, so a shell started by
+  a compositor does not depend on a login shell's environment.
+
 ** v0.45.0 (2026-11-19)
 
 *** Added
