@@ -16,6 +16,7 @@ flowchart TD
 
     README --> START["getting-started.org<br/>first bar, first clicks, talking to the shell"]
     README --> INSTALL["installation.org<br/>requirements, linkage, Guix, Nix, packages"]
+    INSTALL --> PORT["portability.org<br/>systemd, elogind or neither;<br/>what each feature needs"]
 
     START --> CONFIG["configuration.org<br/>settings.scm, bar keys, overrides, presets, REPL"]
     START --> USAGE["usage documents<br/>launcher, clipboard, notifications, network, tray"]
@@ -66,12 +67,13 @@ flowchart TD
 | [[file:lock-screen.org][The lock screen]]            | the session lock, the fallback overlay, PAM, and every failure message    |
 | [[file:idle.org][Idle, inhibitors, DND]]      | the one idle timer, the presentation inhibitor, why the screen blanked    |
 | [[file:sessions.org][Sessions]]                  | niri, sway, Hyprland, river and X11: what each one can do                 |
+| [[file:portability.org][Portability]]               | what whelk needs from the system, what it does without it, and Void Linux |
 | [[file:parity.org][Parity with Waybar]]        | the reference bar, module by module                                      |
 | [[file:architecture.org][Architecture]]              | the source tree, the Scheme boundary, how a bar becomes pixels            |
 | [[file:lifecycle.org][Lifecycles]]                | supervision, startup, reload, module refresh, notifications, lock, shutdown |
 | [[file:development.org][Development]]               | Rust conventions, the test layers, unsafe policy, debugging, CI           |
 | [[file:releasing.org][Releasing]]                 | version agreement, verification gates, what =publish= does, channel handoff |
-| [[file:packaging.org][Packaging]]                 | Debian, Arch and RPM recipes, and the installed layout                    |
+| [[file:packaging.org][Packaging]]                 | Debian, Arch, RPM and Void recipes, and the installed layout              |
 | [[file:known-limits.org][Known limits]]               | what whelk deliberately cannot do                                        |
 | [[file:roadmap.org][Status and roadmap]]        | what works today and where the next pieces go                             |
 | [[file:contributing.org][Contributing]]              | bug reports, patches, new modules, the test-first expectation             |

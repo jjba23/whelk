@@ -4,8 +4,10 @@
 
 Debian, Arch and RPM recipes, and the layout a packaged whelk installs.
 
-Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=)
-and =opensuse/= (spec file, rpmlint filters and the OBS =_service=).
+Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=),
+=opensuse/= (spec file, rpmlint filters and the OBS =_service=) and =void/
+(=xbps-src= template, for a distribution without systemd -- see
+[[file:portability.org][Portability]]).
 =packaging/pam/whelk-lock= is an optional, reviewed PAM stack for the locker;
 install it as =/etc/pam.d/whelk-lock= only after checking it against the
 distribution's PAM policy.
@@ -38,6 +40,11 @@ separate stylesheet for a package to lose.
 | Debian/Ubuntu       | =maak deb-build=            | a =.deb=, from =packaging/debian= |
 | Arch                | =maak arch-build=           | a package, from =packaging/arch/PKGBUILD= |
 | openSUSE and Fedora | =maak rpm-build=            | an RPM, from =packaging/opensuse= |
+| Void                | =xbps-src pkg whelk=        | an xbps package, from =packaging/void/template= |
+
+The Void template is copied to =void-packages/srcpkgs/whelk/= and its checksum
+is filled with =xgensum -i whelk=; it installs with =cargo xtask install= like
+the others, and declares no session-manager dependency.
 
 Each one builds the same installed layout, and each one carries the version the
 release script keeps in agreement (see [[file:releasing.org][Releasing]]).

@@ -1,0 +1,30 @@
+# Template file for 'whelk'
+#
+# An xbps-src package for Void Linux, which runs without systemd.  The shell
+# needs no session manager: elogind supplies the logind interface whelk uses for
+# its idle hint and inhibitor, and the power verbs fall back to zzz/ZZZ and the
+# plain reboot/poweroff.  See docs/portability.org.
+#
+# Copy this directory to void-packages/srcpkgs/whelk and run `xgensum -i whelk`
+# to fill the checksum of the release tarball, then `./xbps-src pkg whelk`.
+pkgname=whelk
+version=0.45.0
+revision=1
+build_style=cargo
+make_build_args="--bin whelk"
+hostmakedepends="cargo pkg-config"
+makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel"
+depends="gtk4 gtk4-layer-shell guile"
+short_desc="Wayland shell with bars, a launcher and notifications, configured in Guile Scheme"
+maintainer="Josep Bigorra <jjbigorra@gmail.com>"
+license="MIT"
+homepage="https://github.com/jjba23/whelk"
+distfiles="${homepage}/archive/v${version}.tar.gz"
+checksum=""
+
+post_install() {
+	# The binary, the Scheme modules, the desktop entry and the icon tree, all
+	# under the same prefix, which is where the binary looks for the modules.
+	cargo xtask install --prefix=/usr --destdir="${DESTDIR}" --no-build
+	vlicense LICENSE
+}

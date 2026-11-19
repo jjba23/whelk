@@ -19,6 +19,10 @@ Honest ceilings, so you know what you are adopting.
 - On X11 the dock hints are what a window manager reads; started on a bare X
   server with no window manager (Xvfb on its own), the properties are set but
   nothing places the bar or honours the struts, so the bars sit at the origin.
+- The session's power verbs need one of =loginctl= (systemd or elogind),
+  =systemctl=, or a suspend package's =zzz=/=ZZZ=; the chains are in
+  [[file:portability.org][Portability]], and a machine with none of them still locks
+  and exits but cannot sleep itself.
 - The night light needs a display server that lets a client set gamma:
   =wlr-gamma-control-unstable-v1= on Wayland (niri, sway, Hyprland, river and
   the rest of the wlroots family) or RandR on X11.  GNOME Shell and KDE Plasma

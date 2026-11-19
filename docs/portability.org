@@ -1,0 +1,136 @@
+#+title: Portability: what whelk needs, and what it does without
+#+subtitle: whelk documentation
+#+options: toc:nil num:nil
+
+whelk runs on systemd, on elogind, and on a machine with neither.  This page
+says what it asks of a system, and what goes quiet when a system cannot answer.
+
+The shell was written on niri and Nix and ran first on machines that have
+systemd.  Nothing in it is a systemd unit, a timer or a cgroup assumption, but
+three habits did creep in: a menu row that ran =systemctl=, a status report that
+read =systemd-inhibit= only, and an inhibitor bar that did the same.  Those are
+fixed; this page is the map of everything else, so the next port is a reading
+exercise instead of an audit.
+
+* The four layers
+
+#+name: layers
+#+caption: A feature stands on whatever layer answers; when one does not, the feature goes quiet rather than failing loudly.
+#+begin_src mermaid
+flowchart TD
+    M["a module, a menu row, a panel"] --> C["compositor protocol<br/>layer-shell, niri IPC, sway IPC,<br/>wlr-foreign-toplevel, wlr-gamma-control"]
+    M --> G["GTK4 + gtk4-layer-shell + Guile"]
+    M --> B["the session bus<br/>org.freedesktop.login1 (systemd or elogind),<br/>org.freedesktop.Notifications,<br/>org.freedesktop.mpris, BlueZ, NetworkManager"]
+    M --> X["a command-line tool<br/>wtype, curl, wl-copy, wpctl/pactl,<br/>nmcli, brightnessctl"]
+#+end_src
+
+Each layer is optional in the same way: the module reports what it could not
+reach, keeps its row or hides it, and the rest of the shell is unaffected.  A
+missing tool is not a crash; it is a smaller shell.
+
+* There is no systemd in whelk
+
+- No unit files, no timers, no =-b= targets, no =/run/systemd= paths.
+- The only session-manager contact is the D-Bus interface
+  =org.freedesktop.login1=.  elogind serves the same interface on the same bus
+  name, so the idle hint, the session-lock signal, suspend/resume wake-up and
+  the presentation inhibitor work unchanged on a machine without systemd.  The
+  shell talks to the bus, never to =systemctl=, to find out what the session
+  can do.
+- When nothing owns that bus name, [[file:lock-screen.org][the lock screen]] still locks locally, the
+  idle timer still runs on whelk's own clock, and the inhibitor row disappears.
+  [[file:idle.org][Idle]] explains the fallback order.
+
+* The power verbs are chains
+
+A menu row has to name a program, and the program's name is where a systemd
+assumption hides.  Every verb in [[file:menus.org][the shell menu]], the launcher's session mode
+and =scheme/whelk/defaults.scm= now runs one chain: the session manager first
+(=loginctl= answers on systemd and elogind alike), then =systemctl=, then the
+plain tool that a machine with neither still has.
+
+| Verb       | The chain                                                                 |
+|------------+---------------------------------------------------------------------------|
+| Suspend    | =loginctl suspend= → =systemctl suspend= → =zzz=                            |
+| Hibernate  | =loginctl hibernate= → =systemctl hibernate= → =ZZZ=                        |
+| Restart    | =loginctl reboot= → =systemctl reboot= → =reboot=                           |
+| Shut down  | =loginctl poweroff= → =systemctl poweroff= → =poweroff=                     |
+| Log out    | =loginctl terminate-session "$XDG_SESSION_ID"= → =loginctl terminate-user=   |
+| Lock       | =whelk --lock= -- the shell's own lock, never the session's                |
+
+=rust/src/power.rs= is the single copy of those strings; the Scheme defaults
+spell the same chain so a hand-written menu and the built-in one agree.  Each
+false step is silent: a missing program is the normal answer on the machines
+that do not have it, and the next link runs instead.
+
+Logging out stops at =loginctl= on purpose.  Ending a session by signalling a
+process takes the wrong session with it when a machine runs more than one, and
+there is no portable way to name "this compositor" from inside it; a session
+with no login manager is ended by the compositor itself.
+
+* What each feature needs
+
+| Feature                | Needs                                                      | Without it                                              |
+|------------------------+------------------------------------------------------------+---------------------------------------------------------|
+| Bars and panels        | =wlr-layer-shell= (niri, sway, Hyprland, river, Wayfire, labwc) | ordinary windows with no reserved space, or no panel    |
+| Focused window         | niri/sway/Hyprland IPC, river's status socket, EWMH on X11  | the title and window verbs go quiet                     |
+| Global menu            | =org.gtk.Menus=, DBusMenu, AT-SPI, or =_GTK_MENUBAR_OBJECT_PATH= on X11 | the shell's own menus; other applications show none     |
+| Notifications          | =org.freedesktop.Notifications= on the session bus          | the daemon still starts and takes the name               |
+| Clipboard history      | =wl-paste --watch= and =wl-copy= (wl-clipboard)              | the history reports =Unavailable= and stays readable     |
+| Idle timer, lock       | the shell's own clock; PAM for the password check           | works; the logind hint is not published                  |
+| Inhibitor bar          | =systemd-inhibit= or =elogind-inhibit=                      | the module hides                                         |
+| Audio                  | =wpctl= (PipeWire) or =pactl= (PulseAudio)                  | the module hides                                         |
+| Backlight              | =/sys/class/backlight=, writable by the user or the seat    | the module hides; needs the =video= group or a udev rule |
+| Battery, CPU, memory   | =/sys/class/power_supply=, =/proc=                          | the module hides                                         |
+| Wi-Fi                  | =nmcli= (NetworkManager)                                    | the panel says the network manager did not answer        |
+| Bluetooth              | =bluetoothctl= (BlueZ)                                      | the panel says BlueZ did not answer                      |
+| Media players          | MPRIS on the session bus                                    | the module hides                                         |
+| Power profiles         | =power-profiles-daemon= and =powerprofilesctl=              | the module hides                                         |
+| Night light            | =wlr-gamma-control-unstable-v1=, or RandR on X11            | the picker explains that this display refuses gamma      |
+| Weather, stocks        | =curl=                                                      | the card shows its error instead of figures              |
+| Typing accelerators    | =wtype=                                                     | rows keep their labels and lose the shortcut keys        |
+| Launcher, app menus    | XDG desktop entries and directories                         | it lists what the machine has, which is nothing          |
+
+* Void Linux, and any other system without systemd
+
+Nothing extra is needed for the shell itself; what changes is which packages
+provide the optional layers.
+
+- *Session manager*: =elogind= provides =org.freedesktop.login1= (the suspend,
+  lock and inhibitor interface) and =elogind-inhibit=.  Install it if you want
+  the idle hint, suspend-triggered locking and the inhibitor bar.  The shell
+  works without it.
+- *Suspend and power-off*: =elogind= gives =loginctl=; without it, the
+  =zzz= and =ZZZ= scripts from Void's =suspend= style packages and the plain
+  =reboot=/=poweroff= are used by the chains above.
+- *Build and run*: =gtk4=, =gtk4-layer-shell=, =guile=, =wl-clipboard=,
+  =wtype=, =curl=; =brightnessctl= for the backlight row, =pipewire= and
+  =wireplumber= (or =pulseaudio=) for audio, =NetworkManager= for the network
+  panel, =bluez= for Bluetooth, and =linux-pam= for the lock screen's password
+  check.
+- *Installing*: =cargo xtask install --prefix=/usr= as described in
+  [[file:installation.org][Installation]], or the =xbps-src= template in
+  =packaging/void/= (see [[file:packaging.org][Packaging]]).
+
+The same list applies to Alpine, Gentoo's OpenRC profile, Artix and a hand-built
+system: what changes is the session manager, not the shell.
+
+* Checking a machine
+
+Three commands answer "what will this machine give me" without starting the
+shell:
+
+- =whelk --check-config= -- the settings file parses and every module name is
+  one the shell has.
+- =whelk --check-lock= -- which PAM service the lock screen would use, and why.
+- =whelk --idle-status= -- the idle decision: the timer, whelk's own inhibitor,
+  do-not-disturb, and the system's inhibitor table from =systemd-inhibit= or
+  =elogind-inhibit=.
+
+For the rest, the diagnostic is the same one the module makes: =command -v
+nmcli=, =command -v wl-copy=, =loginctl show-session "$XDG_SESSION_ID"= -- each
+of which either answers or is the answer.
+
+------------------
+
+Part of the [[file:index.org][whelk documentation]].  Back to the [[file:index.org][index]].
