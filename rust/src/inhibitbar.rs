@@ -17,7 +17,8 @@ use crate::barfactory::ModuleContext;
 use crate::barmodule::ModuleHost;
 use crate::inhibitors::{describe, parse};
 
-pub const COMMAND: &str = "systemd-inhibit --list --no-pager 2>/dev/null";
+/// The list itself, from whichever inhibitor tool the machine has.
+pub const COMMAND: &str = crate::inhibitors::COMMAND;
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 10;
 const EMPTY_TOOLTIP: &str = "No inhibitor is held: idle policy can blank the screen";
 

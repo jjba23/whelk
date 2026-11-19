@@ -507,12 +507,9 @@ impl Idle {
         ));
         out.push_str("  inhibitors on the system (including whelk's own):\n");
 
-        match Command::new("systemd-inhibit")
-            .args(["--list", "--no-pager"])
-            .output()
-        {
-            Ok(output) => {
-                let list = inhibitors::parse(&String::from_utf8_lossy(&output.stdout));
+        match inhibitor_list() {
+            Some(text) => {
+                let list = inhibitors::parse(&text);
 
                 if let Some(description) = inhibitors::describe(&list) {
                     for line in description.lines() {
@@ -522,8 +519,8 @@ impl Idle {
                     out.push_str("    none held\n");
                 }
             }
-            Err(error) => {
-                out.push_str(&format!("    could not read systemd-inhibit: {error}\n"));
+            None => {
+                out.push_str("    no inhibitor tool (systemd-inhibit or elogind-inhibit)\n");
             }
         }
 
@@ -538,6 +535,24 @@ impl Idle {
 
 /// Reads `IdleHint` out of a session `PropertiesChanged` payload.  Public so
 /// the payload policy is tested without a bus.
+/// The inhibitor table, from `systemd-inhibit` or `elogind-inhibit`.
+///
+/// The two programs are the same one under two names, and a session without
+/// systemd has only the second; a status report that named a missing binary as
+/// the reason it could not answer would be hiding the answer it had.
+fn inhibitor_list() -> Option<String> {
+    for program in ["systemd-inhibit", "elogind-inhibit"] {
+        if let Ok(output) = Command::new(program)
+            .args(["--list", "--no-pager"])
+            .output()
+        {
+            return Some(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+    }
+
+    None
+}
+
 pub fn idle_hint_from_properties(parameters: &glib::Variant) -> Option<bool> {
     let (changed_interface, changed, _invalidated) =
         parameters.get::<(String, HashMap<String, glib::Variant>, Vec<String>)>()?;

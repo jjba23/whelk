@@ -57,13 +57,19 @@ just the one that ships."
      (menu-separator)
      (menu-item "Force Quit…" "shell:force-quit")
      (menu-separator)
-     (menu-item "Sleep" "systemctl suspend")
-     (menu-item "Restart…" "systemctl reboot")
-     (menu-item "Shut Down…" "systemctl poweroff")
+     ;; The ways out are chains, not systemd verbs: loginctl answers on
+     ;; systemd and elogind alike, and the last link is a plain tool so a
+     ;; machine with neither manager still sleeps and shuts down.
+     (menu-item "Sleep"
+                "loginctl suspend 2>/dev/null || systemctl suspend 2>/dev/null || zzz")
+     (menu-item "Restart…"
+                "loginctl reboot 2>/dev/null || systemctl reboot 2>/dev/null || reboot")
+     (menu-item "Shut Down…"
+                "loginctl poweroff 2>/dev/null || systemctl poweroff 2>/dev/null || poweroff")
      (menu-separator)
      (menu-item "Lock Screen" "shell:lock")
      (menu-item (format #f "Log Out ~a…" user)
-                "loginctl terminate-session \"$XDG_SESSION_ID\"")
+                "loginctl terminate-session \"${XDG_SESSION_ID:-}\" 2>/dev/null || loginctl terminate-user \"$USER\" 2>/dev/null")
      (menu-separator)
      (menu-item "Search…" "shell:launcher")
      (menu-separator)

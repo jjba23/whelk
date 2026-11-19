@@ -79,6 +79,7 @@ pub mod notificationcenter;
 pub mod notifications;
 pub mod notificationsbar;
 pub mod osd;
+pub mod power;
 pub mod powerprofilebar;
 pub mod preferences;
 pub mod riverstatus;

@@ -12,6 +12,15 @@
 //! Parsing text rather than calling logind keeps this a few lines and makes it
 //! testable without a system bus; the command is only ever a reading.
 
+/// The command that lists the system's inhibitors.
+///
+/// `elogind-inhibit` is the same program renamed for an elogind machine, and a
+/// Void or Alpine session without systemd answers only through it; asking
+/// `systemd-inhibit` alone is how the list silently became "none held" on a
+/// machine that holds several.
+pub const COMMAND: &str = "systemd-inhibit --list --no-pager 2>/dev/null || \
+     elogind-inhibit --list --no-pager 2>/dev/null";
+
 /// One row of the table: who holds the inhibitor, what it blocks, why, and
 /// whether the block is enforced (`block`) or only advisory (`delay`).
 #[derive(Debug, Clone, PartialEq, Eq)]

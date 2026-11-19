@@ -554,50 +554,52 @@ pub fn parse_menu_bytes(bytes: &[u8]) -> Vec<LauncherItem> {
 }
 
 /// The built-in session menu.  It is part of the shell so a power button never
-/// depends on an external menu program.
+/// depends on an external menu program, and every row's command is
+/// [`crate::power`]'s chain rather than a systemd-only verb: the same menu works
+/// on a systemd session, an elogind one and a machine with neither.
 pub fn session_items() -> Vec<LauncherItem> {
     [
         (
             "Lock Screen",
             "Require the session password",
             "system-lock-screen-symbolic",
-            "whelk --lock",
+            crate::power::Action::Lock,
         ),
         (
             "Log Out",
             "End this session",
             "system-log-out-symbolic",
-            "if [ -n \"${XDG_SESSION_ID:-}\" ]; then loginctl terminate-session \"$XDG_SESSION_ID\"; else loginctl terminate-user \"$USER\"; fi",
+            crate::power::Action::LogOut,
         ),
         (
             "Suspend",
             "Keep the session in memory",
             "system-suspend-symbolic",
-            "systemctl suspend",
+            crate::power::Action::Suspend,
         ),
         (
             "Hibernate",
             "Write the session to disk",
             "system-hibernate-symbolic",
-            "systemctl hibernate",
+            crate::power::Action::Hibernate,
         ),
         (
             "Restart",
             "Reboot the machine",
             "system-reboot-symbolic",
-            "systemctl reboot",
+            crate::power::Action::Restart,
         ),
         (
             "Shut Down",
             "Power the machine off",
             "system-shutdown-symbolic",
-            "systemctl poweroff",
+            crate::power::Action::ShutDown,
         ),
     ]
     .into_iter()
     .map(|(name, detail, icon, action)| {
         LauncherItem::new(ItemKind::Session, name, detail)
-            .with_action(action)
+            .with_action(action.command())
             .with_icon(Some(icon))
     })
     .collect()
