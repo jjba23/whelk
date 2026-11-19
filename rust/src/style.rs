@@ -44,6 +44,25 @@ pub fn solid(color: Option<&str>) -> Option<String> {
         .map(|value| color_with_alpha(Some(value), 1.0))
 }
 
+/// The horizontal padding inside one bar module, from the bar's `spacing`.
+///
+/// macOS's menu bar is the model: a status item keeps a few points around its
+/// content and a little more between two items, and the two numbers are not
+/// independent.  Here the gap between modules *is* `spacing` (the row's box
+/// spacing) and each module keeps half of it inside its pill, so two readings
+/// stand twice that apart.  At the default spacing of 6 a module is inset 3px
+/// and two neighbouring ones are 12px from text to text -- the proportion the
+/// menu bar uses.
+pub fn module_padding(spacing: i32) -> i32 {
+    (spacing / 2).clamp(2, 12)
+}
+
+/// The gap between an icon and its label inside one module.  A hair tighter
+/// than the padding, so a reading reads as one thing rather than two.
+pub fn module_inner_spacing(spacing: i32) -> i32 {
+    (spacing * 2 / 3).max(2)
+}
+
 /// Generate one bar's skin, scoped to `widget_id`.
 pub fn css(
     widget_id: &str,
@@ -57,7 +76,23 @@ pub fn css(
     append_material(&mut output, bar, &root);
 
     if root_class == "whelk-bar" {
+        // One set of metrics for every reading: the bar's own padding at the
+        // ends, the same inset inside every module, and the row's `spacing`
+        // between them.  All three come from the configuration, so a bar that
+        // changes its spacing changes the whole rhythm rather than one number
+        // of it -- which is what made the gaps between modules look uneven:
+        // the inset used to be a constant 6px in the stylesheet while the gap
+        // was whatever `#:spacing` said, and the tray, workspace and folded
+        // controls each added a little of their own on top.
+        let pad = module_padding(bar.spacing);
+
         let _ = writeln!(output, "{root} {{ padding: 0 {}px; }}", bar.padding);
+        let _ = writeln!(
+            output,
+            "window#{widget_id} .whelk-module,\n\
+             window#{widget_id} .whelk-overflow-toggle,\n\
+             window#{widget_id} .whelk-overflow-more {{\n  padding: 0 {pad}px;\n}}"
+        );
     }
 
     if let Some(icon_font) = bar.icon_font.as_deref().filter(|value| !value.is_empty()) {

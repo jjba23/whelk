@@ -225,7 +225,10 @@ impl ModuleHost {
         icon_font: Option<&str>,
     ) -> (gtk::Box, Self) {
         let settings = ModuleSettings::from_module(module, fallback_interval);
-        let spacing = if bar_spacing > 0 { bar_spacing / 2 } else { 2 };
+        // The icon-to-label gap is the bar's own metric, not a second one: the
+        // stylesheet insets every module by half its spacing, and this keeps
+        // the inside of a reading on the same scale as the space outside it.
+        let spacing = crate::style::module_inner_spacing(bar_spacing.max(0));
         let root = gtk::Box::new(gtk::Orientation::Horizontal, spacing);
 
         root.add_css_class("whelk-module");

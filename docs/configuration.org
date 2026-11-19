@@ -125,7 +125,7 @@ A configuration is one call:
 | =#:auto-hide?=    | start off screen and give the pixels back; a 4-pixel hot edge or =whelk --reveal-bar= brings it back |
 | =#:auto-hide-delay= | milliseconds after the pointer leaves before it hides again (900)     |
 | =#:keyboard?=     | let the keyboard reach the bar: on-demand focus, Tab/arrows between readings, Return to run one |
-| =#:spacing=       | pixels between modules                                                  |
+| =#:spacing=       | the gap between two modules; each module's own inset is half of it      |
 | =#:padding=       | pixels between the bar's ends and its first/last module                 |
 | =#:font=, =#:font-size=, =#:icon-font= | the text face, its size, and the face glyphs are drawn from |
 | =#:foreground=, =#:background=, =#:accent=, =#:border-color=, =#:radius= | the bar's material |
@@ -136,6 +136,16 @@ A configuration is one call:
 | =#:left=, =#:center=, =#:right= | lists of modules                                             |
 | =#:overflow=      | modules kept behind the right row's chevron, laid out when it opens     |
 | =#:overflow-expanded?= | =#f= (default) keeps that shelf closed; =#t= opens it at start     |
+
+The horizontal rhythm is three numbers and nothing else: =#:padding= at the ends
+of the bar, =#:spacing= between two modules, and half of =#:spacing= inside each
+module, which is the room a module's hover pill needs on either side.  At the
+default =#:spacing 6= a reading sits 3px in from its own edge and two readings
+stand 12px apart, which is macOS's menu-bar proportion; the gap between an icon
+and the label it belongs to is a little tighter still, so a module reads as one
+thing.  The stylesheet adds no inset of its own and the tray, the workspace row
+and the folded controls use the same two numbers, so changing =#:spacing=
+changes the whole row evenly.
 
 Every colour, font and radius is optional: leave one out and the structural
 stylesheet's colour applies, so a bare =(bar)= is still readable.  A bar can also

@@ -1019,6 +1019,9 @@ fn build_bar_window(
         *source.borrow_mut() = Some(timer);
 
         clock.add_css_class("whelk-clock");
+        // The bootstrap clock is a reading like any other, so it takes the same
+        // inset and the same hover shape as the configured modules beside it.
+        clock.add_css_class("whelk-module");
         update_clock(&clock, &clock_format);
         end.append(&clock);
         // The only clock a configuration without a clock module gets: it must
@@ -1869,14 +1872,8 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         .whelk-surface {
             background-color: transparent;
         }
-        .whelk-bar {
-            padding: 0;
-        }
         .whelk-clock {
             font-weight: 700;
-        }
-        .whelk-overflow-more {
-            padding: 0 4px;
         }
         .whelk-bar-menu {
             padding: 4px;
@@ -1889,7 +1886,6 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
             padding: 6px;
         }
         .whelk-module {
-            padding: 0 6px;
             border-radius: 6px;
             transition: background-color 120ms ease-in-out;
         }
@@ -1911,9 +1907,6 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-window {
             font-weight: 600;
-        }
-        .whelk-workspace {
-            padding: 0 3px;
         }
         .whelk-workspace.inactive {
             opacity: 0.62;
