@@ -11,6 +11,71 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.45.0 (2026-11-19)
+
+*** Added
+
+- *A portability page, and a Void recipe.*  =docs/portability.org= says what
+  whelk asks of a system -- compositor protocols, the session bus, and a handful
+  of command-line tools -- and what goes quiet when a machine cannot answer,
+  feature by feature.  It also gives the package list for Void Linux, which has
+  no systemd.  =packaging/void/template= packages the shell for =xbps-src=, and
+  declares no session-manager dependency at all.
+
+*** Changed
+
+- *The session's power verbs are chains, not systemd verbs.*  Every way out of
+  the session ran =systemctl= from three places: the shell menu, the launcher's
+  session mode and =scheme/whelk/defaults.scm=.  On a machine that answers with
+  elogind -- or with neither systemd nor elogind -- those rows did nothing.
+  Each verb is now one chain: =loginctl= first (the same client speaks to
+  systemd and elogind), then =systemctl=, then the plain tool a machine with
+  neither still has (=zzz=, =ZZZ=, =reboot=, =poweroff=).  Logging out stops at
+  =loginctl= deliberately: ending a session by signalling a compositor takes the
+  wrong session with it when a machine runs more than one.  =rust/src/power.rs=
+  is the single copy of those strings, so the built-in menu, the launcher and
+  the Scheme defaults cannot drift apart again.
+- *The application name opens the application's own menu.*  It used to open the
+  Window menu's arranging verbs plus Close -- two buttons with one meaning, and
+  neither of them about the application.  It now holds what belongs to the
+  application: the =About=, =Preferences= (or =Settings=/=Options=) and =Help=
+  rows the application publishes itself, lifted from its own menus with their
+  own actions and accelerators at any depth; =New Window= and the desktop
+  entry's declared =Actions=, built from its =Exec= lines; and =Quit
+  <Application>= from the session's close command.  The window verbs stay in
+  Window, =Close Window= stays in File, and =File= no longer repeats the ways to
+  start the application.
+
+*** Fixed
+
+- *The inhibitor bar reads elogind too.*  The module and =whelk
+  --idle-status= opened =systemd-inhibit= only, so on a session whose inhibitors
+  are held through elogind the bar hid itself and the report said no inhibitor
+  tool was installed while =elogind-inhibit --list= was answering.  Both now try
+  =systemd-inhibit=, then =elogind-inhibit=, and the status names both when
+  neither exists.
+- *The global menu asks GTK for its application menu.*  =GtkApplication::set_app_menu=
+  publishes under the lower-case =/menus/appmenu=, which the probe never asked
+  for; it is in the path order between the conventional =menubar= and
+  =AppMenu= paths now, so a GTK3 application that exposes nothing else gets a
+  menu bar.
+- *A menu with no label is not a menu.*  A producer that publishes an empty
+  label got a button with nothing on it and a popover with no way to tell which
+  application it belonged to; rows with a blank label are skipped.
+
+*** Verified
+
+- =cargo fmt --all --check=, =cargo clippy --workspace --all-targets -- -D
+  warnings= and =cargo test --workspace= pass (578 tests).
+- The power chains were exercised as shell lines: =loginctl= answers on this
+  systemd machine, and =zzz=, =ZZZ=, =reboot= and =poweroff= are the second
+  links on a machine without it.  On Void Linux the elogind-provided =loginctl=
+  is the first link, which is the same command path, and =elogind-inhibit
+  --list= parses with the same table reader the tests cover.
+- The application menu's borrowing, ordering, de-duplication and its
+  =File=/=Window= split are covered by =menuapps=' own tests; the surfaces were
+  not opened on a live session for this release.
+
 ** v0.44.0 (2026-11-19)
 
 *** Changed
