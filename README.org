@@ -96,7 +96,7 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   monitor draws PNG, JPEG, WebP, AVIF, GIF, animated GIF/WebP and video, and
   =whelk --wallpaper-picker= opens a centred thumbnail overlay that expands to
   the monitor.  See [[file:docs/wallpaper.org][Wallpaper]].
-- *Desktop widgets, also data.*  The standard macOS Golden Gate cards -- Clock,
+- *Desktop widgets, also data.*  Your usual widgets like Clock,
   Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks -- are
   floating GTK4 surfaces described by =(desktop-widget ...)= records.  Weather
   and Stocks fetch live data; every card can be moved, resized, restyled or
@@ -113,7 +113,7 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   file may define procedures of its own.
 - *Hot reload, and a REPL.* The settings directory is watched; saving rebuilds
   every bar.  Ask for a socket REPL and evaluate forms in the running shell.
-- *A menu bar's left half, in macOS' order.* The machine's own menu behind the
+- *A global menu in the bar.* The machine's own menu behind the
   whelk (where the apple is), then that application's =File=/=Edit=/=View=.
   The shell menu is configuration --
   =About This System=, =Control Panel=, =Software=, a live =Recent Items=
@@ -143,9 +143,7 @@ the documented one -- see [[file:docs/configuration.org][Configuration]].
   before the desktop icon theme, so an app that ships a colour icon does not
   turn into a black monochrome glyph on a dark bar.
 - *A HUD for the two dials.* A volume or brightness change raises a small
-  bottom-centre card with the glyph, the reading's name, a bar and the number,
-  then takes it away -- the macOS answer, drawn by the shell rather than by two
-  modules that would each draw their own.  It wears the bar's palette and
+  bottom-centre card with the glyph, the reading's name, a bar and the number. It wears the bar's palette and
   accent, so it belongs to the same desktop.
 - *A clipboard history with an off switch.* =wl-paste --watch= feeds a
   de-duplicated list of text, rich text, images and copied files; =whelk

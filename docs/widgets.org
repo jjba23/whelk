@@ -13,8 +13,8 @@ same file that describes the bar.  The standard collection is one value:
    #:widgets (golden-gate-widgets))
 #+end_src
 
-That is the set macOS Golden Gate puts in its widget gallery and this shell can
-power from Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
+The widget gallery this shell can
+power from GNU/Linux: **Clock**, **Calendar**, **Weather**, **Batteries**,
 *Notes**, **Reminders**, **World Clock** and **Stocks**.  Each card drags by
 its grip, snaps to an 8px grid and stays inside its monitor.  The position is
 remembered per monitor, so the same widget can sit somewhere different on the
