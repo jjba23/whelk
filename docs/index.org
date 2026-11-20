@@ -21,7 +21,7 @@ flowchart TD
     START --> CONFIG["configuration.org<br/>settings.scm, bar keys, overrides, presets, REPL"]
     START --> USAGE["usage documents<br/>launcher, clipboard, notifications, network, tray"]
 
-    CONFIG --> MODULES["modules.org<br/>the twenty-five kinds and their options"]
+    CONFIG --> MODULES["modules.org<br/>the twenty-six kinds and their options"]
     CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
     CONFIG --> THEMES["themes.org<br/>twelve palettes"]
     CONFIG --> MATERIALS["materials.org<br/>frosted glass, compositor blur"]

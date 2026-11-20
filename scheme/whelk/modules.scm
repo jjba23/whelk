@@ -59,6 +59,7 @@
             window-module
             language-module
             keyboard-module
+            character-module
             custom-module
             scheme-module
             call-module-procedure
@@ -287,12 +288,24 @@ once."
 
 (define* (language-module #:rest kv)
   "The active keyboard layout.  #:codes is the comma-separated XKB code list
-(\"us,nl\"), in niri's order, so the label is two letters rather than a name."
+(\"us,nl\"), in niri's order, so the label is two letters rather than a name.
+A click switches to the next layout and the right button lists them all; a
+configuration that names #:on-click or #:on-click-right keeps its own."
   (apply module 'language kv))
 
 (define* (keyboard-module #:rest kv)
-  "Caps Lock, read from the input LED.  #:format uses {state}."
+  "Caps Lock, read from the input LED.  #:format uses {state}.  A machine whose
+keyboards have no Caps Lock LED hides the reading instead of showing an empty
+one."
   (apply module 'keyboard kv))
+
+(define* (character-module #:rest kv)
+  "A card of characters for the layouts that have no key for them: accented
+letters from many languages, emoji, ASCII smiles and kawaii faces.  A click
+opens the card and clicking a character copies it to the clipboard at once.
+#:sections names which parts show (\"accents,emoji,smiles,kawaii\"), and
+#:icon, #:format and #:tooltip work as they do for every reading."
+  (apply module 'character kv))
 
 (define* (custom-module #:rest kv)
   "A reading produced by a shell command.  #:exec is the command; its first line

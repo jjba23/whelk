@@ -218,13 +218,23 @@ Click: system monitor · Right-click: btop"
 Click: read · Right-click: the API reference"
                               #:on-click "heks-toon docs"
                               #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
+               ;; Leaving the language reading to its own gestures: a click
+               ;; switches to the next layout, the right button lists them all.
                (language-module #:codes "us,nl"
                                 #:interval 2
                                 #:format " {text}"
-                                #:tooltip "Keyboard layout: {text}
-Click: next layout · Right-click: previous layout"
-                                #:on-click "niri msg action switch-layout next"
-                                #:on-click-right "niri msg action switch-layout prev")
+                                #:tooltip "Keyboard layout: {name}
+Click: next layout · Right-click: all layouts")
+               ;; Reference, not status: the characters a layout has no key
+               ;; for -- accented letters, emoji, ASCII smiles and kawaii
+               ;; faces in one card.  A click opens it and clicking a
+               ;; character copies it, so the paste is the very next thing;
+               ;; #:sections trims the card to the parts a reader uses.
+               ;; Uncomment to put it on the shelf.
+               ;; (character-module #:icon "☺"
+               ;;                   #:format "{icon}"
+               ;;                   #:sections "accents,emoji,smiles,kawaii"
+               ;;                   #:tooltip "Characters: letters, emoji, smiles")
                (backlight-module #:icon "\uf185"
                                  #:format "{icon}"
                                  #:interval 2

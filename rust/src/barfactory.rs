@@ -21,6 +21,7 @@ use crate::backlightbar;
 use crate::bar::{BarSettings, ModuleSpec};
 use crate::batterybar;
 use crate::bluetoothbar;
+use crate::characterbar;
 use crate::clipboardbar;
 use crate::clockbar;
 use crate::cpubar;
@@ -81,6 +82,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("backlight", backlightbar::module),
     ("battery", batterybar::module),
     ("bluetooth", bluetoothbar::module),
+    ("character", characterbar::module),
     ("clock", clockbar::module),
     ("clipboard", clipboardbar::module),
     ("cpu", cpubar::module),

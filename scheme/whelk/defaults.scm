@@ -281,10 +281,8 @@ Click: read · Right-click: the API reference"
                (language-module #:codes "us,nl"
                                 #:interval 2
                                 #:format " {text}"
-                                #:tooltip "Keyboard layout: {text}
-Click: next layout · Right-click: previous layout"
-                                #:on-click "niri msg action switch-layout next"
-                                #:on-click-right "niri msg action switch-layout prev")
+                                #:tooltip "Keyboard layout: {name}
+Click: next layout · Right-click: all layouts")
                (backlight-module #:icon "\uf185"
                                  #:format "{icon}"
                                  #:interval 2

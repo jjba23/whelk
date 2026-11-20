@@ -53,6 +53,7 @@
                window-module
                language-module
                keyboard-module
+               character-module
                custom-module
                scheme-module
                wifi-module

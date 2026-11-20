@@ -219,6 +219,7 @@ fn need_for(kind: &str) -> Option<Need> {
         "backlight" => reads("/sys/class/backlight"),
         "battery" => reads("/sys/class/power_supply"),
         "bluetooth" => program(&["bluetoothctl"]),
+        "character" => nothing("the character picker"),
         "clock" => nothing("the local time"),
         "clipboard" => nothing("whelk's clipboard history"),
         "cpu" => reads("/proc/stat"),

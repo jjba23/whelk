@@ -9,6 +9,34 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+*** Added
+
+- *The bar's character card.*  =(character-module)= is a reading that opens a
+  card of the characters a layout has no key for: accented letters from many
+  languages (é, ñ, ø, ß, ł, ş, ő, þ and their capitals), emoji, ASCII smiles
+  and kaomoji.  Clicking a character copies it and closes the card, so the paste
+  is the very next thing, and the copy joins the clipboard history when the
+  service is running.  =#:sections "accents,emoji,smiles,kawaii"= trims the card
+  to the parts a reader uses, and =#:icon=, =#:format= and =#:tooltip= work as
+  they do on every other reading.  =whelk --status= gives it a verdict and the
+  settings window's Modules page lists its options.
+
+*** Changed
+
+- *The keyboard layout reading is also the way to change it.*  =(language-module)=
+  was a readout and nothing else.  A click now asks niri for the next layout and
+  the right button opens every layout niri reported, with the active one marked,
+  one click away from any of them.  Both gestures belong to the module, so a
+  configuration that names =#:on-click= or =#:on-click-right= keeps its own
+  commands -- the built-in bar now relies on the gestures instead of spelling
+  them out.  The reading carries a tooltip with the layout's full name, and it
+  steps out of the bar when niri answers nothing rather than leaving an empty
+  box behind.
+- *The Caps Lock reading tells an absent LED from an unlit one.*  A machine whose
+  keyboards have no Caps Lock LED used to look like a lock that never engages;
+  the module hides there now.  It also takes =#:tooltip= (={state}= is
+  available) and clears its =locked= class when the lock is released.
+
 *[Released]
 
 ** v0.47.0 (2026-11-19)

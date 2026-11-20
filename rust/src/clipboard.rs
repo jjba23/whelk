@@ -2060,6 +2060,76 @@ fn write_clipboard_fallback(entry: &Entry) {
     });
 }
 
+/// Put plain text on the selection without needing the history service.
+///
+/// A picker copies even when the watcher is off or the history is paused, so
+/// the running service is used first (the copy joins the history like any
+/// other), then the shell's own GDK provider, and `wl-copy` is the fallback
+/// when there is no display to provide the selection.
+pub fn copy_text(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+
+    if let Some(clipboard) = Clipboard::current()
+        && clipboard.copy(text)
+    {
+        return true;
+    }
+
+    if write_text_gdk(text) {
+        return true;
+    }
+
+    write_text_fallback(text)
+}
+
+fn write_text_gdk(text: &str) -> bool {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return false;
+    };
+    let clipboard = display.clipboard();
+    let bytes = glib::Bytes::from(text.as_bytes());
+    let providers = [
+        gtk::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &bytes),
+        gtk::gdk::ContentProvider::for_bytes("text/plain", &bytes),
+        gtk::gdk::ContentProvider::for_bytes("UTF8_STRING", &bytes),
+    ];
+    let provider = gtk::gdk::ContentProvider::new_union(&providers);
+
+    match clipboard.set_content(Some(&provider)) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("whelk: clipboard: could not set the selection: {error}");
+            false
+        }
+    }
+}
+
+fn write_text_fallback(text: &str) -> bool {
+    let argv = [
+        OsStr::new("wl-copy"),
+        OsStr::new("--type"),
+        OsStr::new("text/plain;charset=utf-8"),
+    ];
+    let process = match gio::Subprocess::newv(&argv, gio::SubprocessFlags::STDIN_PIPE) {
+        Ok(process) => process,
+        Err(error) => {
+            eprintln!("whelk: clipboard: could not run wl-copy: {error}");
+            return false;
+        }
+    };
+    let data = glib::Bytes::from(text.as_bytes());
+
+    process.communicate_async(Some(&data), gio::Cancellable::NONE, |result| {
+        if let Err(error) = result {
+            eprintln!("whelk: clipboard: wl-copy failed: {error}");
+        }
+    });
+
+    true
+}
+
 /// The short-lived program `wl-paste --watch` runs.  It drains the watcher's
 /// default representation, asks for the type list and then the richest type,
 /// and writes one record to standard output.

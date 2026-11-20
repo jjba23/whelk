@@ -17,6 +17,7 @@ use whelk_rs::audiobar;
 use whelk_rs::backlightbar;
 use whelk_rs::batterybar;
 use whelk_rs::bluetoothbar;
+use whelk_rs::characterbar;
 use whelk_rs::clockbar;
 use whelk_rs::cpubar;
 use whelk_rs::custombar;
@@ -449,6 +450,31 @@ fn capslock_reads_the_first_keyboard_led() {
 }
 
 #[test]
+fn caps_lock_tells_an_absent_led_from_an_unlit_one() {
+    let root = tempfile::tempdir().expect("temporary LED root");
+
+    assert!(!keyboardbar::has_capslock_led_at(root.path()));
+    assert!(!keyboardbar::has_capslock_led_at(
+        &root.path().join("missing")
+    ));
+
+    let led = root.path().join("input3::capslock");
+
+    fs::create_dir_all(&led).expect("LED fixture directory");
+    fs::write(led.join("brightness"), "0\n").expect("LED fixture");
+
+    // The LED is there, so the module may show a reading; the reading itself
+    // is still "unlocked".
+    assert!(keyboardbar::has_capslock_led_at(root.path()));
+    assert!(!keyboardbar::capslock_active_at(root.path()));
+
+    let other = root.path().join("input3::numlock");
+
+    fs::create_dir_all(&other).expect("LED fixture directory");
+    assert!(keyboardbar::has_capslock_led_at(root.path()));
+}
+
+#[test]
 fn language_uses_niris_active_marker_and_the_configured_codes() {
     let sample = "Keyboard layouts: \"English (US)\", \"Dutch\"\n\
                   * 0 English (US)\n\
@@ -476,6 +502,59 @@ fn language_uses_niris_active_marker_and_the_configured_codes() {
 }
 
 #[test]
+fn language_lists_every_layout_and_names_the_active_one() {
+    // niri indents the rows under its header line; the active one keeps its
+    // asterisk.
+    let sample = concat!(
+        "Keyboard layouts: \"English (US)\", \"Dutch\", \"German\"\n",
+        "  * 0 English (US)\n",
+        "    1 Dutch\n",
+        "    2 German\n",
+    );
+
+    assert_eq!(
+        languagebar::layouts(sample),
+        vec![
+            languagebar::Layout {
+                index: 0,
+                name: "English (US)".to_owned()
+            },
+            languagebar::Layout {
+                index: 1,
+                name: "Dutch".to_owned()
+            },
+            languagebar::Layout {
+                index: 2,
+                name: "German".to_owned()
+            },
+        ]
+    );
+    assert_eq!(languagebar::active_index(sample), Some(0));
+
+    let second = sample.replace("* 0 English (US)", "  0 English (US)");
+    let second = second.replace("1 Dutch", "* 1 Dutch");
+
+    assert_eq!(languagebar::active_index(&second), Some(1));
+    assert!(languagebar::layouts("Keyboard layouts: \"English (US)\"\n").is_empty());
+    assert_eq!(
+        languagebar::active_index("Keyboard layouts: \"English (US)\"\n"),
+        None
+    );
+}
+
+#[test]
+fn a_layout_click_asks_niri_for_the_next_or_a_named_layout() {
+    assert_eq!(
+        languagebar::next_command(),
+        "niri msg action switch-layout next"
+    );
+    assert_eq!(
+        languagebar::switch_command(2),
+        "niri msg action switch-layout 2"
+    );
+}
+
+#[test]
 fn power_profile_uses_the_first_cli_line_and_hides_on_empty_output() {
     assert_eq!(
         powerprofilebar::reading("performance\nbalanced\n"),
@@ -486,4 +565,94 @@ fn power_profile_uses_the_first_cli_line_and_hides_on_empty_output() {
         powerprofilebar::reading("  balanced  \n"),
         Some("balanced".to_owned())
     );
+}
+
+#[test]
+fn the_character_card_keeps_its_four_sections_in_one_order() {
+    let ids = characterbar::sections()
+        .iter()
+        .map(|section| section.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, ["accents", "emoji", "smiles", "kawaii"]);
+
+    for section in characterbar::sections() {
+        assert!(!section.title.is_empty(), "{} has no title", section.id);
+        assert!(!section.characters.is_empty(), "{} is empty", section.id);
+
+        let mut seen = std::collections::HashSet::new();
+
+        for character in section.characters {
+            assert_eq!(
+                character.trim(),
+                *character,
+                "{} holds a padded entry",
+                section.id
+            );
+            assert!(
+                !character.contains('\n'),
+                "{} holds a line break",
+                section.id
+            );
+            assert!(
+                seen.insert(*character),
+                "{} repeats {character}",
+                section.id
+            );
+        }
+    }
+}
+
+#[test]
+fn the_accent_section_reaches_past_latin_one() {
+    let accents = characterbar::section("accents").expect("an accents section");
+
+    for character in ["é", "ñ", "ø", "ß", "ç", "ł", "ş", "ő", "ů", "þ", "æ", "œ"] {
+        assert!(
+            accents.characters.contains(&character),
+            "the accents lack {character}"
+        );
+    }
+
+    assert!(
+        characterbar::section("emoji")
+            .expect("an emoji section")
+            .characters
+            .contains(&"😀")
+    );
+    assert!(
+        characterbar::section("smiles")
+            .expect("a smiles section")
+            .characters
+            .contains(&":-)")
+    );
+    assert!(
+        characterbar::section("kawaii")
+            .expect("a kawaii section")
+            .characters
+            .contains(&"uwu")
+    );
+}
+
+#[test]
+fn the_sections_option_picks_which_cards_show() {
+    let ids = |list: Option<&str>| {
+        characterbar::chosen_sections(list)
+            .iter()
+            .map(|section| section.id)
+            .collect::<Vec<_>>()
+    };
+    let everything = vec!["accents", "emoji", "smiles", "kawaii"];
+
+    assert_eq!(ids(None), everything);
+    assert_eq!(ids(Some("")), everything);
+    assert_eq!(ids(Some("emoji, kawaii")), ["emoji", "kawaii"]);
+    assert_eq!(ids(Some(" SMILEs ")), ["smiles"]);
+    // A list naming nothing known shows everything rather than an empty card.
+    assert_eq!(ids(Some("nope,,")), everything);
+}
+
+#[test]
+fn an_empty_character_copies_nothing() {
+    assert!(!whelk_rs::clipboard::copy_text(""));
 }

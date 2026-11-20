@@ -28,6 +28,7 @@ pub mod barmonitors;
 pub mod batterybar;
 pub mod bluetoothbar;
 pub mod calc;
+pub mod characterbar;
 pub mod chord;
 pub mod cli;
 pub mod clipboard;

@@ -256,11 +256,16 @@ binary, with the same configuration language, data files and application id.
   first line as `{profile}`, with the module hidden when the daemon has no
   answer.
 - `src/keyboardbar.rs` — the `keyboard` Caps Lock module: the first
-  `::capslock` LED in sysfs, hidden while unlocked and `{state}`/the `locked`
-  class while lit.
+  `::capslock` LED in sysfs, hidden while unlocked, on a machine with no LED at
+  all, and `{state}`/the `locked` class while lit.
 - `src/languagebar.rs` — the `language` module: niri's active-layout marker,
   the active display name, and `#:codes` turned into the uppercase XKB code
-  with `{text}`/`{name}`.
+  with `{text}`/`{name}`.  A click asks niri for the next layout and the right
+  button opens every layout it reported, the active one marked.
+- `src/characterbar.rs` — the `character` module: a card of accented letters,
+  emoji, ASCII smiles and kaomoji, each a button that puts its character on the
+  clipboard and closes the card.  `#:sections` picks which parts show; the
+  catalogue is a constant, so the card costs one build per bar.
 - `src/inhibitbar.rs` — the `inhibit` readout on top of the existing
   `inhibitors` parser: count, `show-off?` visibility and the inhibitor summary
   as the tooltip.
@@ -849,7 +854,7 @@ of the C engine:
 
 ## Scope
 
-The shell is Rust end to end: the bar and its twenty-two module kinds, the
+The shell is Rust end to end: the bar and its twenty-six module kinds, the
 launcher, clipboard, notification service and centre, the network panel, tray,
 global menu, lock screen, idle/inhibit manager, night light, wallpaper engine
 and picker, desktop widgets, settings window, command line, supervisor and

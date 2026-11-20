@@ -2,7 +2,7 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-Twenty-five module kinds, one shape: the options they share, the options each one adds, and a worked example.
+Twenty-six module kinds, one shape: the options they share, the options each one adds, and a worked example.
 
 All constructors are the same shape -- a kind plus keyword options -- and all
 accept the shared options:
@@ -47,8 +47,9 @@ leaving the configuration untouched.
 | =power-profile-module= | powerprofilesctl                                 | ={profile}=                                             |
 | =workspaces-module=    | niri or Hyprland IPC, one button per workspace   | =#:hide-empty?=, =#:format= with ={index}= and ={name}=  |
 | =window-module=        | the focused window: niri, sway, Hyprland, river, X11 | =#:max-length=, ={title}=, ={app-id}= (empty on river) |
-| =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}=                  |
-| =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}=                                               |
+| =language-module=      | niri's keyboard layouts (niri only)              | =#:codes= ("us,nl"), ={text}=, ={name}= (click: next layout, right-click: every layout) |
+| =keyboard-module=      | the Caps Lock LED in /sys/class/leds             | ={state}= (hidden while unlocked, and on a keyboard with no LED) |
+| =character-module=     | a card of accented letters, emoji, ASCII smiles and kaomoji | =#:sections= ("accents,emoji,smiles,kawaii"), default ="{icon}"= (click: the card; clicking a character copies it) |
 | =custom-module=        | a shell command's first line of output           | =#:exec=, =#:max-length=, ={text}=                       |
 | =scheme-module=        | a Guile procedure's widget                       | =#:update= (a procedure returning a widget), =#:interval= |
 | =wifi-module=          | nmcli: the radio and the active access point     | =#:show-ssid?=, =#:disabled-format=, =#:disconnected-format=, ={ssid}=, ={signal}=, ={state}= |

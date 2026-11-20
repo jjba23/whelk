@@ -161,6 +161,7 @@ fn factory_has_the_daily_use_modules_and_rejects_unknown_kinds() {
         "backlight",
         "battery",
         "bluetooth",
+        "character",
         "clock",
         "clipboard",
         "cpu",
