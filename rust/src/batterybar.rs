@@ -18,17 +18,54 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use gtk::prelude::*;
 use gtk4 as gtk;
 
-use crate::bar::ModuleSpec;
+use crate::bar::{BarSettings, ModuleSpec};
 use crate::barfactory::ModuleContext;
-use crate::barmodule::ModuleHost;
+use crate::barmodule::{self, ModuleHost};
+use crate::style;
 
 pub const DEFAULT_INTERVAL_SECONDS: u32 = 30;
 const POWER_SUPPLY_ROOT: &str = "/sys/class/power_supply";
 /// `#:device "all"` sums every pack in the machine.
 pub const ALL_PACKS: &str = "all";
+
+/// What the reading says on hover when the configuration wrote no `#:tooltip`:
+/// the percentage, the state, and only the facts the pack actually reports.
+const DEFAULT_TOOLTIP: &str = "Battery: {capacity}% — {state}\n{detail}";
+
+const CARD_CSS: &str = "
+.whelk-power-card {
+  padding: 6px;
+}
+.whelk-power-card-body {
+  padding: 4px;
+}
+.whelk-power-card-title {
+  font-weight: 600;
+}
+.whelk-power-card-percent {
+  font-size: 1.5em;
+  font-weight: 300;
+}
+.whelk-power-card-level trough {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: alpha(currentColor, 0.16);
+}
+.whelk-power-card-level block.filled {
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: currentColor;
+}
+.whelk-power-card-label,
+.whelk-power-card-pack {
+  opacity: 0.72;
+}
+";
 
 /// One battery pack as the kernel reports it.
 ///
@@ -44,8 +81,12 @@ pub struct Pack {
     pub present: bool,
     pub energy_now: Option<i64>,
     pub energy_full: Option<i64>,
+    /// What the cells held when the pack was new, which is what makes health
+    /// a percentage rather than a guess.
+    pub energy_full_design: Option<i64>,
     pub charge_now: Option<i64>,
     pub charge_full: Option<i64>,
+    pub charge_full_design: Option<i64>,
     pub power_now: Option<i64>,
     pub current_now: Option<i64>,
     pub voltage_now: Option<i64>,
@@ -70,6 +111,18 @@ impl Pack {
         let voltage = self.voltage_now.filter(|voltage| *voltage > 0);
 
         Some((now, self.charge_full).map_now(voltage))
+    }
+
+    /// The pack's design charge in micro-watt-hours, when it reports one.
+    fn design_energy(&self) -> Option<i64> {
+        if let Some(design) = self.energy_full_design.filter(|design| *design > 0) {
+            return Some(design);
+        }
+
+        let design = self.charge_full_design.filter(|design| *design > 0)?;
+        let voltage = self.voltage_now.filter(|voltage| *voltage > 0)?;
+
+        Some(design.saturating_mul(voltage) / 1_000_000)
     }
 
     /// The pack's rate in microwatts, when it can be worked out.
@@ -106,7 +159,8 @@ impl ScaleByVoltage for (i64, Option<i64>) {
 }
 
 /// One reading the module paints: the pack (or the machine's packs) as one
-/// percentage, one state and, when it can be known, one duration.
+/// percentage, one state and, when it can be known, one duration, one draw and
+/// one measure of how worn the cells are.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatteryReading {
     pub name: String,
@@ -115,6 +169,10 @@ pub struct BatteryReading {
     pub present: bool,
     /// Seconds until empty (discharging) or until full (charging).
     pub seconds_remaining: Option<i64>,
+    /// The rate the machine is taking from or giving to the pack, in microwatts.
+    pub power_microwatts: Option<i64>,
+    /// The full charge now against the design charge, as a percentage.
+    pub health_percent: Option<i32>,
 }
 
 pub fn is_charging(status: &str) -> bool {
@@ -122,7 +180,8 @@ pub fn is_charging(status: &str) -> bool {
 }
 
 /// The class the structural stylesheet turns into a colour.  Charging wins over
-/// critical, and critical over warning, exactly as in the C module.
+/// critical, and critical over warning, exactly as in the C module; a pack at
+/// rest at the top of its range says so instead of wearing a warning colour.
 pub fn battery_class(
     capacity: i32,
     status: &str,
@@ -135,6 +194,8 @@ pub fn battery_class(
         Some("critical")
     } else if capacity <= warning {
         Some("warning")
+    } else if status == "Full" {
+        Some("full")
     } else {
         None
     }
@@ -187,6 +248,72 @@ pub fn format_seconds(seconds: Option<i64>) -> String {
     }
 }
 
+/// A rate as a reader sees it: `12.3 W`, or `-` when the pack reports none.
+pub fn format_watts(microwatts: Option<i64>) -> String {
+    match microwatts.filter(|microwatts| *microwatts > 0) {
+        Some(microwatts) => format!("{:.1} W", microwatts as f64 / 1_000_000.0),
+        None => "-".to_owned(),
+    }
+}
+
+/// The summed rate of every present pack, in microwatts.
+pub fn power_microwatts(packs: &[Pack]) -> Option<i64> {
+    let total: i64 = packs
+        .iter()
+        .filter(|pack| pack.present)
+        .filter_map(Pack::power)
+        .sum();
+
+    (total > 0).then_some(total)
+}
+
+/// How much of its design capacity the pack still holds, as a percentage.
+///
+/// A pack that never reports the design pair has no health to give, and one
+/// whose design charge is nonsense is treated the same way: the reading is
+/// absent rather than 0% or 100%.
+pub fn health_percent(packs: &[Pack]) -> Option<i32> {
+    let mut full = 0i64;
+    let mut design = 0i64;
+
+    for pack in packs.iter().filter(|pack| pack.present) {
+        let (_, pack_full) = pack.energy()?;
+        let pack_full = pack_full.filter(|full| *full > 0)?;
+
+        full += pack_full;
+        design += pack.design_energy()?;
+    }
+
+    if design <= 0 {
+        return None;
+    }
+
+    Some(((full.saturating_mul(100) / design).clamp(0, 100)) as i32)
+}
+
+/// The facts a reading can put in a tooltip, joined with the shell's own
+/// separator.  A fact that is not known is left out rather than printed as a
+/// dash: "2h 05m · 12.3 W" says more than "- · - · -".
+pub fn detail(seconds: Option<i64>, power_microwatts: Option<i64>, health: Option<i32>) -> String {
+    let mut facts = Vec::new();
+
+    if seconds.filter(|seconds| *seconds > 0).is_some() {
+        facts.push(format_seconds(seconds));
+    }
+
+    let watts = format_watts(power_microwatts);
+
+    if watts != "-" {
+        facts.push(watts);
+    }
+
+    if let Some(health) = health.filter(|health| *health > 0) {
+        facts.push(format!("{health}% health"));
+    }
+
+    facts.join(" · ")
+}
+
 /// Read every battery in `root`, in the kernel's (sorted) order.
 pub fn read_all(root: &Path) -> Vec<Pack> {
     let mut names = match fs::read_dir(root) {
@@ -224,12 +351,32 @@ pub fn read_pack(root: &Path, name: &str) -> Option<Pack> {
             .unwrap_or(true),
         energy_now: read_number(&directory, "energy_now"),
         energy_full: read_number(&directory, "energy_full"),
+        energy_full_design: read_number(&directory, "energy_full_design"),
         charge_now: read_number(&directory, "charge_now"),
         charge_full: read_number(&directory, "charge_full"),
+        charge_full_design: read_number(&directory, "charge_full_design"),
         power_now: read_number(&directory, "power_now"),
         current_now: read_number(&directory, "current_now"),
         voltage_now: read_number(&directory, "voltage_now"),
     })
+}
+
+/// Whether the machine is plugged in: the first adapter's `online` flag, when
+/// it reports one.
+pub fn adapter_online_at(root: &Path) -> Option<bool> {
+    let mut names = fs::read_dir(root)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| read_trimmed(&path.join("type")).as_deref() == Some("Mains"))
+        .filter_map(|path| path.file_name()?.to_str().map(str::to_owned))
+        .collect::<Vec<String>>();
+
+    names.sort();
+
+    names
+        .iter()
+        .find_map(|name| read_trimmed(&root.join(name).join("online")).map(|online| online == "1"))
 }
 
 /// The reading for `device`: a named pack, `"all"` for the machine, or the first
@@ -268,6 +415,8 @@ fn reading_of(packs: &[Pack]) -> BatteryReading {
             capacity: 0,
             present: false,
             seconds_remaining: None,
+            power_microwatts: None,
+            health_percent: None,
         };
     }
 
@@ -286,6 +435,8 @@ fn reading_of(packs: &[Pack]) -> BatteryReading {
         capacity,
         present: true,
         seconds_remaining,
+        power_microwatts: power_microwatts(packs),
+        health_percent: health_percent(packs),
     }
 }
 
@@ -296,6 +447,77 @@ pub fn aggregate(packs: &[Pack]) -> Option<BatteryReading> {
     }
 
     Some(reading_of(packs))
+}
+
+/// What the right-click power card shows: the totals and one row per pack.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatteryCard {
+    pub title: String,
+    pub capacity: i32,
+    pub state: String,
+    /// The labelled facts, in the order the card paints them.
+    pub facts: Vec<(String, String)>,
+    /// One row per pack: its name, then what it is doing.
+    pub packs: Vec<(String, String)>,
+}
+
+/// The card for `device`: the reading's totals, how much is drawn, how worn
+/// the cells are and whether the machine is plugged in, with a row per pack
+/// when more than one answered.
+///
+/// A machine with no present pack has no card: the reading is hidden, and a
+/// card that says "0%" about nothing would be worse than no card at all.
+pub fn card_at(root: &Path, device: Option<&str>) -> Option<BatteryCard> {
+    let reading = read_at(root, device)?;
+
+    if !reading.present {
+        return None;
+    }
+
+    let packs = read_all(root);
+    let chosen: Vec<Pack> = match device.filter(|value| !value.is_empty()) {
+        Some(ALL_PACKS) => packs.clone(),
+        Some(name) => packs.into_iter().filter(|pack| pack.name == name).collect(),
+        None => packs.into_iter().take(1).collect(),
+    };
+    let health = reading
+        .health_percent
+        .map_or_else(|| "-".to_owned(), |health| format!("{health}%"));
+    let mut facts = vec![
+        ("State".to_owned(), reading.status.clone()),
+        ("Time".to_owned(), format_seconds(reading.seconds_remaining)),
+        ("Draw".to_owned(), format_watts(reading.power_microwatts)),
+        ("Health".to_owned(), health),
+    ];
+
+    if let Some(online) = adapter_online_at(root) {
+        facts.push((
+            "Adapter".to_owned(),
+            if online { "plugged in" } else { "on battery" }.to_owned(),
+        ));
+    }
+
+    let rows = chosen
+        .iter()
+        .map(|pack| {
+            (
+                pack.name.clone(),
+                format!("{}% · {}", pack.capacity, pack.status),
+            )
+        })
+        .collect();
+
+    Some(BatteryCard {
+        title: if chosen.len() > 1 {
+            "Batteries".to_owned()
+        } else {
+            "Battery".to_owned()
+        },
+        capacity: reading.capacity,
+        state: reading.status,
+        facts,
+        packs: rows,
+    })
 }
 
 fn combined_status(packs: &[&Pack]) -> String {
@@ -398,6 +620,15 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     );
 
     host.add_label();
+
+    if let Some(colour) = module.text("charging-color").as_deref().and_then(colour) {
+        install_charging_colour(&root, &colour);
+    }
+
+    if host.settings().actions.secondary.is_none() {
+        attach_card(&root, &context.bar, device.clone());
+    }
+
     host.start(move |host| update(&module, device.as_deref(), host));
 
     Some(root)
@@ -428,6 +659,7 @@ fn update(module: &ModuleSpec, device: Option<&str>, host: &ModuleHost) {
     host.remove_class("warning");
     host.remove_class("critical");
     host.remove_class("charging");
+    host.remove_class("full");
 
     if let Some(class) = state_class {
         host.add_class(class);
@@ -435,11 +667,23 @@ fn update(module: &ModuleSpec, device: Option<&str>, host: &ModuleHost) {
 
     let capacity = reading.capacity.to_string();
     let time = format_seconds(reading.seconds_remaining);
+    let power = format_watts(reading.power_microwatts);
+    let health = reading
+        .health_percent
+        .map_or_else(|| "-".to_owned(), |health| format!("{health}%"));
+    let detail = detail(
+        reading.seconds_remaining,
+        reading.power_microwatts,
+        reading.health_percent,
+    );
     let values = [
         ("capacity", capacity.as_str()),
         ("state", reading.status.as_str()),
         ("device", reading.name.as_str()),
         ("time", time.as_str()),
+        ("power", power.as_str()),
+        ("health", health.as_str()),
+        ("detail", detail.as_str()),
     ];
     let mut format = module
         .text("format")
@@ -462,5 +706,202 @@ fn update(module: &ModuleSpec, device: Option<&str>, host: &ModuleHost) {
         }
     }
 
-    host.present_with(&format, &icon, host.settings().tooltip.as_deref(), &values);
+    let tooltip = host
+        .settings()
+        .tooltip
+        .as_deref()
+        .unwrap_or(DEFAULT_TOOLTIP);
+
+    host.present_with(&format, &icon, Some(tooltip), &values);
+}
+
+/// A colour from the configuration, normalised through GTK's own parser so a
+/// value that is not a colour is a missing option rather than a stylesheet
+/// injection.
+fn colour(value: &str) -> Option<String> {
+    gtk::gdk::RGBA::parse(value.trim())
+        .ok()
+        .map(|rgba| rgba.to_string())
+}
+
+/// Give this one battery reading its own class, so `#:charging-color` paints it
+/// and not every battery module on the session's bars.
+fn install_charging_colour(root: &gtk::Box, colour: &str) {
+    static NEXT_INSTANCE: AtomicUsize = AtomicUsize::new(0);
+
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    let class = format!(
+        "whelk-battery-tint-{}",
+        NEXT_INSTANCE.fetch_add(1, Ordering::Relaxed)
+    );
+    let provider = gtk::CssProvider::new();
+
+    root.add_css_class(&class);
+    provider.load_from_string(&format!(".{class}.charging {{ color: {colour}; }}\n"));
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    root.connect_destroy(move |_| {
+        if let Some(display) = gtk::gdk::Display::default() {
+            gtk::style_context_remove_provider_for_display(&display, &provider);
+        }
+    });
+}
+
+/// The right-click power card: the pack's state and numbers, and whether the
+/// machine is plugged in.  It is read fresh on every open, so a card is never a
+/// stale copy of the bar beside it.
+fn attach_card(root: &gtk::Box, bar: &BarSettings, device: Option<String>) {
+    let popover = gtk::Popover::new();
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 4);
+
+    popover.set_has_arrow(false);
+    popover.add_css_class("whelk-power-card");
+    card.add_css_class("whelk-power-card-body");
+    popover.set_child(Some(&card));
+    popover.set_parent(root);
+    barmodule::watch_popover(&popover);
+    attach_escape(&popover);
+
+    let popover_weak = popover.downgrade();
+
+    root.connect_destroy(move |_| {
+        if let Some(popover) = popover_weak.upgrade() {
+            popover.popdown();
+            popover.unparent();
+        }
+    });
+
+    if let Some(provider) = install_css(bar) {
+        root.connect_destroy(move |_| {
+            if let Some(display) = gtk::gdk::Display::default() {
+                gtk::style_context_remove_provider_for_display(&display, &provider);
+            }
+        });
+    }
+
+    let gesture = gtk::GestureClick::new();
+    let popover_clone = popover.clone();
+    let card_clone = card.clone();
+
+    gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
+    gesture.connect_pressed(move |gesture, _, _, _| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        barmodule::close_popovers(Some(&popover_clone));
+
+        let Some(model) = card_at(Path::new(POWER_SUPPLY_ROOT), device.as_deref()) else {
+            return;
+        };
+
+        fill_card(&card_clone, &model);
+        popover_clone.popup();
+    });
+    root.add_controller(gesture);
+    root.set_cursor_from_name(Some("pointer"));
+}
+
+fn fill_card(card: &gtk::Box, model: &BatteryCard) {
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+
+    let title = gtk::Label::new(Some(&model.title));
+    let percent = gtk::Label::new(Some(&format!("{}% · {}", model.capacity, model.state)));
+    let level = gtk::LevelBar::for_interval(0.0, 100.0);
+    let facts = gtk::Grid::new();
+
+    title.add_css_class("whelk-power-card-title");
+    title.set_halign(gtk::Align::Start);
+    percent.add_css_class("whelk-power-card-percent");
+    percent.set_halign(gtk::Align::Start);
+    level.add_css_class("whelk-power-card-level");
+    level.set_value(f64::from(model.capacity));
+    level.set_hexpand(true);
+    facts.add_css_class("whelk-power-card-facts");
+    facts.set_column_spacing(12);
+    facts.set_row_spacing(2);
+
+    for (row, (label, value)) in model.facts.iter().enumerate() {
+        let name = gtk::Label::new(Some(label));
+        let answer = gtk::Label::new(Some(value));
+
+        name.add_css_class("whelk-power-card-label");
+        name.set_halign(gtk::Align::Start);
+        answer.set_halign(gtk::Align::Start);
+        facts.attach(&name, 0, row as i32, 1, 1);
+        facts.attach(&answer, 1, row as i32, 1, 1);
+    }
+
+    card.append(&title);
+    card.append(&percent);
+    card.append(&level);
+    card.append(&facts);
+
+    if model.packs.len() > 1 {
+        card.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+        for (name, doing) in &model.packs {
+            let row = gtk::Label::new(Some(&format!("{name}   {doing}")));
+
+            row.add_css_class("whelk-power-card-pack");
+            row.set_halign(gtk::Align::Start);
+            card.append(&row);
+        }
+    }
+}
+
+/// Escape closes the card, so the pointer does not have to come back to the
+/// reading to put it away.
+fn attach_escape(popover: &gtk::Popover) {
+    let keys = gtk::EventControllerKey::new();
+    let weak = popover.downgrade();
+
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key != gtk::gdk::Key::Escape {
+            return gtk::glib::Propagation::Proceed;
+        }
+
+        if let Some(popover) = weak.upgrade() {
+            popover.popdown();
+        }
+
+        gtk::glib::Propagation::Stop
+    });
+    popover.add_controller(keys);
+}
+
+fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
+    let display = gtk::gdk::Display::default()?;
+    let mut css = CARD_CSS.to_owned();
+
+    if let Some(foreground) = bar
+        .foreground
+        .as_deref()
+        .filter(|foreground| !foreground.is_empty())
+    {
+        css.push_str(&format!(".whelk-power-card {{ color: {foreground}; }}\n"));
+    }
+
+    if let Some(background) = style::solid(bar.background.as_deref()) {
+        css.push_str(&format!(
+            ".whelk-power-card {{ background-color: {background}; }}\n"
+        ));
+    }
+
+    let provider = gtk::CssProvider::new();
+
+    provider.load_from_string(&css);
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    Some(provider)
 }

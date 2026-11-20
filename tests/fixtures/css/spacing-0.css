@@ -7,3 +7,8 @@ window#whelk-main .whelk-overflow-toggle,
 window#whelk-main .whelk-overflow-more {
   padding: 0 2px;
 }
+window#whelk-main .whelk-battery.warning { color: #ffb340; }
+window#whelk-main .whelk-battery.critical { color: #ff5f56; font-weight: bold; }
+window#whelk-main .whelk-battery.full { opacity: 0.72; }
+window#whelk-main .whelk-power-profile.performance { color: #ffb340; }
+window#whelk-main .whelk-power-profile.power-saver { color: #8fd16a; }

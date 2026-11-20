@@ -335,12 +335,6 @@ fn refresh_later(host: &ModuleHost) {
 fn update(codes: Option<&str>, host: &ModuleHost) {
     let callback_host = host.clone();
     let codes = codes.map(str::to_owned);
-    let icon = host.settings().icon.clone().unwrap_or_default();
-    let format = host
-        .settings()
-        .format
-        .clone()
-        .unwrap_or_else(|| DEFAULT_FORMAT.to_owned());
 
     host.run_command(COMMAND, move |text| {
         let Some(reading) = text
@@ -360,7 +354,7 @@ fn update(codes: Option<&str>, host: &ModuleHost) {
         ];
 
         callback_host.set_visible(true);
-        callback_host.present_with(&format, &icon, Some(DEFAULT_TOOLTIP), &values);
+        callback_host.present_default(DEFAULT_FORMAT, "", DEFAULT_TOOLTIP, &values);
     });
 }
 

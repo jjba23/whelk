@@ -110,6 +110,12 @@
 (check "the brightness reading is the sun, not a percentage"
        (equal? (module-option (default-reading 'backlight) 'format) "{icon}"))
 
+;; Two bolts in one bar: the shipped battery wears a bolt while it charges, so
+;; the power profile must not wear the same glyph next to it.
+(check "the battery and the power profile do not share a glyph"
+       (not (equal? (module-option (default-reading 'battery) 'charging-icon)
+                    (module-option (default-reading 'power-profile) 'icon))))
+
 ;; BAT0 is not universal (this project's test machine calls its pack BAT1), so
 ;; the default lets /sys/class/power_supply pick the first battery instead of
 ;; hiding the reading when the name differs.

@@ -200,14 +200,18 @@ Click: mixer · Right-click: mute · Middle: mute the microphone · Scroll: volu
                             #:warning 30
                             #:critical 15
                             #:interval 30
-                            #:tooltip "Battery: {capacity}% — {state}"
+                            #:tooltip "Battery: {capacity}% — {state}
+{detail}"
                             #:on-click "whelk --session-menu")
-            (power-profile-module #:icon "\uf0e7"
+            ;; A leaf, not a bolt: the battery wears the bolt while it charges,
+            ;; and two bolts a few pixels apart read as one broken thing.  The
+            ;; click is the module's own now -- next profile, and the right
+            ;; button lists them all.
+            (power-profile-module #:icon "\uf06c"
                                   #:format "{icon}"
                                   #:interval 5
                                   #:tooltip "Power profile: {profile}
-Click: next profile"
-                                  #:on-click "powerprofilesctl cycle")
+Click: next profile · Right-click: all profiles")
             ;; The network, read here rather than by an applet: these two make
             ;; the tray hide nm-applet and Blueman (see #:hide on tray-module).
             ;; The link is shown, not the network's name; #:show-ssid? #t

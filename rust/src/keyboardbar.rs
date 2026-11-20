@@ -105,15 +105,9 @@ fn update(host: &ModuleHost) {
         return;
     }
 
-    let icon = host.settings().icon.clone().unwrap_or_default();
-    let format = host
-        .settings()
-        .format
-        .clone()
-        .unwrap_or_else(|| DEFAULT_FORMAT.to_owned());
     let values = [("state", "on")];
 
     host.set_visible(true);
     host.add_class("locked");
-    host.present_with(&format, &icon, Some(DEFAULT_TOOLTIP), &values);
+    host.present_default(DEFAULT_FORMAT, "", DEFAULT_TOOLTIP, &values);
 }

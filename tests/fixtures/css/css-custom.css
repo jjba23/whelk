@@ -19,6 +19,11 @@ window#whelk-main .whelk-workspace.active { color: #fabd2f; }
 window#whelk-main .whelk-battery.charging { color: #fabd2f; }
 window#whelk-main .whelk-accent { color: #fabd2f; }
 window#whelk-main button.accent { background-color: #282828; color: #fabd2f; }
+window#whelk-main .whelk-battery.warning { color: #ffb340; }
+window#whelk-main .whelk-battery.critical { color: #ff5f56; font-weight: bold; }
+window#whelk-main .whelk-battery.full { opacity: 0.72; }
+window#whelk-main .whelk-power-profile.performance { color: #ffb340; }
+window#whelk-main .whelk-power-profile.power-saver { color: #8fd16a; }
 /* The configuration's own rules */
 window#whelk-main .whelk-module { border-radius: 4px; }
                                             window#whelk-main .whelk-label { font-weight: 600; }

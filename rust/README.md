@@ -233,9 +233,11 @@ binary, with the same configuration language, data files and application id.
   pactl fallback, Volume/mute parsing, 0–150 clamping, `{volume}`, and
   `#:muted-format`/`#:muted-icon` overrides.
 - `src/batterybar.rs` — the `battery` module: a testable sysfs reader (explicit
-  `#:device` or the first `type=Battery` entry), capacity clamping, hiding when
-  the pack is absent, charging/warning/critical classes, and the C charging
-  format/icon rules.
+  `#:device`, `"all"` for every pack, or the first `type=Battery` entry),
+  capacity clamping, hiding when the pack is absent, charging/warning/critical/
+  full classes, the C charging format/icon rules, `#:charging-color`, and the
+  `{power}`/`{health}`/`{detail}` values the reading and its right-click power
+  card are built from.
 - `src/wifibar.rs` — the `wifi` module: nmcli's radio state and active terse
   row, `{ssid}`/`{signal}`/`{state}`, the SSID-hiding default, the off and
   disconnected readings, and `off`/`connected` classes.  A bare primary click
@@ -253,8 +255,9 @@ binary, with the same configuration language, data files and application id.
   availability, rounded percentages, swap used/total and every `{used}`,
   `{total}`, `{avail}` and `{swap-*}` value formatted as GiB.
 - `src/powerprofilebar.rs` — the `power-profile` module: powerprofilesctl's
-  first line as `{profile}`, with the module hidden when the daemon has no
-  answer.
+  first line as `{profile}`, the daemon's listing parsed into the menu a right
+  click opens, a click that cycles, `#:profiles`, the `profile-<name>` class,
+  and the module hidden when the daemon has no answer.
 - `src/keyboardbar.rs` — the `keyboard` Caps Lock module: the first
   `::capslock` LED in sysfs, hidden while unlocked, on a machine with no LED at
   all, and `{state}`/the `locked` class while lit.

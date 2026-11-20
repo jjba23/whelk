@@ -28,6 +28,41 @@ fn module(kind: &str, options: Vec<(&str, SchemeValue)>) -> ModuleSpec {
 }
 
 #[test]
+fn a_configured_reading_keeps_its_own_format_icon_and_tooltip() {
+    // The configuration wins over the module's defaults, not the other way
+    // round: a module that supplies a default tooltip must not eat `#:tooltip`.
+    let configured = ModuleSettings::from_module(
+        &module(
+            "battery",
+            vec![
+                ("format", SchemeValue::Text("{icon} {capacity}%".to_owned())),
+                ("icon", SchemeValue::Text("\u{f240}".to_owned())),
+                ("tooltip", SchemeValue::Text("mine: {text}".to_owned())),
+            ],
+        ),
+        1,
+    );
+    let (format, icon, tooltip) = whelk_rs::barmodule::reading_defaults(
+        &configured,
+        "{icon}",
+        "\u{f0e7}",
+        "default: {capacity}%",
+    );
+
+    assert_eq!(format, "{icon} {capacity}%");
+    assert_eq!(icon, "\u{f240}");
+    assert_eq!(tooltip, "mine: {text}");
+
+    let bare = ModuleSettings::from_module(&module("battery", Vec::new()), 1);
+    let (format, icon, tooltip) =
+        whelk_rs::barmodule::reading_defaults(&bare, "{icon}", "\u{f0e7}", "default: {capacity}%");
+
+    assert_eq!(format, "{icon}");
+    assert_eq!(icon, "\u{f0e7}");
+    assert_eq!(tooltip, "default: {capacity}%");
+}
+
+#[test]
 fn defaults_match_the_c_module_factory() {
     let settings = ModuleSettings::from_module(&module("workspaces", Vec::new()), 1);
 

@@ -9,6 +9,43 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+*** Added
+
+- *The bar's power card.*  A right click on =(battery-module)= opens a card that
+  answers what a percentage cannot: the state, the time left or to full, the
+  draw in watts, how much of its design capacity the pack still holds, and
+  whether the machine is plugged in -- with a row per pack on a machine that has
+  two.  It is read fresh on every open, and a machine with no pack has no card.
+  The reading itself gains ={power}=, ={health}= and ={detail}= (only the facts
+  the pack actually reports), and its default tooltip uses ={detail}=.
+- *Changing the power profile from the bar.*  =(power-profile-module)= was a
+  readout and nothing more.  A click now asks power-profiles-daemon for the next
+  profile and the right button lists every profile it reports, the active one
+  marked, one click from any of them.  =#:profiles= trims that list, the reading
+  wears a =profile-<name>= class so a theme can paint it, and a configuration
+  that names =#:on-click= or =#:on-click-right= keeps its own commands.
+
+*** Fixed
+
+- *One bolt, not two.*  The shipped battery and the shipped power profile both
+  wore the same glyph, so a charging laptop showed two lightnings side by side.
+  The profile wears a leaf now, and a check in =tests/test_defaults.scm= keeps
+  the shipped glyphs different.
+- *A low battery is visible again.*  =(battery-module)= has set its =warning= and
+  =critical= classes since the Rust port, but the generated sheet had no rule for
+  them -- the colours only lived in =resources/css/whelk.css=, which the shell
+  does not load -- so a pack at 5% looked like any other reading.  The sheet now
+  paints amber and red, a full pack is quiet in =full=, and a bar's own =#:css=
+  still has the last word.
+- *=#:charging-color= paints what it says.*  The option was documented and never
+  implemented.  It now parses its colour through GTK's own parser and scopes the
+  rule to that one reading, so two bars can charge in two inks.
+- *A configured tooltip is not replaced by a module's own.*  The new readings
+  pass a default tooltip, and =present_with= gave that parameter precedence over
+  =#:tooltip=.  =present_default= chooses the configuration first and the
+  module's default second, and the language, Caps Lock and character readings use
+  it too.
+
 *[Released]
 
 ** v0.48.0 (2026-11-20)

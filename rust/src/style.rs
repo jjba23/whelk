@@ -114,6 +114,20 @@ pub fn css(
         );
     }
 
+    // The state classes a reading can wear are only half of the contract; the
+    // sheet is the other half.  A pack that is running down says so in colour
+    // even on a bar with no accent, and a profile that is loud or quiet has ink
+    // of its own.  `#:css` comes after this, so a bar that wants its own amber,
+    // red or green has the last word.
+    let _ = write!(
+        output,
+        "window#{widget_id} .whelk-battery.warning {{ color: #ffb340; }}\n\
+         window#{widget_id} .whelk-battery.critical {{ color: #ff5f56; font-weight: bold; }}\n\
+         window#{widget_id} .whelk-battery.full {{ opacity: 0.72; }}\n\
+         window#{widget_id} .whelk-power-profile.performance {{ color: #ffb340; }}\n\
+         window#{widget_id} .whelk-power-profile.power-saver {{ color: #8fd16a; }}\n"
+    );
+
     if let Some(extra_css) = extra_css.filter(|value| !value.is_empty()) {
         output.push_str("/* The configuration's own rules */\n");
         output.push_str(extra_css);
@@ -122,7 +136,6 @@ pub fn css(
 
     output
 }
-
 fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
     let frost = frost::current();
     let frosted_background = frost.background();

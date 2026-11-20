@@ -225,9 +225,13 @@ module's default."
 
 (define* (battery-module #:rest kv)
   "A battery from /sys/class/power_supply.  #:device names a pack; without it,
-the first battery the kernel reports is used.  #:format uses {capacity} and
-{state}; #:warning and #:critical are the percentages that switch the readout's
-colour."
+the first battery the kernel reports is used, and \"all\" sums every pack.
+#:format uses {capacity}, {state}, {time}, {power}, {health} and {detail}, the
+last being only the facts the pack actually reports; #:warning and #:critical
+are the percentages that switch the readout's colour, and #:charging-icon,
+#:charging-format, #:charging-color and #:show-capacity-when-charging? say what
+a filling pack looks like.  The right button opens the power card: the state,
+the time left, the draw, the health and the adapter, with a row per pack."
   (apply module 'battery kv))
 
 (define* (backlight-module #:rest kv)
@@ -241,7 +245,10 @@ colour."
   (apply module 'audio kv))
 
 (define* (power-profile-module #:rest kv)
-  "power-profiles-daemon's active profile.  #:format uses {profile}."
+  "power-profiles-daemon's active profile.  #:format uses {profile}.  A click
+switches to the next profile and the right button lists them all; #:profiles
+(\"performance,balanced,power-saver\") trims that list, and a configuration that
+names #:on-click or #:on-click-right keeps its own commands."
   (apply module 'power-profile kv))
 
 (define* (workspaces-module #:rest kv)

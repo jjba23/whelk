@@ -63,6 +63,24 @@ impl ModuleActions {
     }
 }
 
+/// The format, icon and tooltip a reading wears.
+///
+/// Each can be configured, and each has the module's own default for when it
+/// was not: the configuration wins, not the module, so `#:tooltip` and
+/// `#:format` keep the meaning the documentation gives them.
+pub fn reading_defaults<'a>(
+    settings: &'a ModuleSettings,
+    format: &'a str,
+    icon: &'a str,
+    tooltip: &'a str,
+) -> (&'a str, &'a str, &'a str) {
+    let format = settings.format.as_deref().unwrap_or(format);
+    let icon = settings.icon.as_deref().unwrap_or(icon);
+    let tooltip = settings.tooltip.as_deref().unwrap_or(tooltip);
+
+    (format, icon, tooltip)
+}
+
 /// The common options a factory does not have to re-read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleSettings {
@@ -438,6 +456,22 @@ impl ModuleHost {
         let icon = self.inner.settings.icon.as_deref().unwrap_or("");
 
         self.present_with(format, icon, self.inner.settings.tooltip.as_deref(), values);
+    }
+
+    /// [`present`](Self::present) with the defaults a module supplies for the
+    /// three options a configuration may override: the format, the icon and the
+    /// tooltip.  A module with a tooltip worth having by default uses this, so
+    /// `#:tooltip` still means what it says.
+    pub fn present_default(
+        &self,
+        format: &str,
+        icon: &str,
+        tooltip: &str,
+        values: &[(&str, &str)],
+    ) {
+        let (format, icon, tooltip) = reading_defaults(&self.inner.settings, format, icon, tooltip);
+
+        self.present_with(format, icon, Some(tooltip), values);
     }
 
     /// [`present`](Self::present) with a reading-dependent format or icon, as

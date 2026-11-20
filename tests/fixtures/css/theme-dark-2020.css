@@ -19,3 +19,8 @@ window#whelk-main .whelk-workspace.active { color: #4b9bff; }
 window#whelk-main .whelk-battery.charging { color: #4b9bff; }
 window#whelk-main .whelk-accent { color: #4b9bff; }
 window#whelk-main button.accent { background-color: #1e1e1e; color: #4b9bff; }
+window#whelk-main .whelk-battery.warning { color: #ffb340; }
+window#whelk-main .whelk-battery.critical { color: #ff5f56; font-weight: bold; }
+window#whelk-main .whelk-battery.full { opacity: 0.72; }
+window#whelk-main .whelk-power-profile.performance { color: #ffb340; }
+window#whelk-main .whelk-power-profile.power-saver { color: #8fd16a; }

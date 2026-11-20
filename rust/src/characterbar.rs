@@ -196,21 +196,8 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         context.icon_font.as_deref(),
     );
 
-    let icon = module
-        .text("icon")
-        .filter(|icon| !icon.is_empty())
-        .unwrap_or_else(|| DEFAULT_ICON.to_owned());
-    let format = module
-        .text("format")
-        .filter(|format| !format.is_empty())
-        .unwrap_or_else(|| DEFAULT_FORMAT.to_owned());
-    let tooltip = module
-        .text("tooltip")
-        .filter(|tooltip| !tooltip.is_empty())
-        .unwrap_or_else(|| DEFAULT_TOOLTIP.to_owned());
-
     host.add_label();
-    host.present_with(&format, &icon, Some(&tooltip), &[]);
+    host.present_default(DEFAULT_FORMAT, DEFAULT_ICON, DEFAULT_TOOLTIP, &[]);
 
     if host.settings().actions.primary.is_none() {
         let sections = chosen_sections(module.text("sections").as_deref());

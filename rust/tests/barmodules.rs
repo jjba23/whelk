@@ -656,3 +656,209 @@ fn the_sections_option_picks_which_cards_show() {
 fn an_empty_character_copies_nothing() {
     assert!(!whelk_rs::clipboard::copy_text(""));
 }
+
+#[test]
+fn the_power_profile_reading_lists_the_daemons_profiles() {
+    // The daemon indents a profile by two spaces, its details by four, and
+    // marks the one in use with an asterisk.
+    let sample = "  performance:\n\
+                  \tCpuDriver:\tamd_pstate\n\
+                  \tPlatformDriver:\tplatform_profile\n\
+                  \tDegraded:   no\n\
+                  \n\
+                  \x20 balanced:\n\
+                  \tCpuDriver:\tamd_pstate\n\
+                  \n\
+                  * power-saver:\n\
+                  \tCpuDriver:\tamd_pstate\n";
+
+    assert_eq!(
+        powerprofilebar::profiles(sample),
+        ["performance", "balanced", "power-saver"]
+    );
+    assert_eq!(
+        powerprofilebar::active(sample),
+        Some("power-saver".to_owned())
+    );
+
+    // A daemon that answers `get` only has no list and no marker.
+    assert!(powerprofilebar::profiles("power-saver\n").is_empty());
+    assert_eq!(powerprofilebar::active("power-saver\n"), None);
+    assert_eq!(
+        powerprofilebar::reading("power-saver\n").as_deref(),
+        Some("power-saver")
+    );
+}
+
+#[test]
+fn the_power_profile_menu_comes_from_the_listing_or_the_configuration() {
+    let listing = "  performance:\n  balanced:\n* power-saver:\n";
+
+    assert_eq!(
+        powerprofilebar::offered(Some(listing), None),
+        ["performance", "balanced", "power-saver"]
+    );
+    assert_eq!(
+        powerprofilebar::offered(Some(listing), Some("balanced, performance")),
+        ["performance", "balanced"]
+    );
+    assert_eq!(
+        powerprofilebar::offered(None, Some("power-saver, Balanced")),
+        ["power-saver", "balanced"]
+    );
+    assert_eq!(
+        powerprofilebar::offered(None, None),
+        ["performance", "balanced", "power-saver"]
+    );
+    // A filter that names nothing the daemon has never blanks the menu.
+    assert_eq!(
+        powerprofilebar::offered(Some(listing), Some("turbo")),
+        ["performance", "balanced", "power-saver"]
+    );
+}
+
+#[test]
+fn a_power_profile_click_cycles_or_names_one_profile() {
+    assert_eq!(powerprofilebar::cycle_command(), "powerprofilesctl cycle");
+    assert_eq!(
+        powerprofilebar::set_command("power-saver"),
+        "powerprofilesctl set power-saver"
+    );
+    assert_eq!(
+        powerprofilebar::profile_class("power-saver"),
+        "profile-power-saver"
+    );
+    assert_eq!(
+        powerprofilebar::profile_class("Balanced"),
+        "profile-balanced"
+    );
+    assert_eq!(
+        powerprofilebar::profile_class("on battery?"),
+        "profile-on-battery-"
+    );
+}
+
+#[test]
+fn battery_reports_the_draw_and_how_worn_the_pack_is() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+    let pack = supply.join("BAT0");
+
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(pack.join("type"), "Battery\n").unwrap();
+    fs::write(pack.join("capacity"), "80\n").unwrap();
+    fs::write(pack.join("status"), "Discharging\n").unwrap();
+    fs::write(pack.join("present"), "1\n").unwrap();
+    // 32 Wh left of a 40 Wh full pack made from a 50 Wh design, drawing 12 W.
+    fs::write(pack.join("energy_now"), "32000000\n").unwrap();
+    fs::write(pack.join("energy_full"), "40000000\n").unwrap();
+    fs::write(pack.join("energy_full_design"), "50000000\n").unwrap();
+    fs::write(pack.join("power_now"), "12000000\n").unwrap();
+
+    let reading = batterybar::read_at(&supply, None).expect("a battery");
+
+    assert_eq!(reading.power_microwatts, Some(12_000_000));
+    assert_eq!(reading.health_percent, Some(80));
+    assert_eq!(batterybar::format_watts(Some(12_300_000)), "12.3 W");
+    assert_eq!(batterybar::format_watts(Some(5_000_000)), "5.0 W");
+    assert_eq!(batterybar::format_watts(Some(0)), "-");
+    assert_eq!(batterybar::format_watts(None), "-");
+
+    // A pack that never reports a design capacity has no health to give.
+    fs::remove_file(pack.join("energy_full_design")).unwrap();
+    assert_eq!(
+        batterybar::read_at(&supply, None).unwrap().health_percent,
+        None
+    );
+}
+
+#[test]
+fn the_battery_detail_joins_only_what_is_known() {
+    assert_eq!(
+        batterybar::detail(Some(3 * 3600), Some(12_300_000), Some(80)),
+        "3h 00m · 12.3 W · 80% health"
+    );
+    assert_eq!(batterybar::detail(None, Some(5_000_000), None), "5.0 W");
+    assert_eq!(batterybar::detail(Some(0), Some(0), None), "");
+    assert_eq!(batterybar::detail(None, None, None), "");
+}
+
+#[test]
+fn a_full_pack_has_a_state_of_its_own() {
+    assert_eq!(batterybar::battery_class(100, "Full", 30, 15), Some("full"));
+    assert_eq!(
+        batterybar::battery_class(100, "Charging", 30, 15),
+        Some("charging")
+    );
+    assert_eq!(
+        batterybar::battery_class(10, "Discharging", 30, 15),
+        Some("critical")
+    );
+    assert_eq!(
+        batterybar::battery_class(25, "Discharging", 30, 15),
+        Some("warning")
+    );
+    assert_eq!(batterybar::battery_class(80, "Discharging", 30, 15), None);
+}
+
+#[test]
+fn the_power_card_names_the_packs_the_draw_and_the_adapter() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    battery_pack(&supply, "AC", "Mains", "100", "Not charging", "1");
+    fs::write(supply.join("AC").join("online"), "1\n").unwrap();
+    battery_pack(&supply, "BAT0", "Battery", "70", "Discharging", "1");
+    battery_pack(&supply, "BAT1", "Battery", "50", "Discharging", "1");
+
+    let card = batterybar::card_at(&supply, Some("all")).expect("a card");
+
+    assert_eq!(card.title, "Batteries");
+    assert_eq!(card.capacity, 60);
+    assert_eq!(card.state, "Discharging");
+    assert_eq!(
+        card.facts
+            .iter()
+            .find(|(label, _)| label == "Adapter")
+            .map(|(_, value)| value.as_str()),
+        Some("plugged in")
+    );
+    assert_eq!(card.packs.len(), 2);
+    assert_eq!(card.packs[0].0, "BAT0");
+
+    // One pack by name, unplugged, with no design capacity to report.
+    assert_eq!(
+        card.packs
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["BAT0", "BAT1"]
+    );
+
+    fs::write(supply.join("AC").join("online"), "0\n").unwrap();
+
+    let card = batterybar::card_at(&supply, None).expect("a card");
+
+    assert_eq!(card.title, "Battery");
+    assert_eq!(card.capacity, 70);
+    assert_eq!(
+        card.facts
+            .iter()
+            .find(|(label, _)| label == "Adapter")
+            .map(|(_, value)| value.as_str()),
+        Some("on battery")
+    );
+    assert_eq!(card.packs.len(), 1);
+}
+
+#[test]
+fn a_desktop_with_no_pack_has_no_power_card() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = root.path().join("power_supply");
+
+    fs::create_dir_all(&supply).unwrap();
+    battery_pack(&supply, "AC", "Mains", "100", "Not charging", "1");
+
+    assert!(batterybar::card_at(&supply, None).is_none());
+}
