@@ -9,6 +9,10 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+*[Released]
+
+** v0.49.0 (2026-11-20)
+
 *** Added
 
 - *The bar's power card.*  A right click on =(battery-module)= opens a card that
@@ -46,7 +50,23 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   module's default second, and the language, Caps Lock and character readings use
   it too.
 
-*[Released]
+*** Verified
+
+- =scripts/release.sh verify=: =cargo fmt --all --check=, =cargo clippy
+  --workspace --all-targets --locked -- -D warnings= and =cargo test
+  --workspace --locked= pass (633 tests), the bar's CSS goldens compared rather
+  than blessed in =tests/style_golden.rs= -- with the five new rules reviewed in
+  the fixture diff -- the Guix build from =channels.scm= and the =nix-build= of
+  =default.nix= succeed, and =scripts/release-smoke.sh --source= installs the
+  binary and checks =whelk --version=.
+- The profile listing, its star and the =#:profiles= filter, the profile class,
+  the battery's power and health sums, ={detail}=, the =full= class and the power
+  card's facts, packs and adapter are covered by =tests/barmodules.rs=; the
+  shipped bar's two glyphs, the =#:tooltip= precedence and the documentation's
+  stated kind and test counts by =tests/test_defaults.scm=,
+  =tests/barmodule.rs= and =tests/docs_facts.rs=.  The two popovers, the level
+  bar and a live profile change want a compositor: the suite tests their data and
+  their wiring, not their pixels.
 
 ** v0.48.0 (2026-11-20)
 
