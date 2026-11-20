@@ -9,6 +9,10 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+*[Released]
+
+** v0.48.0 (2026-11-20)
+
 *** Added
 
 - *The bar's character card.*  =(character-module)= is a reading that opens a
@@ -37,7 +41,21 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
   the module hides there now.  It also takes =#:tooltip= (={state}= is
   available) and clears its =locked= class when the lock is released.
 
-*[Released]
+*** Verified
+
+- =scripts/release.sh verify=: =cargo fmt --all --check=, =cargo clippy
+  --workspace --all-targets --locked -- -D warnings= and =cargo test
+  --workspace --locked= pass (624 tests), the bar's CSS goldens compared rather
+  than blessed in =tests/style_golden.rs=, the Guix build from =channels.scm=
+  and the =nix-build= of =default.nix= succeed, and =scripts/release-smoke.sh
+  --source= installs the binary and checks =whelk --version=.
+- The layout listing and its active marker, the Caps Lock LED's presence and
+  brightness, the character catalogue's four sections and the =#:sections=
+  filter, the factory and =--status= tables, and the documentation's stated
+  kind and test counts are covered by =tests/barmodules.rs=, =tests/barmodule.rs=,
+  =tests/status.rs= and =tests/docs_facts.rs=.  The popover cards, the emoji and
+  kaomoji glyph coverage and a live =niri msg action switch-layout= want a
+  compositor and were not exercised by the suite.
 
 ** v0.47.0 (2026-11-19)
 
