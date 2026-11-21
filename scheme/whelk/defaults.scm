@@ -281,7 +281,7 @@ Click: system monitor · Right-click: btop"
                               #:tooltip "Heks documentation
 Click: read · Right-click: the API reference"
                               #:on-click "heks-toon docs"
-                              #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
+                              #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/index.html'")
                (language-module #:codes "us,nl"
                                 #:interval 2
                                 #:format " {text}"

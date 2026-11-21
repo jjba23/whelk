@@ -221,7 +221,7 @@ Click: system monitor · Right-click: btop"
                               #:tooltip "Heks documentation
 Click: read · Right-click: the API reference"
                               #:on-click "heks-toon docs"
-                              #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/API.html'")
+                              #:on-click-right "xdg-open 'https://jointhefreeworld.org/api-docs/heks-linux/index.html'")
                ;; Leaving the language reading to its own gestures: a click
                ;; switches to the next layout, the right button lists them all.
                (language-module #:codes "us,nl"

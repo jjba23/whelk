@@ -11,6 +11,22 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.49.2 (2026-11-21)
+
+*** Changed
+
+- *The generator is pinned.*  =channels.scm= takes the jointhefreeworld
+  collection at =dc9f38c=, where =guile-dokgen= 0.9.1 is defined, so =maak
+  docs= renders the reference with the generator this release was cut with.
+
+*** Fixed
+
+- *The API links point at =index.html=.*  The reference has been one page named
+  =index.html= since the dokgen migration; the menu items that open the
+  heks-linux reference -- in =settings/settings.scm= and in the defaults the
+  shell ships -- still named =API.html=, which is a page that is no longer
+  written.
+
 ** v0.49.1 (2026-11-21)
 
 *** Added
