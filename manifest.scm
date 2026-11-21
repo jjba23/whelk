@@ -74,4 +74,5 @@
                           ;; The Scheme layer's API reference under `doc/api'
                           ;; is extracted by dokgen; maak's `docs' task renders
                           ;; it.  The Rust crates are documented by rustdoc.
-                          (specification->package "guile-dokgen")))
+                          (specification->package "guile-dokgen")
+                          (specification->package "texinfo")))
