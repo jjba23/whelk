@@ -11,6 +11,35 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.49.1 (2026-11-21)
+
+*** Added
+
+- *The Scheme layer has an API reference.*  dokgen reads =scheme/whelk= rather
+  than its text: it writes a chapter documenting every exported procedure with
+  its signature and its docstring, and =maak docs= renders it to
+  =doc/api-dist/index.html=.  It documents the Scheme layer only -- the Rust
+  crates are =cargo doc='s business -- and it replaces none of the manual,
+  because the chapter is generated into =doc/api= while the pages stay where
+  they are.
+- *Loading a settings file is drawn.*  A diagram in the manual follows the path
+  from =get-config-path= through a fresh module and its evaluation to the bars
+  the shell draws, including what survives when the file raises, and
+  =(whelk loader)= carries the same figure in its commentary.
+
+*** Changed
+
+- *The channels the shell builds against are pinned.*  =channels.scm= takes Guix
+  master =5cea8de= and adds the jointhefreeworld collection at =139880f=, which
+  is where =guile-dokgen= comes from; =maak diagrams= re-renders every
+  =resources/diagrams/*.mmd= to the SVG beside it.
+
+*** Fixed
+
+- *=whelk orbit= says where its code begins.*  The module's commentary now ends
+  with =;;; Code:=, which is where the generator stops reading it, so the prose
+  and the module it describes are told apart.
+
 ** v0.49.0 (2026-11-20)
 
 *** Added

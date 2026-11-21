@@ -11,6 +11,18 @@
 ;; likes without leaking them into the next load, and `define-module' is
 ;; shadowed because a settings file is not a module -- the same traversal
 ;; lambdock's loader performs for its docks.
+;;
+;; ```mermaid
+;; flowchart TD
+;;   path["get-config-path: $XDG_CONFIG_HOME/whelk/settings.scm"] --> exists{"does the file exist?"}
+;;   exists -- no --> none["#f: the caller falls back to the built-in bar"]
+;;   exists -- yes --> reset["Reset menu edits, module procedures and the previous configuration"]
+;;   reset --> anon["Fresh user module importing (whelk core) and (whelk modules)"]
+;;   anon --> eval["primitive-load of the settings file"]
+;;   eval --> raised{"did it raise?"}
+;;   raised -- no --> registered["Bars, widgets and menus registered in (whelk state)"]
+;;   raised -- yes --> logged["The reason is logged and the answer is #f; what was configured before the throw stays"]
+;; ```
 
 ;;; Code:
 

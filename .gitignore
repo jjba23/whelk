@@ -24,3 +24,7 @@ rust/target/
 # Vendored crates ship fixtures in directories named target, and the rule
 # above is meant for this workspace only.
 !rust/vendor/**
+
+# The API reference `dokgen' writes, and the page it is rendered to.
+doc/api/
+doc/api-dist/

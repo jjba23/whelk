@@ -277,6 +277,26 @@ deliberately is not.
 | [[file:docs/roadmap.org][Status and roadmap]]                        | what works today and what comes next                       |
 | [[file:docs/contributing.org][Contributing]]                              | bug reports, patches, new modules                           |
 
+** The Scheme API reference
+:PROPERTIES:
+:CUSTOM_ID: the-scheme-api-reference
+:END:
+
+The manual above is written by hand.  ~maak docs~ adds the other half: dokgen
+reads ~scheme/whelk~ and writes a chapter documenting every exported procedure
+with its docstring, and texi2any renders it to ~doc/api-dist/index.html~.  It
+documents the Scheme layer only -- the Rust crates are ~cargo doc~'s business --
+and it replaces none of the manual, because the chapter is generated into
+~doc/api~ while the pages stay where they are.
+
+Loading a settings file, from the path to the bars the shell draws:
+
+#+attr_html: :width 720 :alt Loading a settings file: path, a fresh module, the evaluation, and what happens when it raises
+[[file:resources/diagrams/settings-load.svg]]
+
+The diagram's source is ~resources/diagrams/settings-load.mmd~; ~maak diagrams~
+re-renders the SVG beside it.
+
 * Status and roadmap
 :PROPERTIES:
 :CUSTOM_ID: status

@@ -13,6 +13,8 @@
 ;; Shortcuts are GTK accelerators, because that is how the source
 ;; publishes them; the C bridge reads them with whelk_chord_sequence_parse_gtk.
 
+;;; Code:
+
 (define-module (whelk orbit)
   #:export (orbit-apps))
 

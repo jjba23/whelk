@@ -5,6 +5,7 @@
 
 (use-modules (guix packages)
              (gnu)
+             (gnu packages)
              (gnu packages guile)
              (gnu packages admin)
              (gnu packages build-tools)
@@ -69,4 +70,8 @@
                           ;; Reading these is how the shell is debugged without
                           ;; a compositor (see docs/installation.org).
                           procps
-                          util-linux))
+                          util-linux
+                          ;; The Scheme layer's API reference under `doc/api'
+                          ;; is extracted by dokgen; maak's `docs' task renders
+                          ;; it.  The Rust crates are documented by rustdoc.
+                          (specification->package "guile-dokgen")))
