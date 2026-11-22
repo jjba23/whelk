@@ -11,6 +11,18 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.49.6 (2026-11-22)
+
+*** Changed
+
+- *The README points at the API reference.*  It now links to
+  https://jointhefreeworld.org/api-docs/whelk/index.html beside the source and
+  issue links.
+
+*** Verified
+
+- Documentation-only change; the program code is v0.49.5's.
+
 ** v0.49.3 (2026-11-21)
 
 *** Changed

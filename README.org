@@ -25,6 +25,7 @@ It's a programmable flexible shell you can *program*: modules are values, a bar 
 evaluated rather than parsed, and the REPL in the running shell is the same
 environment the configuration lives in.
 
+- 📖 *API reference:* [[https://jointhefreeworld.org/api-docs/whelk/index.html][Whelk API reference]]
 - 🐚 *Read the source, file an issue, send a PR:*
   [[https://github.com/jjba23/whelk][github.com/jjba23/whelk]]
 - 📦 *Install it:* from the [[https://github.com/jjba23/guix-jointhefreeworld][jointhefreeworld Guix channel]], with Nix, with
