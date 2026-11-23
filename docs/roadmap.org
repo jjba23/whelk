@@ -9,7 +9,7 @@ here, release by release.
 
 | Area                       | State                                                                    |
 |----------------------------+--------------------------------------------------------------------------|
-| Implementation             | working: Rust 2024, 633 tests, vendored crates, offline Guix/Nix builds   |
+| Implementation             | working: Rust 2024, 640 tests, vendored crates, offline Guix/Nix builds   |
 | Build system, Guile engine | working: Cargo, the audited Guile bridge, Scheme-primitive registration   |
 | Configuration DSL          | working: bars, modules, hot reload, optional REPL                        |
 | Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu |

@@ -224,6 +224,14 @@ and End go to the ends, Left and Right move between File, Edit and View, Right
 opens a submenu, and Escape closes.  A submenu wears a chevron rather than a
 second label.
 
+A menu bar also has to fit.  The module measures the bar's allocated width
+against its siblings -- the start button, the centre and right rows and the
+bar's inset -- and keeps the longest prefix of top-level menus that fits.  The
+rest move behind a =»= button; opening it lists each hidden menu by name, and
+choosing one opens that menu's full submenu.  The split is recalculated when
+the surface resizes (a monitor change, a rotation, a scale or font change) and
+when the right row folds or unfolds; nothing is pinned to a fixed count.
+
 The shared Edit menu covers the whole editing path, not only the clipboard:
 Undo and Redo; Cut, Copy, Paste, Paste and Match Style and Select All; Find,
 Find Next (F3), Find Previous (Shift+F3) and Replace.  The shared View menu

@@ -26,7 +26,7 @@
 //! tree identical to the one on screen is not rebuilt.  What that decision is
 //! is [`crate::menuwatch`]; this module owns the subscriptions and the reads.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 
@@ -64,10 +64,25 @@ const MENU_CSS: &str = "\
   min-height: 18px;\n\
 }\n\
 .whelk-menu-item { padding: 4px 8px; }\n\
+.whelk-menu-more { padding: 2px 6px; min-height: 18px; }\n\
 .whelk-menu-accel { opacity: 0.62; }\n";
+
+/// One top-level menu on the bar.  The entries are kept beside the button so
+/// the overflow menu can offer a menu that no longer fits.
+#[derive(Clone)]
+struct TopMenu {
+    button: gtk::MenuButton,
+    label: String,
+    entries: Vec<MenuEntry>,
+}
 
 struct MenuState {
     row: gtk::Box,
+    /// The module root, which is the direct child of the bar's start row.
+    /// Fitting measures the row's siblings from here.  It is weak because the
+    /// host callback owns this state: a strong root here would keep the module
+    /// alive after its bar is gone.
+    root: glib::WeakRef<gtk::Box>,
     session: Session,
     show_shortcuts: bool,
     show_app_name: bool,
@@ -86,7 +101,13 @@ struct MenuState {
     /// application menu reads its declared startup actions from it.
     desktop: Option<menuapps::DesktopEntry>,
     menus: Vec<Menu>,
+    rows: Vec<TopMenu>,
     buttons: Vec<gtk::MenuButton>,
+    /// The chevron that holds the top-level menus which did not fit.  It is
+    /// rebuilt with every render and shown only while something is hidden.
+    more: Option<gtk::MenuButton>,
+    /// The bar's CSS inset, so the fit subtracts the same padding the bar does.
+    padding: i32,
     /// The `#:menu-command` child.  Keeping the handle is what makes the
     /// deadline real: dropping a `CommandHandle` cancels its child.
     script: RefCell<Option<command::CommandHandle>>,
@@ -111,11 +132,17 @@ impl MenuState {
         }
 
         self.buttons.clear();
+        self.rows.clear();
+        self.more = None;
     }
 
     fn close_menus(&self) {
         for button in &self.buttons {
             button.popdown();
+        }
+
+        if let Some(more) = &self.more {
+            more.popdown();
         }
     }
 
@@ -158,6 +185,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
 
     let state = Rc::new(RefCell::new(MenuState {
         row: row.clone(),
+        root: root.downgrade(),
         session,
         show_shortcuts,
         show_app_name,
@@ -174,7 +202,10 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
         actions: WindowActions::default(),
         desktop: None,
         menus: Vec::new(),
+        rows: Vec::new(),
         buttons: Vec::new(),
+        more: None,
+        padding: context.bar.padding.max(0),
         script: RefCell::new(None),
         atspi: None,
         watch: None,
@@ -193,6 +224,65 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     let update_state = Rc::clone(&state);
 
     host.start(move |host| update(host, &update_state, session));
+
+    // The bar is allocated by the compositor, so the row learns its real width
+    // only after it is mapped; it then refits on every surface resize.  The
+    // centre and end rows are watched too: the right row folding is exactly the
+    // event that gives the menus more room (or takes it away).
+    let mapped = Rc::new(Cell::new(false));
+    let fit_state = Rc::downgrade(&state);
+
+    root.connect_map(move |root| {
+        if mapped.replace(true) {
+            return;
+        }
+
+        let Some(state) = fit_state.upgrade() else {
+            return;
+        };
+
+        if let Some(bar) = root
+            .ancestor(gtk::CenterBox::static_type())
+            .and_downcast::<gtk::CenterBox>()
+        {
+            for sibling in [bar.center_widget(), bar.end_widget()]
+                .into_iter()
+                .flatten()
+            {
+                let weak = Rc::downgrade(&state);
+
+                sibling.connect_notify_local(Some("width"), move |_, _| {
+                    if let Some(state) = weak.upgrade() {
+                        fit_row(&state);
+                    }
+                });
+            }
+        }
+
+        if let Some(surface) = root
+            .ancestor(gtk::ApplicationWindow::static_type())
+            .and_downcast::<gtk::ApplicationWindow>()
+            .and_then(|window| window.surface())
+        {
+            let weak = Rc::downgrade(&state);
+
+            surface.connect_width_notify(move |_| {
+                if let Some(state) = weak.upgrade() {
+                    fit_row(&state);
+                }
+            });
+        }
+
+        // Map happens before the first allocation; one short turn later the
+        // widths exist, and the same fit runs when a menu rebuilds.
+        let weak = Rc::downgrade(&state);
+
+        glib::timeout_add_local_once(Duration::from_millis(100), move || {
+            if let Some(state) = weak.upgrade() {
+                fit_row(&state);
+            }
+        });
+    });
 
     Some(root)
 }
@@ -355,9 +445,44 @@ fn render(state: &Rc<RefCell<MenuState>>) {
         add_top_button(state, menu, "whelk-menu-button", &menu.label);
     }
 
-    let visible = !state.borrow().buttons.is_empty();
+    let more = gtk::MenuButton::new();
+    let more_label = gtk::Label::new(Some("»"));
+    let more_popover = gtk::Popover::new();
 
-    state.borrow().row.set_visible(visible);
+    more.set_has_frame(false);
+    more.set_child(Some(&more_label));
+    more.add_css_class("flat");
+    more.add_css_class("whelk-menu-more");
+    more.set_tooltip_text(Some("More menus"));
+    more_popover.add_css_class("whelk-menu-popover");
+    more_popover.set_has_arrow(false);
+    attach_keys(&more_popover, state);
+    more.set_popover(Some(&more_popover));
+    barmodule::attach_exclusive_popover(&more, &more_popover);
+
+    more_popover.connect_map(|popover| {
+        let popover = popover.clone();
+
+        glib::idle_add_local_once(move || focus_first(&popover));
+    });
+
+    {
+        let mut menu_state = state.borrow_mut();
+
+        menu_state.row.append(&more);
+        menu_state.more = Some(more);
+        menu_state.row.set_visible(!menu_state.rows.is_empty());
+    }
+
+    // A rebuild replaces every button, so the fit has to run again; the
+    // allocation itself may already be there.
+    let weak = Rc::downgrade(state);
+
+    glib::timeout_add_local_once(Duration::from_millis(60), move || {
+        if let Some(state) = weak.upgrade() {
+            fit_row(&state);
+        }
+    });
 }
 
 fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, label_text: &str) {
@@ -370,9 +495,14 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
     button.add_css_class("flat");
     button.add_css_class(css_class);
 
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+
     if css_class == "whelk-menu-app-button" {
-        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         label.set_max_width_chars(22);
+    } else {
+        // A producer can name a menu with a whole sentence; the overflow menu
+        // still offers it in full, but the bar gets a bounded button.
+        label.set_max_width_chars(24);
     }
 
     popover.add_css_class("whelk-menu-popover");
@@ -431,8 +561,181 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
     });
     button.add_controller(motion);
 
-    state.borrow_mut().buttons.push(button.clone());
-    state.borrow().row.append(&button);
+    {
+        let mut menu_state = state.borrow_mut();
+
+        menu_state.rows.push(TopMenu {
+            button: button.clone(),
+            label: label_text.to_owned(),
+            entries: menu.entries.clone(),
+        });
+        menu_state.buttons.push(button.clone());
+        menu_state.row.append(&button);
+    }
+}
+
+/// How many top-level buttons fit before the overflow chevron.
+///
+/// `widths` are in row order.  The whole row is kept when it fits; otherwise
+/// the longest prefix that leaves room for the chevron is kept.  Zero means
+/// even the first menu goes into the overflow -- the chevron itself is the row.
+pub fn visible_prefix(widths: &[i32], spacing: i32, available: i32, overflow: i32) -> usize {
+    let count = widths.len();
+
+    if count == 0 {
+        return 0;
+    }
+
+    let spacing = spacing.max(0);
+    let whole = widths.iter().copied().sum::<i32>() + spacing * (count as i32 - 1);
+
+    if whole <= available {
+        return count;
+    }
+
+    let mut kept = 0;
+    let mut prefix = 0;
+
+    for candidate in 0..count {
+        if candidate > 0 {
+            prefix += widths[candidate - 1];
+        }
+
+        // The gaps are the ones between the kept buttons plus the one before
+        // the chevron.
+        let total = prefix + spacing * candidate as i32 + overflow;
+
+        if total <= available {
+            kept = candidate;
+        }
+    }
+
+    kept
+}
+
+fn natural_width(widget: &gtk::Widget) -> i32 {
+    let (_, natural, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
+
+    natural.max(0)
+}
+
+fn top_width(menu: &TopMenu) -> i32 {
+    let measured = natural_width(menu.button.upcast_ref::<gtk::Widget>());
+
+    if measured > 0 {
+        return measured;
+    }
+
+    // A hidden button can report no natural width on some GTK versions; fall
+    // back to the label's length so a narrow bar does not suddenly show a row
+    // that does not fit.
+    (menu.label.chars().count() as i32 * 8 + 20).min(220)
+}
+
+/// Keep as many top-level menus as the bar can hold and put the rest behind
+/// the chevron.  The app menu is first in row order, so it is the first one
+/// kept; when even it does not fit, the chevron carries it too.
+fn fit_row(state: &Rc<RefCell<MenuState>>) {
+    let (root, row, rows, more, padding) = {
+        let state = state.borrow();
+
+        (
+            state.root.upgrade(),
+            state.row.clone(),
+            state.rows.clone(),
+            state.more.clone(),
+            state.padding,
+        )
+    };
+    let (Some(root), Some(more)) = (root, more) else {
+        return;
+    };
+
+    if rows.is_empty() {
+        row.set_visible(false);
+
+        return;
+    }
+
+    let Some(bar) = root
+        .ancestor(gtk::CenterBox::static_type())
+        .and_downcast::<gtk::CenterBox>()
+    else {
+        return;
+    };
+    let width = bar.width();
+
+    // No allocation yet: leave the row whole rather than hiding everything.
+    if width <= 1 {
+        return;
+    }
+
+    let mut used = 2 * padding.max(0) + 16;
+
+    if let Some(start) = root.parent().and_downcast::<gtk::Box>() {
+        let root_widget = root.clone().upcast::<gtk::Widget>();
+        let mut sibling = start.first_child();
+
+        while let Some(widget) = sibling {
+            if widget != root_widget {
+                used += natural_width(&widget) + start.spacing().max(0);
+            }
+
+            sibling = widget.next_sibling();
+        }
+    }
+
+    if let Some(center) = bar.center_widget() {
+        used += natural_width(&center);
+    }
+
+    if let Some(end) = bar.end_widget() {
+        used += natural_width(&end);
+    }
+
+    let available = (width - used).max(0);
+    let widths: Vec<i32> = rows.iter().map(top_width).collect();
+    let overflow = natural_width(more.upcast_ref::<gtk::Widget>()).max(26);
+    let kept = visible_prefix(&widths, 2, available, overflow);
+
+    for (index, menu) in rows.iter().enumerate() {
+        if index >= kept && menu.button.is_active() {
+            menu.button.popdown();
+        }
+
+        menu.button.set_visible(index < kept);
+    }
+
+    let hidden = kept < rows.len();
+
+    if hidden {
+        let entries: Vec<MenuEntry> = rows[kept..]
+            .iter()
+            .map(|menu| MenuEntry::Item {
+                label: menu.label.clone(),
+                enabled: true,
+                accel: None,
+                action: None,
+                submenu: menu.entries.clone(),
+            })
+            .collect();
+
+        if let Some(popover) = more.popover() {
+            fill_popover(state, &popover, &entries);
+        }
+
+        more.set_tooltip_text(Some(&format!(
+            "{} more menu{} · click to open",
+            rows.len() - kept,
+            if rows.len() - kept == 1 { "" } else { "s" }
+        )));
+        more.set_visible(true);
+    } else {
+        more.popdown();
+        more.set_visible(false);
+    }
+
+    row.set_visible(true);
 }
 
 fn fill_popover(state: &Rc<RefCell<MenuState>>, popover: &gtk::Popover, entries: &[MenuEntry]) {
@@ -1531,7 +1834,13 @@ fn attach_keys(popover: &gtk::Popover, state: &Rc<RefCell<MenuState>>) {
 }
 
 fn switch_top_level(state: &Rc<RefCell<MenuState>>, forward: bool) {
-    let buttons = state.borrow().buttons.clone();
+    let buttons: Vec<gtk::MenuButton> = state
+        .borrow()
+        .buttons
+        .iter()
+        .filter(|button| button.is_visible())
+        .cloned()
+        .collect();
 
     if buttons.len() < 2 {
         return;
