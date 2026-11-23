@@ -117,7 +117,7 @@ fn the_battery_card_says_what_the_pack_does() {
 
     let warning = desktopwidgets::battery_summary(25, "Charging", 30, 15);
 
-    assert_eq!(warning.status, "Charging · charging");
+    assert_eq!(warning.status, "Charging · on power");
     assert_eq!(warning.classes, vec!["warning", "charging"]);
 
     let healthy = desktopwidgets::battery_summary(80, "Full", 30, 15);

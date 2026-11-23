@@ -162,7 +162,8 @@ above the rows that says how many are done and an empty state that says what to
 configure; a clock, a weather card and a stock card keep their own refresh
 timers.  Notes remains read-only: its text is what the settings file or the
 note file says.  It is drawn as prose rather than as a dump of a file -- words
-wrap at word boundaries, paragraphs keep one blank line between them, tabs are
+wrap at word boundaries inside the card's =#:width= (a long line never widens
+the surface past it), paragraphs keep one blank line between them, tabs are
 expanded and trailing spaces go -- and a card with no =#:text= and no =#:file=
 says so quietly instead of showing the note placeholder.
 

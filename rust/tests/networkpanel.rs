@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use whelk_rs::networkpanel::{BluetoothState, is_bluetooth_address, parse_bluetooth, parse_wifi};
+use whelk_rs::networkpanel::{
+    BluetoothState, is_bluetooth_address, parse_bluetooth, parse_wifi, wifi_signal_icon,
+};
 
 #[test]
-fn wifi_parses_radio_active_and_sorted_access_points() {
+fn wifi_parses_radio_active_and_puts_the_connected_network_first() {
     let state = parse_wifi(
         "radio:enabled\n\
          active:Cafe:Guest\n\
@@ -25,12 +27,34 @@ fn wifi_parses_radio_active_and_sorted_access_points() {
             .map(|point| (point.ssid.as_str(), point.signal, point.secured))
             .collect::<Vec<_>>(),
         [
-            ("Guest", 80, false),
             ("Cafe:Guest", 70, true),
+            ("Guest", 80, false),
             ("Office", 40, false),
         ]
     );
     assert_eq!(state.status(), "Connected to Cafe:Guest");
+}
+
+#[test]
+fn the_signal_icon_follows_the_reading() {
+    assert_eq!(
+        wifi_signal_icon(92),
+        "network-wireless-signal-excellent-symbolic"
+    );
+    assert_eq!(
+        wifi_signal_icon(75),
+        "network-wireless-signal-excellent-symbolic"
+    );
+    assert_eq!(
+        wifi_signal_icon(70),
+        "network-wireless-signal-good-symbolic"
+    );
+    assert_eq!(wifi_signal_icon(40), "network-wireless-signal-ok-symbolic");
+    assert_eq!(
+        wifi_signal_icon(10),
+        "network-wireless-signal-weak-symbolic"
+    );
+    assert_eq!(wifi_signal_icon(0), "network-wireless-signal-none-symbolic");
 }
 
 #[test]

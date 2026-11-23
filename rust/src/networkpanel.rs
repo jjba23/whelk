@@ -22,7 +22,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use crate::bar::BarSettings;
+use crate::bar::{BarSettings, Edge as BarEdge};
 use crate::command;
 use crate::format;
 use crate::nmcli;
@@ -30,7 +30,6 @@ use crate::sources;
 use crate::style;
 
 pub const WIDTH: i32 = 400;
-const PADDING: i32 = 12;
 const SURFACE_MARGIN: i32 = 8;
 
 pub const WIFI_COMMAND: &str = "printf 'radio:%s\\n' \"$(nmcli radio wifi 2>/dev/null)\"; \
@@ -156,11 +155,35 @@ pub fn parse_wifi(text: &str) -> WifiState {
         });
     }
 
-    state
-        .points
-        .sort_by_key(|point| std::cmp::Reverse(point.signal));
+    // Strongest first, but the network this machine is on leads: the row a
+    // person opens the panel to check should not sit under four strangers
+    // that merely have a louder beacon.
+    let active = state.active.clone();
+
+    state.points.sort_by(|left, right| {
+        let left_active = active.as_deref() == Some(left.ssid.as_str());
+        let right_active = active.as_deref() == Some(right.ssid.as_str());
+
+        right_active
+            .cmp(&left_active)
+            .then_with(|| right.signal.cmp(&left.signal))
+            .then_with(|| left.ssid.cmp(&right.ssid))
+    });
 
     state
+}
+
+/// The icon that tells a Wi-Fi row's strength at a glance.  The names are the
+/// ones every freedesktop icon theme carries, so the row does not depend on
+/// whelk's icon font.
+pub fn wifi_signal_icon(signal: i32) -> &'static str {
+    match signal {
+        75.. => "network-wireless-signal-excellent-symbolic",
+        50..=74 => "network-wireless-signal-good-symbolic",
+        25..=49 => "network-wireless-signal-ok-symbolic",
+        1..=24 => "network-wireless-signal-weak-symbolic",
+        _ => "network-wireless-signal-none-symbolic",
+    }
 }
 
 /// Parse the Bluetooth reading's two sections.  Only paired devices are listed;
@@ -278,30 +301,90 @@ impl NetworkPanel {
         let title = gtk::Label::new(Some("Network"));
         let close = gtk::Button::from_icon_name("window-close-symbolic");
         let stack = gtk::Stack::new();
-        let switcher = gtk::StackSwitcher::new();
+        let tabs = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let wifi_tab = gtk::ToggleButton::with_label("Wi-Fi");
+        let bluetooth_tab = gtk::ToggleButton::with_label("Bluetooth");
 
         card.add_css_class("whelk-panel");
         card.set_size_request(WIDTH, -1);
-        card.set_margin_start(PADDING);
-        card.set_margin_end(PADDING);
-        card.set_margin_top(PADDING);
-        card.set_margin_bottom(PADDING);
         title.set_xalign(0.0);
         title.set_hexpand(true);
         title.add_css_class("whelk-panel-title");
         close.add_css_class("whelk-panel-button");
 
         stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-        switcher.set_stack(Some(&stack));
-        switcher.set_halign(gtk::Align::Start);
+        // Both pages do not need the same height: a two-device Bluetooth list
+        // should not leave the room a dozen Wi-Fi networks asked for.
+        stack.set_vhomogeneous(false);
 
-        let wifi = build_wifi_page("Wi-Fi", "wifi", &stack);
-        let bluetooth = build_bluetooth_page("Bluetooth", "bluetooth", &stack);
+        tabs.add_css_class("whelk-network-tabs");
+        tabs.set_homogeneous(true);
+        tabs.set_hexpand(true);
+
+        for tab in [&wifi_tab, &bluetooth_tab] {
+            tab.add_css_class("whelk-network-tab");
+            tab.set_hexpand(true);
+        }
+
+        // A pair of linked toggles instead of a StackSwitcher: the switcher
+        // drew its raised pill on the page *not* being shown (its checked
+        // state and the stack's visible child disagreed), and the pair also
+        // lets the tab row wear the bar's accent.
+        wifi_tab.set_group(Some(&bluetooth_tab));
+        tabs.append(&wifi_tab);
+        tabs.append(&bluetooth_tab);
+
+        // The list's cap follows the output: a 768px laptop must not get a
+        // panel taller than its screen just because the reference is 1080p.
+        let height = gtk::gdk::Display::default()
+            .and_then(|display| {
+                display
+                    .monitors()
+                    .item(0)
+                    .and_downcast::<gtk::gdk::Monitor>()
+            })
+            .map(|monitor| monitor.geometry().height())
+            .unwrap_or(900);
+        let list_cap = (height - 240).clamp(200, 560);
+
+        let wifi = build_wifi_page("Wi-Fi", "wifi", &stack, list_cap);
+        let bluetooth = build_bluetooth_page("Bluetooth", "bluetooth", &stack, list_cap);
+
+        let wifi_stack = stack.downgrade();
+
+        wifi_tab.connect_clicked(move |_| {
+            if let Some(stack) = wifi_stack.upgrade() {
+                stack.set_visible_child_name("wifi");
+            }
+        });
+
+        let bluetooth_stack = stack.downgrade();
+
+        bluetooth_tab.connect_clicked(move |_| {
+            if let Some(stack) = bluetooth_stack.upgrade() {
+                stack.set_visible_child_name("bluetooth");
+            }
+        });
+
+        let (wifi_tab_sync, bluetooth_tab_sync) = (wifi_tab.downgrade(), bluetooth_tab.downgrade());
+
+        stack.connect_visible_child_name_notify(move |stack| {
+            let showing = stack.visible_child_name();
+
+            if let Some(tab) = wifi_tab_sync.upgrade() {
+                tab.set_active(showing.as_deref() == Some("wifi"));
+            }
+
+            if let Some(tab) = bluetooth_tab_sync.upgrade() {
+                tab.set_active(showing.as_deref() == Some("bluetooth"));
+            }
+        });
+        wifi_tab.set_active(true);
 
         header.append(&title);
         header.append(&close);
         card.append(&header);
-        card.append(&switcher);
+        card.append(&tabs);
         card.append(&stack);
         window.set_child(Some(&card));
 
@@ -329,7 +412,7 @@ impl NetworkPanel {
         let panel = Self { inner };
 
         panel.install_style(style);
-        panel.configure_surface();
+        panel.configure_surface(style);
         panel.connect_controls();
         panel
     }
@@ -388,39 +471,43 @@ impl NetworkPanel {
         self.inner.borrow().card.queue_draw();
     }
 
-    fn configure_surface(&self) {
+    fn configure_surface(&self, style: &BarSettings) {
         let state = self.inner.borrow();
         let window = &state.window;
+
+        // A panel is not a column: it is a sheet of content.  Only the top and
+        // right edges are pinned, so its height is the list's, up to the
+        // scroller's cap -- not the whole screen with a lake of empty glass
+        // under it.
+        window.set_resizable(false);
 
         if crate::ui::layer_shell_available() {
             window.init_layer_shell();
             window.set_namespace(Some("whelk-rust-network"));
             window.set_layer(Layer::Overlay);
             window.set_anchor(Edge::Top, true);
-            window.set_anchor(Edge::Bottom, true);
             window.set_anchor(Edge::Right, true);
-            window.set_margin(Edge::Top, SURFACE_MARGIN);
+            let top = if style.edge == BarEdge::Top {
+                style.height + SURFACE_MARGIN
+            } else {
+                SURFACE_MARGIN
+            };
+
+            window.set_margin(Edge::Top, top);
             window.set_margin(Edge::Right, SURFACE_MARGIN);
             window.set_margin(Edge::Bottom, SURFACE_MARGIN);
             window.set_margin(Edge::Left, SURFACE_MARGIN);
             window.set_exclusive_zone(0);
             // The passphrase entry needs the keyboard while the panel is open.
             window.set_keyboard_mode(KeyboardMode::OnDemand);
-
-            let height = gtk::gdk::Display::default()
-                .and_then(|display| {
-                    display
-                        .monitors()
-                        .item(0)
-                        .and_downcast::<gtk::gdk::Monitor>()
-                })
-                .map(|monitor| monitor.geometry().height())
-                .unwrap_or(800);
-
-            window.set_default_size(WIDTH + 2 * PADDING, (height - 2 * SURFACE_MARGIN).max(300));
-        } else {
-            window.set_default_size(WIDTH + 2 * PADDING, 700);
         }
+
+        // Both a layer surface and an ordinary test window take their height
+        // from the list, never from the screen.  The surface is exactly the
+        // card: a compositor blurs a layer surface's whole geometry, so any
+        // transparent inset around the card would be blurred desktop showing
+        // as a band around the panel.
+        window.set_default_size(WIDTH, -1);
 
         window.present();
         window.set_visible(false);
@@ -568,7 +655,9 @@ impl NetworkPanel {
         clear_box(&list);
 
         for point in &state.points {
-            list.append(&self.build_wifi_row(point));
+            let connected = state.active.as_deref() == Some(point.ssid.as_str());
+
+            list.append(&self.build_wifi_row(point, connected));
         }
 
         if state.points.is_empty() {
@@ -617,31 +706,46 @@ impl NetworkPanel {
         self.inner.borrow_mut().updating = false;
     }
 
-    fn build_wifi_row(&self, point: &AccessPoint) -> gtk::Button {
+    fn build_wifi_row(&self, point: &AccessPoint, connected: bool) -> gtk::Button {
         let row = gtk::Button::new();
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let name = gtk::Label::new(Some(&point.ssid));
+        let signal_icon = gtk::Image::from_icon_name(wifi_signal_icon(point.signal));
         let signal = gtk::Label::new(Some(&format!("{}%", point.signal)));
 
+        signal_icon.set_pixel_size(14);
+        signal_icon.add_css_class("whelk-network-signal");
         name.set_xalign(0.0);
         name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name.set_hexpand(true);
         content.add_css_class("whelk-network-row");
         name.add_css_class("whelk-network-name");
         signal.add_css_class("whelk-network-detail");
+        content.append(&signal_icon);
         content.append(&name);
 
         if point.secured {
             let lock = gtk::Image::from_icon_name("changes-prevent-symbolic");
 
-            lock.set_pixel_size(14);
+            lock.set_pixel_size(13);
+            lock.add_css_class("whelk-network-lock");
             content.append(&lock);
         }
 
         content.append(&signal);
+
+        if connected {
+            let check = gtk::Image::from_icon_name("object-select-symbolic");
+
+            check.set_pixel_size(13);
+            check.add_css_class("whelk-network-check");
+            content.append(&check);
+            row.add_css_class("connected");
+            row.set_tooltip_text(Some("Connected"));
+        }
+
         row.set_child(Some(&content));
         row.add_css_class("whelk-network-item");
-
         let ssid = point.ssid.clone();
         let secured = point.secured;
         let weak = Rc::downgrade(&self.inner);
@@ -932,10 +1036,23 @@ impl NetworkPanel {
         let Some(display) = gtk::gdk::Display::default() else {
             return;
         };
-        let generated = style::css(&style::widget_id("network"), bar, "whelk-panel", None);
+        let widget_id = style::widget_id("network");
+        let generated = style::css(&widget_id, bar, "whelk-panel", None);
+        let mut sheet = format!("{BASE_CSS}\n{generated}");
+
+        // The radio switches are the accent's, not the toolkit's blue: one
+        // stray cool colour in a warm panel reads as a different program.
+        if let Some(accent) = bar.accent.as_deref().filter(|accent| !accent.is_empty()) {
+            sheet.push_str(&format!(
+                "window#{widget_id} .whelk-panel switch:checked {{\n  background-color: {accent};\n}}\n\
+                 window#{widget_id} .whelk-panel switch:checked > slider {{\n  background-color: #ffffff;\n}}\n\
+                 window#{widget_id} .whelk-network-tab:checked {{\n  background-color: alpha({accent}, 0.35);\n}}\n"
+            ));
+        }
+
         let css = gtk::CssProvider::new();
 
-        css.load_from_string(&format!("{BASE_CSS}\n{generated}"));
+        css.load_from_string(&sheet);
 
         let mut state = self.inner.borrow_mut();
 
@@ -1003,33 +1120,36 @@ struct BluetoothPage {
 /// appends its own controls before `present_page`, so a page's widgets keep
 /// the order they are built in and no constructor has to unwrap an optional
 /// control later.
-fn build_common(title: &str) -> CommonPage {
+fn build_common(title: &str, list_cap: i32) -> CommonPage {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let heading = gtk::Label::new(Some(title));
     let switch = gtk::Switch::new();
     let status = gtk::Label::new(None);
     let scroller = gtk::ScrolledWindow::new();
     let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
 
-    heading.set_xalign(0.0);
-    heading.set_hexpand(true);
-    heading.add_css_class("whelk-panel-title");
+    // The tab already names the page; a second "Wi-Fi" heading over it was a
+    // label saying what the one above it said.  The status and its radio
+    // switch share one row instead, which is where the eye looks for them.
     switch.set_valign(gtk::Align::Center);
-
-    header.append(&heading);
-    header.append(&switch);
+    switch.set_tooltip_text(Some(&format!("Turn {title} on or off")));
 
     status.set_xalign(0.0);
-    status.set_wrap(true);
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    status.set_hexpand(true);
     status.add_css_class("whelk-network-status");
+
+    header.append(&status);
+    header.append(&switch);
 
     scroller.set_child(Some(&list));
     scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scroller.set_vexpand(true);
+    // A list shorter than the cap asks for its own height; a longer one
+    // scrolls inside the panel instead of pushing the panel off the screen.
+    scroller.set_propagate_natural_height(true);
+    scroller.set_max_content_height(list_cap);
 
     page.append(&header);
-    page.append(&status);
 
     CommonPage {
         page,
@@ -1051,14 +1171,14 @@ fn present_page(
     stack.add_titled(page, Some(name), title);
 }
 
-fn build_wifi_page(title: &str, name: &str, stack: &gtk::Stack) -> WifiPage {
+fn build_wifi_page(title: &str, name: &str, stack: &gtk::Stack, list_cap: i32) -> WifiPage {
     let CommonPage {
         page,
         list,
         status,
         switch,
         scroller,
-    } = build_common(title);
+    } = build_common(title, list_cap);
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let rescan = gtk::Button::with_label("Rescan");
     let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -1096,14 +1216,19 @@ fn build_wifi_page(title: &str, name: &str, stack: &gtk::Stack) -> WifiPage {
     }
 }
 
-fn build_bluetooth_page(title: &str, name: &str, stack: &gtk::Stack) -> BluetoothPage {
+fn build_bluetooth_page(
+    title: &str,
+    name: &str,
+    stack: &gtk::Stack,
+    list_cap: i32,
+) -> BluetoothPage {
     let CommonPage {
         page,
         list,
         status,
         switch,
         scroller,
-    } = build_common(title);
+    } = build_common(title, list_cap);
 
     present_page(&page, &scroller, stack, name, title);
 
@@ -1137,8 +1262,10 @@ const BASE_CSS: &str = "
     }
     .whelk-panel-button {
         padding: 4px;
-        min-width: 0;
-        min-height: 0;
+        min-width: 24px;
+        min-height: 24px;
+        border: none;
+        box-shadow: none;
         border-radius: 8px;
         background: transparent;
     }
@@ -1152,25 +1279,75 @@ const BASE_CSS: &str = "
         padding: 30px 8px;
         opacity: 0.65;
     }
-    .whelk-network-item {
-        padding: 8px;
+    .whelk-network-tabs {
+        padding: 3px;
+        border-radius: 10px;
+        background: alpha(currentColor, 0.07);
+    }
+    .whelk-network-tab {
+        min-height: 24px;
+        padding: 4px 12px;
+        border: none;
         border-radius: 8px;
         background: transparent;
+        box-shadow: none;
+        font-weight: 500;
+    }
+    .whelk-network-tab:hover {
+        background: alpha(currentColor, 0.07);
+    }
+    .whelk-network-tab:checked {
+        background: alpha(currentColor, 0.16);
+        font-weight: 700;
+    }
+    .whelk-network-item {
+        padding: 7px 10px;
+        min-height: 28px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        box-shadow: none;
     }
     .whelk-network-item:hover {
         background: alpha(currentColor, 0.08);
     }
+    .whelk-network-item.connected {
+        background: alpha(currentColor, 0.06);
+    }
+    .whelk-network-item.connected:hover {
+        background: alpha(currentColor, 0.10);
+    }
     .whelk-network-name {
         font-weight: 500;
     }
+    .whelk-network-item.connected .whelk-network-name {
+        font-weight: 700;
+    }
+    .whelk-network-status {
+        opacity: 0.72;
+        font-size: 0.92em;
+    }
     .whelk-network-detail,
-    .whelk-network-status,
     .whelk-network-hint {
         opacity: 0.6;
         font-size: 0.85em;
     }
+    .whelk-network-signal,
+    .whelk-network-lock {
+        opacity: 0.62;
+    }
+    .whelk-network-check {
+        opacity: 0.85;
+    }
     .whelk-network-button {
-        padding: 4px 10px;
+        padding: 4px 12px;
+        border: none;
         border-radius: 8px;
+        background: alpha(currentColor, 0.07);
+        box-shadow: none;
+        font-size: 0.9em;
+    }
+    .whelk-network-button:hover {
+        background: alpha(currentColor, 0.12);
     }
 ";

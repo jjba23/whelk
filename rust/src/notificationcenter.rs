@@ -37,7 +37,6 @@ pub const PANEL_WIDTH: i32 = 380;
 pub const TOAST_WIDTH: i32 = 380;
 pub const TOAST_LIMIT: usize = 5;
 const SURFACE_MARGIN: i32 = 8;
-const PANEL_PADDING: i32 = 12;
 
 thread_local! {
     /// One centre belongs to the shell, not to a bar.  Modules open it through
@@ -261,10 +260,6 @@ impl NotificationCenter {
 
         panel.add_css_class("whelk-panel");
         panel.set_size_request(PANEL_WIDTH, -1);
-        panel.set_margin_start(PANEL_PADDING);
-        panel.set_margin_end(PANEL_PADDING);
-        panel.set_margin_top(PANEL_PADDING);
-        panel.set_margin_bottom(PANEL_PADDING);
         title.add_css_class("whelk-panel-title");
         title.set_xalign(0.0);
         summary.add_css_class("whelk-panel-subtitle");
@@ -440,8 +435,8 @@ impl NotificationCenter {
             toast.set_exclusive_zone(0);
             toast.set_keyboard_mode(KeyboardMode::None);
         } else {
-            panel.set_default_size(PANEL_WIDTH + 24, 640);
-            toast.set_default_size(TOAST_WIDTH + 24, 240);
+            panel.set_default_size(PANEL_WIDTH, 640);
+            toast.set_default_size(TOAST_WIDTH, 240);
         }
 
         if crate::ui::layer_shell_available() {
@@ -455,10 +450,11 @@ impl NotificationCenter {
                 .map(|monitor| monitor.geometry().height())
                 .unwrap_or(800);
 
-            panel.set_default_size(
-                PANEL_WIDTH + 2 * PANEL_PADDING,
-                (height - 2 * SURFACE_MARGIN).max(240),
-            );
+            // The surface is exactly the panel, and the toast surface is
+            // exactly its stack: a compositor blurs a layer surface's whole
+            // geometry, so an inset inside it would be blurred desktop showing
+            // as a band around the card.
+            panel.set_default_size(PANEL_WIDTH, (height - 2 * SURFACE_MARGIN).max(240));
         }
 
         panel.present();
@@ -962,10 +958,12 @@ const BASE_CSS: &str = "
     }
     .whelk-panel-button {
         padding: 4px;
-        min-width: 0;
-        min-height: 0;
+        min-width: 24px;
+        min-height: 24px;
+        border: none;
         border-radius: 8px;
         background: transparent;
+        box-shadow: none;
     }
     .whelk-panel-button:hover {
         background: alpha(currentColor, 0.12);
@@ -1039,7 +1037,8 @@ const BASE_CSS: &str = "
         background: alpha(currentColor, 0.16);
     }
     .whelk-toast-stack .whelk-card {
-        background: alpha(currentColor, 0.12);
+        background: alpha(currentColor, 0.10);
+        border: 1px solid alpha(currentColor, 0.08);
         box-shadow: 0 8px 24px alpha(black, 0.28);
     }
 ";

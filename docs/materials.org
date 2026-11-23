@@ -20,6 +20,15 @@ is generated in one place, one setting reaches the bar, the launcher, the
 desktop widget cards, the notification centre and its toasts, the network panel
 and the on-screen display together.
 
+The bar's =#:background= alpha is a bar setting, not a panel one.  A menu, a
+launcher or the network panel is a sheet of content read over whatever is
+behind it, and layer-shell has no backdrop filter for those surfaces; at the
+bar's 0.68 the calendar showed through the Window menu and the network list wore
+the wallpaper's stripes as row separators.  Whelk therefore raises a floating
+surface's background to at least 0.94 alpha while leaving the bar, the widget
+cards and a deliberately transparent colour alone.  The bar keeps its glass;
+the things that have to be *read* stay legible over any wallpaper.
+
 | Part of the look                     | Painted by   | Set by                                |
 |--------------------------------------+--------------+---------------------------------------|
 | the blur of the wallpaper behind it   | the compositor | the layer rule in this document     |
@@ -94,6 +103,14 @@ matter what the compositor blurs behind it; =0.75= to =0.9= shows the wallpaper
 through a dark tint, and below roughly =0.5= text starts to fight the desktop
 behind it.
 
+A floating layer surface is exactly its card.  The compositor blurs the whole
+surface geometry, so transparent space between a surface's edge and the card
+inside it is blurred desktop showing as a band around the card, and a
+compositor-drawn shadow follows that wider rectangle.  The launcher, the network
+panel, the notification centre and the toast stack therefore size the surface
+to the card itself.  The gap you see around a panel is a layer-shell placement
+margin, which sits outside the surface; it is not padding inside the geometry.
+
 * Layer namespaces
 
 The compositor matches layer surfaces by namespace.  whelk sets one per
@@ -141,9 +158,10 @@ blur behind a layer surface needs a niri that new.  Put this in =config.kdl=:
 - =saturation= above 1 makes the wallpaper's colours read through the tint.
 - The rule applies to every whelk layer surface the regexes match, so the
   launcher, both panels, the toasts and the OSD are covered by the same block.
-- niri's =shadow { on }= in the same rule draws a shadow around the *whole*
-  surface, margins included.  whelk sets no layer margins on its panels, so it is
-  safe there; the bar's shadow is already painted by whelk.
+- niri's =shadow { on }= in the same rule draws a shadow around the whole
+  surface.  whelk keeps that surface exactly the card and places it with
+  layer-shell margins, so the shadow hugs the card; the bar's shadow is already
+  painted by whelk.
 
 List what niri sees with =niri msg layers=, which prints each surface's
 namespace and is the fastest way to check a regex.

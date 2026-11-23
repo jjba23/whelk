@@ -36,12 +36,24 @@ pub fn widget_id(name: &str) -> String {
     id
 }
 
+/// The least opaque a floating surface may be.
+///
+/// A bar is a 32px strip the compositor can blur; a menu, panel or launcher is
+/// a sheet of content over whatever is behind it, and layer-shell offers no
+/// backdrop filter for it.  At the bar's own 0.68 alpha the calendar used to
+/// read through the Window menu and the network list showed the wallpaper's
+/// stripes as if they were row separators.  Nothing that has to be read is
+/// allowed to be more transparent than this.
+pub const SURFACE_ALPHA: f32 = 0.94;
+
 /// A colour normalised through GTK's parser, or `None` when there is no
-/// colour.  This mirrors `whelk_style_solid`: it keeps the source alpha.
+/// colour.  A floating surface's background goes through here, so its alpha is
+/// raised to at least [`SURFACE_ALPHA`]; a transparent colour stays
+/// transparent, and a value GTK cannot parse is passed through untouched.
 pub fn solid(color: Option<&str>) -> Option<String> {
     color
         .filter(|value| !value.is_empty())
-        .map(|value| color_with_alpha(Some(value), 1.0))
+        .map(|value| alpha_at_least(value, SURFACE_ALPHA))
 }
 
 /// The horizontal padding inside one bar module, from the bar's `spacing`.
@@ -73,7 +85,7 @@ pub fn css(
     let root = format!("window#{widget_id} .{root_class}");
     let mut output = String::new();
 
-    append_material(&mut output, bar, &root);
+    append_material(&mut output, bar, &root, root_class);
 
     if root_class == "whelk-bar" {
         // One set of metrics for every reading: the bar's own padding at the
@@ -136,7 +148,7 @@ pub fn css(
 
     output
 }
-fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
+fn append_material(output: &mut String, bar: &BarSettings, selector: &str, root_class: &str) {
     let frost = frost::current();
     let frosted_background = frost.background();
     let has_frosted_background = frosted_background.is_some();
@@ -146,6 +158,11 @@ fn append_material(output: &mut String, bar: &BarSettings, selector: &str) {
         .is_some_and(|value| !value.is_empty());
     let background = frosted_background
         .unwrap_or_else(|| color_with_alpha(bar.background.as_deref(), bar.opacity));
+    let background = if floating(root_class) {
+        alpha_at_least(&background, SURFACE_ALPHA)
+    } else {
+        background
+    };
 
     let _ = writeln!(output, "{selector} {{");
 
@@ -247,6 +264,54 @@ fn append_shadow(output: &mut String, bar: &BarSettings, frost: &frost::Frost) {
     }
 
     let _ = writeln!(output, "  box-shadow: {};", parts.join(", "));
+}
+
+/// Whether a generated skin belongs to a sheet of content rather than to the
+/// bar.  A floating sheet is read *over* the desktop, so its backing has to be
+/// more solid than the bar's glass.
+fn floating(root_class: &str) -> bool {
+    matches!(
+        root_class,
+        "whelk-panel"
+            | "whelk-toast-stack"
+            | "whelk-launcher"
+            | "whelk-wallpaper-picker"
+            | "whelk-wallpaper-menu"
+            | "settings-page"
+    )
+}
+
+/// Raise a CSS colour's alpha to `floor`, leaving the colour and everything
+/// else about it alone.  Handles both GTK's own `alpha(colour, a)` notation
+/// (which a frost tint is written in) and `rgba()`.  A transparent colour is a
+/// deliberate choice and stays transparent.
+fn alpha_at_least(color: &str, floor: f32) -> String {
+    let floor = floor.clamp(0.0, 1.0);
+
+    if let Some(inner) = color
+        .trim()
+        .strip_prefix("alpha(")
+        .and_then(|value| value.strip_suffix(')'))
+        && let Some((tint, alpha)) = inner.rsplit_once(',')
+        && let Ok(alpha) = alpha.trim().parse::<f32>()
+        && let Ok(rgba) = RGBA::parse(tint.trim())
+    {
+        if alpha <= 0.0 {
+            return color.to_owned();
+        }
+
+        return css_color(rgba.with_alpha(alpha.clamp(0.0, 1.0).max(floor)));
+    }
+
+    let Ok(rgba) = RGBA::parse(color) else {
+        return color.to_owned();
+    };
+
+    if rgba.alpha() <= 0.0 {
+        return color.to_owned();
+    }
+
+    css_color(rgba.with_alpha(rgba.alpha().max(floor)))
 }
 
 fn color_with_alpha(color: Option<&str>, scale: f64) -> String {

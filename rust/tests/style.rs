@@ -18,23 +18,46 @@ fn widget_ids_are_css_safe() {
 }
 
 #[test]
-fn solid_colours_force_opacity_and_keep_invalid_values() {
+fn solid_colours_are_raised_to_a_readable_floor() {
     assert_eq!(style::solid(None), None);
     assert_eq!(style::solid(Some("")), None);
     assert_eq!(
         style::solid(Some("#ffffff")).as_deref(),
         Some("rgb(255, 255, 255)")
     );
-    // The C helper multiplies by 1.0; it normalises the notation but does not
-    // invent an alpha the source colour did not have.
+    // A menu or a panel is read over the desktop and is not blurred by any
+    // compositor, so a translucent background is raised to the surface floor
+    // instead of letting a card show through it.
     assert_eq!(
         style::solid(Some("rgba(0, 0, 0, 0.5)")).as_deref(),
-        Some("rgba(0, 0, 0, 0.500)")
+        Some("rgba(0, 0, 0, 0.940)")
+    );
+    assert_eq!(
+        style::solid(Some("alpha(#1a1410, 0.500)")).as_deref(),
+        Some("rgba(26, 20, 16, 0.940)")
+    );
+    // A surface that was deliberately transparent stays that way.
+    assert_eq!(
+        style::solid(Some("transparent")).as_deref(),
+        Some("transparent")
     );
     assert_eq!(
         style::solid(Some("not-a-colour")).as_deref(),
         Some("not-a-colour")
     );
+}
+
+#[test]
+fn a_floating_sheet_is_more_opaque_than_the_bar() {
+    let bar = BarSettings {
+        background: Some("rgba(246, 245, 242, 0.68)".into()),
+        ..BarSettings::default()
+    };
+    let strip = style::css("whelk-main", &bar, "whelk-bar", None);
+    let panel = style::css("whelk-network", &bar, "whelk-panel", None);
+
+    near_color(&strip, "background-color: rgba(246, 245, 242, 0.680);");
+    near_color(&panel, "background-color: rgba(246, 245, 242, 0.940);");
 }
 
 #[test]

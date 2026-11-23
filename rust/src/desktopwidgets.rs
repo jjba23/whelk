@@ -109,6 +109,18 @@ const CARD_CSS: &str = "
         font-size: 30px;
         font-weight: 700;
     }
+    /* The pack's reading is part of the card's ink, not a stock GNOME bar:
+     * the stock blue was the only cool colour on a warm desktop. */
+    .whelk-widget-battery-level trough {
+        min-height: 8px;
+        border-radius: 4px;
+        background-color: alpha(currentColor, 0.14);
+    }
+    .whelk-widget-battery-level progress {
+        min-height: 8px;
+        border-radius: 4px;
+        background-color: alpha(currentColor, 0.62);
+    }
     .whelk-widget-note {
         font-size: 13px;
         margin-top: 2px;
@@ -267,12 +279,18 @@ pub fn battery_summary(capacity: i32, status: &str, warning: i32, critical: i32)
         classes.push("charging");
     }
 
+    // The pack's own status already names the state; the second half is the
+    // *source*, not the same word again.  "Charging · charging" was the card
+    // saying one thing twice.
+    let source = if charging { "on power" } else { "on battery" };
+
     BatterySummary {
         percent: format!("{capacity}%"),
-        status: format!(
-            "{status} · {}",
-            if charging { "charging" } else { "on battery" }
-        ),
+        status: if status.is_empty() {
+            source.to_owned()
+        } else {
+            format!("{status} · {source}")
+        },
         classes,
     }
 }
@@ -454,6 +472,10 @@ impl Card {
             window.set_anchor(Edge::Left, true);
             window.set_keyboard_mode(KeyboardMode::None);
             window.set_exclusive_zone(-1);
+            // The card's size is the configuration's, not the longest line's:
+            // a note used to widen its own card past the width in settings.scm
+            // and then get clipped at the surface edge instead of wrapping.
+            window.set_default_size(config.width, config.height);
 
             if let Some(monitor) = monitor_for(&config.monitor) {
                 window.set_monitor(Some(&monitor));
@@ -1619,6 +1641,21 @@ fn build_notes(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
     body.set_yalign(0.0);
     body.set_vexpand(true);
     body.set_hexpand(true);
+    // A wrapping label still asks for its longest line, and the card's width
+    // is a minimum: without a ceiling the note widened the surface past the
+    // configured width and was clipped at the edge.  The ceiling is measured
+    // in the label's own font, not guessed in characters.
+    let content = (config.width - 28).max(40);
+
+    let char_width = body
+        .pango_context()
+        .metrics(None, None)
+        .approximate_char_width();
+
+    if char_width > 0 {
+        body.set_max_width_chars((content * 1024 / char_width).max(8));
+    }
+
     card.append(&body);
 
     let file = config.spec.text("file");

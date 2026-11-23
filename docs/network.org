@@ -14,8 +14,10 @@ because it was asked for.  The Bluetooth reading is the icon too: the
 connected-device count and the adapter's state are in its hover text, and the
 count is still available to an explicit =#:format= if a bar wants it back.
 
-- *Wi-Fi*: the access points in range with signal and a lock for a secured one,
-  a radio switch and a rescan.  Choosing a secured network asks for its
+- *Wi-Fi*: the access points in range, the joined one first and marked with a
+  check, each with its signal strength, its percentage and a lock when it is
+  secured; a radio switch and a rescan sit above the list.  The panel is as tall
+  as the list (up to a scrollable cap) and starts under the bar, not over it.  Choosing a secured network asks for its
   password in the panel -- where the keyboard is -- and an empty password means
   "use the connection NetworkManager already has".  A typed password *replaces*
   the saved one: =nmcli device wifi connect= would otherwise activate the
