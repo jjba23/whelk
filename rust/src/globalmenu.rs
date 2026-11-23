@@ -466,13 +466,19 @@ fn render(state: &Rc<RefCell<MenuState>>) {
         glib::idle_add_local_once(move || focus_first(&popover));
     });
 
-    {
+    let (row, visible) = {
         let mut menu_state = state.borrow_mut();
 
-        menu_state.row.append(&more);
-        menu_state.more = Some(more);
-        menu_state.row.set_visible(!menu_state.rows.is_empty());
-    }
+        menu_state.more = Some(more.clone());
+        (menu_state.row.clone(), !menu_state.rows.is_empty())
+    };
+
+    // Appending to a mapped row and showing it map its children right here,
+    // and a menu button's map handler reads the state.  Neither widget call
+    // may run while the state is mutably borrowed, or that handler panics with
+    // "RefCell already mutably borrowed".
+    row.append(&more);
+    row.set_visible(visible);
 
     // A rebuild replaces every button, so the fit has to run again; the
     // allocation itself may already be there.
@@ -561,7 +567,7 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
     });
     button.add_controller(motion);
 
-    {
+    let row = {
         let mut menu_state = state.borrow_mut();
 
         menu_state.rows.push(TopMenu {
@@ -570,8 +576,12 @@ fn add_top_button(state: &Rc<RefCell<MenuState>>, menu: &Menu, css_class: &str, 
             entries: menu.entries.clone(),
         });
         menu_state.buttons.push(button.clone());
-        menu_state.row.append(&button);
-    }
+        menu_state.row.clone()
+    };
+
+    // The append maps the button when the row is already on screen, so it has
+    // to happen after the borrow above is released.
+    row.append(&button);
 }
 
 /// How many top-level buttons fit before the overflow chevron.
