@@ -1,4 +1,4 @@
-whelk (0.50.1-1) unstable; urgency=medium
+whelk (0.51.0-1) unstable; urgency=medium
 
   * Seal the Guile Scm value behind a private-field repr(transparent) newtype,
     so safe code cannot construct one from an arbitrary pointer.

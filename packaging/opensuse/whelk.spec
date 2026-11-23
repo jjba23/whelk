@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.50.1
+Version:        0.51.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
