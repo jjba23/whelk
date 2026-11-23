@@ -11,6 +11,19 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.50.1 (2026-11-23)
+
+*** Fixed
+
+- *Showing the global menu no longer aborts the shell.*  v0.50.0 measured the
+  menu row while its state was still mutably borrowed.  GTK maps a button as
+  soon as it is appended to a bar that is already on screen, and the button's
+  map handler -- the one that keeps an open menu following the pointer --
+  reads that same state, so the first menu rebuild after the bar appeared
+  panicked with =RefCell already mutably borrowed=.  The buttons and the
+  overflow chevron are now appended, and the row shown, only after the borrow
+  has ended.
+
 ** v0.50.0 (2026-11-23)
 
 *** Added
