@@ -30,7 +30,7 @@ specific changes are easier to review and easier to keep.
 - *Menus and themes?*  A menu dictionary entry, a chord table or a palette is a
   small, testable unit.  Follow the conventions in
   [[file:menus.org][Menus]] and [[file:themes.org][Themes]].
-- *Packaging?*  The Debian, Arch, openSUSE and Nix recipes live in the tree;
+- *Packaging?*  The Debian, Arch, openSUSE, Void and Nix recipes live in the tree;
   Guix packaging lives in the jointhefreeworld channel.  A working package
   update is a real contribution, especially when it comes with the command and
   output that proved it.

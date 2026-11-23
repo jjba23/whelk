@@ -4,8 +4,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
-# One release has to agree in six places.  Keep that agreement checkable, and
-# keep the tag, tarball, checksum and GitHub release in one reproducible path.
+# One release has to agree in seven manifests and NEWS.org.  Keep that
+# agreement checkable, and keep the tag, tarball, checksum and GitHub release in
+# one reproducible path.
 set -euo pipefail
 unset CDPATH
 
@@ -53,6 +54,10 @@ arch_version() {
   sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD | head -n 1
 }
 
+void_version() {
+  sed -n 's/^version=//p' packaging/void/template | head -n 1
+}
+
 debian_version() {
   head -n 1 packaging/debian/changelog |
     sed -n 's/^whelk (\([^)]*\)-1).*/\1/p'
@@ -71,7 +76,7 @@ check_version() {
   local name
   local value
   for name in cargo_version xtask_version nix_version \
-              arch_version debian_version spec_version; do
+              arch_version debian_version spec_version void_version; do
     value=$("$name")
     [[ "$value" == "$expected" ]] ||
       die "$name is '$value', expected '$expected'"
@@ -121,6 +126,7 @@ update_version() {
     packaging/debian/changelog
   sed -i "s/^Version:.*/Version:        ${version}/" \
     packaging/opensuse/whelk.spec
+  sed -i "s/^version=.*/version=${version}/" packaging/void/template
 }
 
 verify() {
@@ -148,6 +154,10 @@ verify() {
   fi
 
   cargo test --workspace --locked --test style_golden
+
+  # The xbps template is shell that void-packages sources; a syntax error there
+  # would otherwise only surface on Void.
+  bash -n packaging/void/template
 
   if command -v guix >/dev/null 2>&1; then
     # The channel pin is also the toolchain pin: this checkout needs Rust

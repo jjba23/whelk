@@ -46,6 +46,8 @@ already has Rust 1.92 or newer, GTK 4.18 or newer, =gtk4-layer-shell=, Guile
   maak deb-build    # .deb, built from packaging/debian
   maak arch-build   # Arch package, built from packaging/arch/PKGBUILD
   maak rpm-build    # RPM for openSUSE and Fedora, from packaging/opensuse
+  # The Void recipe is built with xbps-src: copy packaging/void to
+  # void-packages/srcpkgs/whelk and run `xbps-src pkg whelk`.
 #+end_src
 
 The Guix tasks read =channels.scm= and =manifest.scm=, so they deliberately use

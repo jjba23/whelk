@@ -5,26 +5,43 @@
 # its idle hint and inhibitor, and the power verbs fall back to zzz/ZZZ and the
 # plain reboot/poweroff.  See docs/portability.org.
 #
+# The workspace root is a virtual manifest, so the stock cargo build style's
+# `cargo install --path .` cannot install it.  xtask is what stages the binary
+# together with the Scheme modules, desktop entry and icons.
+#
 # Copy this directory to void-packages/srcpkgs/whelk and run `xgensum -i whelk`
 # to fill the checksum of the release tarball, then `./xbps-src pkg whelk`.
 pkgname=whelk
-version=0.45.0
+version=0.50.1
 revision=1
-build_style=cargo
-make_build_args="--bin whelk"
+build_style=void
 hostmakedepends="cargo pkg-config"
-makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel"
-depends="gtk4 gtk4-layer-shell guile"
-short_desc="Wayland shell with bars, a launcher and notifications, configured in Guile Scheme"
+makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel pam-devel"
+checkdepends="xorg-server-xvfb dbus"
+depends="gtk4 gtk4-layer-shell guile pam wtype curl hicolor-icon-theme"
+short_desc="Wayland shell with bars and launcher, configured in Guile Scheme"
 maintainer="Josep Bigorra <jjbigorra@gmail.com>"
 license="MIT"
 homepage="https://github.com/jjba23/whelk"
-distfiles="${homepage}/archive/v${version}.tar.gz"
+distfiles="${homepage}/archive/refs/tags/v${version}.tar.gz"
 checksum=""
 
-post_install() {
-	# The binary, the Scheme modules, the desktop entry and the icon tree, all
-	# under the same prefix, which is where the binary looks for the modules.
+do_build() {
+	cargo build --release --locked --offline --bin whelk
+}
+
+do_check() {
+	# GTK tests need a display even when they never map a window, and GLib
+	# must not write to the build user's home.
+	export HOME="$wrksrc"
+	export XDG_RUNTIME_DIR="$wrksrc"
+	export GTK_A11Y=test
+	export GDK_BACKEND=x11
+	export GSK_RENDERER=cairo
+	xvfb-run -a cargo test --workspace --locked --offline
+}
+
+do_install() {
 	cargo xtask install --prefix=/usr --destdir="${DESTDIR}" --no-build
 	vlicense LICENSE
 }

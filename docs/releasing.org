@@ -9,7 +9,7 @@ A release is a claim that one source tree passed every gate.  The script keeps
 the version, the gate and the artifact in one path; the changelog is deliberately
 written by a person because a script cannot say what a release means.
 
-* The seven checked places
+* The eight checked places
 
 =scripts/release.sh check= refuses to let these disagree:
 
@@ -21,10 +21,11 @@ written by a person because a script cannot say what a release means.
 | =packaging/arch/PKGBUILD=            | =pkgver=                                      |
 | =packaging/debian/changelog=         | the first =whelk (X.Y.Z-1)= stanza            |
 | =packaging/opensuse/whelk.spec=      | =Version:=                                    |
+| =packaging/void/template=            | =version=                                     |
 | =NEWS.org=                           | a =** vX.Y.Z (YYYY-MM-DD)= section            |
 
 =Cargo.lock= carries the two workspace package versions as well.  =set-version=
-writes the six manifests but does not invent the changelog entry: add the
+writes the seven manifests but does not invent the changelog entry: add the
 =NEWS.org= section first, then run it.  Refresh the lockfile and verify it is
 stable before committing:
 
@@ -62,7 +63,7 @@ that blessed them would hide the change it is meant to catch.
 flowchart TD
     A["scripts/release.sh publish"] --> B{"worktree clean?"}
     B -->|no| Z["refuse: commit the release prep first"]
-    B -->|yes| C{"all seven places agree?"}
+    B -->|yes| C{"all eight places agree?"}
     C -->|no| Z2["refuse: name the file that disagrees"]
     C -->|yes| D{"tag vX.Y.Z taken?"}
     D -->|yes| Z3["refuse: choose the next version"]

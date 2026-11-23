@@ -233,7 +233,7 @@ click, and the command line a keybinding uses to open a surface.
 | the jointhefreeworld channel | =guix install whelk=, from [[https://github.com/jjba23/guix-jointhefreeworld][the channel]]                        |
 | Nix                      | =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'= |
 | from source              | =cargo build -p whelk-rs --release=, then =cargo xtask install=       |
-| a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build=                   |
+| a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build= or =xbps-src pkg whelk= |
 
 [[file:docs/installation.org][Installation]] has the requirements, what the binary links (and why PAM is not on
 that list), the run-time tools whelk asks for, and how to stop a running shell.
@@ -273,7 +273,7 @@ deliberately is not.
 | [[file:docs/lifecycle.org][Lifecycles]]                                | startup, reload, refresh, lock, shutdown                   |
 | [[file:docs/development.org][Development]]                               | Rust conventions, test layers, unsafe policy, debugging      |
 | [[file:docs/releasing.org][Releasing]]                                 | verification gates, what =publish= does, channel handoff     |
-| [[file:docs/packaging.org][Packaging]]                                 | the three recipes and the installed layout                 |
+| [[file:docs/packaging.org][Packaging]]                                 | the four recipes and the installed layout                  |
 | [[file:docs/known-limits.org][Known limits]]                               | what whelk deliberately cannot do                          |
 | [[file:docs/roadmap.org][Status and roadmap]]                        | what works today and what comes next                       |
 | [[file:docs/contributing.org][Contributing]]                              | bug reports, patches, new modules                           |

@@ -172,13 +172,14 @@ environment variable.
 :CUSTOM_ID: packages
 :END:
 
-=packaging/= carries recipes for the three families; each builds the same
+=packaging/= carries recipes for the four families; each builds the same
 installed layout described in [[file:packaging.org][Packaging and distribution]].
 
 #+begin_src sh
   maak deb-build     # Debian/Ubuntu .deb, from packaging/debian
   maak arch-build    # Arch package, from packaging/arch/PKGBUILD
   maak rpm-build     # RPM for openSUSE and Fedora, from packaging/opensuse
+  xbps-src pkg whelk # Void package, from packaging/void/template
 #+end_src
 
 * Starting, and stopping
