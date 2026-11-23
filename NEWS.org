@@ -11,6 +11,67 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.50.0 (2026-11-23)
+
+*** Added
+
+- *A menu that outgrows the bar folds into a chevron.*  The global menu used to
+  ask for every top-level menu at once, so an application with enough menus
+  pushed the clock and the right row off the edge of the bar.  It now measures
+  the room the bar actually has -- the surface's width less the other start
+  modules, the centre row, the right row and the bar's inset -- and keeps the
+  longest prefix that fits.  The rest move behind a =»= button whose menu lists
+  each hidden top-level menu and its full submenu, in their original order; a
+  resize, a rotation, a font change or the right row folding gives the menus
+  their room back.  The fit follows the same principle as the right row's +N
+  shelf: it is re-answered from the whole row every time the width changes.
+
+*** Fixed
+
+- *A panel's layer surface is its card.*  The network panel, the notification
+  centre and the toast stack kept 12px of transparent space inside their layer
+  surfaces.  A compositor blurs a layer surface's whole geometry, so that inset
+  was blurred desktop showing as a band around the card; niri's own shadow also
+  followed the wider rectangle instead of the card.  Those surfaces are now
+  exactly their card, with no transparent inset (the 8px gap around a panel is
+  a layer-shell placement margin outside the surface, not padding within it).
+  This is the launcher's v0.44.0 fix applied to the panels.
+
+- *Floating surfaces are opaque enough to read.*  A menu, the launcher, a
+  notification panel or the network panel took the bar's own
+  =#:background= -- in the reference 68% -- and painted it over the desktop
+  without the blur the bar gets from the compositor.  The calendar read through
+  the Window menu, and the network list showed the wallpaper's stripes between
+  its rows.  Generated skins now raise a floating sheet's alpha to at least
+  0.94, while the bar keeps its glass and a deliberately transparent colour
+  stays transparent.
+- *The network panel is the size of its list.*  It used to anchor top and
+  bottom and ask for the whole screen, leaving a lake of empty glass under a
+  dozen networks.  It now hangs under the bar at the height of the list, up to
+  a 560px scrollable cap, and its page switch is a pair of linked tabs that
+  always names the page actually shown; the old =StackSwitcher= highlighted
+  the other one.  The Wi-Fi list leads with the joined network, marks it with a
+  check, and gives every row its signal strength; Rescan and the radio switches
+  wear the bar's accent instead of the toolkit's blue.
+- *The Batteries card says "Charging · on power".*  It used to say
+  "Charging · charging", and its level bar was the stock GNOME blue in the
+  middle of a warm card; the bar is now the card's own ink.
+- *A note wraps inside its card.*  The card's configured width was a minimum,
+  so a long line widened the surface past =#:width= and was then clipped
+  mid-word at the edge instead of wrapping.
+- *Panel close buttons are glyphs, not boxes.*  The one-pixel button outline
+  around every × is gone.
+
+*** Verified
+
+- =cargo test --workspace --locked= (640 tests), =cargo fmt --check= and
+  =cargo clippy --all-targets -- -D warnings= pass; the network panel was
+  rendered as a live layer surface against the reference palette and the
+  Wi-Fi/Bluetooth tabs, connected row, signal icons and content-sized height
+  checked visually.
+
+*[Released]
+
 ** v0.49.6 (2026-11-22)
 
 *** Changed
