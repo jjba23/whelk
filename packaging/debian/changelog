@@ -1,3 +1,15 @@
+whelk (0.53.0-1) unstable; urgency=medium
+
+  * Render several configured bars at once, with two top bars occupying
+    successive rows and left/right bars acting as full-height columns.
+  * Lay out vertical bars with a vertical CenterBox and start/centre/end
+    groups, reserve the width their readings paint, and pad their modules on
+    the vertical axis.
+  * Give bars that share a name distinct CSS ids so one bar's palette cannot
+    repaint another.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Tue, 24 Nov 2026 19:25:34 +0100
+
 whelk (0.52.1-1) unstable; urgency=medium
 
   * Seal the Guile Scm value behind a private-field repr(transparent) newtype,

@@ -11,6 +11,37 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.53.0 (2026-11-24)
+
+*** Added
+
+- *Several bars at once.*  `#:bars` accepted a list, but a vertical bar was
+  laid out as a horizontal strip in the middle of a full-height surface and two
+  bars with the same `#:name` shared one CSS id.  A layout can now put two top
+  rows, a bottom row and side columns on one output; the default exclusive
+  zones give each horizontal bar its own row, and every placement keeps its
+  own material and module timers.
+- *Vertical bars are columns.*  A left or right bar now builds a vertical
+  `GtkCenterBox` and vertical start/centre/end groups; `#:left` is the top
+  group, `#:center` the middle and `#:right` the bottom.  Its surface asks for
+  the width its widest reading paints and reserves that width as its exclusive
+  zone, instead of asking for the whole monitor height as a height and leaving
+  the width at GTK's natural one-pixel guess.  Overflow, folding, padding and
+  the chevron all use the vertical axis too.
+- Bars that share a `#:name` get distinct CSS ids (`whelk-main`, then
+  `whelk-main-2`), so a second bar's palette cannot repaint the first.
+
+*** Verified
+
+- The Rust suite passes 661 tests, including the new vertical-padding and
+  duplicate-CSS-id regressions; `cargo fmt --all --check`, `clippy -D warnings`
+  and the CSS goldens pass.
+- Exercised in a nested Sway session with five bars at once: two stacked top
+  bars, a bottom bar, and left and right columns.  The top bars occupied
+  successive rows, the side columns laid their start, centre and end groups
+  down the output, their clocks sat at the bottom, and the exclusive zones
+  followed the painted widths.
+
 ** v0.52.1 (2026-11-24)
 
 *** Fixed
