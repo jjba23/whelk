@@ -7,7 +7,9 @@
 // `locker_rebuild`/`queue_session_rebuild` flags are one small state machine,
 // and every transition here is one a monitor change can hit.
 
-use whelk_rs::locker::{RebuildState, presentation_blocker};
+use whelk_rs::locker::{
+    EXIT_NO_SURFACE, RebuildState, Recovery, presentation_blocker, recovery_action,
+};
 
 #[test]
 fn a_lock_needs_a_display_and_a_presentation_path() {
@@ -24,6 +26,28 @@ fn a_lock_needs_a_display_and_a_presentation_path() {
     // the layer-shell overlay where it does not.
     assert_eq!(presentation_blocker(true, true, false), None);
     assert_eq!(presentation_blocker(true, false, true), None);
+}
+
+#[test]
+fn a_dead_lock_is_replaced_or_retried() {
+    // It had a surface and died without unlocking: take the lock again, so the
+    // compositor is not left showing its own background forever.
+    assert_eq!(recovery_action(None, true, false), Recovery::Restart);
+    assert_eq!(recovery_action(Some(1), true, true), Recovery::Restart);
+
+    // It released the lock because nothing reached the screen: one retry with
+    // the software renderer, then stop instead of looping.
+    let no_surface = Some(i32::from(EXIT_NO_SURFACE));
+
+    assert_eq!(
+        recovery_action(no_surface, false, false),
+        Recovery::Software
+    );
+    assert_eq!(recovery_action(no_surface, false, true), Recovery::None);
+
+    // An ordinary unlock, or a lock that never took the session, is left alone.
+    assert_eq!(recovery_action(Some(0), false, false), Recovery::None);
+    assert_eq!(recovery_action(Some(1), false, false), Recovery::None);
 }
 
 #[test]

@@ -24,7 +24,7 @@ Usage: whelk [OPTIONS]
 Options:
   --config PATH          Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
   --check-config         Load the configuration, print the wallpaper policy and exit
-  --check-lock           Print how this machine would authenticate and exit
+  --check-lock           Print how this machine would lock and authenticate, then exit
   --print-css            Print the CSS generated for each configured bar and exit
   --status               Report the session, logind, the runtime tools and why
                          each configured module is blank
@@ -251,6 +251,9 @@ fn print_lock_report() {
         "user: {}",
         lockauth::session_user().unwrap_or_else(|| "unknown".to_owned())
     );
+
+    locker::init_for_report();
+    println!("presentation: {}", locker::presentation_summary());
     println!("pam candidates:");
 
     for candidate in lockauth::candidates() {

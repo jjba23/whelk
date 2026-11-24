@@ -67,7 +67,32 @@ thread_local! {
     /// can reach behind.
     static LOCK_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LOCK_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Set when the lock was taken but no surface reached the screen.  The
+    /// lock is released before exit, and the shell retries with the CPU
+    /// renderer instead of leaving the compositor's background covering the
+    /// session with no way in.
+    static LOCK_UNPRESENTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The shell's supervisor spends one software-renderer retry per lock
+    /// chain; this remembers that it was already spent.
+    static SOFTWARE_RETRY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static RESTARTS: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    static SUPERVISING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+
+/// Exit status for "the lock was requested but no surface reached the screen".
+/// The locker has released the compositor lock by the time it returns this,
+/// so the shell can safely try again with a different renderer.
+pub const EXIT_NO_SURFACE: u8 = 75;
+
+/// How long a taken lock may go without a visible surface.  Compositors draw
+/// their own "locked, no surface" background (niri's is solid red); a lock
+/// that cannot present must let go rather than leave that covering the session.
+const PRESENT_DEADLINE: Duration = Duration::from_secs(2);
+
+/// How many times the supervisor may take the lock back after a locker died
+/// without unlocking.  A locker that keeps dying is left alone instead of
+/// being restarted forever.
+const MAX_RESTARTS: u8 = 3;
 
 /// Starts logind's `Lock`, `PrepareForSleep` and session `Active=false`
 /// triggers.  Idempotent; the shell calls it once at startup.
@@ -92,6 +117,7 @@ pub fn watch_logind() {
 /// in this process; `--lock` is the same entry point a keybinding uses.  Both
 /// logind and the idle timer reach the lock through here.
 pub(crate) fn start_lock_screen() {
+    reset_supervision();
     spawn_lock_screen(None);
 }
 
@@ -132,6 +158,8 @@ fn start_lock_screen_before_sleep(connection: &gtk::gio::DBusConnection) {
         return;
     }
 
+    reset_supervision();
+
     if !spawn_lock_screen(Some(&path)) {
         drop(inhibitor);
 
@@ -155,7 +183,17 @@ fn start_lock_screen_before_sleep(connection: &gtk::gio::DBusConnection) {
 }
 
 fn spawn_lock_screen(ready_file: Option<&PathBuf>) -> bool {
-    SPAWNED_LOCKER.with(|slot| {
+    spawn_lock_screen_with(ready_file, false)
+}
+
+/// Starts a lock process, optionally on GTK's CPU renderer.
+///
+/// A lock screen is a static page; the CPU renderer is enough, and it is the
+/// fallback when the default (GL) renderer could not get a buffer onto the
+/// screen.  The child inherits the environment either way.
+fn spawn_lock_screen_with(ready_file: Option<&PathBuf>, software_renderer: bool) -> bool {
+    let live = live_path();
+    let started = SPAWNED_LOCKER.with(|slot| {
         let mut slot = slot.borrow_mut();
 
         if let Some(child) = slot.as_mut() {
@@ -178,6 +216,14 @@ fn spawn_lock_screen(ready_file: Option<&PathBuf>) -> bool {
             command.env("WHELK_LOCK_READY_FILE", path);
         }
 
+        if let Some(path) = &live {
+            command.env("WHELK_LOCK_LIVE_FILE", path);
+        }
+
+        if software_renderer {
+            command.env("GSK_RENDERER", "cairo");
+        }
+
         match command.spawn() {
             Ok(child) => {
                 *slot = Some(child);
@@ -188,7 +234,112 @@ fn spawn_lock_screen(ready_file: Option<&PathBuf>) -> bool {
                 false
             }
         }
-    })
+    });
+
+    if started {
+        ensure_lock_supervisor();
+    }
+
+    started
+}
+
+/// What the shell should do after a lock process exits.  Pure, so the rule can
+/// be tested without a compositor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recovery {
+    /// Nothing to do: the locker unlocked, or never took the lock.
+    None,
+    /// It had a surface on screen and died without unlocking the session.
+    Restart,
+    /// It released the lock because no surface reached the screen.
+    Software,
+}
+
+pub fn recovery_action(code: Option<i32>, was_live: bool, tried_software: bool) -> Recovery {
+    if was_live {
+        return Recovery::Restart;
+    }
+
+    if code == Some(i32::from(EXIT_NO_SURFACE)) && !tried_software {
+        return Recovery::Software;
+    }
+
+    Recovery::None
+}
+
+fn reset_supervision() {
+    SOFTWARE_RETRY.with(|tried| tried.set(false));
+    RESTARTS.with(|count| count.set(0));
+}
+
+/// Watches the lock process for as long as the shell runs.  A locker that dies
+/// while the session is still locked must not leave the compositor showing its
+/// own background: nothing else can release that lock, but another lock client
+/// may take it over.
+fn ensure_lock_supervisor() {
+    SUPERVISING.with(|watching| {
+        if watching.replace(true) {
+            return;
+        }
+
+        glib::timeout_add_seconds_local(1, || {
+            supervise_lock_screen();
+
+            glib::ControlFlow::Continue
+        });
+    });
+}
+
+fn supervise_lock_screen() {
+    let exited = SPAWNED_LOCKER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let child = slot.as_mut()?;
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                *slot = None;
+
+                Some(status)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                log(&format!("could not watch the lock screen: {error}"));
+                *slot = None;
+
+                None
+            }
+        }
+    });
+
+    let Some(status) = exited else {
+        return;
+    };
+    let live = live_path().is_some_and(|path| path.exists());
+    let restarts = RESTARTS.with(std::cell::Cell::get);
+
+    match recovery_action(
+        status.code(),
+        live,
+        SOFTWARE_RETRY.with(std::cell::Cell::get),
+    ) {
+        Recovery::None => {}
+        Recovery::Restart if restarts >= MAX_RESTARTS => {
+            log("the lock screen keeps dying; not taking the lock again");
+            remove_live();
+        }
+        Recovery::Restart => {
+            RESTARTS.with(|count| count.set(restarts.saturating_add(1)));
+            log("the lock screen died while the session was locked; taking the lock again");
+
+            let _ = spawn_lock_screen(None);
+        }
+        Recovery::Software => {
+            SOFTWARE_RETRY.with(|tried| tried.set(true));
+            log("the lock screen could not present a surface; retrying with the software renderer");
+
+            let _ = spawn_lock_screen_with(None, true);
+        }
+    }
 }
 
 fn ready_path() -> Option<PathBuf> {
@@ -196,6 +347,63 @@ fn ready_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
         .map(|path| path.join("whelk").join("lock-ready"))
+}
+
+/// The marker a lock screen leaves while it has a surface on screen.  The
+/// shell's supervisor restarts a locker that dies without removing it.
+fn live_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("WHELK_LOCK_LIVE_FILE")
+        && !path.is_empty()
+    {
+        return Some(PathBuf::from(path));
+    }
+
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|path| path.join("whelk").join("lock-live"))
+}
+
+fn write_live() {
+    let Some(path) = live_path() else {
+        return;
+    };
+    let Some(directory) = path.parent() else {
+        return;
+    };
+
+    if fs::create_dir_all(directory).is_err() {
+        log("could not create the runtime directory for the lock marker");
+
+        return;
+    }
+
+    let _ = fs::set_permissions(
+        directory,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    );
+
+    let written = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+        .and_then(|mut file| {
+            use std::io::Write;
+
+            writeln!(file, "locked")
+        });
+
+    if written.is_err() {
+        log("could not write the lock marker");
+    }
+}
+
+fn remove_live() {
+    if let Some(path) = live_path() {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn mark_ready() {
@@ -371,6 +579,10 @@ struct Locker {
     session_lock: Option<glib::Object>,
     session_primary: bool,
     retry_source: Option<glib::SourceId>,
+    /// True once a lock window has actually mapped.  This is the only proof
+    /// that the compositor is showing a surface; asking it for the lock is
+    /// not, and a lock with no face is a session nobody can get back into.
+    presented: bool,
     rebuilds: RebuildState,
     rebuild_source: Option<glib::SourceId>,
     monitor_model: Option<(gtk::gio::ListModel, glib::SignalHandlerId)>,
@@ -396,6 +608,34 @@ pub fn presentation_blocker(
     } else {
         None
     }
+}
+
+/// Initialises GTK for `--check-lock`, whose report asks the display which
+/// presentation path exists.  Harmless if there is no display or GTK was
+/// already initialised.
+pub fn init_for_report() {
+    let _ = gtk::init();
+}
+
+/// What `--check-lock` reports for the presentation half.  GTK must already
+/// be initialised (`init_for_report`) for the display to be discoverable.
+pub fn presentation_summary() -> String {
+    let display = gtk::gdk::Display::default();
+
+    if display.is_none() {
+        return "unavailable (there is no display to cover)".to_owned();
+    }
+
+    if sys::is_supported() {
+        return "ext-session-lock-v1 (the compositor owns the lock surfaces)".to_owned();
+    }
+
+    if crate::ui::layer_shell_available() {
+        return "layer shell (compatibility overlay; the compositor has no ext-session-lock-v1)"
+            .to_owned();
+    }
+
+    "unavailable (the compositor has neither ext-session-lock-v1 nor layer shell)".to_owned()
 }
 
 /// Why this machine cannot lock, or `None` when it can.
@@ -424,11 +664,16 @@ pub fn run() -> glib::ExitCode {
     application.connect_activate(lock);
 
     LOCK_FAILED.with(|failed| failed.set(false));
+    LOCK_UNPRESENTED.with(|unpresented| unpresented.set(false));
     LOCK_READY.with(|ready| ready.set(false));
 
     let exit = application.run_with_args(&["whelk-lock"]);
 
-    if LOCK_FAILED.with(std::cell::Cell::get) {
+    if LOCK_UNPRESENTED.with(std::cell::Cell::get) {
+        // The lock is already released; the shell may try a different
+        // renderer rather than showing a session that cannot be unlocked.
+        glib::ExitCode::from(EXIT_NO_SURFACE)
+    } else if LOCK_FAILED.with(std::cell::Cell::get) {
         glib::ExitCode::FAILURE
     } else {
         exit
@@ -467,6 +712,7 @@ fn lock(application: &gtk::Application) {
         session_lock: None,
         session_primary: false,
         retry_source: None,
+        presented: false,
         rebuilds: RebuildState::Idle,
         rebuild_source: None,
         monitor_model: None,
@@ -495,6 +741,10 @@ fn lock(application: &gtk::Application) {
         watch_monitors(&state);
     }
 
+    // A compositor lock with nothing on screen is a session the owner cannot
+    // get back into.  Give the first surface a moment, then let the lock go.
+    arm_presentation_check(&state);
+
     // A restart must not give the next guess a free attempt.
     if state.borrow().failures > 0 {
         apply_backoff(&state);
@@ -514,16 +764,11 @@ fn lock(application: &gtk::Application) {
     // The application has no visible window until the compositor or the
     // fallback presents one; do not let GTK quit in the gap.
     state.borrow_mut().hold = Some(application.hold());
-
-    if !session {
-        // The fallback has built its layer surfaces; there is no compositor
-        // "locked" event in that path.
-        mark_ready();
-    }
 }
 
 fn fail_lock(application: &gtk::Application) {
     LOCK_FAILED.with(|failed| failed.set(true));
+    remove_live();
     CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
     // A suspend may be waiting for `mark_ready`; there will be no lock, so
     // end that wait now rather than at its timeout.
@@ -572,8 +817,10 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
     });
 
     instance.connect_local("locked", false, move |_| {
+        // Readiness is reported when a lock window maps, not here: this event
+        // only says the compositor accepted the request, and a compositor can
+        // accept a lock it then has no surface for.
         log("screen locked (ext-session-lock-v1)");
-        mark_ready();
 
         None
     });
@@ -605,17 +852,24 @@ fn start_session_lock(state: &Rc<RefCell<Locker>>) -> bool {
         None
     });
 
+    // The library emits `monitor` synchronously from `lock()`, for every
+    // output, and the handler has to assign a window to the instance while
+    // that runs.  The state must therefore hold the instance before asking
+    // for the lock, not after; otherwise every window is built but never
+    // attached, and the compositor is left locked with no surface at all.
+    state.borrow_mut().session_lock = Some(instance.clone());
+
     let acquired = sys::lock(&instance);
 
     if !acquired {
+        state.borrow_mut().session_lock = None;
+
         // Another locker may already own the session.  A weaker layer surface
         // would not be that lock, so report failure and fail closed.
         log("ext-session-lock-v1 could not start");
 
         return false;
     }
-
-    state.borrow_mut().session_lock = Some(instance);
 
     true
 }
@@ -643,6 +897,14 @@ fn create_session_window(state: &Rc<RefCell<Locker>>, monitor: &gtk::gdk::Monito
     // There is no window-manager close, no Escape and no click outside that
     // ends a lock.
     window.connect_close_request(|_| glib::Propagation::Stop);
+
+    let weak = Rc::downgrade(state);
+
+    window.connect_map(move |_| {
+        if let Some(state) = weak.upgrade() {
+            mark_presented(&state);
+        }
+    });
 
     let content = build_content(state, primary);
 
@@ -857,6 +1119,15 @@ fn create_fallback_window(
     window.set_deletable(false);
     window.add_css_class("whelk-lock");
     window.connect_close_request(|_| glib::Propagation::Stop);
+
+    let weak = Rc::downgrade(state);
+
+    window.connect_map(move |_| {
+        if let Some(state) = weak.upgrade() {
+            mark_presented(&state);
+        }
+    });
+
     window.set_child(Some(&build_content(state, primary).overlay));
 
     window.init_layer_shell();
@@ -1245,6 +1516,7 @@ fn unlock(state: &Rc<RefCell<Locker>>) {
     };
 
     clear_failures();
+    remove_live();
 
     match session {
         Some(instance) => {
@@ -1296,8 +1568,108 @@ fn unlock_local(state: &Rc<RefCell<Locker>>) {
     };
 
     clear_failures();
+    remove_live();
     CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
     application.quit();
+}
+
+// ---------------------------------------------------------------------------
+// Turning a taken lock into a surface
+// ---------------------------------------------------------------------------
+
+/// Records the first time a lock window reaches the screen.  This is when the
+/// screen is really covered, so it is also when a suspend may proceed and when
+/// the shell knows a crash needs a replacement lock.
+fn mark_presented(state: &Rc<RefCell<Locker>>) {
+    let first = {
+        let mut locker = state.borrow_mut();
+
+        if locker.presented {
+            false
+        } else {
+            locker.presented = true;
+            true
+        }
+    };
+
+    if first {
+        write_live();
+        mark_ready();
+    }
+}
+
+/// Releases a lock that never reached the screen.
+///
+/// This is deliberately not an unlock: the owner did not authenticate, and the
+/// session is only spared a compositor background it could never leave.  The
+/// exit status tells the shell to retry before giving up on locking at all.
+fn arm_presentation_check(state: &Rc<RefCell<Locker>>) {
+    let weak = Rc::downgrade(state);
+
+    glib::timeout_add_local_once(PRESENT_DEADLINE, move || {
+        let Some(state) = weak.upgrade() else {
+            return;
+        };
+        let (presented, unlocked) = {
+            let locker = state.borrow();
+
+            (locker.presented, locker.unlocked)
+        };
+
+        if presented || unlocked {
+            return;
+        }
+
+        log("the lock has no surface on screen; releasing it instead of covering the session");
+        release_lock(&state);
+        LOCK_UNPRESENTED.with(|unpresented| unpresented.set(true));
+        finish_ready_wait();
+
+        let application = state.borrow().application.clone();
+
+        CURRENT_LOCKER.with(|slot| slot.borrow_mut().take());
+        application.quit();
+    });
+}
+
+fn release_lock(state: &Rc<RefCell<Locker>>) {
+    let (instance, windows) = {
+        let mut locker = state.borrow_mut();
+
+        // Mark the lock ended first: the library emits `unlocked` from
+        // `sys::unlock`, and that handler must not try to unlock (or borrow
+        // this state) a second time.
+        locker.unlocked = true;
+        locker.rebuilds.stop();
+
+        if let Some(source) = locker.rebuild_source.take() {
+            sources::remove(source);
+        }
+
+        if let Some((model, handler)) = locker.monitor_model.take() {
+            model.disconnect(handler);
+        }
+
+        (
+            locker.session_lock.take(),
+            std::mem::take(&mut locker.windows),
+        )
+    };
+
+    match instance {
+        Some(instance) => {
+            // The library unmaps and destroys the windows with the lock.
+            sys::unlock(&instance);
+            drop(windows);
+        }
+        None => {
+            for window in windows {
+                window.destroy();
+            }
+        }
+    }
+
+    remove_live();
 }
 
 // ---------------------------------------------------------------------------

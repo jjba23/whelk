@@ -13,8 +13,10 @@ flowchart TD
     P -->|yes| B{"compositor implements<br/>ext-session-lock-v1?"}
     B -->|yes| C["GtkSessionLockInstance<br/>the compositor owns the surfaces"]
     B -->|no| D["one overlay per output<br/>keyboard exclusive on the primary"]
-    C --> E["every output locked"]
-    D --> E
+    C --> R{"a surface on screen<br/>within two seconds?"}
+    D --> R
+    R -->|no| X2["release it, exit 75<br/>the shell retries once on the CPU renderer"]
+    R -->|yes| E["every output locked"]
     E --> F["a password is submitted"]
     F --> G["PAM on a worker thread<br/>the session user, never a typed name"]
     G -->|success| H["unlock, reset the retry count"]
@@ -35,7 +37,37 @@ can end, so whelk logs =whelk-lock: not locking: <reason>= and exits with
 failure instead, leaving the session exactly as it was.  A suspend's sleep delay
 is released at the same moment rather than at its ten-second timeout.  On a
 machine that passes the check, every later failure still leaves the session
-locked (the fail-closed rules below).
+locked (the fail-closed rules below), with one exception: a lock that never
+reaches the screen is not a lock the owner can end, so it is released.  That
+case is described in [[#lock-present]].
+
+* A lock has to be seen, not just requested
+:PROPERTIES:
+:CUSTOM_ID: lock-present
+:END:
+
+Asking a compositor for a session lock and getting it is not the same as having
+a lock screen.  =ext-session-lock-v1= lets the compositor keep the session
+locked even when the client has not presented a surface, drawing its own
+background where the lock screen should be; on niri that background is solid
+red.  When that happens there is no password field, no keybinding and no way to
+unlock: the session is worse off than if it had never locked.
+
+So whelk counts a lock as real only when one of its windows has actually
+mapped.  If no surface is on screen two seconds after the lock was requested,
+the locker releases the compositor lock itself, removes its windows and exits
+with status 75.  The shell then retries once with GTK's CPU renderer
+(=GSK_RENDERER=cairo=), which is enough for a static lock screen and does not
+depend on the GPU buffer allocation the default renderer needs.  If that retry
+also cannot present, the session is left unlocked rather than covered.
+
+The locker also leaves a marker in =$XDG_RUNTIME_DIR/whelk/lock-live= while a
+surface is up.  The shell watches its lock process; if it dies without removing
+the marker -- a crash, the OOM killer, a driver failure on resume -- the shell
+starts a fresh locker, which takes the session lock over and presents again.
+The restart is bounded to three attempts per lock request, so a locker that
+keeps dying is not restarted forever.  Only a clean unlock removes the marker
+before exit; a lock request that never took the session never creates it.
 
 On a Wayland compositor that implements =ext-session-lock-v1= --
 niri, Sway, Hyprland, River and other compositors that implement it -- whelk asks
@@ -113,10 +145,12 @@ exists, it is only trusted as a root-owned setuid regular file that group and
 others cannot write, and its password goes over stdin, never a command line.
 
 =whelk --check-lock= prints the
-same decision without asking for a password: the candidate list, the library
-that loads, the service that would answer, whether a helper was found, whether
-strict mode is on, and whether the helper would be allowed to run.  It ends
-with =authentication preflight:=, the answer the lock screen itself would reach
+same decision without asking for a password: the presentation path, the
+candidate list, the library that loads, the service that would answer, whether
+a helper was found, whether strict mode is on, and whether the helper would be
+allowed to run.  It begins with =presentation:= -- =ext-session-lock-v1=, the
+layer-shell fallback, or the reason neither exists -- and ends with
+=authentication preflight:=, the answer the lock screen itself would reach
 before covering the session.
 
 * Keeping it strictly fail-closed
