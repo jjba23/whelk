@@ -88,7 +88,7 @@ that can answer its question.
 | Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs=, =widgets.rs= | readings, menu trees and panel data without a compositor |
 | Shell + Guile | =config.rs=, =scheme.rs= and the custom-harness test in =tests/guile.rs= | the real Scheme modules, one Guile handle and repeated loads |
 
-The full suite is 640 tests; =tests/guile.rs= runs its own harness outside
+The full suite is 641 tests; =tests/guile.rs= runs its own harness outside
 libtest and is not part of that number.  Most of it is ordinary Cargo:
 
 #+begin_src sh

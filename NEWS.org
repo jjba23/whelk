@@ -11,6 +11,42 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.51.1 (2026-11-24)
+
+*** Fixed
+
+- *The lock screen now actually reaches the screen.*  The session-lock library
+  emits its =monitor= signal from inside its =lock()= call, before whelk had
+  stored the lock instance.  Every lock window was therefore built and never
+  assigned to a monitor, so on a compositor that implements
+  =ext-session-lock-v1= the session was locked while no surface was ever
+  presented: the compositor drew its own "locked, no surface" background --
+  solid red on niri -- and there was no password field and no way back in.
+  The instance is now stored before the lock is requested, so each output's
+  window is assigned and presented.
+
+*** Added
+
+- *A lock that cannot present lets go instead of stranding the session.*  The
+  locker counts a lock as real only when a window has mapped.  Two seconds
+  without a surface releases the compositor lock, removes the windows and
+  exits with status 75; the shell retries once with GTK's CPU renderer
+  (=GSK_RENDERER=cairo=), and leaves the session unlocked if that cannot
+  present either.  A live marker in =$XDG_RUNTIME_DIR/whelk/lock-live= lets
+  the shell restart a locker that dies while the screen was covered (bounded
+  to three attempts), so a crash does not leave the compositor's background
+  in place of the lock screen.
+- =whelk --check-lock= now prints the =presentation:= path as well as the
+  authentication path: =ext-session-lock-v1=, the layer-shell fallback, or the
+  reason neither is available.
+
+*** Verified
+
+- The session lock was exercised against niri 26.04 (nested): the lock
+  windows map, the clock and password field render, and typed input reaches
+  the entry.  The refusal path was exercised with =GDK_BACKEND=x11= (the
+  locker refuses to lock rather than covering an X11 session).
+
 ** v0.51.0 (2026-11-23)
 
 *** Added
