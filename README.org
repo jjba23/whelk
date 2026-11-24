@@ -9,14 +9,15 @@
 [[https://img.shields.io/badge/language-Rust-dea584.svg]] [[https://jointhefreeworld.org/ggg/dist/gtk4.svg]] [[https://jointhefreeworld.org/ggg/dist/scheme-guile.svg]] [[https://img.shields.io/badge/build-Cargo-dea584.svg]] [[https://jointhefreeworld.org/ggg/dist/gnu-guix.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]]
 [[https://github.com/jjba23/whelk/actions/workflows/ci.yml/badge.svg]] [[https://img.shields.io/badge/license-MIT-2ea44f.svg]] [[https://jointhefreeworld.org/ggg/dist/jointhefreeworld-org.svg]]
 
+#+begin_quote
+An ordinary shell or status bar is a compiled artefact with a settings file in front of
+it.
+
+whelk is a shell powered by Lisp, with Rust core, and what renders on screen is the result of evaluating a Lisp (Guile) program you can rewrite while it runs.
+#+end_quote
+
 #+attr_html: :width 128 :alt the whelk logo: a whelk shell drawn in SVG
 [[file:data/icons/hicolor/scalable/apps/org.jointhefreeworld.whelk.svg]]
-
-#+begin_quote
-An ordinary status bar is a compiled artefact with a settings file in front of
-it.  whelk is a shell written in Rust, and the bar on screen is the value
-of a Guile program you can rewrite while it runs.
-#+end_quote
 
 whelk is a *Wayland shell*: status bar, launcher, search, notification daemon, HUD, Wi-Fi, Bluetooth, notification centre, floating desktop widgets and more.  It is written in Rust with [[https://gtk.org/][GTK4]] and =gtk4-layer-shell=, and it is configured declaratively in Lisp: *[[https://www.gnu.org/software/guile/][GNU Guile Scheme]]* --
 in S-expressions, rather than in JSON plus a CSS file.
@@ -48,32 +49,22 @@ environment the configuration lives in.
 A shell is the layer between you and the session: it tells you what the machine
 is doing, and it is where you ask for things.  whelk does that with one binary.
 
-| You have                    | whelk gives you                                            |
-|-----------------------------+------------------------------------------------------------|
+| You have                                    | whelk gives you                                                     |
+|---------------------------------------------+---------------------------------------------------------------------|
 | niri, sway, Hyprland, river, an X11 desktop | a bar that docks itself, reserves its edge and stays out of the way |
-| a Waybar =config.jsonc=       | a =settings.scm= that is evaluated, not parsed               |
-| a =style.css=                 | bar keys for colour, font and radius, plus =#:css= for the rest |
-| nm-applet, Blueman          | a Wi-Fi and Bluetooth panel behind the bar's own modules    |
-| a menu bar on Wayland       | the focused application's own menus, where a menu bar puts them |
+| a Waybar =config.jsonc=                       | a =settings.scm= that is evaluated, not parsed                        |
+| a =style.css=                                 | bar keys for colour, font and radius, plus =#:css= for the rest       |
+| nm-applet, Blueman                          | a Wi-Fi and Bluetooth panel behind the bar's own modules            |
+| a menu bar on Wayland                       | the focused application's own menus, where a menu bar puts them     |
+| desktop widgets                             | declaratively configured desktop widgets                            |
 
 Saving the settings file rebuilds the bar in place -- no restart, no relogin.
 Everything else (the panels, the launcher, the notification centre) is the same
 kind of surface as a bar, so the next thing whelk grows does not have to
 re-learn layer-shell.
 
-* A first look
-:PROPERTIES:
-:CUSTOM_ID: first-look
-:END:
+[[file:resources/img/screen-2026-11-24_08-18-12-54562.png]]
 
-#+name: whelk-bar
-#+caption: An earlier 0.7 capture of the built-in (default-bar).  0.8 folded the shell menu and the focused window into the application-name menu, and this build keeps the shell menu behind the whelk, followed by the application's File/Edit/View; the window's name is an optional window-module, not part of the default bar.  Captured from a 1920x1080 X server with the stock defaults; the focused window is a small demo application and the Wi-Fi reading a stand-in, so the picture carries nothing from the machine it was taken on.
-[[file:resources/img/whelk-bar.png]]
-
-The left half says *whose window you are in and what can be done to it*; the
-right half is the machine's own condition, one reading per module.  A bar with
-no settings file at all looks like this, because whelk's built-in default *is*
-the documented one -- see [[file:docs/configuration.org][Configuration]].
 
 * Features
 :PROPERTIES:
