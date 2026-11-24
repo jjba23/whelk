@@ -88,6 +88,7 @@ with no login manager is ended by the compositor itself.
 | Power profiles         | =power-profiles-daemon= and =powerprofilesctl=              | the module hides                                         |
 | Night light            | =wlr-gamma-control-unstable-v1=, or RandR on X11            | the picker explains that this display refuses gamma      |
 | Weather, stocks        | =curl=                                                      | the card names curl and how to fix it              |
+| Visualizer             | =cava=                                                      | the card names cava and how to fix it              |
 | Typing accelerators    | =wtype=                                                     | rows keep their labels and lose the shortcut keys        |
 | Launcher, app menus    | XDG desktop entries and directories                         | it lists what the machine has, which is nothing          |
 
@@ -104,7 +105,7 @@ provide the optional layers.
   =zzz= and =ZZZ= scripts from Void's =suspend= style packages and the plain
   =reboot=/=poweroff= are used by the chains above.
 - *Build and run*: =gtk4=, =gtk4-layer-shell=, =guile=, =wl-clipboard=,
-  =wtype=, =curl=; =brightnessctl= for the backlight row, =pipewire= and
+  =wtype=, =curl=, =cava=; =brightnessctl= for the backlight row, =pipewire= and
   =wireplumber= (or =pulseaudio=) for audio, =NetworkManager= for the network
   panel, =bluez= for Bluetooth, and =linux-pam= for the lock screen's password
   check.

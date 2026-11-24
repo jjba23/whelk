@@ -12,13 +12,13 @@
 # Copy this directory to void-packages/srcpkgs/whelk and run `xgensum -i whelk`
 # to fill the checksum of the release tarball, then `./xbps-src pkg whelk`.
 pkgname=whelk
-version=0.51.1
+version=0.52.0
 revision=1
 build_style=void
 hostmakedepends="cargo pkg-config"
 makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel pam-devel"
 checkdepends="xorg-server-xvfb dbus"
-depends="gtk4 gtk4-layer-shell guile pam wtype curl hicolor-icon-theme"
+depends="gtk4 gtk4-layer-shell guile cava pam wtype curl hicolor-icon-theme"
 short_desc="Wayland shell with bars and launcher, configured in Guile Scheme"
 maintainer="Josep Bigorra <jjbigorra@gmail.com>"
 license="MIT"

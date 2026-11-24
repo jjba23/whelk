@@ -18,10 +18,14 @@
 //! The surfaces, the drag gesture and the refreshers stay with GTK in
 //! [`crate::widgetstate`]'s callers; what is here is what they all agree on.
 
+use std::path::{Path, PathBuf};
+
 use gtk4 as gtk;
 
 use crate::bar::{BarSettings, ModuleSpec};
+use crate::format;
 use crate::json::Json;
+use crate::mpris::{self, Reading};
 use crate::settings::SchemeValue;
 
 /// Where a widget goes when the settings file names no position.
@@ -50,6 +54,28 @@ pub const DEFAULT_CITIES: &str =
 /// The symbols a stock card starts with.
 pub const DEFAULT_SYMBOLS: &str = "AAPL,MSFT,NVDA";
 
+/// The image extensions a photo card can draw.
+pub const PHOTO_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "webp", "avif", "gif", "bmp", "tif"];
+
+/// The most recent documents a Files card lists.
+pub const MAX_RECENT_FILES: usize = 6;
+
+/// The most headlines a News card lists.
+pub const MAX_NEWS_ITEMS: usize = 6;
+
+/// The most feeds one News card reads in a refresh.
+pub const MAX_FEEDS: usize = 4;
+
+/// The bars a visualizer asks cava for when the card names no count.
+pub const VISUALIZER_BARS: usize = 32;
+
+/// The most bars a visualizer draws, so a wild setting cannot ask cava for a
+/// thousand columns or a card for a thousand rectangles.
+pub const VISUALIZER_MAX_BARS: usize = 64;
+
+/// The frames per second a visualizer asks cava for when the card names none.
+pub const VISUALIZER_FRAMERATE: u32 = 30;
+
 /// The note a Notes card shows when it was given nothing else.
 pub const DEFAULT_NOTE: &str = "No note yet.\nSet #:text or #:file on this widget.";
 
@@ -63,7 +89,7 @@ pub const STOCKS_URL: &str = "https://query1.finance.yahoo.com/v8/finance/spark"
 /// snaps to, so a family size and a dragged card land on the same lines.
 pub const GRID: i32 = 8;
 
-/// Apple's three widget families.  A card's family scales the size its kind
+/// The three card families.  A card's family scales the size its kind
 /// takes by default, which is how a settings file says "the big weather card"
 /// without writing pixels that then have to be maintained by hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -339,6 +365,13 @@ pub enum WidgetKind {
     Reminders,
     WorldClock,
     Stocks,
+    NowPlaying,
+    Visualizer,
+    Media,
+    Photos,
+    Files,
+    News,
+    System,
     Custom,
 }
 
@@ -353,6 +386,13 @@ impl WidgetKind {
             "reminders" => Some(Self::Reminders),
             "world-clock" => Some(Self::WorldClock),
             "stocks" => Some(Self::Stocks),
+            "now-playing" | "music" => Some(Self::NowPlaying),
+            "visualizer" | "spectrum" => Some(Self::Visualizer),
+            "media" | "media-controls" => Some(Self::Media),
+            "photos" => Some(Self::Photos),
+            "files" => Some(Self::Files),
+            "news" => Some(Self::News),
+            "system" => Some(Self::System),
             "custom" => Some(Self::Custom),
             _ => None,
         }
@@ -368,12 +408,19 @@ impl WidgetKind {
             Self::Reminders => "reminders",
             Self::WorldClock => "world-clock",
             Self::Stocks => "stocks",
+            Self::NowPlaying => "now-playing",
+            Self::Visualizer => "visualizer",
+            Self::Media => "media",
+            Self::Photos => "photos",
+            Self::Files => "files",
+            Self::News => "news",
+            Self::System => "system",
             Self::Custom => "custom",
         }
     }
 
-    /// The size Apple's widget gallery gives this card, from
-    /// `%widget-sizes` in `(whelk state)`.  A kind of the configuration's own
+    /// The standard size this kind's card gets, from `%widget-sizes` in
+    /// `(whelk state)`.  A kind of the configuration's own
     /// gets the generic card size.
     pub fn standard_size(self) -> (i32, i32) {
         match self {
@@ -384,7 +431,14 @@ impl WidgetKind {
             Self::Notes => (340, 260),
             Self::Reminders => (340, 300),
             Self::WorldClock => (260, 260),
-            Self::Stocks => (300, 260),
+            Self::Stocks => (340, 280),
+            Self::NowPlaying => (340, 220),
+            Self::Visualizer => (360, 220),
+            Self::Media => (360, 260),
+            Self::Photos => (280, 260),
+            Self::Files => (320, 260),
+            Self::News => (340, 300),
+            Self::System => (280, 280),
             Self::Custom => (320, 220),
         }
     }
@@ -404,6 +458,13 @@ impl WidgetKind {
             Self::Reminders => "Reminders",
             Self::WorldClock => "World Clock",
             Self::Stocks => "Stocks",
+            Self::NowPlaying => "Now Playing",
+            Self::Visualizer => "Visualizer",
+            Self::Media => "Media",
+            Self::Photos => "Photos",
+            Self::Files => "Files",
+            Self::News => "News",
+            Self::System => "System",
             Self::Custom => "Widget",
         }
     }
@@ -419,6 +480,13 @@ impl WidgetKind {
             Self::Reminders => "☑",
             Self::WorldClock => "⊕",
             Self::Stocks => "↗",
+            Self::NowPlaying => "♫",
+            Self::Visualizer => "≋",
+            Self::Media => "⏯",
+            Self::Photos => "◫",
+            Self::Files => "▤",
+            Self::News => "≣",
+            Self::System => "⚙",
             Self::Custom => "◌",
         }
     }
@@ -434,6 +502,13 @@ impl WidgetKind {
             Self::Notes | Self::Reminders => 0,
             Self::WorldClock => 30,
             Self::Stocks | Self::Custom => 300,
+            Self::NowPlaying => 5,
+            Self::Visualizer => 0,
+            Self::Media => 1,
+            Self::Photos => 30,
+            Self::Files => 60,
+            Self::News => 1800,
+            Self::System => 5,
         }
     }
 }
@@ -885,9 +960,27 @@ pub fn cities(input: &str) -> Vec<City> {
         .collect()
 }
 
+/// One city's clock, as the world-clock card draws it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CityReading {
+    pub time: String,
+    pub weekday: String,
+    /// The hour in that city, which is what a day/night mark is chosen by.
+    pub hour: u32,
+}
+
+impl CityReading {
+    /// Whether the city is in daylight, for a card that draws a mark beside
+    /// the time.  Seven to nineteen is a deliberately generous day: the card
+    /// is a picture of the world, not an almanac.
+    pub fn is_day(&self) -> bool {
+        (7..19).contains(&self.hour)
+    }
+}
+
 /// A city's clock at `now`, or `None` when this machine does not know the
 /// zone.  The caller falls back to UTC, as the C card does.
-pub fn city_time(zone: &str) -> Option<(String, String)> {
+pub fn city_reading(zone: &str) -> Option<CityReading> {
     // `from_identifier` is `g_time_zone_new_identifier`.  The C card tries
     // the configured zone and falls back to UTC when this machine does not
     // know it.
@@ -895,15 +988,29 @@ pub fn city_time(zone: &str) -> Option<(String, String)> {
         .or_else(|| gtk::glib::TimeZone::from_identifier(Some("UTC")))?;
     let now = gtk::glib::DateTime::now(&timezone).ok()?;
 
-    Some((
-        now.format("%H:%M").ok()?.to_string(),
-        now.format("%a").ok()?.to_string(),
-    ))
+    Some(CityReading {
+        time: now.format("%H:%M").ok()?.to_string(),
+        weekday: now.format("%a").ok()?.to_string(),
+        hour: now.hour() as u32,
+    })
+}
+
+/// A city's time and weekday, the two strings the first card drew.
+pub fn city_time(zone: &str) -> Option<(String, String)> {
+    city_reading(zone).map(|reading| (reading.time, reading.weekday))
 }
 
 // ---------------------------------------------------------------------------
 // Weather
 // ---------------------------------------------------------------------------
+
+/// One day of the forecast under the current conditions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForecastDay {
+    pub label: String,
+    pub glyph: &'static str,
+    pub range: String,
+}
 
 /// One Open-Meteo answer, formatted the way the card reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -913,6 +1020,8 @@ pub struct WeatherReading {
     pub condition: &'static str,
     pub range: String,
     pub details: String,
+    /// The next few days, when the request asked for them.
+    pub forecast: Vec<ForecastDay>,
 }
 
 /// The WMO code's words.
@@ -969,22 +1078,89 @@ pub fn parse_weather(text: &str, metric: bool) -> Option<WeatherReading> {
         } else {
             format!("Feels like {feels:.0}°")
         },
+        forecast: parse_forecast(daily),
     })
+}
+
+/// The days under today's conditions, read from the same answer.  A daily
+/// array without a matching date is left out: a row that cannot say which day
+/// it is would be a row nobody can use.
+fn parse_forecast(daily: &Json) -> Vec<ForecastDay> {
+    let Some(times) = daily.get("time").and_then(Json::array) else {
+        return Vec::new();
+    };
+    let highs = daily
+        .get("temperature_2m_max")
+        .and_then(Json::array)
+        .unwrap_or(&[]);
+    let lows = daily
+        .get("temperature_2m_min")
+        .and_then(Json::array)
+        .unwrap_or(&[]);
+    let codes = daily
+        .get("weather_code")
+        .and_then(Json::array)
+        .unwrap_or(&[]);
+    let mut forecast = Vec::new();
+
+    for (index, date) in times.iter().enumerate() {
+        let (Some(date), Some(high), Some(low)) = (
+            date.as_str(),
+            highs.get(index).and_then(Json::as_f64),
+            lows.get(index).and_then(Json::as_f64),
+        ) else {
+            continue;
+        };
+        let code = codes.get(index).and_then(Json::as_f64).unwrap_or(0.0) as i64;
+
+        forecast.push(ForecastDay {
+            label: forecast_day_label(date).unwrap_or_else(|| date.to_owned()),
+            glyph: weather_glyph(code),
+            range: format!("{high:.0}°  {low:.0}°"),
+        });
+    }
+
+    forecast
+}
+
+/// `2026-11-24` as `Tue`; any other shape is left to the caller.
+fn forecast_day_label(date: &str) -> Option<String> {
+    const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    let mut parts = date.split('-');
+    let year = parts.next()?.parse::<i32>().ok()?;
+    let month = parts.next()?.parse::<u32>().ok()?;
+    let day = parts.next()?.parse::<u32>().ok()?;
+
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    let index = (days_from_civil(year, month, day) + 3).rem_euclid(7) as usize;
+
+    Some(WEEKDAYS[index].to_owned())
 }
 
 /// The forecast request for one place.
 pub fn weather_url(latitude: &str, longitude: &str, imperial: bool) -> String {
+    weather_url_days(latitude, longitude, imperial, 1)
+}
+
+/// The forecast request for one place and DAYS of daily rows.  Open-Meteo
+/// answers at most sixteen; a card can draw far fewer.
+pub fn weather_url_days(latitude: &str, longitude: &str, imperial: bool, days: u32) -> String {
     let unit = if imperial {
         "&temperature_unit=fahrenheit"
     } else {
         ""
     };
+    let days = days.clamp(1, 16);
 
     format!(
         "{WEATHER_URL}?latitude={latitude}&longitude={longitude}\
          &current=temperature_2m,apparent_temperature,relative_humidity_2m,\
-         weather_code&daily=temperature_2m_max,temperature_2m_min\
-         &forecast_days=1&timezone=auto{unit}"
+         weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,time\
+         &forecast_days={days}&timezone=auto{unit}"
     )
 }
 
@@ -998,6 +1174,8 @@ pub struct StockQuote {
     pub symbol: String,
     pub price: f64,
     pub change_percent: f64,
+    /// Today's closing prices, oldest first, when the answer carried them.
+    pub spark: Vec<f64>,
 }
 
 impl StockQuote {
@@ -1063,11 +1241,73 @@ pub fn parse_stocks(text: &str, symbols: &[String]) -> Vec<StockQuote> {
                 }
             };
 
+            let spark = quote
+                .get("close")
+                .and_then(Json::array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Json::as_f64)
+                        .filter(|value| value.is_finite())
+                        .collect()
+                })
+                .unwrap_or_default();
+
             Some(StockQuote {
                 symbol: symbol.clone(),
                 price,
                 change_percent: change,
+                spark,
             })
+        })
+        .collect()
+}
+
+/// The points of a sparkline for `values`, in a `width` by `height` box.
+///
+/// A flat line is drawn down the middle rather than as a division by zero, and
+/// a single value is a point at the centre.  The caller draws the polyline; the
+/// arithmetic is here because it is what can be wrong.
+pub fn sparkline_points(values: &[f64], width: f64, height: f64) -> Vec<(f64, f64)> {
+    if values.is_empty()
+        || !width.is_finite()
+        || !height.is_finite()
+        || width <= 0.0
+        || height <= 0.0
+    {
+        return Vec::new();
+    }
+
+    let finite: Vec<f64> = values
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect();
+
+    if finite.is_empty() {
+        return Vec::new();
+    }
+
+    let min = finite.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let span = max - min;
+
+    if finite.len() == 1 {
+        return vec![(width / 2.0, height / 2.0)];
+    }
+
+    finite
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let x = index as f64 * width / (finite.len() - 1) as f64;
+            let y = if span <= 0.0 {
+                height / 2.0
+            } else {
+                height - (value - min) / span * height
+            };
+
+            (x, y)
         })
         .collect()
 }
@@ -1080,7 +1320,7 @@ pub fn stocks_url(symbols: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(",");
 
-    format!("{STOCKS_URL}?symbols={encoded}&range=1d&interval=1d")
+    format!("{STOCKS_URL}?symbols={encoded}&range=1d&interval=5m")
 }
 
 /// `g_uri_escape_string(..., allow_utf8 = TRUE)` for the handful of characters
@@ -1198,6 +1438,8 @@ pub struct MonthGrid {
     pub days: u32,
     /// The day number that is today, when this grid is the current month.
     pub today: Option<u32>,
+    /// The ISO week number of each row, top to bottom.
+    pub weeks: Vec<u32>,
 }
 
 /// Lay out `month` of `year`, marking `today`'s day only when the grid is
@@ -1210,11 +1452,52 @@ pub fn month_grid(year: i32, month: u32, today: (i32, u32, u32)) -> MonthGrid {
     let today = (today.0 == year && today.1 == month as u32 && today.2 >= 1 && today.2 <= days)
         .then_some(today.2);
 
+    let weeks = (0..=(leading + days as usize - 1) / 7)
+        .map(|row| {
+            let day = (row * 7).saturating_sub(leading) + 1;
+
+            if day > days as usize {
+                iso_week(year, month as u32, days)
+            } else {
+                iso_week(year, month as u32, day as u32)
+            }
+        })
+        .collect();
+
     MonthGrid {
         heading: format!("{} {year}", MONTHS[month - 1]),
         leading,
         days,
         today,
+        weeks,
+    }
+}
+
+/// The ISO-8601 week number of a date.  This is the number a week column draws,
+/// and it is the calendar's own definition, not a count of seven-day runs from
+/// January: a week belongs to the year that has most of it.
+pub fn iso_week(year: i32, month: u32, day: u32) -> u32 {
+    let ordinal = days_from_civil(year, month, day) - days_from_civil(year, 1, 1) + 1;
+    let weekday = (days_from_civil(year, month, day) + 3).rem_euclid(7);
+    let week = (ordinal - weekday + 10) / 7;
+
+    if week < 1 {
+        iso_weeks_in_year(year - 1)
+    } else if week > i64::from(iso_weeks_in_year(year)) {
+        1
+    } else {
+        week as u32
+    }
+}
+
+/// 53 in the years that carry a week 53, 52 otherwise.
+fn iso_weeks_in_year(year: i32) -> u32 {
+    let p = |year: i32| (year + year / 4 - year / 100 + year / 400).rem_euclid(7);
+
+    if p(year) == 4 || p(year - 1) == 3 {
+        53
+    } else {
+        52
     }
 }
 
@@ -1251,6 +1534,699 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
 
     era * 146_097 + day_of_era - 719_468
+}
+
+// ---------------------------------------------------------------------------
+// Now playing
+// ---------------------------------------------------------------------------
+
+/// One player's reading, laid out the way a card draws it.
+///
+/// The card is a view of [`crate::mpris`]'s reading, not a second reader: the
+/// same MPRIS proxies that move the bar move the card, and the controls are the
+/// player's own methods rather than a command that has to find the player
+/// again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NowPlayingText {
+    pub available: bool,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub state: String,
+    pub glyph: &'static str,
+    pub position: String,
+    pub length: String,
+    pub percent: u32,
+    pub player: String,
+    pub playing: bool,
+}
+
+impl NowPlayingText {
+    /// The card with nothing on the bus.
+    pub fn idle() -> Self {
+        Self {
+            available: false,
+            title: "Nothing playing".to_owned(),
+            artist: String::new(),
+            album: String::new(),
+            state: "stopped".to_owned(),
+            glyph: "⏹",
+            position: "0:00".to_owned(),
+            length: "0:00".to_owned(),
+            percent: 0,
+            player: String::new(),
+            playing: false,
+        }
+    }
+
+    /// The line under the title: the artist, the album, or both.
+    pub fn detail(&self) -> String {
+        match (self.artist.trim(), self.album.trim()) {
+            ("", "") => String::new(),
+            (artist, "") => artist.to_owned(),
+            ("", album) => album.to_owned(),
+            (artist, album) => format!("{artist} — {album}"),
+        }
+    }
+
+    /// `position / length`, or just the position when the player named no end.
+    pub fn timeline(&self) -> String {
+        if self.length == "0:00" {
+            self.position.clone()
+        } else {
+            format!("{} / {}", self.position, self.length)
+        }
+    }
+}
+
+/// The transport mark a card draws.  The bar's own icon is a private-use
+/// glyph from the configured icon font; a card has no such font, so it uses a
+/// mark every text face carries.
+fn playback_glyph(playback: mpris::Playback) -> &'static str {
+    match playback {
+        mpris::Playback::Playing => "▶",
+        mpris::Playback::Paused => "⏸",
+        mpris::Playback::Stopped => "⏹",
+    }
+}
+
+/// Lay out one MPRIS reading for the card.
+pub fn now_playing_text(reading: &Reading) -> NowPlayingText {
+    if !reading.available() {
+        return NowPlayingText::idle();
+    }
+
+    let title = if reading.track.title.trim().is_empty() {
+        if reading.track.album.trim().is_empty() {
+            "Unknown track"
+        } else {
+            reading.track.album.as_str()
+        }
+    } else {
+        reading.track.title.as_str()
+    };
+
+    NowPlayingText {
+        available: true,
+        title: title.to_owned(),
+        artist: reading.track.artist.clone(),
+        album: reading.track.album.clone(),
+        state: reading.playback.name().to_owned(),
+        glyph: playback_glyph(reading.playback),
+        position: mpris::format_time(reading.position_us),
+        length: mpris::format_time(reading.track.length_us),
+        percent: mpris::progress_percent(reading.position_us, reading.track.length_us),
+        player: reading.player.clone().unwrap_or_default(),
+        playing: reading.playback.is_playing(),
+    }
+}
+
+/// One live visualizer frame: the bars cava last reported and the peak each bar
+/// has reached since it started falling.
+///
+/// The peaks are the visualizer's memory.  A bar's peak jumps up with the bar,
+/// then falls at [`Self::decay`] a frame; keeping that here rather than in the
+/// painter means a card can repaint at any moment and still draw the same
+/// falling caps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VisualizerFrame {
+    /// One level per bar, 0.0..=1.0.
+    pub levels: Vec<f64>,
+    /// The held peak of each bar, 0.0..=1.0.
+    pub peaks: Vec<f64>,
+    /// How much a peak falls per frame once the bar has dropped below it.
+    pub decay: f64,
+}
+
+impl VisualizerFrame {
+    pub fn new(bars: usize) -> Self {
+        let bars = bars.clamp(1, VISUALIZER_MAX_BARS);
+
+        Self {
+            levels: vec![0.0; bars],
+            peaks: vec![0.0; bars],
+            decay: 0.018,
+        }
+    }
+
+    pub fn bars(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// Take one frame from cava and move the peaks toward it.  A short frame is
+    /// padded with silence and a long one is cut, so a cava configured with a
+    /// different bar count still paints.
+    pub fn push(&mut self, frame: &[f64]) {
+        for (index, level) in self.levels.iter_mut().enumerate() {
+            *level = frame.get(index).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+        }
+
+        for (peak, level) in self.peaks.iter_mut().zip(&self.levels) {
+            *peak = (*peak - self.decay).max(*level).clamp(0.0, 1.0);
+        }
+    }
+
+    /// Forget every level and peak, for a player that went quiet.
+    pub fn clear(&mut self) {
+        self.levels.fill(0.0);
+        self.peaks.fill(0.0);
+    }
+}
+
+/// Read one `ascii` cava frame into levels from 0.0 to 1.0.
+///
+/// cava writes `0;12;100;` followed by a newline in this mode.  Semicolons are
+/// the documented separator; commas and whitespace are accepted too, because a
+/// hand-written or older config may use them.  Anything that is not a number is
+/// ignored, and at most `bars` values are returned.
+pub fn parse_visualizer_frame(line: &str, bars: usize) -> Vec<f64> {
+    line.split([';', ',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter_map(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| (value / 100.0).clamp(0.0, 1.0))
+        .take(bars.min(VISUALIZER_MAX_BARS))
+        .collect()
+}
+
+/// The cava configuration the visualizer owns while its card is alive.
+///
+/// It writes raw ASCII to stdout, which is the one mode a subprocess can read
+/// without an audio server on whelk's side or a second decoder.  The card never
+/// lets cava open its own terminal, and the `[input]` section is cava's own
+/// auto-detection, so PulseAudio, PipeWire and ALSA all work as they do for
+/// every other cava user.
+pub fn visualizer_config(bars: usize, framerate: u32) -> String {
+    let bars = bars.clamp(1, VISUALIZER_MAX_BARS);
+    let framerate = framerate.clamp(1, 120);
+
+    format!(
+        "[general]\nbars = {bars}\nframerate = {framerate}\n\n\
+         [input]\nmethod = pulse\nsource = auto\n\n\
+         [output]\nmethod = raw\nraw_target = /dev/stdout\ndata_format = ascii\n\
+         ascii_max_range = 100\nbar_delimiter = 59\nframe_delimiter = 10\n"
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Photos
+// ---------------------------------------------------------------------------
+
+/// The directories a photo card reads, one per comma-separated entry.
+pub fn photo_paths(input: &str) -> Vec<PathBuf> {
+    input
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Every still picture under `roots`, sorted by path.
+///
+/// The walk is bounded and skips hidden entries, exactly as the wallpaper
+/// collection does: a photo frame pointed at a home directory must not spend a
+/// timer walking a cache.  A root that names a file is taken as it is.
+pub fn photo_files(roots: &[PathBuf]) -> Vec<PathBuf> {
+    const MAX_DEPTH: usize = 4;
+
+    fn is_photo(path: &Path) -> bool {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                PHOTO_EXTENSIONS
+                    .iter()
+                    .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+            })
+    }
+
+    fn walk(path: &Path, depth: usize, into: &mut Vec<PathBuf>) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+
+        let Ok(metadata) = std::fs::symlink_metadata(path) else {
+            return;
+        };
+
+        if metadata.is_dir() {
+            let Ok(entries) = std::fs::read_dir(path) else {
+                return;
+            };
+
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+
+                walk(&entry.path(), depth + 1, into);
+            }
+
+            return;
+        }
+
+        if metadata.is_file() && is_photo(path) {
+            into.push(path.to_owned());
+        }
+    }
+
+    let mut files = Vec::new();
+
+    for root in roots {
+        walk(root, 0, &mut files);
+    }
+
+    files.sort_by(|left, right| left.as_os_str().cmp(right.as_os_str()));
+    files.dedup();
+
+    files
+}
+
+/// The index a photo card shows after moving by `by`, wrapping at both ends.
+pub fn photo_step(index: usize, len: usize, by: i32) -> usize {
+    if len == 0 {
+        return 0;
+    }
+
+    let len = len as i32;
+    let next = (index as i32 + by).rem_euclid(len);
+
+    next as usize
+}
+
+/// A photo's caption: its file stem with underscores and hyphens as spaces.
+pub fn photo_caption(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("");
+    let caption = stem.replace(['_', '-'], " ");
+    let caption = caption.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if caption.is_empty() {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        caption
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recent files
+// ---------------------------------------------------------------------------
+
+/// One row of the Files card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentFile {
+    pub title: String,
+    pub uri: String,
+    /// `Local`, `Web` or `Recent`: what the row is, not where it lives.
+    pub kind: &'static str,
+}
+
+/// `$XDG_DATA_HOME/recently-used.xbel`, or the home-relative default.
+pub fn recent_xbel_path(data_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
+    match data_home.filter(|path| !path.as_os_str().is_empty()) {
+        Some(path) => Some(path.join("recently-used.xbel")),
+        None => home
+            .filter(|path| !path.as_os_str().is_empty())
+            .map(|home| home.join(".local/share/recently-used.xbel")),
+    }
+}
+
+/// Read the recent-documents list the desktop already keeps.
+///
+/// The file is XBEL, a small XML dialect.  This reader takes the one shape the
+/// desktops write -- a `<bookmark href=...>` with an optional `<title>` -- and
+/// ignores every element it does not know, so a record it cannot read costs one
+/// row rather than the whole list.
+pub fn parse_recent(xbel: &str, limit: usize) -> Vec<RecentFile> {
+    let mut files = Vec::new();
+    let mut rest = xbel;
+
+    while let Some(start) = rest.find("<bookmark") {
+        rest = &rest[start..];
+        let Some(tag_end) = rest.find('>') else {
+            break;
+        };
+        let tag = &rest[..tag_end];
+        let href = attribute(tag, "href").filter(|href| !href.is_empty());
+        let body_start = tag_end + 1;
+        let body_end = rest[body_start..]
+            .find("</bookmark>")
+            .map(|offset| body_start + offset)
+            .unwrap_or(rest.len());
+        let body = &rest[body_start..body_end];
+        let title = element_text(body, "title").filter(|title| !title.is_empty());
+
+        if let Some(href) = href {
+            let title = title.unwrap_or_else(|| uri_display_name(&href));
+            let kind = if href.starts_with("file://") {
+                "Local"
+            } else if href.starts_with("http://") || href.starts_with("https://") {
+                "Web"
+            } else {
+                "Recent"
+            };
+
+            if !files
+                .iter()
+                .any(|file: &RecentFile| file.uri == href && file.title == title)
+            {
+                files.push(RecentFile {
+                    title,
+                    uri: href,
+                    kind,
+                });
+            }
+        }
+
+        rest = &rest[body_end..];
+
+        if rest.starts_with("</bookmark>") {
+            rest = &rest["</bookmark>".len()..];
+        }
+    }
+
+    files.truncate(limit);
+    files
+}
+
+/// The name a URI is shown under when its record has no title.
+pub fn uri_display_name(uri: &str) -> String {
+    let path = uri
+        .strip_prefix("file://")
+        .or_else(|| uri.split_once("://").map(|(_, rest)| rest))
+        .unwrap_or(uri);
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let name = path
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or(path);
+    let decoded = percent_decode(name);
+
+    if decoded.is_empty() {
+        uri.to_owned()
+    } else {
+        decoded
+    }
+}
+
+/// `%20` and friends, as the file name they spell.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        // Only three ASCII bytes can spell `%XX`; checking them before slicing
+        // keeps a `%` followed by a multi-byte character from splitting it.
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && bytes[index + 1].is_ascii_hexdigit()
+            && bytes[index + 2].is_ascii_hexdigit()
+            && let Ok(byte) = u8::from_str_radix(&value[index + 1..index + 3], 16)
+        {
+            out.push(byte);
+            index += 3;
+            continue;
+        }
+
+        out.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// One attribute out of an XML start tag; the value may use double or single
+/// quotes.
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let needle = format!("{name}=");
+    let start = tag.find(&needle)? + needle.len();
+    let quote = tag[start..].chars().next()?;
+
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+
+    let value = &tag[start + 1..];
+    let end = value.find(quote)?;
+
+    Some(xml_decode(&value[..end]))
+}
+
+/// The text of the first `name` element in `body`, with CDATA unwrapped and
+/// entities decoded.
+fn element_text(body: &str, name: &str) -> Option<String> {
+    let open = format!("<{name}>");
+    let close = format!("</{name}>");
+    let start = body.find(&open)? + open.len();
+    let end = body[start..].find(&close)? + start;
+    let raw = &body[start..end];
+    let raw = raw.strip_prefix("<![CDATA[").unwrap_or(raw);
+    let raw = raw.strip_suffix("]]>").unwrap_or(raw);
+
+    Some(xml_decode(&strip_tags(raw)))
+}
+
+/// The text of an element and its attributes, for an Atom `link`.
+fn link_text(block: &str) -> Option<String> {
+    if let Some(text) = element_text(block, "link").filter(|text| !text.trim().is_empty()) {
+        return Some(text.trim().to_owned());
+    }
+
+    let tag = block.find("<link")?;
+    let end = block[tag..].find('>')? + tag;
+
+    attribute(&block[tag..end], "href")
+}
+
+/// Remove the tags an RSS title is allowed to carry.
+fn strip_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut inside = false;
+
+    for character in text.chars() {
+        match character {
+            '<' => inside = true,
+            '>' if inside => inside = false,
+            _ if !inside => out.push(character),
+            _ => {}
+        }
+    }
+
+    out
+}
+
+/// The five named entities XML uses, plus a numeric form.
+fn xml_decode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+
+    while let Some(start) = rest.find('&') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let Some(end) = after.find(';').filter(|end| *end <= 12) else {
+            out.push('&');
+            rest = &after[1..];
+            continue;
+        };
+        let entity = &after[1..end];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            _ => entity
+                .strip_prefix("#x")
+                .or_else(|| entity.strip_prefix("#X"))
+                .and_then(|digits| u32::from_str_radix(digits, 16).ok())
+                .or_else(|| {
+                    entity
+                        .strip_prefix('#')
+                        .and_then(|digits| digits.parse::<u32>().ok())
+                })
+                .and_then(char::from_u32),
+        };
+
+        match decoded {
+            Some(character) => {
+                out.push(character);
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &after[1..];
+            }
+        }
+    }
+
+    out.push_str(rest);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// News
+// ---------------------------------------------------------------------------
+
+/// One headline from a feed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewsItem {
+    pub title: String,
+    pub link: String,
+    pub source: String,
+    pub published: String,
+}
+
+/// The feeds a card reads: trimmed, deduplicated and bounded.
+pub fn feed_urls(input: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    for entry in input.split([',', '\n']).map(str::trim) {
+        if entry.is_empty() || !(entry.starts_with("http://") || entry.starts_with("https://")) {
+            continue;
+        }
+
+        if !urls.iter().any(|url| url == entry) {
+            urls.push(entry.to_owned());
+        }
+
+        if urls.len() == MAX_FEEDS {
+            break;
+        }
+    }
+
+    urls
+}
+
+/// Read the headlines of an RSS 2.0 or Atom feed.
+///
+/// This is a deliberately small reader: a feed is XML with a great deal of it
+/// optional, and a card needs a title, a link and a date.  A feed that answers
+/// in a shape this reader does not know contributes no headlines rather than
+/// invented ones.
+pub fn parse_feed(text: &str, source: &str, limit: usize) -> Vec<NewsItem> {
+    let mut items = Vec::new();
+    let mut rest = text;
+
+    while let Some(start) = rest
+        .find("<item")
+        .into_iter()
+        .chain(rest.find("<entry"))
+        .min()
+    {
+        rest = &rest[start..];
+        let Some(item_open) = rest.find('>') else {
+            break;
+        };
+        let block_start = item_open + 1;
+        let close = rest[block_start..]
+            .find("</item>")
+            .or_else(|| rest[block_start..].find("</entry>"));
+        let Some(close) = close else {
+            break;
+        };
+        let block = &rest[block_start..block_start + close];
+        let title = element_text(block, "title")
+            .map(|title| title.trim().to_owned())
+            .filter(|title| !title.is_empty());
+        let link = link_text(block).filter(|link| !link.is_empty());
+        let published = element_text(block, "pubDate")
+            .or_else(|| element_text(block, "updated"))
+            .or_else(|| element_text(block, "published"))
+            .map(|date| date.trim().to_owned())
+            .unwrap_or_default();
+
+        if let Some(title) = title {
+            let link = link.unwrap_or_default();
+
+            if !items
+                .iter()
+                .any(|item: &NewsItem| item.title == title && item.link == link)
+            {
+                items.push(NewsItem {
+                    title,
+                    link,
+                    source: source.to_owned(),
+                    published,
+                });
+            }
+        }
+
+        rest = &rest[block_start + close..];
+
+        if items.len() >= limit {
+            break;
+        }
+    }
+
+    items
+}
+
+// ---------------------------------------------------------------------------
+// System
+// ---------------------------------------------------------------------------
+
+/// The three load averages a System card draws.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LoadAverage {
+    pub one: f64,
+    pub five: f64,
+    pub fifteen: f64,
+}
+
+/// `/proc/loadavg`'s first three fields.
+pub fn parse_loadavg(text: &str) -> Option<LoadAverage> {
+    let mut fields = text.split_whitespace();
+
+    Some(LoadAverage {
+        one: fields.next()?.parse().ok()?,
+        five: fields.next()?.parse().ok()?,
+        fifteen: fields.next()?.parse().ok()?,
+    })
+}
+
+/// `/proc/uptime`'s seconds, as a whole number.
+pub fn parse_uptime(text: &str) -> Option<u64> {
+    let seconds = text.split_whitespace().next()?.parse::<f64>().ok()?;
+
+    seconds.is_finite().then(|| seconds.max(0.0).round() as u64)
+}
+
+/// The uptime in the words a card has room for: days and hours, hours and
+/// minutes, or minutes.
+pub fn uptime_text(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let hours = (seconds % 86_400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let day_word = if days == 1 { "day" } else { "days" };
+
+    match (days, hours, minutes) {
+        (0, 0, minutes) => format!("{minutes} min"),
+        (0, hours, 0) => format!("{hours} h"),
+        (0, hours, minutes) => format!("{hours} h {minutes} min"),
+        (days, 0, _) => format!("{days} {day_word}"),
+        (days, hours, _) => format!("{days} {day_word}, {hours} h"),
+    }
+}
+
+/// One decimal for a load average, which is how the kernel's own tools print
+/// it.
+pub fn load_text(load: LoadAverage) -> String {
+    format!("{:.2}  {:.2}  {:.2}", load.one, load.five, load.fifteen)
+}
+
+/// The memory line: used of total, in the same binary units the bar uses.
+pub fn memory_text(used_kb: u64, total_kb: u64) -> String {
+    format!(
+        "{} of {}",
+        format::str_gib(used_kb),
+        format::str_gib(total_kb)
+    )
 }
 
 // ---------------------------------------------------------------------------

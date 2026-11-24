@@ -230,7 +230,9 @@ fn need_for(kind: &str) -> Option<Need> {
         "language" => session(&[Session::Niri]),
         "memory" => reads("/proc/meminfo"),
         "menu" => nothing("the focused application's menus"),
-        "mpris" => service("an org.mpris.MediaPlayer2 player on the session bus"),
+        "mpris" | "media-controls" => {
+            service("an org.mpris.MediaPlayer2 player on the session bus")
+        }
         "notifications" => nothing("whelk's notification store"),
         "power-profile" => program(&["powerprofilesctl"]),
         "scheme" => nothing("its Guile procedure's widget"),

@@ -61,6 +61,7 @@
                notifications-module
                tray-module
                mpris-module
+               media-controls-module
                start-module
                menu-module
                menu-item

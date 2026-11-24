@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.51.1
+Version:        0.52.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -38,6 +38,7 @@ BuildRequires:  xvfb-run
 Requires:       gtk4
 Requires:       gtk4-layer-shell
 Requires:       guile
+Requires:       cava
 Requires:       pam
 Requires:       hicolor-icon-theme
 Requires:       wtype

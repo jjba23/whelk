@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use whelk_rs::collection::{WallpaperItem, is_usable};
-use whelk_rs::rotation::Playlist;
+use whelk_rs::rotation::{Playlist, step_path};
 use whelk_rs::wallpaper::{Kind, kind_for_path};
 
 fn item(path: PathBuf) -> WallpaperItem {
@@ -174,6 +174,52 @@ fn selection_rejects_files_the_video_policy_cannot_show() {
     let mut with_video = Playlist::new(Vec::new(), true, 1);
     assert!(with_video.select(&video));
     assert_eq!(with_video.selected(), Some(video.as_path()));
+}
+
+#[test]
+fn a_menu_row_steps_the_collection_in_both_directions() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let items = files(directory.path(), &["a.png", "b.png", "c.png"]);
+
+    assert_eq!(
+        step_path(&items, None, 1, false, 1),
+        Some(items[1].path.clone())
+    );
+    assert_eq!(
+        step_path(&items, Some(&items[1].path), 1, false, 1),
+        Some(items[2].path.clone())
+    );
+    assert_eq!(
+        step_path(&items, Some(&items[1].path), -1, false, 1),
+        Some(items[0].path.clone()),
+        "previous is a signed step, not a second playlist"
+    );
+    assert_eq!(
+        step_path(&items, Some(&items[0].path), -1, false, 1),
+        Some(items[2].path.clone()),
+        "the first picture's previous is the last"
+    );
+    assert_eq!(
+        step_path(&items, Some(&items[2].path), 1, false, 1),
+        Some(items[0].path.clone())
+    );
+    assert_eq!(step_path(&[], None, 1, false, 1), None);
+}
+
+#[test]
+fn a_shuffle_step_is_a_different_picture() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let items = files(directory.path(), &["a.png", "b.png", "c.png", "d.png"]);
+
+    for seed in 0..32 {
+        let next = step_path(&items, Some(&items[1].path), 1, true, seed).expect("a picture");
+
+        assert_ne!(
+            next, items[1].path,
+            "shuffle must move away from the current"
+        );
+        assert!(items.iter().any(|item| item.path == next));
+    }
 }
 
 #[test]

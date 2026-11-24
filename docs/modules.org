@@ -2,7 +2,7 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-Twenty-six module kinds, one shape: the options they share, the options each one adds, and a worked example.
+Twenty-seven module kinds, one shape: the options they share, the options each one adds, and a worked example.
 
 All constructors are the same shape -- a kind plus keyword options -- and all
 accept the shared options:
@@ -59,6 +59,7 @@ leaving the configuration untouched.
 | =dnd-module=           | whelk's own do-not-disturb state                  | =#:show-off?= (default off: the tile is hidden while DND is off), =#:dnd-icon=, =#:dnd-format=, ={state}= |
 | =tasks-module=         | every open window, grouped by workspace          | =#:max-length=, =#:show-workspaces?=, =#:hide-empty-workspaces?= (click: focus, middle click: close) |
 | =mpris-module=         | the player over MPRIS: no playerctl, no subprocess | =#:player= (=auto=: the player that last played), =#:format= (default ="{icon} {title}"=), ={title}=, ={artist}=, ={album}=, ={state}=, ={position}=, ={length}=, ={progress}=, =#:max-length=, =#:art?=, =#:art-size= (click: play/pause, middle: next, right: previous) |
+| =media-controls-module= | three transport buttons over MPRIS, with the track in the tooltip | =#:player= (=auto=: the player that last played); the button states follow the player |
 | =wallpaper-module=     | the collection in =#:wallpaper=, as a menu        | =#:icon=, =#:format= (default ="{icon}"=; click: the wallpapers, right-click: the full picker) |
 | =inhibit-module=       | what is blocking sleep or idle, from =systemd-inhibit= (a readout only; the idle manager owns whelk's lock) | ={count}=, =#:format= (default ="{icon} {count}"=; the who and why are in the tooltip), =#:show-off?= (the tile hides at zero unless set) |
 | =tray-module=          | StatusNotifierItem over D-Bus                    | =#:spacing=, =#:max-items= (6; the rest behind a chevron), =#:hide= (fragments to leave out) |

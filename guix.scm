@@ -11,6 +11,7 @@
              ((guix licenses)
               #:prefix license:)
              (gnu packages admin)
+             (gnu packages audio)
              (gnu packages curl)
              (gnu packages freedesktop)
              (gnu packages glib)
@@ -65,7 +66,7 @@
                      "-p" "xtask" "--" "install"
                      "--prefix" (assoc-ref outputs "out")
                      "--no-build")))
-         ;; `wtype` and `curl` are called by name at run time, and a compositor
+         ;; `wtype`, `curl` and `cava` are called by name at run time, and a compositor
          ;; starts the shell with the PATH it inherited -- not a login shell's,
          ;; and not necessarily the profile that carries propagated inputs.  A
          ;; propagated input only reaches the profile of whoever installs the
@@ -76,7 +77,8 @@
              (let* ((binary (string-append (assoc-ref outputs "out")
                                            "/bin/whelk"))
                     (tools (list (dirname (search-input-file inputs "/bin/wtype"))
-                                 (dirname (search-input-file inputs "/bin/curl")))))
+                                 (dirname (search-input-file inputs "/bin/curl"))
+                                 (dirname (search-input-file inputs "/bin/cava")))))
                (wrap-program binary
                  `("PATH" ":" prefix (,@tools)))))))))
     (native-inputs
@@ -96,13 +98,14 @@
             wayland
             ;; Called by name at run time; found by the wrap phase below, and
             ;; propagated as well so a profile carries them for scripts.
+            cava
             curl
             wtype)))
     ;; whelk invokes wtype by name to type a menu shortcut, and curl to read a
     ;; weather or stock card.  Both have to be in the package's profile, not
     ;; only in the build environment, or a shell and a desktop launch would not
     ;; put them on PATH.
-    (propagated-inputs (list wtype curl))
+    (propagated-inputs (list cava wtype curl))
     (home-page "https://github.com/jjba23/whelk")
     (synopsis "Wayland shell configured with GNU Guile Scheme")
     (description

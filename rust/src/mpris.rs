@@ -403,6 +403,50 @@ impl Mpris {
         );
     }
 
+    /// Move the active player to `position_us`.
+    ///
+    /// MPRIS has two ways to do this.  A player that publishes a track id takes
+    /// `SetPosition`, which says exactly where to go; one that does not takes a
+    /// relative `Seek`, so the delta is measured from the last position read.
+    /// The local position moves immediately so a slider under the user's finger
+    /// does not snap back while the player answers, and the next poll corrects
+    /// it if the player refused.
+    pub fn seek_to(&self, position_us: i64) {
+        let position_us = position_us.max(0);
+        let Some((name, proxy, track_id, current_us)) = ({
+            let inner = self.inner.borrow();
+
+            active(&inner).map(|(name, proxy)| {
+                let track_id = proxy
+                    .cached_property("Metadata")
+                    .map(|metadata| parse_metadata(&metadata).id)
+                    .unwrap_or_default();
+
+                (name, proxy, track_id, reading_of(&inner).position_us)
+            })
+        }) else {
+            return;
+        };
+
+        let (method, parameters) =
+            match glib::Variant::parse(Some(glib::VariantTy::OBJECT_PATH), &track_id) {
+                Ok(track) => ("SetPosition", (track, position_us).to_variant()),
+                Err(_) => ("Seek", (position_us - current_us).to_variant()),
+            };
+
+        self.inner.borrow_mut().position = Some((name, position_us));
+        notify(&self.inner);
+
+        proxy.call(
+            method,
+            Some(&parameters),
+            gio::DBusCallFlags::NONE,
+            CALL_TIMEOUT_MS,
+            gio::Cancellable::NONE,
+            |_result| {},
+        );
+    }
+
     /// Let the active player's own time line catch up after a pause or a seek.
     pub fn refresh(&self) {
         notify(&self.inner);

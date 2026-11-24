@@ -118,10 +118,39 @@
 
 (define standard (golden-gate-widgets))
 
-(check "the standard set is the eight Golden Gate widgets"
+(check "the standard set is the thirteen Golden Gate widgets"
        (equal? (map widget-config-kind standard)
                '(clock calendar weather battery notes reminders world-clock
-                 stocks)))
+                 stocks now-playing photos files news system)))
+
+(check "the new cards have the gallery's sizes"
+       (let ((player (desktop-widget 'now-playing))
+             (visualizer (desktop-widget 'visualizer))
+             (media (desktop-widget 'media))
+             (photos (desktop-widget 'photos))
+             (files (desktop-widget 'files))
+             (news (desktop-widget 'news))
+             (system (desktop-widget 'system)))
+         (and (= (widget-config-width player) 340)
+              (= (widget-config-height player) 220)
+              (= (widget-config-width visualizer) 360)
+              (= (widget-config-height visualizer) 220)
+              (= (widget-config-width media) 360)
+              (= (widget-config-height media) 260)
+              (= (widget-config-width photos) 280)
+              (= (widget-config-height photos) 260)
+              (= (widget-config-width files) 320)
+              (= (widget-config-height files) 260)
+              (= (widget-config-width news) 340)
+              (= (widget-config-height news) 300)
+              (= (widget-config-width system) 280)
+              (= (widget-config-height system) 280))))
+
+(check "the new kinds survive the bridge as themselves"
+       (every (lambda (kind)
+                (eq? (assq-ref (widget->alist (desktop-widget kind)) 'kind)
+                     kind))
+              '(now-playing visualizer media photos files news system)))
 
 (check "every standard widget has a distinct desktop position"
        (let ((positions (map (lambda (w)

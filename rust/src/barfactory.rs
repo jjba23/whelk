@@ -91,6 +91,7 @@ const FACTORIES: &[(&str, ModuleFactory)] = &[
     ("inhibit", inhibitbar::module),
     ("keyboard", keyboardbar::module),
     ("language", languagebar::module),
+    ("media-controls", mprisbar::controls_module),
     ("memory", memorybar::module),
     ("menu", globalmenu::module),
     ("mpris", mprisbar::module),

@@ -189,10 +189,10 @@
   (anchor widget-config-anchor)
   (options widget-config-options))
 
-;; The sizes the standard Apple widgets use, in the order Clock, Calendar,
-;; Weather, Batteries, Notes, Reminders, World Clock and Stocks.  A widget can
-;; be any size it likes; these are the defaults a bare (desktop-widget ...)
-;; gets, not limits.
+;; The sizes the standard collection uses, in gallery order: Clock, Calendar,
+;; Weather, Batteries, Notes, Reminders, World Clock, Stocks, Now Playing,
+;; Photos, Files, News and System.  A widget can be any size it likes; these
+;; are the defaults a bare (desktop-widget ...) gets, not limits.
 (define %widget-sizes
   '((clock 220 240)
     (calendar 340 330)
@@ -201,9 +201,16 @@
     (notes 340 260)
     (reminders 340 300)
     (world-clock 260 260)
-    (stocks 300 260)))
+    (stocks 340 280)
+    (now-playing 340 220)
+    (visualizer 360 220)
+    (media 360 260)
+    (photos 280 260)
+    (files 320 260)
+    (news 340 300)
+    (system 280 280)))
 
-;; Apple's three families: a card's family scales its kind's standard size, so a
+;; The three card families: a card's family scales its kind's standard size, so a
 ;; settings file says "the big weather card" instead of writing pixels it then
 ;; has to maintain.  The arithmetic is the same as `family_size' in
 ;; rust/src/widgets.rs -- half-up rounding, snapped to the 8-pixel grid, never
@@ -297,12 +304,13 @@ reaching C as a shape it cannot read."
   "Describe one floating desktop widget.
 
 KIND is one of 'clock, 'calendar, 'weather, 'battery, 'notes, 'reminders,
-'world-clock, 'stocks, 'custom, or a kind a later whelk adds.  X and Y are
+'world-clock, 'stocks, 'now-playing, 'photos, 'files, 'news, 'system,
+'custom, or a kind a later whelk adds.  X and Y are
 the distance from ANCHOR's edges on MONITOR (\"default\" or a connector such as
 \"DP-1\").  ANCHOR is where the card is pinned -- 'top-left (the default), 'top,
 'top-right, 'left, 'center, 'right, 'bottom-left, 'bottom or 'bottom-right -- so
 a card in a corner keeps that corner on a differently sized screen.  SIZE is
-'small, 'medium or 'large and scales the kind's standard size (Apple's three
+'small, 'medium or 'large and scales the kind's standard size (three size
 families, on the same 8-pixel grid); WIDTH and HEIGHT, when given, win over it.
 OPTIONS is
 an alist of the widget's own keys: the weather takes latitude, longitude and

@@ -89,17 +89,21 @@ re-learn layer-shell.
   =whelk --wallpaper-picker= opens a centred thumbnail overlay that expands to
   the monitor.  See [[file:docs/wallpaper.org][Wallpaper]].
 - *Desktop widgets, also data.*  Your usual widgets like Clock,
-  Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks -- are
-  floating GTK4 surfaces described by =(desktop-widget ...)= records.  Weather
-  and Stocks fetch live data; every card can be moved, resized, restyled or
-  replaced by a command-backed =custom= widget from =settings.scm=; see
+  Calendar, Weather, Batteries, Notes, Reminders, World Clock, Stocks, Now
+  Playing, Visualizer, Media, Photos, Files, News and System -- are floating GTK4 surfaces
+  described by =(desktop-widget ...)= records.  Weather, Stocks and News fetch
+  live data, the player card speaks MPRIS, Photos reads a folder and Files reads
+  the desktop's recent documents; every card can be moved, resized, restyled or
+  replaced by a command-backed =custom= widget from =settings.scm=.  A right
+  click on the wallpaper opens the desktop menu: launcher modes, wallpaper
+  controls, the shell's switches, the session verbs and a reload; see
   [[file:docs/widgets.org][Desktop widgets]].
-- *Twenty-six module kinds, one shape.* Clock, CPU, memory, battery, backlight,
+- *Twenty-seven module kinds, one shape.* Clock, CPU, memory, battery, backlight,
   audio, power profile, workspaces, focused window, keyboard layout, Caps Lock,
   a character picker, Wi-Fi, Bluetooth, notifications, do not disturb, the
   clipboard, tray, the shell menu, the global menu, the window list, the player,
-  the wallpaper, the idle inhibitor, =custom-module=, and =scheme-module= for a
-  Guile procedure that returns a widget.  All of them take the same keyword
+  its transport buttons, the wallpaper, the idle inhibitor, =custom-module=, and
+  =scheme-module= for a Guile procedure that returns a widget.  All of them take the same keyword
   options: an icon, a format, an interval, a tooltip and six mouse actions.
 - *The configuration is a program.* =settings.scm= is evaluated, not parsed:
   bars can be built with =map=, a module list can be computed, and a settings
@@ -247,7 +251,7 @@ deliberately is not.
 | [[file:docs/installation.org][Installation]]                               | requirements, linkage, Guix, Nix, packages, starting       |
 | [[file:docs/configuration.org][Configuration]]                              | =settings.scm=, bar keys, GUI overrides, presets, the REPL   |
 | [[file:docs/modules.org][Modules]]                                    | the module kinds and the options they take                 |
-| [[file:docs/widgets.org][Desktop widgets]]                            | the Golden Gate cards, placement, dragging                 |
+| [[file:docs/widgets.org][Desktop widgets]]                            | the Golden Gate cards, placement, dragging, the desktop menu |
 | [[file:docs/themes.org][Themes]]                                     | the twelve palettes                                       |
 | [[file:docs/materials.org][Materials]]                                  | frosted glass and the compositor's layer rules            |
 | [[file:docs/menus.org][Menus]]                                      | the shell menu and the global menu                         |
@@ -294,7 +298,7 @@ re-renders the SVG beside it.
 :CUSTOM_ID: status
 :END:
 
-The shell is usable every day: the bar, its twenty-six module kinds, the
+The shell is usable every day: the bar, its twenty-seven module kinds, the
 launcher, notifications, the network panel, the clipboard, the lock screen, the
 idle manager and the desktop widgets all work, on the sessions that support
 them.  [[file:docs/roadmap.org][Status and roadmap]] has the table and the next pieces,

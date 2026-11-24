@@ -249,7 +249,7 @@
 
 (check "the example configures one bar" (= (length bars) 1))
 (check "the example ships the Golden Gate widget set"
-       (= (length (get-shell-widgets example)) 8))
+       (= (length (get-shell-widgets example)) 13))
 (check "the example is the default bar" (equal? (shape (car bars))
                                                  (shape built-in)))
 (check "the example wears the default theme"

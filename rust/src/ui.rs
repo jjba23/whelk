@@ -27,7 +27,9 @@ use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::cli::{FORWARDED_OPTIONS, Request, Requests};
 use crate::clipboard::Clipboard;
+use crate::command;
 use crate::config::{ConfigLoader, LoadedConfig};
+use crate::desktopmenu::{self, DesktopCommand, DesktopMenu, DesktopMenuState};
 use crate::desktopwidgets::Widgets;
 use crate::frost;
 use crate::idle::Idle;
@@ -451,6 +453,64 @@ fn perform(
     true
 }
 
+/// Perform one row of the desktop context menu.  Every arm borrows the shell
+/// for no longer than the call it makes, so a command that reloads (and
+/// therefore rebuilds) can never run under an outstanding borrow.
+fn perform_desktop_command(
+    shell: &ShellRef,
+    application: &gtk::Application,
+    command: DesktopCommand,
+) {
+    match command {
+        DesktopCommand::Launcher(mode) => Launcher::show_current(Some(mode)),
+        DesktopCommand::Clipboard => Launcher::show_current(Some("clipboard")),
+        DesktopCommand::Notifications => NotificationCenter::toggle_current(),
+        DesktopCommand::Settings => present_preferences(shell),
+        DesktopCommand::About => {
+            let (style, label) = {
+                let state = shell.borrow();
+
+                (
+                    state.loaded.bars.first().cloned().unwrap_or_default(),
+                    state.config_label.clone(),
+                )
+            };
+
+            about::show_program(&style, &label);
+        }
+        DesktopCommand::SessionMenu => {
+            if let Some(launcher) = Launcher::current() {
+                launcher.show_session_menu();
+            }
+        }
+        DesktopCommand::Lock => locker::start_lock_screen(),
+        DesktopCommand::Power(action) => command::spawn(action.command()),
+        DesktopCommand::NightLight => {
+            shell.borrow_mut().toggle_night_light();
+        }
+        DesktopCommand::Dnd => toggle_dnd(),
+        DesktopCommand::Inhibit => toggle_inhibit(None),
+        DesktopCommand::Reload => shell.borrow_mut().reload(),
+        DesktopCommand::Quit => application.quit(),
+        DesktopCommand::WallpaperNext => {
+            shell.borrow_mut().step_wallpaper(1, false);
+        }
+        DesktopCommand::WallpaperPrevious => {
+            shell.borrow_mut().step_wallpaper(-1, false);
+        }
+        DesktopCommand::WallpaperShuffle => {
+            shell.borrow_mut().step_wallpaper(1, true);
+        }
+        DesktopCommand::WallpaperPicker => shell.borrow().show_picker(),
+        // The menu opens the thumbnail collection itself, at the place it was
+        // opened, and never sends this row to the shell.
+        DesktopCommand::WallpaperCollection => {}
+        DesktopCommand::ToggleWidgets => {
+            shell.borrow_mut().toggle_widgets();
+        }
+    }
+}
+
 /// Write a reply for the invoking process.  GApplication sends it back over
 /// the command-line connection, so `whelk --clipboard-status` in a script
 /// reads its answer from stdout even though the shell owns the service.
@@ -480,6 +540,7 @@ struct Shell {
     osd: Option<Osd>,
     picker: Option<Picker>,
     wallpaper_menu: Option<WallpaperMenu>,
+    desktop_menu: Option<DesktopMenu>,
     desktop: Vec<gtk::Window>,
     preferences: Option<Preferences>,
     _hold: gtk::gio::ApplicationHoldGuard,
@@ -550,6 +611,7 @@ impl Shell {
             osd: Some(osd),
             picker: None,
             wallpaper_menu: None,
+            desktop_menu: None,
             desktop: Vec::new(),
             preferences: None,
             _hold: hold,
@@ -603,6 +665,54 @@ impl Shell {
 
             state.picker = Some(picker);
             state.wallpaper_menu = Some(menu);
+        }
+
+        // The desktop's own menu: the same surface a right click on the empty
+        // desktop opens.  Its state is read when it opens, so a switch flipped
+        // from a bar or the command line is never a stale row.
+        {
+            let state_shell = Rc::downgrade(&shell);
+            let state: Rc<dyn Fn() -> DesktopMenuState> = Rc::new(move || {
+                let Some(shell) = state_shell.upgrade() else {
+                    return DesktopMenuState::default();
+                };
+                let shell = shell.borrow();
+                let idle = idle();
+
+                DesktopMenuState {
+                    night_light: shell.loaded.night_light.enabled,
+                    dnd: idle.as_ref().map(|idle| idle.has_dnd()).unwrap_or(false),
+                    inhibited: idle
+                        .as_ref()
+                        .map(|idle| idle.is_inhibited())
+                        .unwrap_or(false),
+                    widgets_visible: shell.widgets.visible(),
+                    widget_count: shell.widgets.count(),
+                    wallpaper: crate::wallpaper_surface::selected()
+                        .or_else(|| shell.loaded.wallpaper.current.clone())
+                        .as_ref()
+                        .and_then(|path| path.file_name())
+                        .map(|name| name.to_string_lossy().into_owned()),
+                }
+            });
+            let command_shell = Rc::downgrade(&shell);
+            let command_application = application.clone();
+            let on_command: Rc<dyn Fn(DesktopCommand)> = Rc::new(move |command| {
+                if let Some(shell) = command_shell.upgrade() {
+                    perform_desktop_command(&shell, &command_application, command);
+                }
+            });
+            let style = shell
+                .borrow()
+                .loaded
+                .bars
+                .first()
+                .cloned()
+                .unwrap_or_default();
+            let menu = DesktopMenu::new(application, &style, state, on_command);
+
+            desktopmenu::install(Some(menu.clone()));
+            shell.borrow_mut().desktop_menu = Some(menu);
         }
 
         {
@@ -748,6 +858,10 @@ impl Shell {
                     menu.set_settings(&self.loaded.wallpaper);
                 }
 
+                if let Some(menu) = self.desktop_menu.as_ref() {
+                    menu.set_style(&style);
+                }
+
                 self.rebuild();
 
                 crate::nightlight::update(self.loaded.night_light.clone());
@@ -808,6 +922,46 @@ impl Shell {
         }
     }
 
+    /// Step the wallpaper collection by one picture without a picker.
+    ///
+    /// The collection is re-read from the configuration, so a file added since
+    /// the shell started is already in the walk.  A shuffle picks a picture
+    /// that is not the one on screen; a signed step wraps at both ends.
+    fn step_wallpaper(&mut self, by: i32, shuffle: bool) -> bool {
+        let settings = self.loaded.wallpaper.clone();
+        let items = crate::collection::collect(
+            &settings.paths,
+            settings.current.as_deref(),
+            settings.video,
+        );
+        // The live wallpaper engine may have rotated since the settings were
+        // read; the menu must step from the picture actually on screen.
+        let current = crate::wallpaper_surface::selected()
+            .or_else(|| settings.current.clone())
+            .or_else(|| items.first().map(|item| item.path.clone()));
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos() as u64)
+            .unwrap_or(0x9e37_79b9_7f4a_7c15);
+        let next = crate::rotation::step_path(&items, current.as_deref(), by, shuffle, seed);
+
+        match next {
+            Some(path) => {
+                self.choose_wallpaper(&path);
+
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Show or hide every desktop card without rebuilding the set.
+    fn toggle_widgets(&mut self) {
+        let visible = !self.widgets.visible();
+
+        self.widgets.set_visible(visible);
+    }
+
     /// Save the picture chosen in the picker as the configuration's GUI
     /// preference and repaint the background now, so the choice is both what
     /// this session shows and what the next one starts on.
@@ -843,6 +997,9 @@ impl Shell {
         self.preferences.take();
         self.picker.take();
         self.wallpaper_menu.take();
+
+        desktopmenu::install(None);
+        self.desktop_menu.take();
 
         for window in self.desktop.drain(..) {
             window.set_visible(false);
@@ -1913,6 +2070,12 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
         }
         .whelk-workspace.empty {
             opacity: 0.38;
+        }
+        .whelk-media-controls button {
+            padding: 0 3px;
+            min-width: 20px;
+            min-height: 20px;
+            font-size: 14px;
         }
         ";
     let generated = style::css(&widget_id, bar, "whelk-bar", bar.css.as_deref());

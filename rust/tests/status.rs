@@ -141,7 +141,7 @@ fn every_factory_kind_has_a_verdict() {
         );
     }
 
-    assert_eq!(seen, 26, "the factory table changed size");
+    assert_eq!(seen, 27, "the factory table changed size");
 }
 
 #[test]

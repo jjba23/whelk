@@ -373,7 +373,7 @@ fn a_quote_is_read_from_the_spark_answer() {
 fn the_quote_request_encodes_its_symbols() {
     assert_eq!(
         widgets::stocks_url(&["AAPL".to_owned(), "BRK.B".to_owned()]),
-        "https://query1.finance.yahoo.com/v8/finance/spark?symbols=AAPL,BRK.B&range=1d&interval=1d"
+        "https://query1.finance.yahoo.com/v8/finance/spark?symbols=AAPL,BRK.B&range=1d&interval=5m"
     );
     assert!(widgets::stocks_url(&["A B".to_owned()]).contains("symbols=A%20B"));
 }
@@ -691,4 +691,321 @@ fn the_family_and_the_anchor_survive_the_bridge() {
     assert_eq!(card.size, widgets::SizeFamily::Small);
     assert_eq!(card.anchor, widgets::Anchor::BottomRight);
     assert_eq!((card.width, card.height), (256, 248));
+}
+
+#[test]
+fn the_added_kinds_are_in_the_catalogue_and_keep_their_cadence() {
+    for (name, kind, interval) in [
+        ("now-playing", WidgetKind::NowPlaying, 5),
+        ("visualizer", WidgetKind::Visualizer, 0),
+        ("media", WidgetKind::Media, 1),
+        ("photos", WidgetKind::Photos, 30),
+        ("files", WidgetKind::Files, 60),
+        ("news", WidgetKind::News, 1800),
+        ("system", WidgetKind::System, 5),
+    ] {
+        assert_eq!(WidgetKind::from_name(name), Some(kind));
+        assert_eq!(kind.name(), name);
+        assert_eq!(kind.interval(), interval);
+        assert!(!kind.default_title().is_empty());
+        assert!(!kind.glyph().is_empty());
+    }
+
+    // A media player is also spelled the way the bar module is.
+    assert_eq!(WidgetKind::from_name("music"), Some(WidgetKind::NowPlaying));
+    assert_eq!(
+        WidgetKind::from_name("spectrum"),
+        Some(WidgetKind::Visualizer)
+    );
+    assert_eq!(
+        WidgetKind::from_name("media-controls"),
+        Some(WidgetKind::Media)
+    );
+}
+
+#[test]
+fn a_visualizer_frame_parses_cava_and_holds_its_peaks() {
+    assert_eq!(
+        widgets::parse_visualizer_frame("0;50;100;nonsense;150;", 4),
+        vec![0.0, 0.5, 1.0, 1.0]
+    );
+    assert!(widgets::parse_visualizer_frame("", 8).is_empty());
+
+    let mut frame = widgets::VisualizerFrame::new(2);
+
+    frame.push(&[1.0, 0.5]);
+    assert_eq!(frame.levels, vec![1.0, 0.5]);
+    assert_eq!(frame.peaks, vec![1.0, 0.5]);
+
+    frame.push(&[0.0, 0.25]);
+    assert_eq!(frame.levels, vec![0.0, 0.25]);
+    assert!(frame.peaks[0] < 1.0 && frame.peaks[0] > 0.9);
+    assert!(frame.peaks[1] < 0.5 && frame.peaks[1] > 0.4);
+
+    let config = widgets::visualizer_config(8, 20);
+
+    assert!(config.contains("bars = 8"));
+    assert!(config.contains("framerate = 20"));
+    assert!(config.contains("data_format = ascii"));
+    assert!(config.contains("bar_delimiter = 59"));
+}
+
+#[test]
+fn a_player_reading_becomes_the_cards_words() {
+    use whelk_rs::mpris::{Playback, Reading, Track};
+
+    let reading = Reading {
+        player: Some("spotify".to_owned()),
+        track: Track {
+            title: "Golden Gate".to_owned(),
+            artist: "The Shells".to_owned(),
+            album: "Harbour".to_owned(),
+            length_us: 200_000_000,
+            ..Track::default()
+        },
+        playback: Playback::Playing,
+        position_us: 50_000_000,
+        players: 1,
+    };
+    let text = widgets::now_playing_text(&reading);
+
+    assert!(text.available);
+    assert_eq!(text.title, "Golden Gate");
+    assert_eq!(text.detail(), "The Shells — Harbour");
+    assert_eq!(text.percent, 25);
+    assert_eq!(text.timeline(), "0:50 / 3:20");
+    assert!(text.playing);
+    assert_eq!(text.player, "spotify");
+    assert_eq!(
+        text.glyph, "▶",
+        "a card draws a transport mark any font has"
+    );
+
+    let idle = widgets::now_playing_text(&Reading::default());
+
+    assert!(!idle.available);
+    assert_eq!(idle.title, "Nothing playing");
+    assert_eq!(idle.detail(), "");
+    assert_eq!(idle.timeline(), "0:00");
+    assert_eq!(idle.glyph, "⏹");
+}
+
+#[test]
+fn a_photo_card_walks_its_roots_and_wraps_at_both_ends() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let nested = directory.path().join("nested");
+
+    std::fs::create_dir(&nested).expect("nested dir");
+    std::fs::write(directory.path().join("a.png"), b"").expect("a.png");
+    std::fs::write(directory.path().join("b.jpg"), b"").expect("b.jpg");
+    std::fs::write(directory.path().join("not-a-picture.txt"), b"").expect("txt");
+    std::fs::write(directory.path().join(".hidden.png"), b"").expect("hidden");
+    std::fs::write(nested.join("c.webp"), b"").expect("c.webp");
+
+    let files = widgets::photo_files(&[directory.path().to_path_buf()]);
+    let names: Vec<String> = files
+        .iter()
+        .map(|path| {
+            path.strip_prefix(directory.path())
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+
+    assert_eq!(names, vec!["a.png", "b.jpg", "nested/c.webp"]);
+    assert_eq!(widgets::photo_step(0, 3, -1), 2);
+    assert_eq!(widgets::photo_step(2, 3, 1), 0);
+    assert_eq!(widgets::photo_step(4, 0, 1), 0);
+    assert_eq!(
+        widgets::photo_caption(std::path::Path::new("/tmp/My-Trip_2024.jpg")),
+        "My Trip 2024"
+    );
+    assert_eq!(
+        widgets::photo_paths(" ~/Pictures , /srv/photos ,, "),
+        vec![
+            std::path::PathBuf::from("~/Pictures"),
+            std::path::PathBuf::from("/srv/photos")
+        ]
+    );
+}
+
+#[test]
+fn a_files_card_reads_the_desktops_recent_documents() {
+    let xbel = r#"<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0">
+  <bookmark href="file:///home/joe/Notes/Plan%20A.md" modified="2026-11-24T10:00:00Z">
+    <info><metadata owner="whelk"><title>Plan A</title></metadata></info>
+  </bookmark>
+  <bookmark href="https://example.com/post"><title>Post &amp; reply</title></bookmark>
+  <bookmark href="file:///tmp/My%20Doc.txt"></bookmark>
+  <bookmark href=""><title>No address</title></bookmark>
+</xbel>"#;
+    let files = widgets::parse_recent(xbel, 10);
+
+    assert_eq!(files.len(), 3);
+    assert_eq!(files[0].title, "Plan A");
+    assert_eq!(files[0].kind, "Local");
+    assert_eq!(files[1].title, "Post & reply");
+    assert_eq!(files[1].kind, "Web");
+    assert_eq!(
+        files[2].title, "My Doc.txt",
+        "a record without a title is named by its URI"
+    );
+    assert_eq!(widgets::parse_recent(xbel, 1).len(), 1);
+    assert_eq!(
+        widgets::uri_display_name("https://example.com/notes/hello%20world?x=1"),
+        "hello world"
+    );
+    assert_eq!(
+        widgets::uri_display_name("file:///tmp/100%25.txt"),
+        "100%.txt"
+    );
+    assert_eq!(
+        widgets::uri_display_name("file:///tmp/50%€.txt"),
+        "50%€.txt",
+        "a percent followed by a multi-byte character is not a three-byte escape"
+    );
+    assert_eq!(widgets::uri_display_name("file:///tmp/done%"), "done%");
+    assert_eq!(
+        widgets::recent_xbel_path(Some(std::path::Path::new("/data")), None),
+        Some(std::path::PathBuf::from("/data/recently-used.xbel"))
+    );
+}
+
+#[test]
+fn a_news_card_reads_rss_and_atom() {
+    let rss = r#"<rss><channel>
+      <item><title>First &amp; best</title><link>https://example.com/1</link>
+        <pubDate>Mon, 24 Nov 2026 10:00:00 GMT</pubDate></item>
+      <item><title><![CDATA[Second]]></title><link>https://example.com/2</link></item>
+    </channel></rss>"#;
+    let atom = r#"<feed><entry><title>Atom one</title>
+      <link href="https://example.org/a"/><updated>2026-11-24T10:00:00Z</updated>
+    </entry></feed>"#;
+    let items = widgets::parse_feed(rss, "example.com", 6);
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].title, "First & best");
+    assert_eq!(items[0].link, "https://example.com/1");
+    assert_eq!(items[0].source, "example.com");
+    assert_eq!(items[0].published, "Mon, 24 Nov 2026 10:00:00 GMT");
+    assert_eq!(items[1].title, "Second");
+
+    let atom = widgets::parse_feed(atom, "example.org", 6);
+
+    assert_eq!(atom.len(), 1);
+    assert_eq!(atom[0].title, "Atom one");
+    assert_eq!(atom[0].link, "https://example.org/a");
+    assert_eq!(atom[0].published, "2026-11-24T10:00:00Z");
+    assert_eq!(widgets::parse_feed("not a feed", "x", 6), Vec::new());
+
+    assert_eq!(
+        widgets::feed_urls(
+            "https://a.example/feed, nope, https://a.example/feed, http://b.example/rss"
+        ),
+        vec!["https://a.example/feed", "http://b.example/rss"]
+    );
+}
+
+#[test]
+fn a_system_card_reads_the_kernels_own_numbers() {
+    let load = widgets::parse_loadavg("0.52 0.48 0.44 1/1234 5678").expect("a load");
+
+    assert!((load.one - 0.52).abs() < 1e-9);
+    assert!((load.five - 0.48).abs() < 1e-9);
+    assert!((load.fifteen - 0.44).abs() < 1e-9);
+    assert_eq!(widgets::load_text(load), "0.52  0.48  0.44");
+    assert_eq!(widgets::parse_loadavg(""), None);
+
+    assert_eq!(widgets::parse_uptime("1234.56 2345.67"), Some(1235));
+    assert_eq!(widgets::parse_uptime("not a number"), None);
+    assert_eq!(widgets::uptime_text(59), "0 min");
+    assert_eq!(widgets::uptime_text(3600), "1 h");
+    assert_eq!(widgets::uptime_text(3660), "1 h 1 min");
+    assert_eq!(widgets::uptime_text(86_400), "1 day");
+    assert_eq!(widgets::uptime_text(2 * 86_400), "2 days");
+    assert_eq!(widgets::uptime_text(3 * 86_400 + 4 * 3600), "3 days, 4 h");
+    assert_eq!(
+        widgets::memory_text(2 * 1024 * 1024, 8 * 1024 * 1024),
+        "2.0 GiB of 8.0 GiB"
+    );
+}
+
+#[test]
+fn a_forecast_is_read_beside_the_current_conditions() {
+    let answer = r#"{
+        "current": {"temperature_2m": 12, "apparent_temperature": 11,
+                    "relative_humidity_2m": 80, "weather_code": 61},
+        "daily": {
+            "time": ["2026-11-24", "2026-11-25", "2026-11-26"],
+            "temperature_2m_max": [15, 18, 12],
+            "temperature_2m_min": [7, 9, 5],
+            "weather_code": [61, 0, 3]
+        }
+    }"#;
+    let reading = widgets::parse_weather(answer, true).expect("a reading");
+
+    assert_eq!(reading.forecast.len(), 3);
+    assert_eq!(reading.forecast[0].label, "Tue");
+    assert_eq!(reading.forecast[0].glyph, "☔");
+    assert_eq!(reading.forecast[0].range, "15°  7°");
+    assert_eq!(reading.forecast[1].label, "Wed");
+    assert_eq!(reading.forecast[2].label, "Thu");
+    assert!(
+        widgets::weather_url_days("1", "2", false, 3).contains("forecast_days=3"),
+        "a card that draws three days asks for three"
+    );
+    assert_eq!(
+        widgets::parse_weather(
+            r#"{"current": {"temperature_2m": 1}, "daily": {"temperature_2m_max": [2], "temperature_2m_min": [0]}}"#,
+            true
+        )
+        .expect("no forecast is still a reading")
+        .forecast
+        .len(),
+        0
+    );
+}
+
+#[test]
+fn a_quote_carries_the_days_shape() {
+    let answer = r#"{
+        "AAPL": {"fulldayPrice": 191.24, "fulldayChangePercent": 1.234,
+                 "close": [188.0, 189.5, 187.2, 191.24]}
+    }"#;
+    let quotes = widgets::parse_stocks(answer, &["AAPL".to_owned()]);
+
+    assert_eq!(quotes.len(), 1);
+    assert_eq!(quotes[0].spark, vec![188.0, 189.5, 187.2, 191.24]);
+
+    let rising = widgets::sparkline_points(&[1.0, 2.0, 3.0], 100.0, 20.0);
+
+    assert_eq!(rising, vec![(0.0, 20.0), (50.0, 10.0), (100.0, 0.0)]);
+    assert_eq!(
+        widgets::sparkline_points(&[5.0, 5.0], 10.0, 10.0),
+        vec![(0.0, 5.0), (10.0, 5.0)],
+        "a flat line is drawn down the middle"
+    );
+    assert_eq!(
+        widgets::sparkline_points(&[42.0], 10.0, 10.0),
+        vec![(5.0, 5.0)]
+    );
+    assert_eq!(widgets::sparkline_points(&[], 10.0, 10.0), Vec::new());
+}
+
+#[test]
+fn a_calendar_can_number_its_weeks_the_way_iso_does() {
+    // 1 January 2026 is a Thursday, so it belongs to week 1.
+    assert_eq!(widgets::iso_week(2026, 1, 1), 1);
+    assert_eq!(widgets::iso_week(2026, 11, 24), 48);
+    assert_eq!(widgets::iso_week(2026, 12, 31), 53);
+
+    let grid = widgets::month_grid(2026, 11, (2026, 11, 24));
+
+    assert_eq!(grid.weeks.len(), 6);
+    assert_eq!(grid.weeks[0], 44, "1 November is in the week of 26 October");
+    assert_eq!(grid.weeks[4], 48);
+    assert_eq!(grid.weeks[5], 49, "the last row starts on 30 November");
+    assert_eq!(widgets::month_grid(2026, 2, (2026, 2, 1)).weeks.len(), 5);
 }

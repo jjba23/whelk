@@ -20,7 +20,8 @@ What has to exist on the machine before whelk can start, what the binary looks f
   time
 - Optional, found at run time: =niri=, =swaymsg=, =hyprctl= or =riverctl=
   (compositor IPC), =xprop= (X11 window focus), =wtype= or =xdotool= (typing a
-  menu shortcut), =nmcli=, =bluetoothctl=, =wlsunset=
+  menu shortcut), =cava= (the visualizer card's spectrum), =nmcli=,
+  =bluetoothctl=, =wlsunset=
 
 Nothing on that second list is required to start: whelk asks for what is there
 and hides what is not.

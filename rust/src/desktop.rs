@@ -7,10 +7,16 @@
 //!
 //! whelk draws its wallpaper on the background layer, and a layer surface there
 //! only receives the clicks nothing above it wants: the empty desktop, which is
-//! exactly the place a right click should offer the wallpapers.  This surface is
-//! transparent and always present -- a background the engine is not drawing
-//! still belongs to whelk, and a right click on it should still work -- and the
-//! only things it does are the two gestures in [`present`].
+//! exactly the place a right click should offer the shell's own menu.  This
+//! surface is transparent and always present -- a background the engine is not
+//! drawing still belongs to whelk, and a right click on it should still work --
+//! and the only things it does are the two gestures in [`present`].
+//!
+//! A right click opens [`crate::desktopmenu`], which carries the launcher modes,
+//! the wallpaper controls, the shell's switches, the session verbs and the
+//! reload/quit rows.  A session built before the menu exists (or with no menu
+//! installed) still falls back to the wallpaper collection, so the background is
+//! never a dead click.  Any primary click is a click *away* and dismisses both.
 //!
 //! It is the *background* layer, so it can never take a click from a window, and
 //! it reserves no space.  On a server without wlr-layer-shell there is no
@@ -20,6 +26,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
+use crate::desktopmenu;
 use crate::wallpapermenu;
 
 /// One surface per monitor, in the display's order.  The caller keeps them; a
@@ -89,12 +96,15 @@ fn surface(
         let Some(monitor) = menu_monitor.clone() else {
             return;
         };
-        let Some(menu) = wallpapermenu::current() else {
-            return;
-        };
 
         gesture.set_state(gtk::EventSequenceState::Claimed);
-        menu.show_at_point(&monitor, (x as i32, y as i32));
+        wallpapermenu::hide_current();
+
+        if let Some(menu) = desktopmenu::current() {
+            menu.show_at_point(&monitor, (x as i32, y as i32));
+        } else if let Some(menu) = wallpapermenu::current() {
+            menu.show_at_point(&monitor, (x as i32, y as i32));
+        }
     });
     area.add_controller(right);
 
@@ -105,6 +115,7 @@ fn surface(
     away.set_button(gtk::gdk::BUTTON_PRIMARY);
     away.connect_pressed(|gesture, _, _, _| {
         gesture.set_state(gtk::EventSequenceState::Denied);
+        desktopmenu::hide_current();
         wallpapermenu::hide_current();
     });
     area.add_controller(away);

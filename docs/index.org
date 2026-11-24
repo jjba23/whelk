@@ -21,7 +21,7 @@ flowchart TD
     START --> CONFIG["configuration.org<br/>settings.scm, bar keys, overrides, presets, REPL"]
     START --> USAGE["usage documents<br/>launcher, clipboard, notifications, network, tray"]
 
-    CONFIG --> MODULES["modules.org<br/>the twenty-six kinds and their options"]
+    CONFIG --> MODULES["modules.org<br/>the twenty-seven kinds and their options"]
     CONFIG --> WIDGETS["widgets.org<br/>Golden Gate cards"]
     CONFIG --> THEMES["themes.org<br/>twelve palettes"]
     CONFIG --> MATERIALS["materials.org<br/>frosted glass, compositor blur"]
@@ -54,7 +54,7 @@ flowchart TD
 | [[file:installation.org][Installation]]               | what must exist before whelk starts, what the binary links, four install routes |
 | [[file:configuration.org][Configuration]]              | =settings.scm=, a bar from scratch, the bar keys, GUI overrides, presets, the REPL |
 | [[file:modules.org][Modules]]                    | the module kinds, the options they share, a worked example                |
-| [[file:widgets.org][Desktop widgets]]            | the Golden Gate cards, placement, dragging, the state file               |
+| [[file:widgets.org][Desktop widgets]]            | the Golden Gate cards, placement, dragging, the state file, the desktop menu |
 | [[file:themes.org][Themes]]                     | the twelve palettes and what each one sets                               |
 | [[file:materials.org][Materials]]                 | frosted glass, the =#:frost= keys, and the layer rules niri, Hyprland and SwayFX need |
 | [[file:menus.org][Menus]]                      | the shell menu and the focused application's File/Edit/View               |

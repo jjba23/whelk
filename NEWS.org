@@ -11,6 +11,66 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.52.0 (2026-11-24)
+
+*** Added
+
+- *A music visualizer card.*  The =visualizer= kind runs a private [[https://github.com/karlstav/cava][cava]]
+  process, reads its raw ASCII frames and draws rounded bars in the bar's
+  accent colour, with optional mirrored bars and falling peak caps.  =#:bars=
+  and =#:framerate= tune the capture; =#:transparent? #t= removes the card's
+  background, border and shadow for a spectrum that floats on the wallpaper,
+  and =#:header? #f= leaves only the drag grip.  Closing the card stops cava and
+  removes its generated configuration; a missing cava says so on the card.
+- *A media control card.*  The =media= kind is a larger MPRIS transport than
+  Now Playing: local cover art, title and artist, elapsed and total time, a seek
+  slider that calls =SetPosition= (or =Seek= when the player has no track id),
+  and previous/play/next buttons.  It follows the player announced on the bus,
+  just as the bar and now-playing card do, and takes the same =transparent?=
+  and =header?= switches.
+- *A media-controls bar applet.*  The =media-controls= module puts previous,
+  play/pause and next in the bar as three flat buttons, follows the player's
+  state for the play mark, and puts the current track in the hover text.  With
+  no player it stays in place and insensitive instead of shifting the row.
+
+- *Five more cards, and a deeper standard set.*  **Now Playing** speaks MPRIS
+  and carries previous/play/next and a progress bar; **Photos** pages a folder
+  on a scroll and opens a picture on a click; **Files** lists the desktop's
+  recent documents and opens one; **News** reads RSS and Atom feeds; **System**
+  shows CPU, memory, load and uptime.  The Golden Gate collection now lays
+  thirteen cards drawn from fourteen kinds across a 1080p desktop in three
+  columns.
+- *The existing cards gained their options.*  Clock takes =#:timezone=,
+  =#:format= and =#:date-format=; Calendar can show ISO week numbers; Weather
+  can carry a multi-day forecast with =#:forecast-days=; a Stocks row draws the
+  day's closes as a sparkline; a World Clock city marks night; a Notes card
+  re-reads its file when the file's mtime moves.
+- *A desktop context menu.*  A right click on the wallpaper opens the shell's
+  own card: launcher modes, clipboard and notifications, settings, next and
+  previous wallpaper, shuffle, the thumbnail collection and the picker, Night
+  Light, Do Not Disturb, Keep Awake, desktop-widget visibility, lock, sleep,
+  restart, shut down, log out, the session menu, reload, About and quit.  It
+  reads its state when it opens, closes on Escape or a click away, and falls
+  back to the wallpaper collection when it is absent.
+
+*** Changed
+
+- *The cards cost less to keep.*  Their stylesheet is installed once per display
+  rather than once per card; a settings save with the same cards on the same
+  outputs keeps their surfaces, timers, MPRIS subscription and current photo
+  instead of rebuilding them; a clock without seconds wakes every fifteen
+  seconds instead of every second; the calendar and every label redraw only when
+  the words changed; a note file is read only when its mtime moved.  A card set
+  that really changed is still rebuilt with the bars.
+
+*** Verified
+
+- The widget data, the visualizer frame parser and peak model, the cava
+  configuration, the new parsers, the sparkline and ISO-week arithmetic, the
+  desktop menu's row model and the wallpaper step function are covered by the
+  Rust suite; the Scheme size table, the standard collection and the widget
+  bridge are covered by the Guile tests.  The shell suite is 659 tests.
+
 ** v0.51.1 (2026-11-24)
 
 *** Fixed

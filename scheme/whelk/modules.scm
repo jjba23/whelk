@@ -74,6 +74,7 @@
             menu-module
             wallpaper-module
             mpris-module
+            media-controls-module
             tasks-module))
 
 ;; =============================================================================
@@ -420,6 +421,14 @@ them.  #:art? #t shows a cover from a local mpris:artUrl at #:art-size pixels
 (16 by default).  The tile is on the bar only while there is a player --
 #:show-off? #t keeps it there either way."
   (apply module 'mpris kv))
+
+(define* (media-controls-module #:rest kv)
+  "Previous, play/pause and next as three small buttons in the bar, backed by
+the same MPRIS engine as `mpris-module'.  #:player names one (or defaults to
+auto); the play mark follows the player and the track is in the hover text.
+With no player the buttons stay in place and insensitive instead of taking the
+row away."
+  (apply module 'media-controls kv))
 
 (define* (tray-module #:rest kv)
   "The StatusNotifierItem tray: other programs' status icons.  #:spacing is the

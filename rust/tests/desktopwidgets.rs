@@ -2,14 +2,92 @@
 // monitor a drag may cross, the clock hands' angles, the battery card's words
 // and classes, and the markup a reminder row is drawn with.
 
-use whelk_rs::desktopwidgets::{self, FetchError, Health};
-use whelk_rs::widgets::{Area, FALLBACK_AREA, ReminderRow};
+use std::path::Path;
+
+use whelk_rs::bar::{BarSettings, ModuleSpec};
+use whelk_rs::desktopwidgets::{self, CardSet, FetchError, Health};
+use whelk_rs::widgets::{Area, FALLBACK_AREA, ReminderRow, WidgetConfig};
+
+fn set<'a>(
+    configs: &'a [WidgetConfig],
+    style: &'a BarSettings,
+    signature: &'a str,
+    state: Option<&'a Path>,
+) -> CardSet<'a> {
+    CardSet {
+        configs,
+        style,
+        signature,
+        state_path: state,
+    }
+}
 
 fn monitor(connector: &str, width: i32, height: i32) -> desktopwidgets::MonitorArea {
     desktopwidgets::MonitorArea {
         connector: connector.to_owned(),
         area: Area { width, height },
     }
+}
+
+#[test]
+fn the_same_cards_on_the_same_outputs_are_kept() {
+    let card = WidgetConfig::new(
+        ModuleSpec {
+            kind: "clock".to_owned(),
+            options: std::collections::BTreeMap::new(),
+        },
+        48,
+        64,
+        None,
+        None,
+        "default",
+    );
+    let cards = vec![card.clone()];
+    let style = BarSettings::default();
+    let state = Some(Path::new("/tmp/widgets-settings.ini"));
+    let baseline = set(&cards, &style, "DP-1:1920x1080;", state);
+
+    assert!(desktopwidgets::same_configuration(baseline, baseline));
+
+    // A new card, a new material, a new output and a new state file are each
+    // reasons to rebuild; none of them may be silently ignored.
+    assert!(!desktopwidgets::same_configuration(
+        set(&[], &style, "DP-1:1920x1080;", state),
+        baseline
+    ));
+    assert!(!desktopwidgets::same_configuration(
+        set(
+            &cards,
+            &BarSettings {
+                opacity: 0.5,
+                ..BarSettings::default()
+            },
+            "DP-1:1920x1080;",
+            state
+        ),
+        baseline
+    ));
+    assert!(!desktopwidgets::same_configuration(
+        set(&cards, &style, "DP-1:2560x1440;", state),
+        baseline
+    ));
+    assert!(!desktopwidgets::same_configuration(
+        set(&cards, &style, "DP-1:1920x1080;", None),
+        baseline
+    ));
+
+    // Deleting the state file is the documented reset.  A rebuild is needed
+    // only when a file the last build saw is gone, not when a first drag has
+    // just created one.
+    let directory = tempfile::tempdir().expect("tempdir");
+    let saved = directory.path().join("widgets-settings.ini");
+
+    assert!(!desktopwidgets::state_disappeared(false, Some(&saved)));
+    std::fs::write(&saved, b"position").expect("state file");
+    assert!(!desktopwidgets::state_disappeared(true, Some(&saved)));
+    std::fs::remove_file(&saved).expect("remove state file");
+    assert!(desktopwidgets::state_disappeared(true, Some(&saved)));
+    assert!(!desktopwidgets::state_disappeared(true, None));
 }
 
 #[test]

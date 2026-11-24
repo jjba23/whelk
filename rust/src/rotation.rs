@@ -101,3 +101,39 @@ impl Playlist {
         enabled && interval_seconds > 0 && self.items.len() >= 2 && self.selected.is_some()
     }
 }
+
+/// The picture one step from `current`, without a playlist to keep.
+///
+/// This is what a context menu's *Next* and *Previous* rows use: the collection
+/// is re-read from the configuration, the current picture is where the step
+/// starts, and `by` is signed.  A shuffle picks an item that is not the one
+/// already on screen.  A current picture outside the collection starts the
+/// walk at the first item, exactly as [`Playlist::advance`] does.
+pub fn step_path(
+    items: &[WallpaperItem],
+    current: Option<&Path>,
+    by: i32,
+    shuffle: bool,
+    shuffle_state: u64,
+) -> Option<PathBuf> {
+    if items.is_empty() {
+        return None;
+    }
+
+    let index = current
+        .and_then(|selected| {
+            items
+                .iter()
+                .position(|item| item.path.as_path() == selected)
+        })
+        .unwrap_or(0);
+    let next = if shuffle {
+        let mut state = shuffle_state;
+
+        next_index(items.len(), index, true, &mut state)
+    } else {
+        (index as i32 + by).rem_euclid(items.len() as i32) as usize
+    };
+
+    items.get(next).map(|item| item.path.clone())
+}

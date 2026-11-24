@@ -18,6 +18,7 @@
   pam,
   wtype,
   curl,
+  cava,
   hicolor-icon-theme,
   adwaita-icon-theme,
   xvfb-run,
@@ -28,7 +29,7 @@
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "whelk";
-  version = "0.51.1";
+  version = "0.52.0";
 
   src = lib.cleanSourceWith {
     src = ./.;
@@ -126,7 +127,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # from a wrapper would break the others.
   preFixup = ''
     makeWrapperArgs+=("''${gappsWrapperArgs[@]}")
-    makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath [ wtype curl ]})
+    makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath [ wtype curl cava ]})
     makeWrapperArgs+=(
       --set-default __EGL_VENDOR_LIBRARY_FILENAMES ${mesa}/share/glvnd/egl_vendor.d/50_mesa.json
       --set-default __GLX_VENDOR_LIBRARY_NAME mesa

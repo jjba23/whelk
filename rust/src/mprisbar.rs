@@ -98,6 +98,95 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     Some(root)
 }
 
+/// A compact transport applet: previous, play/pause and next as three flat
+/// buttons in the bar.
+///
+/// It is the same [`Mpris`] engine as the now-playing tile, so it follows the
+/// configured player and changes its play mark when the player does.  With no
+/// player the buttons stay in place but are insensitive, which keeps the bar's
+/// layout still while a media player starts or stops.
+pub fn controls_module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> {
+    let (root, host) = ModuleHost::new(
+        module,
+        DEFAULT_INTERVAL_SECONDS,
+        context.spacing,
+        context.icon_font.as_deref(),
+    );
+    let previous = gtk::Button::with_label("⏮");
+    let play = gtk::Button::with_label("▶");
+    let next = gtk::Button::with_label("⏭");
+
+    for (button, tooltip) in [
+        (&previous, "Previous track"),
+        (&play, "Play or pause"),
+        (&next, "Next track"),
+    ] {
+        button.add_css_class("flat");
+        button.set_tooltip_text(Some(tooltip));
+        root.append(button);
+    }
+
+    root.set_sensitive(false);
+
+    let weak_host = host.downgrade();
+    let weak_play = play.downgrade();
+    let mpris = Mpris::start(module.text("player"), move |reading| {
+        if let Some(play) = weak_play.upgrade() {
+            play.set_label(if reading.playback.is_playing() {
+                "⏸"
+            } else {
+                "▶"
+            });
+        }
+
+        let Some(host) = weak_host.upgrade() else {
+            return;
+        };
+        let Some(root) = host.root() else {
+            return;
+        };
+
+        root.set_sensitive(reading.available());
+
+        let title = reading.track.title.trim();
+        let artist = reading.track.artist.trim();
+        let tooltip = if !reading.available() {
+            "No media player".to_owned()
+        } else if artist.is_empty() {
+            title.to_owned()
+        } else if title.is_empty() {
+            artist.to_owned()
+        } else {
+            format!("{title}\n{artist}")
+        };
+
+        root.set_tooltip_text(Some(&tooltip));
+    });
+
+    for (button, control) in [
+        (&previous, Control::Previous),
+        (&play, Control::PlayPause),
+        (&next, Control::Next),
+    ] {
+        let mpris = Rc::clone(&mpris);
+
+        button.connect_clicked(move |_| mpris.control(control));
+    }
+
+    let weak_mpris = Rc::downgrade(&mpris);
+    host.start(move |_host| {
+        if let Some(mpris) = weak_mpris.upgrade() {
+            mpris.poll_position();
+        }
+    });
+
+    let view = Rc::new(RefCell::new(Some(mpris)));
+
+    root.connect_destroy(move |_| drop(view.borrow_mut().take()));
+
+    Some(root)
+}
+
 fn art_picture(module: &ModuleSpec) -> Option<gtk::Picture> {
     if !module.boolean("art?").unwrap_or(false) {
         return None;

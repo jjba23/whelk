@@ -298,16 +298,18 @@ Click: brighter · Right-click: full · Scroll: adjust"
                                  #:on-scroll-down "brightnessctl set 5%-"))))
 
 (define (golden-gate-widgets)
-  "Return the standard macOS Golden Gate desktop-widget collection.
+  "Return the standard Golden Gate desktop-widget collection.
 
-The set Apple ships in its widget gallery that has a native source here:
-Clock, Calendar, Weather, Batteries, Notes, Reminders, World Clock and Stocks.
-They are placed as a starting layout down the left and middle of a 1080p
+The set the gallery carries that has a native source here: Clock, Calendar,
+Weather, Batteries, Notes, Reminders, World Clock, Stocks, Now Playing, Photos,
+Files, News and System.  They are placed as a starting layout across a 1080p
 desktop; every one is an ordinary `(desktop-widget ...)', so a configuration
 can move it, resize it, change its options or leave it out.  Weather defaults
 to San Francisco because the collection is named for the Golden Gate; set its
 latitude, longitude and location to your own.  Stocks default to three US
-tickers and can be replaced with any symbol Yahoo Finance knows."
+tickers and can be replaced with any symbol Yahoo Finance knows.  Photos looks
+in ~/Pictures, Files reads the desktop's own recent-documents list, and News
+says how to point it at a feed until one is configured."
   (list
    (desktop-widget 'clock
                    #:x 32 #:y 64
@@ -344,9 +346,22 @@ tickers and can be replaced with any symbol Yahoo Finance knows."
                    #:options '((cities . "Cupertino=America/Los_Angeles,London=Europe/London,Tokyo=Asia/Tokyo")))
    (desktop-widget 'stocks
                    #:x 632 #:y 536
-                   #:width 300
-                   #:height 220
-                   #:options '((symbols . ("AAPL" "MSFT" "NVDA"))))))
+                   #:width 340
+                   #:height 280
+                   #:options '((symbols . ("AAPL" "MSFT" "NVDA"))))
+   (desktop-widget 'now-playing
+                   #:x 1000 #:y 64)
+   (desktop-widget 'photos
+                   #:x 1360 #:y 64
+                   #:options
+                   `((path . ,(string-append (or (getenv "HOME") "")
+                                             "/Pictures"))))
+   (desktop-widget 'files
+                   #:x 1000 #:y 320)
+   (desktop-widget 'news
+                   #:x 1000 #:y 600)
+   (desktop-widget 'system
+                   #:x 1360 #:y 344)))
 
 (define (default-configuration!)
   "Register the built-in bar and Golden Gate widget set as the fallback."

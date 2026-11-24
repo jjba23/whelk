@@ -127,6 +127,17 @@ pub fn clear() {
     destroy_live();
 }
 
+/// The picture the live surfaces are showing, including one rotation chose.
+/// A caller that wants to step the collection starts from here rather than
+/// from the last value a settings reload happened to write.
+pub fn selected() -> Option<PathBuf> {
+    SESSION.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|session| session.selected.clone())
+    })
+}
+
 pub fn present(application: &gtk::Application, settings: &WallpaperSettings) {
     clear();
 
