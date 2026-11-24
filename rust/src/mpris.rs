@@ -362,10 +362,22 @@ impl Mpris {
             return;
         };
         let weak = Rc::downgrade(&self.inner);
+        // `DBusProxy::call` sends the method on the proxy's own interface, so
+        // passing the Properties interface name there made GDBus ask for a
+        // method literally called `org.freedesktop.DBus.Properties`.  Go
+        // through the connection so the interface and method are separate.
+        let connection = proxy.connection();
+        let object_path = proxy.object_path();
+        let parameters = (PLAYER_INTERFACE, "Position").to_variant();
+        let callback_name = name.clone();
 
-        proxy.call(
+        connection.call(
+            Some(&name),
+            object_path.as_str(),
             PROPERTIES_INTERFACE,
-            Some(&(PLAYER_INTERFACE, "Position").to_variant()),
+            "Get",
+            Some(&parameters),
+            None,
             gio::DBusCallFlags::NONE,
             CALL_TIMEOUT_MS,
             gio::Cancellable::NONE,
@@ -378,7 +390,7 @@ impl Mpris {
                     && let Some((value,)) = reply.get::<(glib::Variant,)>()
                     && let Some(position) = value.get::<i64>()
                 {
-                    inner.borrow_mut().position = Some((name.clone(), position));
+                    inner.borrow_mut().position = Some((callback_name.clone(), position));
                 }
 
                 notify(&inner);
@@ -428,11 +440,10 @@ impl Mpris {
             return;
         };
 
-        let (method, parameters) =
-            match glib::Variant::parse(Some(glib::VariantTy::OBJECT_PATH), &track_id) {
-                Ok(track) => ("SetPosition", (track, position_us).to_variant()),
-                Err(_) => ("Seek", (position_us - current_us).to_variant()),
-            };
+        let (method, parameters) = match glib::variant::ObjectPath::try_from(track_id.as_str()) {
+            Ok(track) => ("SetPosition", (track, position_us).to_variant()),
+            Err(_) => ("Seek", (position_us - current_us).to_variant()),
+        };
 
         self.inner.borrow_mut().position = Some((name, position_us));
         notify(&self.inner);
@@ -443,7 +454,11 @@ impl Mpris {
             gio::DBusCallFlags::NONE,
             CALL_TIMEOUT_MS,
             gio::Cancellable::NONE,
-            |_result| {},
+            move |result| {
+                if let Err(error) = result {
+                    eprintln!("whelk: mpris: {method} failed: {error}");
+                }
+            },
         );
     }
 

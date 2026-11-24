@@ -406,6 +406,7 @@ fn create_surface(
     let view = WhelkWallpaperView::new();
     view.set_fit(settings.fit);
     view.set_ken_burns(settings.ken_burns);
+    view.set_can_target(false);
 
     let window = gtk::ApplicationWindow::builder()
         .application(application)
@@ -413,6 +414,7 @@ fn create_surface(
         .build();
 
     window.add_css_class("whelk-wallpaper-window");
+    window.set_can_target(false);
     window.set_decorated(false);
     window.set_resizable(false);
     window.set_child(Some(&view));
@@ -444,6 +446,22 @@ fn create_surface(
         // tested; it is not meant to replace a desktop background there.
         window.set_default_size(960, 540);
     }
+
+    // A wallpaper is scenery, not a control.  A background layer surface takes
+    // otherwise-unclaimed pointer input by default, which would swallow the
+    // right click meant for the separate desktop surface above/below it.  An
+    // empty input region is the Wayland way to say "clicks pass through".
+    let pass_through = |window: &gtk::ApplicationWindow| {
+        if let Some(surface) = window.surface() {
+            surface.set_input_region(Some(&gtk::cairo::Region::create()));
+        }
+    };
+
+    window.connect_realize(pass_through);
+    // GTK sets the surface's input region from the widget tree when it maps;
+    // clearing it here, after that commit, makes the scenery transparent to
+    // pointer input instead of only on the first frame.
+    window.connect_map(pass_through);
 
     (
         window,

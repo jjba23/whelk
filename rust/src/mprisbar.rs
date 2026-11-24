@@ -116,6 +116,8 @@ pub fn controls_module(module: &ModuleSpec, context: &ModuleContext) -> Option<g
     let play = gtk::Button::with_label("▶");
     let next = gtk::Button::with_label("⏭");
 
+    root.add_css_class("whelk-media-controls");
+
     for (button, tooltip) in [
         (&previous, "Previous track"),
         (&play, "Play or pause"),

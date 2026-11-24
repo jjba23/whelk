@@ -37,13 +37,23 @@ const DEFAULT_TOOLTIP: &str = "whelk";
 const RECENT_LIMIT: usize = 12;
 
 const MENU_CSS: &str = "
-.whelk-start-button {
+.whelk-start-button,
+.whelk-start-button:hover,
+.whelk-start-button:active,
+.whelk-start-button:focus {
   padding: 0;
   min-width: 0;
   min-height: 0;
-  background: transparent;
+  background: none;
+  background-color: transparent;
+  background-image: none;
   border: none;
   box-shadow: none;
+}
+.whelk-start-mark {
+  background: none;
+  background-color: transparent;
+  background-image: none;
 }
 .whelk-start-popover {
   padding: 6px;
@@ -70,6 +80,7 @@ pub fn module(module: &ModuleSpec, context: &ModuleContext) -> Option<gtk::Box> 
     );
 
     let button = gtk::MenuButton::new();
+    button.set_has_frame(false);
     let glyph = module.text("label");
     let tooltip = module
         .text("tooltip")
@@ -126,6 +137,7 @@ fn button_child(glyph: Option<&str>, pixels: i32, context: &ModuleContext) -> gt
     let mark = gtk::DrawingArea::new();
     let ink = context.bar.foreground.clone();
 
+    mark.add_css_class("whelk-start-mark");
     mark.set_size_request(pixels, pixels);
     mark.set_valign(gtk::Align::Center);
     mark.set_draw_func(move |area, cr, width, height| {

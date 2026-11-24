@@ -116,6 +116,25 @@
          (and (equal? (assq-ref (widget-config-options w) 'title) "ok")
               (not (assq-ref (widget-config-options w) 'broken)))))
 
+;; A #f on a plain option means "use the default", but a switch whose name ends
+;; in `?' has #f as a real setting: header? and peaks? both default on, and must
+;; be turnable off from the settings file.
+(check "boolean widget switches keep an explicit #f"
+       (let* ((w (desktop-widget 'visualizer
+                                 #:options '((header? . #f)
+                                             (peaks? . #f)
+                                             (mirror? . #t))))
+              (options (widget-config-options w)))
+         (and (assq 'header? options)
+              (not (cdr (assq 'header? options)))
+              (assq 'peaks? options)
+              (not (cdr (assq 'peaks? options)))
+              (cdr (assq 'mirror? options)))))
+
+(check "a plain #f option still leaves the default alone"
+       (let ((w (desktop-widget 'notes #:options '((title . #f)))))
+         (not (assq 'title (widget-config-options w)))))
+
 (define standard (golden-gate-widgets))
 
 (check "the standard set is the thirteen Golden Gate widgets"

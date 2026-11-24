@@ -49,6 +49,7 @@ const MENU_CSS: &str = "
   padding: 0 4px;
   min-height: 20px;
   min-width: 20px;
+  color: inherit;
 }
 .whelk-desktop-menu-section {
   margin-top: 7px;
@@ -66,6 +67,7 @@ const MENU_CSS: &str = "
   padding: 4px 8px;
   min-height: 28px;
   border-radius: 8px;
+  color: inherit;
 }
 .whelk-desktop-menu-row:hover {
   background-color: alpha(currentColor, 0.08);

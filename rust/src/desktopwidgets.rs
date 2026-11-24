@@ -233,6 +233,7 @@ const CARD_CSS: &str = "
         margin-top: 2px;
     }
     .whelk-widget-player-controls button {
+        color: inherit;
         padding: 2px 10px;
         min-height: 24px;
     }
@@ -281,6 +282,7 @@ const CARD_CSS: &str = "
         background-color: alpha(currentColor, 0.62);
     }
     .whelk-widget-media-controls button {
+        color: inherit;
         font-size: 20px;
         min-width: 42px;
         min-height: 36px;
@@ -2682,6 +2684,43 @@ fn build_media(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sour
 
         gtk::glib::Propagation::Proceed
     });
+
+    // GtkRange only pages the trough on a click, which does nothing when the
+    // page size is zero.  A click on the seek line should land where it was
+    // clicked, the way every other player's seek line behaves.  Observing the
+    // press leaves the scale's own drag gesture in charge of dragging.
+    {
+        let weak_scale = scale.downgrade();
+        let seeker = Rc::clone(&engine);
+        let seeking = Rc::clone(&seeking);
+        let click = gtk::GestureClick::new();
+
+        click.set_button(gtk::gdk::BUTTON_PRIMARY);
+        click.set_propagation_phase(gtk::PropagationPhase::Capture);
+        click.connect_pressed(move |_, _, x, _| {
+            let Some(scale) = weak_scale.upgrade() else {
+                return;
+            };
+            let width = f64::from(scale.width());
+            let upper = scale.adjustment().upper();
+
+            if width <= 0.0 || upper <= 0.0 {
+                return;
+            }
+
+            let value = (x / width).clamp(0.0, 1.0) * upper;
+
+            seeking.set(true);
+            scale.set_value(value);
+            seeker.seek_to(value as i64);
+
+            let settled = Rc::clone(&seeking);
+            gtk::glib::timeout_add_local_once(Duration::from_millis(200), move || {
+                settled.set(false);
+            });
+        });
+        scale.add_controller(click);
+    }
 
     let interval = config.interval();
     let polled = Rc::clone(&engine);

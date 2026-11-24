@@ -2072,6 +2072,7 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
             opacity: 0.38;
         }
         .whelk-media-controls button {
+            color: inherit;
             padding: 0 3px;
             min-width: 20px;
             min-height: 20px;

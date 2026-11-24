@@ -145,7 +145,7 @@ way to make it a bare spectrum on the wallpaper is:
                   #:options '((transparent? . #t)
                               (header? . #f)
                               (bars . 48)
-                              (mirror . #f)))
+                              (mirror? . #f)))
 #+end_src
 
 =transparent?= drops the card's own plate but keeps its content inset, and

@@ -272,24 +272,31 @@
          'custom)))
 
 (define (normalize-widget-options options)
-  "Return OPTIONS as a clean alist of symbol keys and non-#f values.
+  "Return OPTIONS as a clean alist of symbol keys and values.
 
 An option with a #f value means \"leave it to the widget's own default\", the
-same convention (whelk modules) uses.  A malformed pair is dropped instead of
-reaching C as a shape it cannot read."
+same convention (whelk modules) uses.  A switch whose name ends in `?' is the
+exception: #f is a value there, so `(header? . #f)' can turn a header off and
+`(peaks? . #f)' can drop the visualizer's caps.  A malformed pair is dropped
+instead of reaching C as a shape it cannot read."
   (define (key key)
     (cond ((symbol? key) key)
           ((string? key) (string->symbol key))
           ((keyword? key) (keyword->symbol key))
           (else #f)))
+  (define (switch? key)
+    (let ((name (symbol->string key)))
+      (and (> (string-length name) 0)
+           (char=? #\? (string-ref name (1- (string-length name)))))))
   (if (not (list? options))
       '()
       (filter-map
        (lambda (pair)
-         (and (pair? pair)
-              (key (car pair))
-              (not (eq? (cdr pair) #f))
-              (cons (key (car pair)) (cdr pair))))
+         (let ((key (and (pair? pair) (key (car pair)))))
+           (and key
+                (or (not (eq? (cdr pair) #f))
+                    (switch? key))
+                (cons key (cdr pair)))))
        options)))
 
 (define* (desktop-widget kind #:key

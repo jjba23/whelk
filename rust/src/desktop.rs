@@ -55,6 +55,12 @@ pub fn present(application: &gtk::Application, monitors: &[gtk::gdk::Monitor]) -
     surfaces
 }
 
+fn first_monitor() -> Option<gtk::gdk::Monitor> {
+    gtk::gdk::Display::default()
+        .and_then(|display| display.monitors().item(0))
+        .and_downcast::<gtk::gdk::Monitor>()
+}
+
 fn surface(
     application: &gtk::Application,
     monitor: Option<&gtk::gdk::Monitor>,
@@ -65,11 +71,16 @@ fn surface(
         .build();
     // The same skin every surface wears, which is transparent: the wallpaper is
     // its own surface underneath.
-    let area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let area = gtk::DrawingArea::new();
+
+    area.set_draw_func(|_, cr, _, _| {
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.0);
+        let _ = cr.paint();
+    });
 
     window.add_css_class("whelk-surface");
     window.set_decorated(false);
-    window.set_resizable(true);
+    window.set_resizable(false);
     area.set_hexpand(true);
     area.set_vexpand(true);
     window.set_child(Some(&area));
@@ -88,12 +99,28 @@ fn surface(
         window.set_monitor(Some(monitor));
     }
 
+    // A layer surface anchored on every edge is still only as large as the
+    // size it asks for, and a transparent surface asks for almost nothing.
+    // Without this the desktop never covers the output, so its gestures never
+    // see the click; the wallpaper helper gives the same answer for the
+    // background.
+    let (width, height) = crate::wallpaper_surface::surface_size(monitor);
+    window.set_default_size(width, height);
+    area.set_content_width(width);
+    area.set_content_height(height);
+    area.set_size_request(width, height);
+
     let right = gtk::GestureClick::new();
     let menu_monitor = monitor.cloned();
 
     right.set_button(gtk::gdk::BUTTON_SECONDARY);
     right.connect_pressed(move |gesture, _, x, y| {
-        let Some(monitor) = menu_monitor.clone() else {
+        // A GDK display can report its monitor list a moment after the first
+        // surface is built.  A right click on a surface that was made without
+        // a monitor still deserves the menu, so resolve the output now rather
+        // than throwing the click away.
+        let monitor = menu_monitor.clone().or_else(first_monitor);
+        let Some(monitor) = monitor else {
             return;
         };
 
@@ -106,7 +133,7 @@ fn surface(
             menu.show_at_point(&monitor, (x as i32, y as i32));
         }
     });
-    area.add_controller(right);
+    window.add_controller(right);
 
     // Any other click on the desktop is a click *away* from the menu, and the
     // menu is not a popover that could dismiss itself: the surface is the card.
@@ -118,7 +145,7 @@ fn surface(
         desktopmenu::hide_current();
         wallpapermenu::hide_current();
     });
-    area.add_controller(away);
+    window.add_controller(away);
 
     window.present();
 
