@@ -11,6 +11,45 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Released]
 
+** v0.52.1 (2026-11-24)
+
+*** Fixed
+
+- *The empty desktop answers a right click again.*  The desktop layer now asks
+  for its output's size and paints through a drawing area, so its gestures
+  cover the output instead of a one-pixel surface.  The wallpaper layer also
+  clears its input region, so it cannot swallow the click meant for the
+  desktop, and a surface built before the monitor list settled resolves the
+  output when the click arrives.
+- *The start button is transparent.*  `GtkMenuButton` was painting its own
+  frame behind the whelk mark; the button now drops the frame and its CSS
+  clears the background, image and focus ring, leaving only the mark on the
+  bar.
+- *Media cards keep time with their player.*  Position polling asked for
+  `Position` on the player interface instead of through
+  `org.freedesktop.DBus.Properties.Get`, so every poll failed with
+  `UnknownMethod` and the elapsed time sat at 0:00.  It now goes through the
+  connection with the interface and method named separately.
+- *Clicking a media card's seek line seeks.*  The scale only paged its trough,
+  which does nothing at a zero page size; a press now lands at the clicked
+  point, and `SetPosition` sends its track id as an object path instead of a
+  variant, which the player can accept.
+- *Explicit `#f` widget switches survive settings.*  `header? #f`,
+  `peaks? #f` and every other option whose name ends in `?` now keep their
+  false value instead of being dropped as if unset.
+- *The desktop menu is legible.*  Its rows and close button inherit the card's
+  ink instead of the theme's button colour, and the media and player
+  transport glyphs do the same.
+
+*** Verified
+
+- Exercised in a nested Sway session: the visualizer with live cava input,
+  mirrored and headerless/transparent variants, two media cards with local
+  artwork and a mock MPRIS player, the bar transport applet, long titles,
+  elapsed-time polling, seeking, and the desktop menu's rows, toggles and
+  Escape dismissal.  The Rust suite, the Scheme suite, `clippy`, `fmt` and the
+  CSS goldens pass.
+
 ** v0.52.0 (2026-11-24)
 
 *** Added
