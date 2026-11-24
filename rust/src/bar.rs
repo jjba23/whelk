@@ -39,6 +39,11 @@ impl Edge {
             Self::Right => "right",
         }
     }
+
+    /// A left or right bar runs down the output; the other two run across it.
+    pub fn is_vertical(self) -> bool {
+        matches!(self, Self::Left | Self::Right)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,6 +351,11 @@ impl Default for BarSettings {
 }
 
 impl BarSettings {
+    /// Whether this bar is laid out down a side of the output.
+    pub fn is_vertical(&self) -> bool {
+        self.edge.is_vertical()
+    }
+
     pub fn from_alist(alist: &[(String, SchemeValue)]) -> Self {
         let mut bar = Self::default();
 

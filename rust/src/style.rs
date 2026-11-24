@@ -36,6 +36,31 @@ pub fn widget_id(name: &str) -> String {
     id
 }
 
+/// The CSS ids for a whole configuration, in bar order.
+///
+/// A name is the bar's identity in logs and presets, but CSS ids have to be
+/// unique: two bars that share a name would otherwise share one rule set and
+/// the second one's material would paint both.  The first `main` keeps
+/// `whelk-main`; a second `main` gets `whelk-main-2`.
+pub fn unique_widget_ids(bars: &[BarSettings]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::with_capacity(bars.len());
+
+    for bar in bars {
+        let base = widget_id(&bar.name);
+        let mut id = base.clone();
+        let mut suffix = 2;
+
+        while ids.contains(&id) {
+            id = format!("{base}-{suffix}");
+            suffix += 1;
+        }
+
+        ids.push(id);
+    }
+
+    ids
+}
+
 /// The least opaque a floating surface may be.
 ///
 /// A bar is a 32px strip the compositor can blur; a menu, panel or launcher is
@@ -97,13 +122,22 @@ pub fn css(
         // was whatever `#:spacing` said, and the tray, workspace and folded
         // controls each added a little of their own on top.
         let pad = module_padding(bar.spacing);
+        // A horizontal bar is inset from its left and right ends; a vertical
+        // one from its top and bottom.  The box's own spacing already follows
+        // the orientation, so the skin has to follow it too or a vertical bar
+        // would keep all of its breathing room on the wrong axis.
+        let (bar_inset, module_inset) = if bar.is_vertical() {
+            (format!("{}px 0", bar.padding), format!("{pad}px 0"))
+        } else {
+            (format!("0 {}px", bar.padding), format!("0 {pad}px"))
+        };
 
-        let _ = writeln!(output, "{root} {{ padding: 0 {}px; }}", bar.padding);
+        let _ = writeln!(output, "{root} {{ padding: {bar_inset}; }}");
         let _ = writeln!(
             output,
             "window#{widget_id} .whelk-module,\n\
              window#{widget_id} .whelk-overflow-toggle,\n\
-             window#{widget_id} .whelk-overflow-more {{\n  padding: 0 {pad}px;\n}}"
+             window#{widget_id} .whelk-overflow-more {{\n  padding: {module_inset};\n}}"
         );
     }
 

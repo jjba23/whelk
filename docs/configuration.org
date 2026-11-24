@@ -106,6 +106,46 @@ A configuration is one call:
          #:right  (list (cpu-module) (clock-module)))))
 #+end_src
 
+* Several bars at once
+:PROPERTIES:
+:CUSTOM_ID: several-bars
+:END:
+
+=#:bars= takes a list, not one bar.  Every selected bar becomes its own
+layer-shell surface, with its own modules, material and monitor rule:
+
+#+begin_src scheme
+  (configure-shell!
+   #:bars
+   (list
+    (bar #:name 'top #:position 'top #:height 30
+         #:left (list (start-module))
+         #:right (list (clock-module)))
+    (bar #:name 'bottom #:position 'bottom #:height 26
+         #:right (list (tray-module)))
+    (bar #:name 'side #:position 'left #:height 44
+         #:left (list (start-module) (workspaces-module))
+         #:right (list (clock-module)))))
+#+end_src
+
+Bars on different edges do not interfere.  Bars on the *same* edge and output
+are separate surfaces; with the default =#:exclusive? #t= the compositor lays
+each one after the space the earlier bars reserved, so two top bars have two
+rows rather than one drawing over the other.  An explicit =#:margin= still adds
+the gap or inset the bar asks for.  A bar that should float over another one,
+rather than reserve a row, sets =#:exclusive? #f=.
+
+A vertical bar is a real column.  Its =#:height= is its width, =#:left= is the
+top group, =#:center= the middle group and =#:right= the bottom group.  The
+surface widens when a reading needs more room, and the exclusive zone reserves
+that painted width rather than the configured minimum.  =#:padding= and the
+module inset follow the same orientation, so a vertical bar breathes at its top
+and bottom instead of leaving its spacing on an unused horizontal axis.
+
+Bars that share a =#:name= still get distinct CSS ids: the first keeps
+=whelk-main=, the next becomes =whelk-main-2=.  Giving every bar a name is still
+recommended because it is the label in =--check-config= and the settings file.
+
 * The bar keys
 :PROPERTIES:
 :CUSTOM_ID: bar-keys

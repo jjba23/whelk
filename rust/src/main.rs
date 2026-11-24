@@ -184,6 +184,8 @@ fn run() -> Result<ExitCode, String> {
 /// bar, under a comment naming what it belongs to.  It is the same output
 /// `ui::install_css` loads, minus the structural rules the shell compiles in.
 fn print_css(bars: &[BarSettings]) {
+    let widget_ids = style::unique_widget_ids(bars);
+
     for (index, bar) in bars.iter().enumerate() {
         if index > 0 {
             println!();
@@ -197,12 +199,7 @@ fn print_css(bars: &[BarSettings]) {
         );
         print!(
             "{}",
-            style::css(
-                &style::widget_id(&bar.name),
-                bar,
-                "whelk-bar",
-                bar.css.as_deref()
-            )
+            style::css(&widget_ids[index], bar, "whelk-bar", bar.css.as_deref())
         );
     }
 }

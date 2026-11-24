@@ -761,6 +761,7 @@ impl Shell {
 
         let (monitors, connectors) = monitor_snapshot();
         let placements = plan_bars(&self.loaded.bars, &connectors);
+        let widget_ids = style::unique_widget_ids(&self.loaded.bars);
         let mut built = 0;
 
         for placement in placements {
@@ -768,11 +769,16 @@ impl Shell {
                 continue;
             };
             let monitor = placement_monitor(&placement, &monitors);
+            let widget_id = widget_ids
+                .get(placement.bar_index)
+                .map(String::as_str)
+                .unwrap_or("whelk-main");
 
             self.bars.push(build_bar_window(
                 &application,
                 bar_settings,
                 monitor,
+                widget_id,
                 &self.config_label,
                 &self.loaded.menu,
                 &self.loaded.menu_sources,
@@ -1093,18 +1099,24 @@ fn build_bar_window(
     application: &gtk::Application,
     bar_settings: &BarSettings,
     monitor: Option<&gtk::gdk::Monitor>,
+    widget_id: &str,
     config_label: &str,
     shell_menu: &[MenuEntry],
     menu_sources: &Rc<MenuSources>,
     session: Session,
 ) -> BarWindow {
-    let widget_id = style::widget_id(&bar_settings.name);
+    let vertical = bar_settings.is_vertical();
+    let orientation = if vertical {
+        gtk::Orientation::Vertical
+    } else {
+        gtk::Orientation::Horizontal
+    };
     let window = gtk::ApplicationWindow::builder()
         .application(application)
         .title("whelk")
         .build();
 
-    window.set_widget_name(&widget_id);
+    window.set_widget_name(widget_id);
     window.add_css_class("whelk-surface");
     window.set_decorated(false);
     // A layer surface is sized by the compositor -- an exclusive zone, a scale
@@ -1114,18 +1126,45 @@ fn build_bar_window(
 
     let bar = gtk::CenterBox::new();
     bar.add_css_class("whelk-bar");
-    bar.set_size_request(-1, bar_settings.height);
+    bar.set_orientation(orientation);
+    // The configured thickness is a height for a horizontal bar and a width
+    // for a vertical one.  A vertical bar asks for at least that width and lets
+    // its widest reading widen it; the surface's exclusive zone is measured
+    // from the same content below.
+    bar.set_size_request(
+        if vertical {
+            bar_settings.height.max(1)
+        } else {
+            -1
+        },
+        if vertical {
+            -1
+        } else {
+            bar_settings.height.max(1)
+        },
+    );
     // The name label that used to open the left row is gone; the settings file
     // it named is still a hover away, on the bar's own gaps.
     bar.set_tooltip_text(Some(config_label));
 
-    let start = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
-    let center = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
-    let end = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
+    let spacing = bar_settings.spacing.max(0);
+    let start = gtk::Box::new(orientation, spacing);
+    let center = gtk::Box::new(orientation, spacing);
+    let end = gtk::Box::new(orientation, spacing);
 
     start.add_css_class("whelk-start");
     center.add_css_class("whelk-center");
     end.add_css_class("whelk-end");
+
+    if vertical {
+        // A vertical CenterBox stretches each section across the bar's width
+        // by default.  Centring the section keeps a short reading in a narrow
+        // column instead of giving it the widest reading's width and leaving
+        // an empty gutter on one side.
+        start.set_halign(gtk::Align::Center);
+        center.set_halign(gtk::Align::Center);
+        end.set_halign(gtk::Align::Center);
+    }
 
     let mut context = ModuleContext::from_bar(bar_settings, session);
 
@@ -1193,8 +1232,8 @@ fn build_bar_window(
         None
     };
 
-    let overflow = append_overflow(&end, bar_settings, &context);
-    let more = build_folded_shelf(&end);
+    let overflow = append_overflow(&end, bar_settings, &context, vertical);
+    let more = build_folded_shelf(&end, vertical);
 
     bar.set_start_widget(Some(&start));
     bar.set_center_widget(Some(&center));
@@ -1202,14 +1241,25 @@ fn build_bar_window(
     window.set_child(Some(&bar));
     build_bar_context_menu(application, &bar, &start, &center, &end);
 
-    let css = install_css(bar_settings);
+    let css = install_css(bar_settings, widget_id);
 
     if layer_shell_available() {
-        configure_layer_shell(&window, bar_settings, monitor);
+        configure_layer_shell(&window, bar_settings, &bar, monitor);
     } else {
         // Broadway and a plain X11 test display have no layer shell.  A normal
         // window is still a useful smoke test for the widget tree.
-        window.set_default_size(720, bar_settings.height.max(32));
+        window.set_default_size(
+            if vertical {
+                bar_settings.height.max(32)
+            } else {
+                720
+            },
+            if vertical {
+                720
+            } else {
+                bar_settings.height.max(32)
+            },
+        );
     }
 
     if bar_settings.keyboard {
@@ -1230,6 +1280,7 @@ fn build_bar_window(
             readings,
             spacing: bar_settings.spacing,
             padding: bar_settings.padding,
+            vertical,
         },
         &window,
     );
@@ -1541,6 +1592,7 @@ fn idle() -> Option<Idle> {
 fn configure_layer_shell(
     window: &gtk::ApplicationWindow,
     bar: &BarSettings,
+    content: &gtk::CenterBox,
     monitor: Option<&gtk::gdk::Monitor>,
 ) {
     window.init_layer_shell();
@@ -1566,7 +1618,13 @@ fn configure_layer_shell(
     window.set_margin(Edge::Right, bar.margin_right);
     window.set_margin(Edge::Bottom, bar.margin_bottom);
     window.set_margin(Edge::Left, bar.margin_left);
-    window.set_exclusive_zone(if bar.exclusive { bar.height } else { -1 });
+    // A horizontal bar reserves its height; a vertical one reserves the width
+    // its readings actually need, which may be more than `#:height`.
+    window.set_exclusive_zone(if bar.exclusive {
+        bar_thickness(bar, content)
+    } else {
+        -1
+    });
     // A bar is not a keyboard surface unless its configuration asks for one:
     // on-demand keeps the compositor's focus on the window the reader is in
     // until they click the bar.
@@ -1584,14 +1642,28 @@ fn configure_layer_shell(
     // layer client asks for one.  Without this, an anchored surface is only as
     // large as its content -- a bar as wide as its modules -- while the
     // compositor happily anchors that small window.
-    apply_surface_size(window, bar, monitor);
+    apply_surface_size(window, bar, content, monitor);
+}
+
+/// The cross-axis pixels one bar occupies: its configured height on a
+/// horizontal bar, or the width its widest reading asks for on a vertical one.
+fn bar_thickness(bar: &BarSettings, content: &gtk::CenterBox) -> i32 {
+    if !bar.is_vertical() {
+        return bar.height.max(1);
+    }
+
+    let (_, natural, _, _) = content.measure(gtk::Orientation::Horizontal, -1);
+
+    natural.max(bar.height).max(1)
 }
 
 /// Ask for the size the anchors imply: a horizontal bar spans its output's
-/// width, a vertical one its height, and the other axis keeps its natural size.
+/// width, a vertical one its height, and the other axis is the thickness the
+/// bar paints.
 fn apply_surface_size(
     window: &gtk::ApplicationWindow,
     bar: &BarSettings,
+    content: &gtk::CenterBox,
     monitor: Option<&gtk::gdk::Monitor>,
 ) {
     let fallback = gtk::gdk::Display::default()
@@ -1606,12 +1678,13 @@ fn apply_surface_size(
         BarEdge::Top | BarEdge::Bottom => {
             (geometry.width() - bar.margin_left - bar.margin_right, -1)
         }
-        BarEdge::Left | BarEdge::Right => {
-            (-1, geometry.height() - bar.margin_top - bar.margin_bottom)
-        }
+        BarEdge::Left | BarEdge::Right => (
+            bar_thickness(bar, content),
+            geometry.height() - bar.margin_top - bar.margin_bottom,
+        ),
     };
 
-    window.set_default_size(width.max(1), height);
+    window.set_default_size(width.max(1), if height < 0 { -1 } else { height.max(1) });
 }
 
 pub(crate) fn edge_for(edge: BarEdge) -> Edge {
@@ -1675,32 +1748,51 @@ fn append_overflow(
     end: &gtk::Box,
     bar_settings: &BarSettings,
     context: &ModuleContext,
+    vertical: bool,
 ) -> Option<OverflowRow> {
     if bar_settings.overflow.is_empty() {
         return None;
     }
 
     let expanded = bar_settings.overflow_expanded;
-    let overflow = gtk::Box::new(gtk::Orientation::Horizontal, bar_settings.spacing.max(0));
+    let orientation = if vertical {
+        gtk::Orientation::Vertical
+    } else {
+        gtk::Orientation::Horizontal
+    };
+    let overflow = gtk::Box::new(orientation, bar_settings.spacing.max(0));
     overflow.add_css_class("whelk-overflow");
-    overflow.set_valign(gtk::Align::Center);
+
+    if vertical {
+        overflow.set_halign(gtk::Align::Center);
+    } else {
+        overflow.set_valign(gtk::Align::Center);
+    }
+
     append_modules(&overflow, &bar_settings.overflow, context);
 
+    let (closed_icon, open_icon) = if vertical {
+        ("pan-up-symbolic", "pan-down-symbolic")
+    } else {
+        ("pan-start-symbolic", "pan-end-symbolic")
+    };
     let toggle = gtk::ToggleButton::new();
-    let icon = gtk::Image::from_icon_name("pan-start-symbolic");
+    let icon = gtk::Image::from_icon_name(closed_icon);
 
     icon.set_pixel_size(16);
     toggle.set_child(Some(&icon));
     toggle.add_css_class("flat");
     toggle.add_css_class("whelk-overflow-toggle");
-    toggle.set_valign(gtk::Align::Center);
+
+    if vertical {
+        toggle.set_halign(gtk::Align::Center);
+    } else {
+        toggle.set_valign(gtk::Align::Center);
+    }
+
     toggle.set_active(expanded);
     overflow.set_visible(expanded);
-    icon.set_icon_name(Some(if expanded {
-        "pan-end-symbolic"
-    } else {
-        "pan-start-symbolic"
-    }));
+    icon.set_icon_name(Some(if expanded { open_icon } else { closed_icon }));
     toggle.set_tooltip_text(Some(if expanded {
         "Extra items · click to hide"
     } else {
@@ -1715,11 +1807,7 @@ fn append_overflow(
 
         overflow_for_toggle.set_visible(expanded);
         save_shelf_state(expanded);
-        icon_for_toggle.set_icon_name(Some(if expanded {
-            "pan-end-symbolic"
-        } else {
-            "pan-start-symbolic"
-        }));
+        icon_for_toggle.set_icon_name(Some(if expanded { open_icon } else { closed_icon }));
         button.set_tooltip_text(Some(if expanded {
             "Extra items · click to hide"
         } else {
@@ -1749,7 +1837,7 @@ struct FoldedShelf {
 
 /// The `+N` shelf at the end of the right row.  Its popover is built now and
 /// filled only when the first allocation proves that readings do not fit.
-fn build_folded_shelf(end: &gtk::Box) -> FoldedShelf {
+fn build_folded_shelf(end: &gtk::Box, vertical: bool) -> FoldedShelf {
     let shelf = gtk::Box::new(gtk::Orientation::Vertical, 4);
 
     shelf.add_css_class("whelk-overflow-box");
@@ -1770,6 +1858,11 @@ fn build_folded_shelf(end: &gtk::Box) -> FoldedShelf {
     button.set_tooltip_text(Some("Readings that did not fit"));
     button.set_popover(Some(&popover));
     button.set_visible(false);
+
+    if vertical {
+        button.set_halign(gtk::Align::Center);
+    }
+
     crate::barmodule::attach_exclusive_popover(&button, &popover);
     end.append(&button);
 
@@ -1791,6 +1884,7 @@ struct FoldState {
     readings: Vec<(gtk::Widget, i32)>,
     spacing: i32,
     padding: i32,
+    vertical: bool,
 }
 
 /// Fold the right row, and fold it again whenever the bar is handed a new size.
@@ -1820,62 +1914,76 @@ fn fold_after_map(state: FoldState, window: &gtk::ApplicationWindow) {
         });
     });
 
-    // `GdkSurface:width` is the allocation the compositor gave the surface,
-    // which is what a fold has to fit into.
+    // `GdkSurface:width` (or height, for a vertical bar) is the allocation the
+    // compositor gave the surface, which is what a fold has to fit into.
     if let Some(surface) = window.surface() {
         let state = Rc::clone(&state);
 
-        surface.connect_width_notify(move |_| {
-            collapse_end(&state);
-        });
+        if state.vertical {
+            surface.connect_height_notify(move |_| {
+                collapse_end(&state);
+            });
+        } else {
+            surface.connect_width_notify(move |_| {
+                collapse_end(&state);
+            });
+        }
     }
 }
 
-fn widget_width(widget: &gtk::Widget) -> i32 {
+fn widget_extent(widget: &gtk::Widget, vertical: bool) -> i32 {
     if !widget.is_visible() {
         return 0;
     }
 
-    let width = widget.width();
+    let (extent, axis) = if vertical {
+        (widget.height(), gtk::Orientation::Vertical)
+    } else {
+        (widget.width(), gtk::Orientation::Horizontal)
+    };
 
-    if width > 0 {
-        return width;
+    if extent > 0 {
+        return extent;
     }
 
-    let (_, natural, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
+    let (_, natural, _, _) = widget.measure(axis, -1);
 
     natural.max(0)
 }
 
-fn reading_width(widget: &gtk::Widget) -> i32 {
-    let width = widget_width(widget);
+fn reading_extent(widget: &gtk::Widget, vertical: bool) -> i32 {
+    let extent = widget_extent(widget, vertical);
 
-    if width > 0 { width } else { 24 }
+    if extent > 0 { extent } else { 24 }
 }
 
 fn collapse_end(state: &FoldState) {
-    let root_width = state.bar.width();
+    let root_extent = if state.vertical {
+        state.bar.height()
+    } else {
+        state.bar.width()
+    };
 
     // No allocation yet: leave the row alone rather than hiding everything.
-    if root_width <= 1 || state.readings.is_empty() {
+    if root_extent <= 1 || state.readings.is_empty() {
         return;
     }
 
-    let mut used_by_others = widget_width(state.start.upcast_ref::<gtk::Widget>())
-        + widget_width(state.center.upcast_ref::<gtk::Widget>())
+    let mut used_by_others = widget_extent(state.start.upcast_ref::<gtk::Widget>(), state.vertical)
+        + widget_extent(state.center.upcast_ref::<gtk::Widget>(), state.vertical)
         + 2 * state.padding.max(0);
 
     if let Some(overflow) = &state.overflow {
-        used_by_others += widget_width(overflow.shelf.upcast_ref::<gtk::Widget>())
-            + widget_width(overflow.toggle.upcast_ref::<gtk::Widget>());
+        used_by_others += widget_extent(overflow.shelf.upcast_ref::<gtk::Widget>(), state.vertical)
+            + widget_extent(overflow.toggle.upcast_ref::<gtk::Widget>(), state.vertical);
     }
 
-    let available = (root_width - used_by_others - 16).max(0);
+    let available = (root_extent - used_by_others - 16).max(0);
     let readings: Vec<crate::bar::Reading> = state
         .readings
         .iter()
         .map(|(widget, priority)| crate::bar::Reading {
-            width: reading_width(widget),
+            width: reading_extent(widget, state.vertical),
             priority: *priority,
         })
         .collect();
@@ -2022,9 +2130,8 @@ fn update_clock(label: &gtk::Label, format: &str) {
     label.set_text(&text);
 }
 
-fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
+fn install_css(bar: &BarSettings, widget_id: &str) -> Option<gtk::CssProvider> {
     let display = gtk::gdk::Display::default()?;
-    let widget_id = style::widget_id(&bar.name);
     let base = "
         .whelk-surface {
             background-color: transparent;
@@ -2079,7 +2186,7 @@ fn install_css(bar: &BarSettings) -> Option<gtk::CssProvider> {
             font-size: 14px;
         }
         ";
-    let generated = style::css(&widget_id, bar, "whelk-bar", bar.css.as_deref());
+    let generated = style::css(widget_id, bar, "whelk-bar", bar.css.as_deref());
     let css = gtk::CssProvider::new();
 
     css.load_from_string(&format!("{base}\n{generated}"));

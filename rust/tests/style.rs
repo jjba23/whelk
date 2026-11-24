@@ -18,6 +18,21 @@ fn widget_ids_are_css_safe() {
 }
 
 #[test]
+fn bars_that_share_a_name_still_get_distinct_ids() {
+    let first = BarSettings::default();
+    let second = BarSettings::default();
+    let named = BarSettings {
+        name: "dock".to_owned(),
+        ..BarSettings::default()
+    };
+
+    assert_eq!(
+        style::unique_widget_ids(&[first, second, named]),
+        vec!["whelk-main", "whelk-main-2", "whelk-dock"]
+    );
+}
+
+#[test]
 fn solid_colours_are_raised_to_a_readable_floor() {
     assert_eq!(style::solid(None), None);
     assert_eq!(style::solid(Some("")), None);
@@ -114,6 +129,23 @@ fn the_generated_material_matches_the_c_layout() {
     near_color(
         &css,
         "/* The configuration's own rules */\n.custom { color: red; }",
+    );
+}
+
+#[test]
+fn a_vertical_bar_pads_on_the_vertical_axis() {
+    let bar = BarSettings {
+        edge: whelk_rs::bar::Edge::Left,
+        padding: 12,
+        spacing: 8,
+        ..BarSettings::default()
+    };
+    let css = style::css("whelk-left", &bar, "whelk-bar", None);
+
+    near_color(&css, "window#whelk-left .whelk-bar { padding: 12px 0; }");
+    near_color(
+        &css,
+        "window#whelk-left .whelk-overflow-more {\n  padding: 4px 0;\n}",
     );
 }
 
