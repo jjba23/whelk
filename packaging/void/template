@@ -12,7 +12,7 @@
 # Copy this directory to void-packages/srcpkgs/whelk and run `xgensum -i whelk`
 # to fill the checksum of the release tarball, then `./xbps-src pkg whelk`.
 pkgname=whelk
-version=0.53.0
+version=0.53.1
 revision=1
 build_style=void
 hostmakedepends="cargo pkg-config"

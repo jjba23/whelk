@@ -1,3 +1,11 @@
+whelk (0.53.1-1) unstable; urgency=medium
+
+  * Pin the Guix channel that carries guile-dokgen 0.12.0, so the published API
+    reference folds the source behind each definition into a panel a reader
+    opens and reads on a quieter page with translucent surfaces.
+
+ -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 26 Nov 2026 12:00:00 +0100
+
 whelk (0.53.0-1) unstable; urgency=medium
 
   * Render several configured bars at once, with two top bars occupying
