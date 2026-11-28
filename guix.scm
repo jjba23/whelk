@@ -36,6 +36,7 @@
     (build-system cargo-build-system)
     (arguments
      '(#:cargo-package-crates '("whelk-rs")
+       #:install-source? #f
        ;; The ordinary test phase runs both the Rust tests and the retained
        ;; Guile suite.  The lock screen's PAM conversation is a deployment
        ;; check, not a sandbox one.
