@@ -17,7 +17,6 @@
              (gnu packages glib)
              (gnu packages gtk)
              (gnu packages guile)
-             (gnu packages linux)
              (gnu packages pkg-config)
              (gnu packages xorg))
 
@@ -94,7 +93,6 @@
       (list gtk
             gtk4-layer-shell
             guile-3.0
-            linux-pam
             wayland
             ;; Called by name at run time; found by the wrap phase below, and
             ;; propagated as well so a profile carries them for scripts.

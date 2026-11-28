@@ -279,42 +279,22 @@ flowchart TD
     G -->|no| I["the last place it was seen,<br/>clamped into the screen that is left"]
 #+end_src
 
-* The widget data
-:PROPERTIES:
-:CUSTOM_ID: widgets-rust
-:END:
+* The widget engine
 
-The Rust desktop-widget surfaces read and draw the same descriptions.
-=rust/src/widgets.rs= is the data behind them: the sixteen kinds and their
-standard sizes, the position/size/monitor defaults and clamps, the mouse
-vocabulary and per-kind refresh cadence, the reminders model whose done flags
-are runtime state, world-clock city parsing, the Open-Meteo/Yahoo/RSS-Atom
-answer decoding, the calendar's Monday-first month grid and ISO week numbers, a
-note's file-or-text rule, the photo folder walk, the recent-documents XBEL
-reader, the system's =/proc= readers, the stock sparkline arithmetic, and the
-drag/placement arithmetic (snap to the 8 px grid, clamp into the monitor, a
-saved position winning over the settings file).  =rust/src/widgetstate.rs= is the
-=widgets-<settings-stem>.ini= file the shell writes and reads, so a drag is
-remembered across restarts; =Guile::load_widgets= reads
-=shell-widgets->alists= into the same typed configs.  The =scheme= bar
-module is Rust as well: =rust/src/schemebar.rs= calls =#:update= through
-=rust/src/guile/widget.rs=, which registers the =whelk-widget-*= primitives in
-=(whelk core)= and swaps the returned widget into the bar each refresh.
+The cards live in their own project, the separate *bibelot* project, written in Rust and GNU Guile
+Scheme.  Whelk still owns the settings language: =(desktop-widget ...)= and
+=(shell-widgets->alists)= in =(whelk state)= describe each card, and
+=Guile::load_widgets= hands those descriptions to the widget crate.  The shell
+then supplies the first bar's palette, the frosted-glass finish and the
+application, and =bibelot::Widgets= draws, animates, drags and persists the
+cards.
 
-The cards are drawn by =rust/src/desktopwidgets.rs=: one bottom-layer surface per
-configured widget, anchored at its saved or configured place, skinned from the
-first bar's palette, moved by its grip (snapped to the grid and clamped into
-the monitor), with a timer per kind, a second tick on Weather, Stocks and News
-that only re-reads their age, and one asynchronous request at a time for each of
-them.  The card CSS is installed once for the display instead of once per card;
-a clock with no seconds and no analog face wakes four times rarer than one that
-shows them; a note is re-read only when its file's mtime moved; a calendar or a
-label that would draw the same words again is left alone.  A card that goes
-away drops its timer, its skin and its surface, and an answer that arrives late
-paints nothing.  The manager is rebuilt with the bars when the configuration,
-the material or the outputs changed, and otherwise keeps the cards it has; the
-same =widgets-<stem>.ini= means a drag survives a restart and is honoured when
-the settings describe the same card.
+The card's structural theme lives in the widget project too.  Its
+=scheme/bibelot/theme.scm= module carries =card-padding=, =card-gap= and
+=extra-css=; whelk loads it through the same Guile runtime and passes the
+result to the card manager.  A =$XDG_CONFIG_HOME/bibelot/theme.scm= file (or
+the path in =BIBELOT_THEME=) is evaluated inside that module and can call
+=configure-widgets!=; a file that raises is reported and the defaults are used.
 
 The right-click menu has one pure half and one GTK half:
 =rust/src/desktopmenu.rs= builds =sections()= -- the rows, their labels, their

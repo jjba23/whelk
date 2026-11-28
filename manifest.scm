@@ -42,12 +42,6 @@
                           ;; The notification and AT-SPI tests spawn a
                           ;; private dbus-daemon.  Without it those tests skip.
                           dbus
-                          ;; The locker's headers are a build requirement: a
-                          ;; build without them could only ship a lock screen
-                          ;; that never authenticates.  The library itself is
-                          ;; opened with dlopen at run time, so linux-pam is a
-                          ;; build-time input here, not a linked one.
-                          linux-pam
                           ;; whelk types menu shortcuts with wtype on Wayland;
                           ;; the dev shell should have it just like the package.
                           wtype

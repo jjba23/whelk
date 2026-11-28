@@ -349,9 +349,6 @@ binary, with the same configuration language, data files and application id.
 - `src/trayicon.rs` — a tray item's own icon directory: absolute theme paths
   only, no name that escapes the directory, and precedence for an exact name,
   PNG, SVG and XPM.
-- `src/lockpolicy.rs` — the C locker's throttling policy: the doubling
-  retry delay with its 30-second cap and the one authoritative
-  "may this attempt be submitted" guard.
 - `src/idlepolicy.rs` — the idle manager's timer decision, without the bus or
   the wall clock: the zero-second compatible policy, a countdown from the
   first `IdleHint`, an inhibitor suspending it, and a disabled policy.
@@ -362,30 +359,11 @@ binary, with the same configuration language, data files and application id.
   lookup, the policy timer, a real logind idle inhibitor held as an fd, DND
   ownership with its change callback, and the status report that reads
   `systemd-inhibit`.  The Rust shell starts one and wires its lock action to
-  the Rust lock screen.
-- `src/lockauth.rs` — the C lock screen's authentication boundary without GTK:
-  libpam loaded at run time from the host's library first, with the host
-  dependencies (`libaudit`, `libeconf`) resolved by absolute path when a store
-  build cannot find them, the per-user `pam_unix` service written with
-  `0700`/`0600` and `O_NOFOLLOW`, and the PAM status classification.  The host's
-  setuid `unix_chkpwd` is a helper of last resort: it is never asked when a
-  `whelk-lock` or `login` service file exists, and `WHELK_LOCK_STRICT=1`
-  disables it entirely.  `--check-lock` prints what it would do.
-- `src/logind.rs` — logind's lock triggers: the manager and per-session
-  `Lock` signals, `PrepareForSleep(true)`, and the session's `Active=false`
-  change, with the D-Bus subscriptions and the payload policy kept apart so the
-  latter is testable without a bus.
-- `src/locker.rs` — the Rust lock screen: a compositor-enforced session lock
-  through `ext-session-lock-v1` when the compositor has it, one overlay layer
-  surface per output otherwise, one password field on the primary output,
-  authentication on a worker thread with the password wiped, the persisted
-  retry delay, and no close button, Escape or click-outside.  The windows
-  follow the monitor model: the compatibility surfaces rebuild from it on a
-  hotplug, and a protocol lock whose primary output disappears is rebuilt so
-  the password field lands on an output that remains.  One `RebuildState`
-  queues the burst, drops the churn the rebuild itself causes, and refuses
-  once the lock has ended.  `watch_logind()` starts the lock once per logind
-  trigger, reusing a still-running process.
+  hasp, the separate lock-screen project.
+- `src/logind.rs` — the logind D-Bus names the shell still reads: its own
+  inhibitors, the session it reports, and the property change that clears the
+  clipboard on lock.  The lock triggers themselves, with their subscriptions
+  and payload policy, moved to hasp.
 - `src/guile.rs` and `src/guile/sys.rs` — a small libguile bridge. It initializes
   Guile, prepends the checkout's `scheme/` directory to `%load-path`, registers
   `(whelk-rust-version)` as a Rust primitive, loads the real
@@ -407,29 +385,17 @@ binary, with the same configuration language, data files and application id.
   current widget is swapped into, and the rule that a failed or empty reading
   keeps the previous widget.  A module configured without `#:update` says so in
   the bar instead of polling.
-- `src/widgets.rs` — the desktop widgets' data, ported from the display-free
-  half of `src/widgets.c` and the `(whelk state)` records behind it: the nine
-  kinds and their standard sizes, geometry defaults and clamps, the mouse
-  vocabulary and per-kind cadence, the reminders model whose done flags are
-  runtime state, world-clock city parsing, Open-Meteo and Yahoo answer
-  decoding, the calendar's Monday-first month grid, a note's file-or-text
-  rule, a custom reading's empty fallback, and the drag/placement arithmetic
-  (snap to the 8 px grid, clamp into the monitor, a saved position winning
-  over the settings file).
-- `src/widgetstate.rs` — the placement and per-widget state file, ported from
-  `util/widgetstate.c`: `$XDG_STATE_HOME/whelk/widgets-<stem>.ini` (or
-  `~/.local/state`), positions stored per monitor with a monitor-less
-  fallback, the `GKeyFile` format the shell writes, `0700` directories,
-  and the snap/clamp rules both shells share.
-- `src/desktopwidgets.rs` — the cards themselves, ported from `src/widgets.c`:
-  one bottom-layer surface per configured widget, anchored top-left at its
-  saved or configured place, its skin generated from the first bar's palette,
-  its grip a primary-button drag that snaps and clamps into the monitor it
-  belongs to, and its own mouse vocabulary.  Each kind paints the data
-  `src/widgets.rs` decodes: the analog face and digital reading, the month
-  calendar with its navigation, Open-Meteo's current conditions, the battery
-  level, a note, the reminder rows whose clicks write runtime state, the world
-  clock, the delayed quotes and a custom command's output.
+The desktop widgets — their catalogue, readings, placement state and the GTK4
+cards — live in the separate **bibelot** crate (`../../bibelot`).  Whelk keeps
+the `(whelk state)` record language and `Guile::load_widgets`, maps the first
+bar's palette and frost into `bibelot::Skin`, and hands the cards to
+`bibelot::Widgets` from `src/ui.rs`.  Their tests and internals are documented
+in that project.  An installed shell needs bibelot's `(bibelot theme)` module
+under `share/guile/site/3.0/bibelot`; without it the cards use the built-in
+theme.  A user override is read from `$XDG_CONFIG_HOME/bibelot/theme.scm`, or
+from the path in `BIBELOT_THEME`.  `cargo xtask install` and the Nix expression install whelk's own
+modules only.
+
 - `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
   thickness, clock format and generated skin come from its Scheme bar. Every
   configured left, centre, right and overflow module goes through the factory; the
@@ -668,13 +634,13 @@ writes the Git source archive.  The binary finds the Scheme modules beside its
 own prefix as well as in `/usr/share/guile/site/3.0`.  Use `--no-build` to stage
 an existing target, and `--debug` to stage the debug profile.
 
-`--check-lock` is the lock screen's diagnosis without a password: the library
-candidates, the one that loads, the service stack that would answer, and
-whether this machine has a setuid helper for the store-built case.  `--lock`
-asks the running shell to show the lock screen; the shell starts the private
-`--lock-now` process itself, so a logind trigger and a keybinding do not forward
-into each other.  Only a successful authentication for the session user removes
-it.
+`--check-lock` prints hasp's diagnosis without a password: the library
+candidates, the one that loads, the service stack that would answer, the theme
+it reads from Scheme, and whether this machine has a setuid helper for the
+store-built case.  `--lock` asks the running shell to show the lock; the shell
+starts the separate `hasp --lock-now` process itself, so a logind trigger and a
+keybinding do not forward into each other.  Only a successful authentication
+for the session user removes it.
 
 `--check-config` loads the real settings file through Guile, prints the
 wallpaper policy, walks the collection and resolves the current file. A missing
@@ -719,10 +685,10 @@ process; a forwarded invocation cannot change the running shell's configuration.
 `WHELK_TEST_NON_UNIQUE=1` gives an integration test its own application
 instance.
 
-The lock screen is the one place where the request and the process are split.
-Public `--lock` is a request to the shell, which starts `--lock-now` as a
-separate GTK application.  That keeps the lock process from forwarding back
-into the shell that just asked for it.
+The lock screen is its own project, `hasp`, and the one place where the
+request and the process are split.  Public `--lock` is a request to the shell,
+which starts `hasp --lock-now` as a separate GTK application.  That keeps the
+lock process from forwarding back into the shell that just asked for it.
 
 ## Tests
 
@@ -736,7 +702,6 @@ The tests are split by what they can prove without a session:
 | `tests/rotation.rs` | Selection fallbacks, picker selection, sequential/shuffled rotation and clock guard |
 | `tests/wallpaperpicker.rs` | Tile names, the header count, thumbnail and card sizes (including a small monitor and a headless one), and the Scheme string literal a saved choice is written with |
 | `tests/preferences.rs` | Scheme value formatting, module override keys and occurrence numbering across the bar, which options a single field may edit, clock text and parsing, launcher labels, and colour text |
-| `tests/locker.rs` | The lock screen's rebuild queue: one rebuild per burst, the churn a rebuild causes dropped, and a stopped lock never building again |
 | `tests/wallpaper_view.rs` | Transition progress clamping and the Ken Burns zoom curve |
 | `tests/wallpaper_surface.rs` | Animated-frame delay policy (including the 100 ms zero-delay fallback) and the output signature/rebuild rule: connector and resolution changes, a missing connector, and a stale surface count |
 | `tests/bar.rs` | C bar defaults, edge/layer/monitor rules, clamps, module lists, typed options and the width-driven fold walk |
@@ -749,14 +714,10 @@ The tests are split by what they can prove without a session:
 | `tests/clipboard.rs` | MIME and secret policy, binary record framing and malformed input, labels/sizes/ages, and the history's pin, remove, undo and clear operations |
 | `tests/guile.rs` | Real `(whelk core)`/`(whelk state)` modules, a real bar and wallpaper, the shell menu and its default, the real menu dictionary and Orbit corpus, repeated loads, caught exceptions |
 | `tests/atspi_dbus.rs` | A fake AT-SPI application on a private D-Bus: object-path children, role/state/name/key-binding reads, process-id matching, unknown applications and live `ChildrenChanged` delivery |
-| `tests/desktopwidgets.rs` | The monitor a drag may cross (named connector, the surface's monitor, the first one, the headless fallback), the analog clock's hand angles, the battery card's words and classes, and the escaped markup of a reminder row |
-| `tests/widgets.rs` | Kind catalogue and sizes, geometry clamps, option/mouse vocabulary, refresh cadence, reminders parsing/toggling/serialisation, world-clock cities, month-grid layout, weather and stock decoding, note/custom fallbacks, drag/placement arithmetic |
-| `tests/widgetstate.rs` | State path rules, 8 px snapping, clamping, monitor-aware position round trips and fallback, refused negative/malformed values, per-widget state removal |
 | `tests/menuwatch.rs` | Signal classification, the GTK restart and DBusMenu join debounce, the one owed follow-up read, and the replace rules for identical and empty trees |
 | `tests/menusearch.rs` | Live menu flattening: nested paths, chords and owned actions, the bus context carried to each row, and separators/disabled/empty/unactionable rows left out |
 | `tests/startmenu.rs` | Tagged menu units, disabled rows, submenu slots, the default/fallback menus, reload/quit routing and the mark's box bounds |
 | `tests/tray.rs` | Watcher entry splitting, configured and automatic hiding, item limits/overflow and validated pixmap conversion |
-| `tests/lockauth.rs` | Candidate order and dedupe, the private PAM service's modes and reuse, refused unsafe runtime directories, the setuid helper's ownership, and that a host library is never reported as missing host policy |
 | `tests/cli.rs` | Version, help, check-config, missing config and rejected config without starting GTK |
 | `tests/barmodule.rs` | Module-host defaults, one-request guard, stale tokens, shared actions and the factory table |
 | `tests/nightlight.rs` | Blackbody colour and clamping, overnight/daytime/all-day schedules, short-window transitions, mix/next-tick policy, clock parsing, gamma ramps, config normalization and which display server's backend the environment selects |
@@ -814,12 +775,6 @@ The inventory is small enough to review:
   truth values and pointer checks.
 - `src/guile.rs` — the `scm_internal_catch` callbacks, whose contexts are kept
   alive by the safe wrapper for the duration of the call.
-- `src/lockauth.rs` — `libpam` loaded with `dlopen`/`dlsym`, the PAM
-  conversation callback, and the allocation of PAM's response array.  The
-  password is zeroed with `write_volatile` before its buffer is released.
-- `src/locker.rs` — the GTK session-lock C API that gtk4-rs does not yet bind;
-  the wrapper owns the returned `GObject` and releases it at the same point the
-  protocol lock is released.
 - `src/guile/widget.rs` — the nine `whelk-widget-*` subr trampolines, the single
   `scm_t_subr` cast they are registered through, the integer handle registry,
   the `scm_internal_catch` around a module procedure, and the rooted procedure a
@@ -859,8 +814,9 @@ of the C engine:
 
 The shell is Rust end to end: the bar and its twenty-six module kinds, the
 launcher, clipboard, notification service and centre, the network panel, tray,
-global menu, lock screen, idle/inhibit manager, night light, wallpaper engine
-and picker, desktop widgets, settings window, command line, supervisor and
-signal handling.  The Guile modules in `scheme/whelk` remain the configuration
+global menu, idle/inhibit manager, night light, wallpaper engine and picker,
+desktop widgets, settings window, command line, supervisor and signal handling.
+The lock screen and authentication are hasp, a sibling Rust + Guile project
+linked as a path dependency.  The Guile modules in `scheme/whelk` remain the configuration
 language and are installed with the binary; the Rust tests and the Guile suite
 run under `cargo test --workspace --locked`.

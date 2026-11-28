@@ -1,0 +1,114 @@
+# bibelot
+
+Floating desktop widgets, written in **Rust**, **GTK4** and **GNU Guile Scheme**.
+
+A *bibelot* is a small decorative object: the thing on a desk that is there to
+be looked at and picked up, not to hold the desk together.  These are the cards
+that float over a Wayland desktop -- a clock, the weather, a note -- and the
+machinery that keeps them placed, refreshed and skinned.
+
+This is the widget engine split out of [[https://github.com/jjbigorra/whelk][whelk]].  Whelk remains the host: it
+owns the settings language, the application and the first bar's palette.  The
+cards, their readings, their placement file and their own Scheme theme live
+here.
+
+## What it does
+
+- Sixteen card kinds: Clock, Calendar, Weather, Batteries, Notes, Reminders,
+  World Clock, Stocks, Now Playing, Visualizer, Media, Photos, Files, News,
+  System and Custom.
+- One bottom-layer surface per card, anchored at its configured or saved
+  position, moved by its grip, snapped to an 8 px grid and clamped into its
+  monitor.
+- A per-monitor state file (`$XDG_STATE_HOME/bibelot/widgets-<stem>.ini`) so a
+  drag survives a restart; an unplugged monitor falls back to the last place
+  the card was seen.
+- The readings themselves: sysfs batteries, `/proc` CPU and memory, MPRIS
+  players, cava frames, Open-Meteo weather, Yahoo quotes, RSS/Atom news, photo
+  folders, the recent-documents XBEL and the reminders model.
+- A Scheme theme for the card's structural values and a final stylesheet.
+
+## Build and test
+
+GTK4, `gtk4-layer-shell`, GNU Guile 3.0 development files and `pkg-config` are
+needed.
+
+```sh
+cargo build
+cargo test
+cargo fmt --check
+```
+
+The GTK cards themselves need a Wayland session; the suite covers the data,
+geometry, state, theme and the Scheme module without one.  A card can be tried
+inside whelk, which is its intended host.
+
+## Install
+
+```sh
+scripts/install.sh --prefix=/usr/local
+```
+
+The installer stages `(bibelot theme)` and the documentation; the Rust library
+is built by its host.  `default.nix`, `guix.scm` and `manifest.scm` provide the
+standalone Nix package, Guix package and development shell.  WheLK carries a
+pinned source snapshot of this crate under `rust/vendor/bibelot`, so the host
+can build offline without a sibling checkout.
+
+## The host contract
+
+`bibelot::Widgets::build` takes the GTK application, the typed card configs, a
+`bibelot::Skin`, a `bibelot::Theme` and the settings file path.  The host maps
+its own bar palette and frosted-glass settings into the skin; a card that names
+its own `#:foreground`, `#:background`, `#:accent`, `#:opacity`, `#:blur`,
+`#:radius`, `#:shine`, `#:reflection` or `#:flare` changes only what it named.
+The card classes keep the `whelk-widget-*` names so settings written for the
+shell before the split still select them.
+
+## The Scheme theme
+
+`scheme/bibelot/theme.scm` carries the defaults.  It returns an alist from
+`widget-theme`:
+
+```scheme
+(configure-widgets! #:card-padding 18
+                    #:card-gap 12
+                    #:extra-css ".whelk-widget-clock-time { font-size: 34px; }")
+```
+
+`card-padding` and `card-gap` are pixels, and `extra-css` is appended after the
+structural stylesheet.  A user file passed to `Guile::theme` is evaluated inside
+the module, so it needs no import; a file that raises is reported and the
+defaults are used instead of half a theme.
+
+A host that already runs Guile (whelk does) should ask its own runtime for
+`(bibelot theme)` and build a `Theme` with `Theme::from_alist`; initializing a
+second Guile runtime in the same process is not possible.  `Guile::init` is for
+a host with no Guile of its own.
+
+The user file is `BIBELOT_THEME`, or `$XDG_CONFIG_HOME/bibelot/theme.scm`
+(`~/.config/bibelot/theme.scm`).  `theme::user_theme_path()` is the one
+resolver for hosts that want to read it themselves.
+
+`BIBELOT_SCHEME_DIR` points the loader at a development or staged module tree.
+Debug builds also find the checkout; a release install looks in
+`<prefix>/share/guile/site/3.0` and `/usr/share/guile/site/3.0`.
+
+## Layout
+
+| Path | What lives there |
+| --- | --- |
+| `src/widgets.rs` | the kind catalogue, geometry, pure readings and the typed config |
+| `src/desktopwidgets.rs` | the GTK surfaces, drag, timers and the manager |
+| `src/widgetstate.rs` | the placement and per-widget state file |
+| `src/batterybar.rs`, `src/cpubar.rs`, `src/memorybar.rs` | the system readings |
+| `src/mpris.rs`, `src/command.rs`, `src/format.rs`, `src/json.rs`, `src/sources.rs` | the readers the cards share |
+| `src/visualizer.rs` | one cava process per visualizer card |
+| `src/skin.rs`, `src/style.rs`, `src/frost.rs` | the host palette turned into a card stylesheet |
+| `src/theme.rs`, `src/guile.rs` | `(bibelot theme)` and the standalone Guile boundary |
+| `scheme/bibelot/theme.scm` | the Scheme defaults and `configure-widgets!` |
+| `docs/widgets.org` | the engine's internals and host contract |
+
+## License
+
+MIT.

@@ -1,11 +1,11 @@
-// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+// bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
 //
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 use std::path::Path;
 
-use whelk_rs::widgetstate;
+use bibelot::widgetstate;
 
 #[test]
 fn the_state_file_is_keyed_by_the_settings_file_stem() {
@@ -61,29 +61,29 @@ fn a_settings_path_without_a_name_or_a_directory_has_no_state_file() {
 
 #[test]
 fn dragging_snaps_to_the_eight_pixel_grid() {
-    assert_eq!(whelk_rs::widgetstate::snap(3, 8), 0);
-    assert_eq!(whelk_rs::widgetstate::snap(4, 8), 8);
-    assert_eq!(whelk_rs::widgetstate::snap(12, 8), 16);
-    assert_eq!(whelk_rs::widgetstate::snap(-5, 8), 0);
-    assert_eq!(whelk_rs::widgetstate::snap(37, 0), 37);
+    assert_eq!(bibelot::widgetstate::snap(3, 8), 0);
+    assert_eq!(bibelot::widgetstate::snap(4, 8), 8);
+    assert_eq!(bibelot::widgetstate::snap(12, 8), 16);
+    assert_eq!(bibelot::widgetstate::snap(-5, 8), 0);
+    assert_eq!(bibelot::widgetstate::snap(37, 0), 37);
 }
 
 #[test]
 fn a_card_stays_inside_its_monitor() {
     assert_eq!(
-        whelk_rs::widgetstate::clamp(10, 20, 200, 100, 1920, 1080),
+        bibelot::widgetstate::clamp(10, 20, 200, 100, 1920, 1080),
         (10, 20)
     );
     assert_eq!(
-        whelk_rs::widgetstate::clamp(1900, 1000, 200, 100, 1920, 1080),
+        bibelot::widgetstate::clamp(1900, 1000, 200, 100, 1920, 1080),
         (1720, 980)
     );
     assert_eq!(
-        whelk_rs::widgetstate::clamp(-20, -5, 200, 100, 1920, 1080),
+        bibelot::widgetstate::clamp(-20, -5, 200, 100, 1920, 1080),
         (0, 0)
     );
     assert_eq!(
-        whelk_rs::widgetstate::clamp(50, 50, 2000, 1200, 1920, 1080),
+        bibelot::widgetstate::clamp(50, 50, 2000, 1200, 1920, 1080),
         (0, 0)
     );
 }
@@ -93,18 +93,18 @@ fn a_saved_position_survives_a_reload() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-settings.ini");
 
-    assert!(whelk_rs::widgetstate::save_position(
+    assert!(bibelot::widgetstate::save_position(
         &path,
         "widget-clock-0",
         40,
         64
     ));
     assert_eq!(
-        whelk_rs::widgetstate::load_position(&path, "widget-clock-0"),
+        bibelot::widgetstate::load_position(&path, "widget-clock-0"),
         Some((40, 64))
     );
     assert_eq!(
-        whelk_rs::widgetstate::load_position(&path, "widget-notes-1"),
+        bibelot::widgetstate::load_position(&path, "widget-notes-1"),
         None
     );
 }
@@ -114,7 +114,7 @@ fn a_position_is_remembered_per_monitor_and_falls_back_to_the_last_place() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-settings.ini");
 
-    assert!(whelk_rs::widgetstate::save_position_for(
+    assert!(bibelot::widgetstate::save_position_for(
         &path,
         "widget-clock-0",
         Some("DP-1"),
@@ -123,18 +123,18 @@ fn a_position_is_remembered_per_monitor_and_falls_back_to_the_last_place() {
     ));
 
     assert_eq!(
-        whelk_rs::widgetstate::load_position_for(&path, "widget-clock-0", Some("DP-1")),
+        bibelot::widgetstate::load_position_for(&path, "widget-clock-0", Some("DP-1")),
         Some((100, 120))
     );
 
     // The monitor-less key was written too: it is where an unplugged monitor's
     // card goes when it comes back on a screen the file never saw.
     assert_eq!(
-        whelk_rs::widgetstate::load_position_for(&path, "widget-clock-0", Some("HDMI-1")),
+        bibelot::widgetstate::load_position_for(&path, "widget-clock-0", Some("HDMI-1")),
         Some((100, 120))
     );
     assert_eq!(
-        whelk_rs::widgetstate::load_position_for(&path, "widget-clock-0", None),
+        bibelot::widgetstate::load_position_for(&path, "widget-clock-0", None),
         Some((100, 120))
     );
 }
@@ -144,15 +144,15 @@ fn a_named_monitor_keeps_its_own_position() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-settings.ini");
 
-    whelk_rs::widgetstate::save_position_for(&path, "widget-clock-0", Some("DP-1"), 8, 8);
-    whelk_rs::widgetstate::save_position_for(&path, "widget-clock-0", Some("HDMI-1"), 16, 24);
+    bibelot::widgetstate::save_position_for(&path, "widget-clock-0", Some("DP-1"), 8, 8);
+    bibelot::widgetstate::save_position_for(&path, "widget-clock-0", Some("HDMI-1"), 16, 24);
 
     assert_eq!(
-        whelk_rs::widgetstate::load_position_for(&path, "widget-clock-0", Some("DP-1")),
+        bibelot::widgetstate::load_position_for(&path, "widget-clock-0", Some("DP-1")),
         Some((8, 8))
     );
     assert_eq!(
-        whelk_rs::widgetstate::load_position_for(&path, "widget-clock-0", Some("HDMI-1")),
+        bibelot::widgetstate::load_position_for(&path, "widget-clock-0", Some("HDMI-1")),
         Some((16, 24))
     );
 
@@ -169,20 +169,20 @@ fn a_negative_or_malformed_position_is_refused() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-settings.ini");
 
-    assert!(!whelk_rs::widgetstate::save_position(
+    assert!(!bibelot::widgetstate::save_position(
         &path,
         "widget-clock-0",
         -8,
         0
     ));
-    assert!(!whelk_rs::widgetstate::save_position(
+    assert!(!bibelot::widgetstate::save_position(
         &path,
         "widget-clock-0",
         0,
         -8
     ));
     assert_eq!(
-        whelk_rs::widgetstate::load_position(&path, "widget-clock-0"),
+        bibelot::widgetstate::load_position(&path, "widget-clock-0"),
         None
     );
 
@@ -193,11 +193,11 @@ fn a_negative_or_malformed_position_is_refused() {
     .expect("write a broken state file");
 
     assert_eq!(
-        whelk_rs::widgetstate::load_position(&path, "widget-clock-0"),
+        bibelot::widgetstate::load_position(&path, "widget-clock-0"),
         None
     );
     assert_eq!(
-        whelk_rs::widgetstate::load_position(&path, "widget-notes-1"),
+        bibelot::widgetstate::load_position(&path, "widget-notes-1"),
         None
     );
 }
@@ -207,14 +207,14 @@ fn per_widget_state_round_trips_and_is_removed() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-settings.ini");
 
-    assert!(whelk_rs::widgetstate::set(
+    assert!(bibelot::widgetstate::set(
         &path,
         "widget-reminders-2",
         "items",
         Some("Water the plants\n[x] Ship the release")
     ));
     assert_eq!(
-        whelk_rs::widgetstate::get(&path, "widget-reminders-2", "items").as_deref(),
+        bibelot::widgetstate::get(&path, "widget-reminders-2", "items").as_deref(),
         Some("Water the plants\n[x] Ship the release")
     );
 
@@ -223,14 +223,14 @@ fn per_widget_state_round_trips_and_is_removed() {
     assert!(text.contains("[state]"), "{text}");
     assert!(text.contains("widget-reminders-2.items="), "{text}");
 
-    assert!(whelk_rs::widgetstate::set(
+    assert!(bibelot::widgetstate::set(
         &path,
         "widget-reminders-2",
         "items",
         None
     ));
     assert_eq!(
-        whelk_rs::widgetstate::get(&path, "widget-reminders-2", "items"),
+        bibelot::widgetstate::get(&path, "widget-reminders-2", "items"),
         None
     );
 }
@@ -240,9 +240,9 @@ fn a_missing_state_file_is_the_first_run_not_an_error() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("widgets-none.ini");
 
-    assert_eq!(whelk_rs::widgetstate::load_position(&path, "any"), None);
-    assert_eq!(whelk_rs::widgetstate::get(&path, "any", "items"), None);
-    assert!(whelk_rs::widgetstate::set(
+    assert_eq!(bibelot::widgetstate::load_position(&path, "any"), None);
+    assert_eq!(bibelot::widgetstate::get(&path, "any", "items"), None);
+    assert!(bibelot::widgetstate::set(
         &path,
         "any",
         "items",

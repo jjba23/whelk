@@ -11,6 +11,7 @@
 //! called by the kernel, not by Rust.
 
 use std::io;
+use std::process::Command;
 
 /// The signals a terminal, service manager or logout sends a desktop process.
 pub(crate) const TERMINATION_SIGNALS: [libc::c_int; 3] =
@@ -65,4 +66,31 @@ pub(crate) fn signal_process(pid: libc::pid_t, signal: libc::c_int) {
 pub(crate) fn process_id() -> libc::pid_t {
     // SAFETY: `getpid` has no arguments and cannot fail.
     unsafe { libc::getpid() }
+}
+
+/// Ask Linux to terminate `command` when this process exits.
+///
+/// The watcher is a child, but the lock screens it starts are not: a shell
+/// restart must not leave a second watcher behind, and a running lock screen
+/// must outlive the shell that asked for it.
+pub(crate) fn die_with_parent(command: &mut Command) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+
+        // SAFETY: the closure runs after `fork' in the child.  `prctl' is
+        // async-signal-safe and the closure touches no Rust state or heap.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+
+                Ok(())
+            });
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = command;
 }

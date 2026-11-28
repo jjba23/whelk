@@ -15,7 +15,7 @@
   gtk4,
   gtk4-layer-shell,
   guile,
-  pam,
+  hasp ? null,
   wtype,
   curl,
   cava,
@@ -87,7 +87,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
     gtk4
     gtk4-layer-shell
     guile
-    pam
     wayland
     wtype
     # The GL renderer's drivers, named by the wrapper below; without them EGL
@@ -127,7 +126,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # from a wrapper would break the others.
   preFixup = ''
     makeWrapperArgs+=("''${gappsWrapperArgs[@]}")
-    makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath [ wtype curl cava ]})
+    makeWrapperArgs+=(--prefix PATH : ${lib.makeBinPath ([ wtype curl cava ] ++ lib.optional (hasp != null) hasp)})
     makeWrapperArgs+=(
       --set-default __EGL_VENDOR_LIBRARY_FILENAMES ${mesa}/share/glvnd/egl_vendor.d/50_mesa.json
       --set-default __GLX_VENDOR_LIBRARY_NAME mesa
@@ -162,6 +161,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
       $out/share/applications/org.jointhefreeworld.whelk.desktop
     mkdir -p $out/share/guile/site/3.0
     cp -r $src/scheme/whelk $out/share/guile/site/3.0/whelk
+    cp -r $src/rust/vendor/bibelot/scheme/bibelot $out/share/guile/site/3.0/bibelot
     cp -r $src/data/icons $out/share/icons
     install -Dm644 $src/README.org $out/share/doc/whelk/README.org
     install -Dm644 $src/LICENSE $out/share/licenses/whelk/LICENSE

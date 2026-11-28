@@ -8,9 +8,22 @@ Packaging lives under =packaging/=: =debian/= (debhelper), =arch/= (=PKGBUILD=),
 =opensuse/= (spec file, rpmlint filters and the OBS =_service=) and =void/
 (=xbps-src= template, for a distribution without systemd -- see
 [[file:portability.org][Portability]]).
-=packaging/pam/whelk-lock= is an optional, reviewed PAM stack for the locker;
-install it as =/etc/pam.d/whelk-lock= only after checking it against the
-distribution's PAM policy.
+The desktop widgets are the separate =bibelot= project.  WheLK carries a
+pinned source snapshot at =rust/vendor/bibelot= and builds it as a path
+dependency, so a release tarball has no sibling checkout and builds offline.
+An installed shell needs both Scheme modules, =whelk= and =bibelot=, under
+=share/guile/site/3.0=; =cargo xtask install= and the Nix expression install
+both.  Without =bibelot= the cards fall back to the built-in default theme and
+the shell still starts.
+
+=hasp=, the separate lock-screen project, is an optional *program*, not a
+build dependency.  WheLK starts =hasp --lock=, =hasp --watch= and
+=hasp --check= when those actions are used, finding it through =HASP_BIN=, a
+sibling binary or =$PATH=.  A distribution can package whelk and hasp
+independently, and whelk runs without hasp (the lock action reports how to
+install it).  The reviewed PAM stack is =hasp='s
+=packaging/pam/hasp-lock=; install it as =/etc/pam.d/hasp-lock= only after
+checking it against the distribution's PAM policy.
 
 * What a packaged whelk installs
 
@@ -22,7 +35,9 @@ flowchart LR
     P --> D["/usr/share/applications/<br/>org.jointhefreeworld.whelk.desktop"]
     P --> I["/usr/share/icons/hicolor<br/>the whelk mark"]
     P --> S["/usr/share/guile/site/3.0/whelk/<br/>core, loader, state, modules,<br/>defaults, themes, presets, orbit"]
+    P --> W["/usr/share/guile/site/3.0/bibelot/<br/>the card theme"]
     S -.->|"baked in at configure time"| B
+    W -.->|"loaded by the card engine"| B
     R["resources/css/whelk.css<br/>compiled in as a GResource"] --> B
 #+end_src
 
@@ -57,12 +72,13 @@ release script keeps in agreement (see [[file:releasing.org][Releasing]]).
 - The Scheme modules must land in the package's Guile site directory, or in a
   directory pointed at by =WHELK_SCHEME_DIR=.  =cargo xtask install= stages
   them under the same prefix as the binary.
-- =libpam= is a run-time dependency, not a link-time one: do not add it to the
-  package's =NEEDED= set to "be safe".  [[file:installation.org][Installation]] has the candidate order
-  and the reason.
-- The locker's PAM service is optional and belongs to the distribution's
-  policy, not to this project.  Review =packaging/pam/whelk-lock= before
-  installing it.
+- WheLK does not link or load =libpam=.  Do not add a PAM build dependency to
+  the whelk package; PAM belongs to the separate hasp package.
+- =hasp= is a runtime recommendation, not a build requirement.  A package that
+  installs it gets working lock actions and logind triggers; one that does not
+  still installs a shell that starts and reports the missing program.
+- The locker's PAM service is hasp's: review that project's
+  =packaging/pam/hasp-lock= before installing it.
 
 ------------------
 

@@ -3,15 +3,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use whelk_rs::bar::BarSettings;
 use whelk_rs::clipboard;
 use whelk_rs::collection::collect;
 use whelk_rs::config::ConfigLoader;
-use whelk_rs::lockauth::{self, Stack};
-use whelk_rs::locker;
+use whelk_rs::hasp;
 use whelk_rs::rotation::Playlist;
 use whelk_rs::settings::default_config_path;
 use whelk_rs::{cli, frost, status, style, supervisor, ui};
@@ -24,7 +23,8 @@ Usage: whelk [OPTIONS]
 Options:
   --config PATH          Read this settings file (default: $XDG_CONFIG_HOME/whelk/settings.scm)
   --check-config         Load the configuration, print the wallpaper policy and exit
-  --check-lock           Print how this machine would lock and authenticate, then exit
+  --check-lock           Ask the installed hasp how this machine would lock and
+                         authenticate, then exit
   --print-css            Print the CSS generated for each configured bar and exit
   --status               Report the session, logind, the runtime tools and why
                          each configured module is blank
@@ -58,7 +58,8 @@ Options:
 
 The action options are forwarded to the running shell through GApplication; a
 second whelk does not start a second bar.  `--config' belongs to the first
-process.
+process.  Locking is optional: whelk runs the separate `hasp' program, found
+through HASP_BIN or PATH, and keeps running when it is absent.
 ";
 
 fn main() -> ExitCode {
@@ -93,7 +94,10 @@ fn run() -> Result<ExitCode, String> {
     }
 
     if options.check_lock {
-        print_lock_report();
+        // The lock screen and its authentication belong to hasp; its report
+        // is the one that names the library, stack and fallback the lock will
+        // actually use.
+        print!("{}", hasp::check()?);
 
         return Ok(ExitCode::SUCCESS);
     }
@@ -102,7 +106,7 @@ fn run() -> Result<ExitCode, String> {
     // `--lock` is a request to the running shell, so starting a lock process
     // from one can never forward back into another lock process.
     if options.lock_now {
-        return Ok(locker::run().into());
+        return hasp::lock_now();
     }
 
     let config_path = options.config.unwrap_or_else(default_config_path);
@@ -228,6 +232,12 @@ fn scheme_paths() -> Vec<PathBuf> {
 
     let mut paths = Vec::new();
 
+    // The widget project owns `(bibelot theme)`; its installed tree shares the
+    // Guile site directory, and its development tree is found through
+    // BIBELOT_SCHEME_DIR or the debug-build manifest directory.  A release
+    // tarball carries a pinned copy under rust/vendor/bibelot.
+    candidates.extend(bibelot::theme::scheme_paths());
+
     for candidate in candidates {
         let directory = std::fs::canonicalize(&candidate).unwrap_or(candidate);
 
@@ -237,73 +247,4 @@ fn scheme_paths() -> Vec<PathBuf> {
     }
 
     paths
-}
-
-/// The same order the lock screen resolves, printed without asking for a
-/// password: which libraries exist, which one loads, which stack would answer,
-/// and whether the helper fallback is available to it.
-fn print_lock_report() {
-    println!("whelk {}", env!("CARGO_PKG_VERSION"));
-    println!(
-        "user: {}",
-        lockauth::session_user().unwrap_or_else(|| "unknown".to_owned())
-    );
-
-    locker::init_for_report();
-    println!("presentation: {}", locker::presentation_summary());
-    println!("pam candidates:");
-
-    for candidate in lockauth::candidates() {
-        let present = if candidate.starts_with('/') && Path::new(&candidate).is_file() {
-            " (present)"
-        } else {
-            ""
-        };
-
-        println!("  {candidate}{present}");
-    }
-
-    println!(
-        "loaded: {}",
-        lockauth::pam_path().unwrap_or_else(|| "none".to_owned())
-    );
-
-    let stack = lockauth::stack_plan();
-    let admin_policy = matches!(stack, Stack::Admin(_));
-
-    match stack {
-        Stack::Admin(name) => println!("service: {name} (administrator policy)"),
-        Stack::Private(directory) => println!(
-            "service: per-user pam_unix stack in {}",
-            directory.display()
-        ),
-        Stack::LocalFallback => {
-            println!("service: none; only the host's unix_chkpwd can answer")
-        }
-    }
-
-    let helper = lockauth::local_helper();
-    let strict = lockauth::strict_mode();
-
-    println!("helper: {}", helper.as_deref().unwrap_or("none"));
-    println!("strict: {}", if strict { "on (PAM only)" } else { "off" });
-    println!(
-        "helper fallback: {}",
-        if lockauth::fallback_allowed(admin_policy, helper.is_some(), strict) {
-            "allowed (no administrator policy)"
-        } else if admin_policy {
-            "refused (administrator policy is authoritative)"
-        } else if strict {
-            "refused (strict mode)"
-        } else {
-            "refused (no trustworthy helper)"
-        }
-    );
-    println!(
-        "authentication preflight: {}",
-        match lockauth::blocker() {
-            None => "allowed (a password can be checked)".to_owned(),
-            Some(reason) => format!("refused ({reason})"),
-        }
-    );
 }

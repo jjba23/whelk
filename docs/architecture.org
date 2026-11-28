@@ -29,7 +29,7 @@ flowchart TD
         UI["ui.rs<br/>bar set, reload, hotplug, idle"]
         BAR["bar.rs, barfactory.rs<br/>typed bars and modules"]
         MODULES["*bar.rs<br/>one reading per module"]
-        SURFACES["launcherpanel.rs, notificationcenter.rs,<br/>networkpanel.rs, locker.rs, desktopwidgets.rs"]
+        SURFACES["launcherpanel.rs, notificationcenter.rs,<br/>networkpanel.rs, bibelot cards"]
         POLICY["settings.rs, wallpaper.rs, format.rs,<br/>session.rs, workspaces.rs, ..."]
         STYLE["style.rs<br/>the generated skin"]
     end
@@ -82,8 +82,8 @@ flowchart TD
   rust/src/style.rs       the generated skin every surface wears
        |
   rust/src/launcherpanel.rs, notificationcenter.rs, networkpanel.rs,
-  locker.rs, wallpaperpicker.rs, desktopwidgets.rs
-                          the independently presented surfaces
+  wallpaperpicker.rs      the independently presented surfaces
+  bibelot::Widgets        the desktop cards, in their own project
 #+end_src
 
 * The boundaries are the design
@@ -109,9 +109,9 @@ The tree is easier to change when a function declares which kind it is.
 
 | Kind              | Examples                                                        | Rule |
 |-------------------+-----------------------------------------------------------------+------|
-| Pure decision     | =supervisor::decide=, =lockpolicy=, =idlepolicy=, fuzzy scoring, playlist choice | no I/O; input and output are owned values; test every branch without a display |
+| Pure decision     | =supervisor::decide=, =idlepolicy=, fuzzy scoring, playlist choice | no I/O; input and output are owned values; test every branch without a display |
 | Fallible edge     | =ConfigLoader=, Guile evaluation, PAM answers, file parsers     | return =Result= or =Option= with a specific error; no production =expect= for user input |
-| Unsafe boundary   | =posix.rs=, =guile/sys.rs=, =lockauth.rs=, =locker.rs=, =nightlight/= | =// SAFETY:= on every block, no pointer or =SCM= escapes, one C ABI per module |
+| Unsafe boundary   | =posix.rs=, =guile/sys.rs=, =nightlight/=, and =hasp= (separate project) | =// SAFETY:= on every block, no pointer or =SCM= escapes, one C ABI per module |
 
 A pure decision is the preferred shape for anything the shell will later do:
 =Outcome= and =Decision= in =supervisor.rs= are a complete restart policy, and
@@ -157,14 +157,15 @@ direction -- a command that finishes after its module was freed writes nowhere
 |---------------------------------------+---------------------------------------------------------|
 | a reading on the bar                  | =rust/src/<kind>bar.rs= and a row in =barfactory.rs=     |
 | an option every module understands    | =barmodule.rs= and the reader in =bar.rs=                 |
-| a bar or widget keyword               | =guile.rs= (read), =bar.rs= / =widgets.rs= (carry), =ui.rs= (use) |
+| a widget keyword                      | =guile.rs= (read), =bibelot= (carry), =ui.rs= (present) |
+| a bar keyword                         | =guile.rs= (read), =bar.rs= (carry), =ui.rs= (use) |
 | a new kind of surface                 | =ui.rs= or its own module, over the shared surface helpers |
 | a palette                             | =scheme/whelk/themes.scm=                               |
 | a menu producer                       | =menubar.rs=, =menuprobe.rs= and =globalmenu.rs=          |
 | a settings-window control             | =preferences.rs= and the page it belongs to             |
 | a configuration entry point           | =scheme/whelk/core.scm=, and it must still be a value    |
 | a policy decision                     | a pure module beside the surface, with a transition type and tests |
-| a C-library call                      | the matching audited boundary (=posix.rs=, =guile/sys.rs=, =lockauth.rs=, =locker.rs=) |
+| a C-library call                      | the matching audited boundary (=posix.rs=, =guile/sys.rs=, =nightlight/=) |
 
 ------------------
 

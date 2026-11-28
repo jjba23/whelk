@@ -7,9 +7,9 @@
 //!
 //! cava does the audio decoding, the FFT and the smoothing, so whelk does not
 //! have to link an audio stack or reinvent a spectrum analyser.  The card asks
-//! for raw ASCII on stdout and reads one line per frame; the bars and the
-//! parsing are pure and live with the rest of the visualizer model in
-//! [`crate::widgets`].
+//! for raw ASCII on stdout and reads one line per frame; the frame parser and
+//! the private cava configuration are small and live here, beside the process
+//! they exist for.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -19,8 +19,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
-
-use crate::widgets::{parse_visualizer_frame, visualizer_config};
 
 static NEXT_CONFIG: AtomicU64 = AtomicU64::new(1);
 
@@ -83,7 +81,7 @@ impl Cava {
             return Err("cava did not open its output pipe".to_owned());
         };
 
-        let bars = bars.clamp(1, crate::widgets::VISUALIZER_MAX_BARS);
+        let bars = bars.clamp(1, VISUALIZER_MAX_BARS);
         let cava = Rc::new(Self {
             process,
             config,
@@ -145,4 +143,39 @@ fn config_path() -> PathBuf {
         .join("whelk");
 
     directory.join(format!("visualizer-{}-{serial}.conf", std::process::id()))
+}
+
+/// The widest visualizer a card may ask for.
+pub const VISUALIZER_MAX_BARS: usize = 64;
+
+/// One cava line as levels in `0.0..=1.0`.  An unreadable field is silence and
+/// a short frame is simply shorter; the card pads it.
+fn parse_visualizer_frame(line: &str, bars: usize) -> Vec<f64> {
+    line.split([';', ',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter_map(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| (value / 100.0).clamp(0.0, 1.0))
+        .take(bars.min(VISUALIZER_MAX_BARS))
+        .collect()
+}
+
+/// The cava configuration the visualizer owns while its card is alive.
+///
+/// It writes raw ASCII to stdout, which is the one mode a subprocess can read
+/// without an audio server on the shell's side or a second decoder.  The card
+/// never lets cava open its own terminal, and the `[input]` section is cava's
+/// own auto-detection, so PulseAudio, PipeWire and ALSA all work as they do for
+/// every other cava user.
+fn visualizer_config(bars: usize, framerate: u32) -> String {
+    let bars = bars.clamp(1, VISUALIZER_MAX_BARS);
+    let framerate = framerate.clamp(1, 120);
+
+    format!(
+        "[general]\nbars = {bars}\nframerate = {framerate}\n\n\
+         [input]\nmethod = pulse\nsource = auto\n\n\
+         [output]\nmethod = raw\nraw_target = /dev/stdout\ndata_format = ascii\n\
+         ascii_max_range = 100\nbar_delimiter = 59\nframe_delimiter = 10\n"
+    )
 }

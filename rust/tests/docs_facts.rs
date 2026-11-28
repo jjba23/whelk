@@ -9,7 +9,7 @@
 //! is added, a test file is written, and the page keeps saying yesterday's
 //! number for a release or two.  These tests are the notice.  They count what
 //! the code declares -- `#[test]` functions, the factory table's kinds, the
-//! `WidgetKind` variants -- and compare that with the words the pages use.
+//! bar modules -- and compare that with the words the pages use.
 
 use std::path::{Path, PathBuf};
 
@@ -77,24 +77,6 @@ fn module_kinds() -> usize {
     table
         .lines()
         .filter(|line| line.trim_start().starts_with("(\""))
-        .count()
-}
-
-/// The kinds of desktop widget the manager can present.
-fn widget_kinds() -> usize {
-    let source = read("rust/src/widgets.rs");
-    let body = source
-        .split("pub enum WidgetKind {")
-        .nth(1)
-        .and_then(|rest| rest.split('}').next())
-        .expect("WidgetKind is declared in widgets.rs");
-
-    body.lines()
-        .filter(|line| {
-            let line = line.trim();
-
-            line.chars().next().is_some_and(char::is_uppercase)
-        })
         .count()
 }
 
@@ -181,17 +163,5 @@ fn the_stated_module_count_is_the_real_one() {
     assert_eq!(
         rows, kinds,
         "docs/modules.org has {rows} module rows and barfactory.rs {kinds} kinds"
-    );
-}
-
-#[test]
-fn the_stated_widget_count_is_the_real_one() {
-    let kinds = widget_kinds();
-    let phrase = format!("{} Golden Gate cards", words(kinds));
-    let page = read("docs/roadmap.org").to_lowercase();
-
-    assert!(
-        page.contains(&phrase.to_lowercase()),
-        "docs/roadmap.org must say \"{phrase}\"; WidgetKind has {kinds} variants."
     );
 }

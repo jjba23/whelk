@@ -31,7 +31,6 @@ BuildRequires:  pkgconfig(gio-unix-2.0)
 BuildRequires:  pkgconfig(gtk4)
 BuildRequires:  pkgconfig(gtk4-layer-shell-0)
 BuildRequires:  pkgconfig(guile-3.0)
-BuildRequires:  pkgconfig(pam)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  guile
 BuildRequires:  xvfb-run
@@ -39,9 +38,9 @@ Requires:       gtk4
 Requires:       gtk4-layer-shell
 Requires:       guile
 Requires:       cava
-Requires:       pam
 Requires:       hicolor-icon-theme
 Requires:       wtype
+Recommends:     hasp
 
 %description
 Whelk is a Wayland shell built with a Rust core, GTK4 and gtk4-layer-shell.

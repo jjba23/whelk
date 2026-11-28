@@ -21,7 +21,7 @@ use crate::preferences::PreferenceValue;
 use crate::settings::{ClipboardSettings, WallpaperSettings};
 use crate::shortcutmaps::ShortcutMaps;
 use crate::startmenu::MenuEntry;
-use crate::widgets::WidgetConfig;
+use bibelot::WidgetConfig;
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
@@ -37,6 +37,8 @@ pub struct LoadedConfig {
     pub menu_sources: Rc<MenuSources>,
     /// The desktop widgets the settings file asks for, in placement order.
     pub widgets: Vec<WidgetConfig>,
+    /// The cards' structural theme, read from `(bibelot theme)`.
+    pub widget_theme: bibelot::Theme,
     /// The night light the display server should carry, overrides included.
     pub night_light: crate::nightlight::Config,
 }
@@ -53,6 +55,7 @@ impl LoadedConfig {
             menu: MenuEntry::default_menu(),
             menu_sources: Rc::new(MenuSources::default()),
             widgets: Vec::new(),
+            widget_theme: bibelot::Theme::default(),
             night_light: crate::nightlight::Config::default(),
         }
     }
@@ -155,6 +158,14 @@ impl ConfigLoader {
             Vec::new()
         });
 
+        // The card theme is cosmetic: a module that cannot be read leaves the
+        // widgets built and the defaults in force.
+        let widget_theme = guile.load_widget_theme().unwrap_or_else(|error| {
+            eprintln!("whelk: widget theme could not be loaded: {error}; using the defaults");
+
+            bibelot::Theme::default()
+        });
+
         // A night light that cannot be read leaves the shell usable and the
         // filter off, the same way a broken widget list draws no cards.
         let night_light = guile.load_night_light(&self.path).unwrap_or_else(|error| {
@@ -172,6 +183,7 @@ impl ConfigLoader {
             menu,
             menu_sources: Rc::new(menu_sources),
             widgets,
+            widget_theme,
             night_light,
         })
     }

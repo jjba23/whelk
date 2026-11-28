@@ -8,8 +8,11 @@ use std::path::PathBuf;
 use whelk_rs::guile::{Guile, scheme_string_literal};
 use whelk_rs::wallpaper::{Animation, Fit};
 
-fn scheme_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scheme")
+fn scheme_dirs() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scheme"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor/bibelot/scheme"),
+    ]
 }
 
 fn write_settings(directory: &std::path::Path, body: &str) -> PathBuf {
@@ -68,7 +71,7 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
         std::env::set_var("XDG_STATE_HOME", directory.path());
     }
 
-    let guile = Guile::init(&[scheme_dir()]).expect("initialize Guile");
+    let guile = Guile::init(&scheme_dirs()).expect("initialize Guile");
     let version = guile.version().expect("read Guile version");
     assert!(version.starts_with("3."), "unexpected Guile {version}");
 
@@ -168,6 +171,34 @@ fn guile_reads_the_real_shell_wallpaper_settings() {
     assert_eq!(
         widgets[1].spec.text("text").as_deref(),
         Some("Ship the release.")
+    );
+
+    // The card theme is the widget project's Scheme module, read through this
+    // shell's one Guile runtime.
+    let widget_theme = guile.load_widget_theme().expect("load the widget theme");
+    assert_eq!(widget_theme, bibelot::Theme::default());
+
+    // A user file is evaluated inside `(bibelot theme)` and only changes what
+    // it names.  This binary has one thread and one Guile runtime, so the
+    // process environment is safe to point at a temporary file here.
+    let theme_file = directory.path().join("bibelot-theme.scm");
+    std::fs::write(&theme_file, "(configure-widgets! #:card-padding 20)")
+        .expect("write the widget theme");
+    // SAFETY: this test binary is single-threaded by construction.
+    unsafe { std::env::set_var("BIBELOT_THEME", &theme_file) };
+    let themed = guile
+        .load_widget_theme()
+        .expect("load the user widget theme");
+    // SAFETY: as above.
+    unsafe { std::env::remove_var("BIBELOT_THEME") };
+    assert_eq!(themed.card_padding, 20);
+    assert_eq!(themed.card_gap, bibelot::Theme::default().card_gap);
+    assert_eq!(
+        guile
+            .load_widget_theme()
+            .expect("the defaults after a user theme")
+            .card_padding,
+        14
     );
 
     let menu_sources = guile

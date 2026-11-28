@@ -30,7 +30,7 @@ use crate::menuapps::{self, MenuSources};
 use crate::nightlight::Config as NightLightConfig;
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 use crate::startmenu::MenuEntry;
-use crate::widgets::WidgetConfig;
+use bibelot::WidgetConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuileError {
@@ -250,10 +250,44 @@ impl Guile {
         Ok(values
             .into_iter()
             .filter_map(|value| match value {
-                SchemeValue::Alist(entries) => WidgetConfig::from_alist(&entries),
+                SchemeValue::Alist(entries) => {
+                    let entries = widget_entries(&entries);
+
+                    WidgetConfig::from_alist(&entries)
+                }
                 _ => None,
             })
             .collect())
+    }
+
+    /// Read the cards' structural theme from `(bibelot theme)`.
+    ///
+    /// The widget project owns the module; the shell only adds its directory to
+    /// `%load-path` and asks for the alist.  A missing module is a cosmetic
+    /// failure, so the caller falls back to [`bibelot::Theme::default`].
+    pub fn load_widget_theme(&self) -> Result<bibelot::Theme, GuileError> {
+        self.eval_string("(use-modules (bibelot theme))")?;
+        // Every read starts from the module's defaults, so a user file that
+        // sets two keys cannot inherit the previous read's third one.
+        let _ = self.eval_value("(reset-widget-theme!)")?;
+
+        if let Some(path) = bibelot::theme::user_theme_path() {
+            let path = path.to_str().ok_or_else(|| {
+                GuileError::Evaluation(format!(
+                    "widget theme path is not valid UTF-8: {}",
+                    path.display()
+                ))
+            })?;
+
+            self.eval_string(&format!("(load {})", scheme_string_literal(path)))?;
+        }
+
+        let value = self.eval_value("(widget-theme)")?;
+
+        match value {
+            SchemeValue::Alist(entries) => Ok(bibelot::Theme::from_alist(&theme_entries(&entries))),
+            _ => Ok(bibelot::Theme::default()),
+        }
     }
 
     /// Read the shell menu as `(whelk menu)` units.  A configuration that
@@ -1146,4 +1180,50 @@ mod tests {
             assert!(!is_preference_key(key), "{key}");
         }
     }
+}
+
+/// Convert one of the shell's Scheme values into the widget project's copy.
+fn widget_value(value: &SchemeValue) -> bibelot::widgets::SchemeValue {
+    use bibelot::widgets::SchemeValue as Widget;
+
+    match value {
+        SchemeValue::Bool(value) => Widget::Bool(*value),
+        SchemeValue::Integer(value) => Widget::Integer(*value),
+        SchemeValue::Number(value) => Widget::Number(*value),
+        SchemeValue::Text(value) => Widget::Text(value.clone()),
+        SchemeValue::Symbol(value) => Widget::Symbol(value.clone()),
+        SchemeValue::List(values) => Widget::List(values.iter().map(widget_value).collect()),
+        SchemeValue::Alist(entries) => Widget::Alist(widget_entries(entries)),
+        SchemeValue::Other => Widget::Other,
+    }
+}
+
+fn widget_entries(
+    entries: &[(String, SchemeValue)],
+) -> Vec<(String, bibelot::widgets::SchemeValue)> {
+    entries
+        .iter()
+        .map(|(key, value)| (key.clone(), widget_value(value)))
+        .collect()
+}
+
+/// The card theme only names integers and text; everything else is ignored by
+/// `Theme::from_alist`, so the conversion can be the small theme vocabulary.
+fn theme_entries(entries: &[(String, SchemeValue)]) -> Vec<(String, bibelot::guile::SchemeValue)> {
+    use bibelot::guile::SchemeValue as Theme;
+
+    entries
+        .iter()
+        .map(|(key, value)| {
+            let value = match value {
+                SchemeValue::Bool(value) => Theme::Bool(*value),
+                SchemeValue::Integer(value) => Theme::Integer(*value),
+                SchemeValue::Text(value) => Theme::Text(value.clone()),
+                SchemeValue::Symbol(value) => Theme::Symbol(value.clone()),
+                _ => Theme::Other,
+            };
+
+            (key.clone(), value)
+        })
+        .collect()
 }

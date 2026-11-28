@@ -1,4 +1,4 @@
-// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+// bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
 //
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -25,15 +25,15 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use crate::bar::BarSettings;
 use crate::batterybar;
 use crate::command;
 use crate::cpubar;
 use crate::memorybar;
 use crate::mpris::{self, Control, Mpris, Reading};
+use crate::skin::Skin;
 use crate::sources;
 use crate::style;
-use crate::ui::layer_shell_available;
+use crate::theme::Theme;
 use crate::visualizer::Cava;
 use crate::widgets::{
     self, Area, FALLBACK_AREA, NewsItem, RecentFile, ReminderRow, Reminders, StockQuote,
@@ -489,7 +489,8 @@ pub struct Widgets {
     /// the widgets, their material and the outputs untouched reuses them
     /// instead of tearing every timer and surface down and building it again.
     configs: Vec<WidgetConfig>,
-    style: BarSettings,
+    style: Skin,
+    theme: Theme,
     signature: String,
     state_present: bool,
     visible: bool,
@@ -501,7 +502,8 @@ impl Widgets {
             cards: Vec::new(),
             state_path: None,
             configs: Vec::new(),
-            style: BarSettings::default(),
+            style: Skin::default(),
+            theme: Theme::default(),
             signature: String::new(),
             state_present: false,
             visible: true,
@@ -537,7 +539,8 @@ impl Widgets {
         &mut self,
         application: &gtk::Application,
         configs: &[WidgetConfig],
-        style: &BarSettings,
+        style: &Skin,
+        theme: &Theme,
         config_path: &Path,
     ) {
         let state_path = widgetstate::state_path(config_path);
@@ -546,12 +549,14 @@ impl Widgets {
         let previous = CardSet {
             configs: &self.configs,
             style: &self.style,
+            theme: &self.theme,
             signature: &self.signature,
             state_path: self.state_path.as_deref(),
         };
         let next = CardSet {
             configs,
             style,
+            theme,
             signature: &signature,
             state_path: state_path.as_deref(),
         };
@@ -567,13 +572,17 @@ impl Widgets {
         self.clear();
         self.configs = configs.to_vec();
         self.style = style.clone();
+        self.theme = theme.clone();
         self.signature = signature;
         self.state_present = state_path.as_deref().is_some_and(Path::exists);
         self.state_path = state_path;
 
         for (index, config) in configs.iter().enumerate() {
             if config.kind().is_none() {
-                eprintln!("whelk: unknown desktop widget kind '{}'", config.spec.kind);
+                eprintln!(
+                    "bibelot: unknown desktop widget kind '{}'",
+                    config.spec.kind
+                );
                 continue;
             }
 
@@ -582,6 +591,7 @@ impl Widgets {
                 config,
                 index,
                 style,
+                theme,
                 self.state_path.as_deref(),
             ) {
                 if !self.visible {
@@ -593,7 +603,7 @@ impl Widgets {
         }
 
         if !self.cards.is_empty() {
-            eprintln!("whelk: {} desktop widget(s) up", self.cards.len());
+            eprintln!("bibelot: {} desktop widget(s) up", self.cards.len());
         }
     }
 
@@ -616,7 +626,8 @@ impl Default for Widgets {
 #[derive(Clone, Copy)]
 pub struct CardSet<'a> {
     pub configs: &'a [WidgetConfig],
-    pub style: &'a BarSettings,
+    pub style: &'a Skin,
+    pub theme: &'a Theme,
     pub signature: &'a str,
     pub state_path: Option<&'a Path>,
 }
@@ -630,6 +641,7 @@ pub struct CardSet<'a> {
 pub fn same_configuration(previous: CardSet<'_>, next: CardSet<'_>) -> bool {
     previous.configs == next.configs
         && previous.style == next.style
+        && previous.theme == next.theme
         && previous.signature == next.signature
         && previous.state_path == next.state_path
 }
@@ -655,14 +667,15 @@ impl Card {
         application: &gtk::Application,
         config: &WidgetConfig,
         index: usize,
-        style: &BarSettings,
+        style: &Skin,
+        theme: &Theme,
         state_path: Option<&Path>,
     ) -> Option<Self> {
         let id = config.id(index);
         let widget_id = style::widget_id(&id);
         let window = gtk::ApplicationWindow::builder()
             .application(application)
-            .title("whelk widget")
+            .title("bibelot widget")
             .build();
 
         window.set_widget_name(&widget_id);
@@ -670,7 +683,7 @@ impl Card {
         window.set_decorated(false);
         window.set_resizable(false);
 
-        let card = gtk::Box::new(gtk::Orientation::Vertical, 9);
+        let card = gtk::Box::new(gtk::Orientation::Vertical, theme.card_gap);
 
         card.add_css_class("whelk-widget-card");
         card.add_css_class(&config.object_class());
@@ -709,9 +722,9 @@ impl Card {
             );
         }
 
-        crate::a11y::describe(&card, &config.spec.kind, &config.title(), None, false);
+        describe_card(&card, &config.spec.kind, &config.title());
 
-        let skin = install_skin(&widget_id, style, config);
+        let skin = install_skin(&widget_id, style, theme, config);
 
         if layer_shell_available() {
             window.init_layer_shell();
@@ -801,24 +814,34 @@ thread_local! {
     /// The structural card rules are the same for every card.  Installing them
     /// once per display keeps a desktop of a dozen cards from parsing the same
     /// stylesheet a dozen times.
-    static CARD_RULES: RefCell<Option<gtk::CssProvider>> = const { RefCell::new(None) };
+    static CARD_RULES: RefCell<Option<(Theme, gtk::CssProvider)>> = const { RefCell::new(None) };
 }
 
-fn install_card_rules(display: &gtk::gdk::Display) {
+fn install_card_rules(display: &gtk::gdk::Display, theme: &Theme) {
     CARD_RULES.with(|slot| {
-        if slot.borrow().is_some() {
-            return;
+        if let Some((installed, css)) = slot.borrow_mut().take() {
+            if installed == *theme {
+                *slot.borrow_mut() = Some((installed, css));
+
+                return;
+            }
+
+            // A theme that dropped a rule must not leave the old provider's
+            // rule in force underneath the new one.
+            gtk::style_context_remove_provider_for_display(display, &css);
         }
 
         let css = gtk::CssProvider::new();
+        let mut rules = String::from(CARD_CSS);
+        rules.push_str(&theme.css());
 
-        css.load_from_string(CARD_CSS);
+        css.load_from_string(&rules);
         gtk::style_context_add_provider_for_display(
             display,
             &css,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
-        *slot.borrow_mut() = Some(css);
+        *slot.borrow_mut() = Some((theme.clone(), css));
     });
 }
 
@@ -1094,19 +1117,20 @@ fn current_area(window: Option<&gtk::ApplicationWindow>, configured: &str) -> Ar
 
 fn install_skin(
     widget_id: &str,
-    style: &BarSettings,
+    style: &Skin,
+    theme: &Theme,
     config: &WidgetConfig,
 ) -> Option<gtk::CssProvider> {
     let display = gtk::gdk::Display::default()?;
-    // A card is skinned from the first bar's palette so the desktop looks like
-    // one shell; a card that named its own material changes only what it named.
+    // A card is skinned from the host's palette so the desktop looks like one
+    // shell; a card that named its own material changes only what it named.
     let mut skin = style.clone();
 
     if let Some(material) = config.skin() {
         material.apply(&mut skin);
     }
 
-    install_card_rules(&display);
+    install_card_rules(&display, theme);
 
     let mut generated = style::css(
         widget_id,
@@ -1321,7 +1345,7 @@ fn warn_missing_curl() {
 
     WARNED.call_once(|| {
         eprintln!(
-            "whelk: weather and stock cards read the network with curl, which is not on PATH"
+            "bibelot: weather and stock cards read the network with curl, which is not on PATH"
         );
     });
 }
@@ -1346,7 +1370,7 @@ fn fetch(
     // A missing `curl` is not a network failure: asking the shell for it first
     // means the card can say what is wrong instead of retrying a program that
     // is not there, every tick, forever.
-    if crate::session::program_in_path("curl").is_none() {
+    if gtk::glib::find_program_in_path("curl").is_none() {
         busy.set(false);
         warn_missing_curl();
         done(Err(FetchError::NoCurl));
@@ -1379,7 +1403,7 @@ fn fetch(
 fn build_content(
     card: &gtk::Box,
     config: &WidgetConfig,
-    style: &BarSettings,
+    style: &Skin,
     state_path: Option<&Path>,
     id: &str,
 ) -> Vec<gtk::glib::SourceId> {
@@ -1457,7 +1481,7 @@ fn paint_health(
     }
 }
 
-fn ink(style: &BarSettings) -> gtk::gdk::RGBA {
+fn ink(style: &Skin) -> gtk::gdk::RGBA {
     style
         .foreground
         .as_deref()
@@ -1478,7 +1502,7 @@ fn now_in_zone(zone: Option<&str>) -> Option<gtk::glib::DateTime> {
 fn build_clock(
     card: &gtk::Box,
     config: &WidgetConfig,
-    style: &BarSettings,
+    style: &Skin,
 ) -> Option<gtk::glib::SourceId> {
     let analog = config.spec.text("style").as_deref() != Some("digital");
     let seconds = config.spec.boolean("show-seconds?").unwrap_or(true);
@@ -2355,7 +2379,7 @@ fn build_world_clock(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib
     schedule(interval, update)
 }
 
-fn build_visualizer(card: &gtk::Box, config: &WidgetConfig, style: &BarSettings) {
+fn build_visualizer(card: &gtk::Box, config: &WidgetConfig, style: &Skin) {
     let bars = config
         .spec
         .integer("bars")
@@ -3531,22 +3555,18 @@ fn open_uri(uri: &str) {
     if let Err(error) =
         gtk::gio::AppInfo::launch_default_for_uri(uri, None::<&gtk::gio::AppLaunchContext>)
     {
-        eprintln!("whelk: could not open {uri}: {error}");
+        eprintln!("bibelot: could not open {uri}: {error}");
     }
 }
 
 fn open_path(path: &Path) {
     match gtk::glib::filename_to_uri(path, None) {
         Ok(uri) => open_uri(&uri),
-        Err(error) => eprintln!("whelk: could not name {}: {error}", path.display()),
+        Err(error) => eprintln!("bibelot: could not name {}: {error}", path.display()),
     }
 }
 
-fn build_stocks(
-    card: &gtk::Box,
-    config: &WidgetConfig,
-    style: &BarSettings,
-) -> Vec<gtk::glib::SourceId> {
+fn build_stocks(card: &gtk::Box, config: &WidgetConfig, style: &Skin) -> Vec<gtk::glib::SourceId> {
     let symbols =
         widgets::stock_symbols(config.spec.text("symbols").as_deref().unwrap_or_default());
     let colour = ink(style);
@@ -3848,4 +3868,26 @@ fn build_custom(card: &gtk::Box, config: &WidgetConfig) -> Option<gtk::glib::Sou
     });
 
     schedule(interval, update)
+}
+
+/// Whether this display speaks the layer-shell protocol, not merely whether
+/// the library is linked.  Broadway and X11 keep the ordinary-window path.
+fn layer_shell_available() -> bool {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return false;
+    };
+
+    display.backend().is_wayland() && gtk4_layer_shell::is_supported()
+}
+
+/// What a screen reader should say for a card.
+fn describe_card(card: &gtk::Box, kind: &str, title: &str) {
+    let name = if title.trim().is_empty() {
+        kind.replace('-', " ")
+    } else {
+        title.trim().to_owned()
+    };
+
+    card.set_accessible_role(gtk::AccessibleRole::Label);
+    card.update_property(&[gtk::accessible::Property::Label(&name)]);
 }

@@ -18,10 +18,11 @@ depends=(
   'gtk4-layer-shell'
   'guile'
   'cava'
-  'pam'
   'wtype'
   'wayland'
 )
+
+optdepends=('hasp: lock screen, session authentication and logind lock triggers')
 
 makedepends=(
   'cargo'

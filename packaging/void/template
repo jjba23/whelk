@@ -16,9 +16,11 @@ version=0.53.1
 revision=1
 build_style=void
 hostmakedepends="cargo pkg-config"
-makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel pam-devel"
+makedepends="gtk4-devel gtk4-layer-shell-devel guile-devel"
 checkdepends="xorg-server-xvfb dbus"
-depends="gtk4 gtk4-layer-shell guile cava pam wtype curl hicolor-icon-theme"
+# hasp is a separate program: install it for lock actions and logind triggers,
+# but whelk starts and runs without it.
+depends="gtk4 gtk4-layer-shell guile cava wtype curl hicolor-icon-theme"
 short_desc="Wayland shell with bars and launcher, configured in Guile Scheme"
 maintainer="Josep Bigorra <jjbigorra@gmail.com>"
 license="MIT"

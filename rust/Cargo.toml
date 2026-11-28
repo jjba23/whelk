@@ -16,6 +16,10 @@ name = "whelk"
 path = "src/main.rs"
 
 [dependencies]
+# The lock screen is a separate program (`hasp`); see src/hasp.rs.  The widget
+# engine is a separate project too, carried here as a pinned source snapshot so
+# a release tarball builds offline with no sibling checkout.
+bibelot = { path = "vendor/bibelot" }
 gtk4 = { version = "0.11.5", features = ["v4_18"] }
 gio = { version = "0.22", features = ["v2_80"] }
 gtk4-layer-shell = "0.8.1"

@@ -24,7 +24,6 @@ use crate::barmodule::{self, ModuleHost};
 use crate::command;
 use crate::format;
 use crate::launcherpanel::Launcher;
-use crate::locker;
 use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
 use crate::notifications::NotificationService;
@@ -423,7 +422,7 @@ fn run_shell_action(name: &str, style: &BarSettings) {
                 service.set_dnd(!enabled);
             }
         }
-        "lock" => locker::start_lock_screen(),
+        "lock" => crate::hasp::lock(),
         "reload" => activate("reload"),
         "quit" => quit(),
         "about" => about::show(style),

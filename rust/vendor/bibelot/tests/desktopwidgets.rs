@@ -4,19 +4,23 @@
 
 use std::path::Path;
 
-use whelk_rs::bar::{BarSettings, ModuleSpec};
-use whelk_rs::desktopwidgets::{self, CardSet, FetchError, Health};
-use whelk_rs::widgets::{Area, FALLBACK_AREA, ReminderRow, WidgetConfig};
+use bibelot::desktopwidgets::{self, CardSet, FetchError, Health};
+use bibelot::skin::Skin;
+use bibelot::theme::Theme;
+use bibelot::widgets::{Area, FALLBACK_AREA, ModuleSpec, ReminderRow, WidgetConfig};
+
+static THEME: std::sync::LazyLock<Theme> = std::sync::LazyLock::new(Theme::default);
 
 fn set<'a>(
     configs: &'a [WidgetConfig],
-    style: &'a BarSettings,
+    style: &'a Skin,
     signature: &'a str,
     state: Option<&'a Path>,
 ) -> CardSet<'a> {
     CardSet {
         configs,
         style,
+        theme: &THEME,
         signature,
         state_path: state,
     }
@@ -43,7 +47,7 @@ fn the_same_cards_on_the_same_outputs_are_kept() {
         "default",
     );
     let cards = vec![card.clone()];
-    let style = BarSettings::default();
+    let style = Skin::default();
     let state = Some(Path::new("/tmp/widgets-settings.ini"));
     let baseline = set(&cards, &style, "DP-1:1920x1080;", state);
 
@@ -58,9 +62,9 @@ fn the_same_cards_on_the_same_outputs_are_kept() {
     assert!(!desktopwidgets::same_configuration(
         set(
             &cards,
-            &BarSettings {
+            &Skin {
                 opacity: 0.5,
-                ..BarSettings::default()
+                ..Skin::default()
             },
             "DP-1:1920x1080;",
             state

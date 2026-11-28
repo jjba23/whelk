@@ -9,7 +9,7 @@ here, release by release.
 
 | Area                       | State                                                                    |
 |----------------------------+--------------------------------------------------------------------------|
-| Implementation             | working: Rust 2024, 661 tests, vendored crates, offline Guix/Nix builds   |
+| Implementation             | working: Rust 2024, 560 tests, vendored crates, offline Guix/Nix builds   |
 | Build system, Guile engine | working: Cargo, the audited Guile bridge, Scheme-primitive registration   |
 | Configuration DSL          | working: bars, modules, hot reload, optional REPL                        |
 | Native modules             | working: clock, cpu, memory, battery, backlight, audio, power profile, workspaces, window, keyboard layout, caps lock, wifi, bluetooth, notifications, custom, tray, shell menu, global menu, media controls |
@@ -17,7 +17,7 @@ here, release by release.
 | Network panel              | working: Wi-Fi (nmcli) and Bluetooth (bluetoothctl) in one right-edge panel |
 | Launcher                   | working: applications, windows, commands, calculator, files, web, menus   |
 | Right-side overflow        | working: trailing right modules fold behind a =+N= count; a configured shelf opens on a click |
-| Desktop widgets            | working: sixteen Golden Gate cards (thirteen in the default set), drag with per-monitor placement, live Weather/Stocks/News, player, visualizer, media controls, photos, files, system, and the desktop context menu |
+| Desktop widgets            | working: sixteen Golden Gate cards (thirteen in the default set), drag with per-monitor placement, live Weather/Stocks/News, player, visualizer, media controls, photos, files, system, and the desktop context menu; the engine is the separate the separate *bibelot* project project |
 | Lock screen, idle manager  | working: the session lock where the compositor has it, a fail-closed fallback, one idle timer |
 | Menus                      | working: shell menu, GTK and DBusMenu and AT-SPI menubars, the dictionary and the Orbit corpus, tray context menus |
 | Sessions                   | working: niri, sway, Hyprland, river, X11; GNOME and KDE Wayland degrade to windows |

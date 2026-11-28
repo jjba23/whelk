@@ -1,0 +1,35 @@
+# bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
+#
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "bibelot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+description = "Floating desktop widget cards in Rust and GNU Guile Scheme"
+publish = false
+
+[lib]
+name = "bibelot"
+path = "src/lib.rs"
+
+[dependencies]
+gtk4 = { version = "0.11.5", features = ["v4_18"] }
+gio = { version = "0.22", features = ["v2_80"] }
+gtk4-layer-shell = "0.8.1"
+libc = "0.2"
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+# Guile is global and thread-affine, so its test binary has its own main
+# instead of libtest's worker threads.
+[[test]]
+name = "theme"
+path = "tests/theme.rs"
+harness = false

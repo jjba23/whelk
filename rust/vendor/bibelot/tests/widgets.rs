@@ -1,13 +1,11 @@
-// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+// bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
 //
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 use std::collections::BTreeMap;
 
-use whelk_rs::bar::ModuleSpec;
-use whelk_rs::settings::SchemeValue;
-use whelk_rs::widgets::{self, Area, Reminders, WidgetConfig, WidgetKind};
+use bibelot::widgets::{self, Area, ModuleSpec, Reminders, SchemeValue, WidgetConfig, WidgetKind};
 
 fn spec(kind: &str, options: &[(&str, SchemeValue)]) -> ModuleSpec {
     ModuleSpec {
@@ -610,7 +608,7 @@ fn a_restored_position_is_an_offset_from_the_anchor() {
 
 #[test]
 fn a_card_wears_only_the_material_it_names() {
-    use whelk_rs::bar::BarSettings;
+    use bibelot::skin::Skin;
 
     let plain = config("weather", &[]);
 
@@ -625,11 +623,11 @@ fn a_card_wears_only_the_material_it_names() {
         ],
     );
     let material = card.skin().expect("the card names a material");
-    let mut bar = BarSettings {
+    let mut bar = Skin {
         opacity: 0.9,
         background: Some("#101010".to_owned()),
         blur: 12,
-        ..BarSettings::default()
+        ..Skin::default()
     };
 
     material.apply(&mut bar);
@@ -752,7 +750,7 @@ fn a_visualizer_frame_parses_cava_and_holds_its_peaks() {
 
 #[test]
 fn a_player_reading_becomes_the_cards_words() {
-    use whelk_rs::mpris::{Playback, Reading, Track};
+    use bibelot::mpris::{Playback, Reading, Track};
 
     let reading = Reading {
         player: Some("spotify".to_owned()),

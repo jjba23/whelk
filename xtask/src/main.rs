@@ -49,8 +49,8 @@ fn usage() {
         "Usage: cargo xtask <install|dist>\n\
          \n\
          install [--prefix DIR] [--destdir DIR] [--debug] [--no-build]\n\
-           build the Rust shell and stage whelk-rs, the shared Scheme modules\n\
-           and the Rust README; the C `whelk` binary is not installed or replaced\n\
+           build the Rust shell and stage whelk, the whelk and bibelot Scheme\n\
+           modules, the desktop entry, icons and the Rust README\n\
          dist [--version VERSION] [--output DIR]\n\
            write a source archive from Git HEAD\n\
          \n\
@@ -137,6 +137,10 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
         &workspace.join("scheme/whelk"),
         &root.join("share/guile/site/3.0/whelk"),
     )?;
+    copy_directory(
+        &workspace.join("rust/vendor/bibelot/scheme/bibelot"),
+        &root.join("share/guile/site/3.0/bibelot"),
+    )?;
     install_file(
         &workspace.join("rust/README.md"),
         &root.join("share/doc/whelk/README.md"),
@@ -164,6 +168,10 @@ fn install(arguments: Vec<String>) -> Result<(), String> {
     println!(
         "installed Scheme modules to {}",
         root.join("share/guile/site/3.0/whelk").display()
+    );
+    println!(
+        "installed (bibelot theme) to {}",
+        root.join("share/guile/site/3.0/bibelot").display()
     );
     println!(
         "installed the Rust desktop entry to {}",

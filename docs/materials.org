@@ -127,7 +127,7 @@ surface, so a rule can blur the chrome and leave the wallpaper alone:
 | =whelk-widget=               | each desktop widget card                       |
 | =whelk-rust-wallpaper=       | the wallpaper surface (opaque, never blurred)  |
 | =whelk-wallpaper-picker=     | the wallpaper picker                           |
-| =whelk-lock=                 | the lock screen                                |
+| =hasp-lock=                  | the lock screen (hasp, a separate project)     |
 
 =whelk-rust= (the bar) and =whelk-widget= are the two a plain prefix rule
 misses; the wallpaper surface is the one worth excluding.

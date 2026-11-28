@@ -111,7 +111,7 @@ lock before the screen blanks, set =#:lock-after= at or below that timeout (or
 disable the compositor's own idle blanking and let whelk's timer lead).
 
 Screen blanking itself is the compositor's and logind's business -- DPMS,
-=ext-idle-notify-v1= and its own settings.  Whelk draws the lock screen and asks
+=ext-idle-notify-v1= and its own settings.  Whelk asks hasp for the lock screen and asks
 for it; it does not turn the panel off.  So a blank screen with no lock and a
 locked session with the panel on are two different answers, and the report above
 says which half whelk handled.

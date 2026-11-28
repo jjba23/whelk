@@ -1,4 +1,4 @@
-// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+// bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
 //
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>

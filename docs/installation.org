@@ -35,8 +35,8 @@ and hides what is not.
 need": GTK 4, =gtk4-layer-shell=, the Wayland client, GIO and Guile.  PAM is not
 on that list, and that is deliberate.
 
-The locker opens a PAM library with =dlopen= at the moment a password is
-submitted; [[file:lock-screen.org][The lock screen]] explains why.  A binary that linked
+=hasp=, the separate lock-screen project, opens a PAM library with =dlopen= at
+the moment a password is submitted; [[file:lock-screen.org][The lock screen]] explains why.  A binary that linked
 libpam would answer with whichever copy the build found -- a store path in a
 Nix or Guix build -- and that copy's =pam_unix= cannot run the host's setuid
 =unix_chkpwd=, so every password would come back as =PAM_AUTHINFO_UNAVAIL=.
@@ -62,7 +62,7 @@ flowchart TD
     E --> F
     OK --> F
     F -->|no| G["LOCK_AUTH_UNAVAILABLE<br/>no PAM library found"]
-    F -->|yes| H["choose the service:<br/>/etc/pam.d/whelk-lock,<br/>then login,<br/>then a per-user stack"]
+    F -->|yes| H["choose the service:<br/>/etc/pam.d/hasp-lock,<br/>then login,<br/>then a per-user stack"]
     H --> I{"service exists?"}
     I -->|no| G
     I -->|yes| J["pam_authenticate on a worker thread"]

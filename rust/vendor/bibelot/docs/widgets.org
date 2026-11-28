@@ -1,0 +1,64 @@
+#+title: bibelot internals
+#+subtitle: the desktop widget engine
+#+options: toc:nil num:nil
+
+The cards are a separate project from the shell that hosts them.  This page is
+the engine's map; the settings language and the user-facing widget gallery are
+documented by the host (whelk's =docs/widgets.org=).
+
+* The data and the cards
+
+=src/widgets.rs= owns everything about a card that does not need a display: the
+sixteen kinds and their standard sizes, position/size/monitor defaults and
+clamps, the mouse vocabulary and per-kind refresh cadence, the reminders model
+whose done flags are runtime state, world-clock city parsing, the
+Open-Meteo/Yahoo/RSS-Atom answer decoding, the calendar's Monday-first month
+grid and ISO week numbers, a note's file-or-text rule, the photo folder walk,
+the recent-documents XBEL reader, the system's =/proc= readers, the stock
+sparkline arithmetic and the drag/placement arithmetic.
+
+=src/widgetstate.rs= is the =widgets-<settings-stem>.ini= file the shell writes
+and reads, so a drag is remembered across restarts.  Positions are stored per
+monitor with a monitor-less fallback; the file is clamped into whatever screen
+is left when a connector disappears.
+
+=src/desktopwidgets.rs= draws the cards: one bottom-layer surface per configured
+widget, anchored at its saved or configured place, skinned from the host's
+palette, moved by its grip, with a timer per kind and a second tick on Weather,
+Stocks and News that only re-reads their age.  Networked cards make one
+asynchronous request at a time; a card that goes away drops its timer, its skin
+and its surface, and an answer that arrives late paints nothing.  The manager
+is rebuilt when the configuration, the material or the outputs changed, and
+otherwise keeps the cards it has.
+
+* The readers
+
+The cards do not call the shell for a reading.  =src/batterybar.rs= reads
+`/sys/class/power_supply`, =src/cpubar.rs= samples `/proc/stat`,
+=src/memorybar.rs= parses `/proc/meminfo`, =src/mpris.rs= watches the session
+bus, =src/visualizer.rs= owns one cava process, and =src/command.rs=,
+=src/json.rs=, =src/format.rs= and =src/sources.rs= are the small shared
+readers behind the networked and command cards.  Each one is independent of
+the shell's bar modules, even where the two read the same kernel file.
+
+* The skin
+
+The host supplies a =bibelot::Skin=: the first bar's palette, material options
+and the frosted-glass finish in force.  =src/style.rs= turns it into one
+stylesheet scoped to the card's window id; =src/widgets.rs= can overlay a
+card's own skin keys on that copy, and =src/desktopwidgets.rs= adds the
+transparency rules last.  The structural rules live in =CARD_CSS= and are
+installed once per display; a theme change replaces them.
+
+* The Scheme theme
+
+=scheme/bibelot/theme.scm= exports =widget-theme=, =configure-widgets!= and
+=reset-widget-theme!=.  The alist has three keys: =card-padding= and
+=card-gap= in pixels, and =extra-css= for anything the structural rules do not
+name.  The defaults in =src/theme.rs= and the Scheme module are kept together
+by a test.
+
+A host with its own Guile loads the module and calls =Theme::from_alist=;
+=src/guile.rs= exists for a host without one.  Guile is global and
+thread-affine, so only one runtime can be initialized in a process.  The theme
+test therefore has its own =main= and no libtest harness.

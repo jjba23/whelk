@@ -30,11 +30,9 @@ use crate::clipboard::Clipboard;
 use crate::command;
 use crate::config::{ConfigLoader, LoadedConfig};
 use crate::desktopmenu::{self, DesktopCommand, DesktopMenu, DesktopMenuState};
-use crate::desktopwidgets::Widgets;
 use crate::frost;
 use crate::idle::Idle;
 use crate::launcherpanel::Launcher;
-use crate::locker;
 use crate::menuapps::MenuSources;
 use crate::networkpanel::NetworkPanel;
 use crate::notificationcenter::NotificationCenter;
@@ -47,6 +45,7 @@ use crate::startmenu::MenuEntry;
 use crate::style;
 use crate::wallpapermenu::WallpaperMenu;
 use crate::wallpaperpicker::Picker;
+use bibelot::Widgets;
 
 const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -358,7 +357,7 @@ fn perform(
 
             about::show_program(&style, &label);
         }
-        Request::Lock => locker::start_lock_screen(),
+        Request::Lock => crate::hasp::lock(),
         Request::Menu(command) => {
             if let Some(launcher) = Launcher::current() {
                 launcher.show_menu(&command);
@@ -483,7 +482,7 @@ fn perform_desktop_command(
                 launcher.show_session_menu();
             }
         }
-        DesktopCommand::Lock => locker::start_lock_screen(),
+        DesktopCommand::Lock => crate::hasp::lock(),
         DesktopCommand::Power(action) => command::spawn(action.command()),
         DesktopCommand::NightLight => {
             shell.borrow_mut().toggle_night_light();
@@ -562,7 +561,7 @@ impl Shell {
         // The C shell prepares the locker at startup, before a `--lock` or a
         // logind signal can arrive; the Rust shell watches logind at the same
         // point and starts `whelk --lock` when a trigger fires.
-        locker::watch_logind();
+        crate::hasp::watch_logind();
         start_idle(loaded.idle_lock_after);
 
         // The notification service shares the idle manager's DND flag.  It is
@@ -803,7 +802,8 @@ impl Shell {
         self.widgets.build(
             &application,
             &self.loaded.widgets,
-            &style,
+            &card_skin(&style),
+            &self.loaded.widget_theme,
             self.loader.path(),
         );
     }
@@ -1547,7 +1547,7 @@ fn start_idle(lock_after: i32) {
 
         let idle = Idle::new();
 
-        idle.set_lock_action(locker::start_lock_screen);
+        idle.set_lock_action(crate::hasp::lock);
         idle.set_lock_after(lock_after);
         idle.start();
 
@@ -2198,4 +2198,34 @@ fn install_css(bar: &BarSettings, widget_id: &str) -> Option<gtk::CssProvider> {
     );
 
     Some(css)
+}
+
+/// The host half of a card's skin: the first bar's palette and material, plus
+/// the frosted-glass finish in force.
+fn card_skin(style: &BarSettings) -> bibelot::Skin {
+    let frost = crate::frost::current();
+
+    bibelot::Skin {
+        foreground: style.foreground.clone(),
+        background: style.background.clone(),
+        accent: style.accent.clone(),
+        border_color: style.border_color.clone(),
+        radius: style.radius,
+        opacity: style.opacity,
+        blur: style.blur,
+        shine: style.shine,
+        reflection: style.reflection,
+        flare: style.flare,
+        font: style.font.clone(),
+        font_size: style.font_size.clone(),
+        frost: bibelot::frost::Frost {
+            enabled: frost.enabled,
+            tint: frost.tint.clone(),
+            opacity: frost.opacity,
+            warmth: frost.warmth,
+            grain: frost.grain,
+            highlight: frost.highlight,
+            shadow: frost.shadow,
+        },
+    }
 }

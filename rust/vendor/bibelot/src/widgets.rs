@@ -1,10 +1,10 @@
-// whelk -- a Wayland shell written in Rust, GTK4 and GNU Guile Scheme
+// bibelot -- floating desktop widgets written in Rust, GTK4 and GNU Guile Scheme
 //
 // SPDX-License-Identifier: MIT
 // Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 //! The desktop widgets' data, ported from the display-free half of
-//! `src/widgets.c` and the `(whelk state)` records behind it.
+//! `src/widgets.c` and the the desktop settings records behind it.
 //!
 //! A widget is a floating card described by the same settings file as the bar:
 //! a kind, a pixel position and size, a monitor, and an option alist.  This
@@ -18,15 +18,61 @@
 //! The surfaces, the drag gesture and the refreshers stay with GTK in
 //! [`crate::widgetstate`]'s callers; what is here is what they all agree on.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use gtk4 as gtk;
 
-use crate::bar::{BarSettings, ModuleSpec};
 use crate::format;
 use crate::json::Json;
 use crate::mpris::{self, Reading};
-use crate::settings::SchemeValue;
+use crate::skin::Skin;
+
+/// A Scheme value as Rust data, for the options a widget reads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SchemeValue {
+    Bool(bool),
+    Integer(i64),
+    Number(f64),
+    Text(String),
+    Symbol(String),
+    List(Vec<SchemeValue>),
+    Alist(Vec<(String, SchemeValue)>),
+    Other,
+}
+
+/// The kind and options of one widget, the shape a bar module shares.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ModuleSpec {
+    pub kind: String,
+    pub options: BTreeMap<String, SchemeValue>,
+}
+
+impl ModuleSpec {
+    pub fn text(&self, key: &str) -> Option<String> {
+        match self.options.get(key) {
+            Some(SchemeValue::Text(value) | SchemeValue::Symbol(value)) => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn integer(&self, key: &str) -> Option<i64> {
+        match self.options.get(key) {
+            Some(SchemeValue::Integer(value)) => Some(*value),
+            Some(SchemeValue::Number(value)) if value.is_finite() && value.fract() == 0.0 => {
+                Some(*value as i64)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn boolean(&self, key: &str) -> Option<bool> {
+        match self.options.get(key) {
+            Some(SchemeValue::Bool(value)) => Some(*value),
+            _ => None,
+        }
+    }
+}
 
 /// Where a widget goes when the settings file names no position.
 pub const DEFAULT_X: i32 = 48;
@@ -314,42 +360,42 @@ impl WidgetSkin {
         }
     }
 
-    /// Lay this skin over a bar's material.
-    pub fn apply(&self, bar: &mut BarSettings) {
+    /// Lay this skin over the host's material.
+    pub fn apply(&self, skin: &mut Skin) {
         if let Some(value) = self.foreground.as_ref() {
-            bar.foreground = Some(value.clone());
+            skin.foreground = Some(value.clone());
         }
 
         if let Some(value) = self.background.as_ref() {
-            bar.background = Some(value.clone());
+            skin.background = Some(value.clone());
         }
 
         if let Some(value) = self.accent.as_ref() {
-            bar.accent = Some(value.clone());
+            skin.accent = Some(value.clone());
         }
 
         if let Some(value) = self.opacity {
-            bar.opacity = value;
+            skin.opacity = value;
         }
 
         if let Some(value) = self.blur {
-            bar.blur = value;
+            skin.blur = value;
         }
 
         if let Some(value) = self.radius {
-            bar.radius = value;
+            skin.radius = value;
         }
 
         if let Some(value) = self.shine {
-            bar.shine = value;
+            skin.shine = value;
         }
 
         if let Some(value) = self.reflection {
-            bar.reflection = value;
+            skin.reflection = value;
         }
 
         if let Some(value) = self.flare {
-            bar.flare = value;
+            skin.flare = value;
         }
     }
 }

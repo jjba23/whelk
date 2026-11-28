@@ -85,10 +85,10 @@ that can answer its question.
 | Layer | Examples | What it proves |
 |-------+----------+----------------|
 | Pure Rust | =policy.rs=, =rotation.rs=, =level.rs=, =fuzzy.rs=, =format.rs= | parsing, clamping, state transitions, scoring and schedules |
-| Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs=, =widgets.rs= | readings, menu trees and panel data without a compositor |
+| Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs= | readings, menu trees and panel data without a compositor |
 | Shell + Guile | =config.rs=, =scheme.rs= and the custom-harness test in =tests/guile.rs= | the real Scheme modules, one Guile handle and repeated loads |
 
-The full suite is 661 tests; =tests/guile.rs= runs its own harness outside
+The full suite is 560 tests; =tests/guile.rs= runs its own harness outside
 libtest and is not part of that number.  Most of it is ordinary Cargo:
 
 #+begin_src sh
@@ -187,7 +187,7 @@ from writing into a module that was already freed.
 
 Unsafe blocks are allowed only where a C library requires them.  Today that
 means the audited modules =posix.rs=, =guile/sys.rs=, =guile/widget.rs=,
-=lockauth.rs=, =locker.rs=, =nightlight/= and the process setup in
+=nightlight/= and the process setup in
 =supervisor.rs=.  Every block needs a =// SAFETY:= comment stating the
 invariant the caller must uphold.  Do not add a new =unsafe= block to a widget,
 a parser or a policy module to avoid a borrow check; redesign the ownership or
