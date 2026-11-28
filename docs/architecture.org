@@ -83,7 +83,7 @@ flowchart TD
        |
   rust/src/launcherpanel.rs, notificationcenter.rs, networkpanel.rs,
   wallpaperpicker.rs      the independently presented surfaces
-  bibelot::Widgets        the desktop cards, in their own project
+  bibelot::Widgets        the desktop cards, vendored as a pinned snapshot
 #+end_src
 
 * The boundaries are the design
@@ -97,8 +97,8 @@ flowchart TD
   cancellation, deadline and mouse options are the same as every other kind.
 - *A bar is configuration, a surface is not a bar.*  =ui.rs= turns a typed
   =BarSettings= into one layer-shell surface per selected output.  Launchers,
-  panels, notifications and the locker use the same surface vocabulary without
-  pretending to be a bar.
+  panels and notifications use the same surface vocabulary without pretending
+  to be a bar; the lock screen is hasp's, in another process.
 - *CSS is structure plus skin.*  =resources/css/whelk.css= is no longer a
   compiled resource; the Rust surfaces generate their structural and thematic
   CSS in =style.rs= and the per-surface modules, scoped to each window id.
@@ -110,14 +110,15 @@ The tree is easier to change when a function declares which kind it is.
 | Kind              | Examples                                                        | Rule |
 |-------------------+-----------------------------------------------------------------+------|
 | Pure decision     | =supervisor::decide=, =idlepolicy=, fuzzy scoring, playlist choice | no I/O; input and output are owned values; test every branch without a display |
-| Fallible edge     | =ConfigLoader=, Guile evaluation, PAM answers, file parsers     | return =Result= or =Option= with a specific error; no production =expect= for user input |
-| Unsafe boundary   | =posix.rs=, =guile/sys.rs=, =nightlight/=, and =hasp= (separate project) | =// SAFETY:= on every block, no pointer or =SCM= escapes, one C ABI per module |
+| Fallible edge     | =ConfigLoader=, Guile evaluation, hasp process startup, file parsers | return =Result= or =Option= with a specific error; no production =expect= for user input |
+| Unsafe boundary   | =posix.rs=, =guile/sys.rs= and =nightlight/=                | =// SAFETY:= on every block, no pointer or =SCM= escapes, one C ABI per module |
 
 A pure decision is the preferred shape for anything the shell will later do:
 =Outcome= and =Decision= in =supervisor.rs= are a complete restart policy, and
 the loop that sleeps and spawns only performs the answer.  A fallible edge keeps
 the failure where the context exists: the config loader can name the settings
-path, and the locker can say whether PAM, the helper or strict mode refused.  An
+path, and the process boundary can say that the optional hasp program is not
+installed.  An
 unsafe boundary is allowed to be unsafe inside, but its callers see a safe
 function and its comments state what must remain true.
 

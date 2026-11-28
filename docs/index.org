@@ -64,7 +64,7 @@ flowchart TD
 | [[file:notifications.org][Notifications]]              | the daemon, toasts, the grouped centre, actions, do-not-disturb           |
 | [[file:network.org][The network panel]]          | Wi-Fi and Bluetooth through =nmcli= and =bluetoothctl=                     |
 | [[file:tray.org][The tray]]                   | StatusNotifierItems, their context menus and the chevron                  |
-| [[file:lock-screen.org][The lock screen]]            | the session lock, the fallback overlay, PAM, and every failure message    |
+| [[file:lock-screen.org][The lock screen]]            | the optional hasp program, how whelk finds it and what changes without it |
 | [[file:idle.org][Idle, inhibitors, DND]]      | the one idle timer, the presentation inhibitor, why the screen blanked    |
 | [[file:sessions.org][Sessions]]                  | niri, sway, Hyprland, river and X11: what each one can do                 |
 | [[file:portability.org][Portability]]               | what whelk needs from the system, what it does without it, and Void Linux |

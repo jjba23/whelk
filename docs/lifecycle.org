@@ -59,8 +59,8 @@ sequenceDiagram
     Shell->>Guile: ConfigLoader::load, read settings.scm
     Shell->>Clip: new, limits and policy from (clipboard-settings), start wl-paste
     Shell->>Guile: read the menu tables, dictionary and Orbit
-    Shell->>Shell: locker and logind ready before any --lock
-    Shell->>Idle: lock action is this shell's lock, then start
+    Shell->>Shell: start hasp --watch (optional, with a parent-death signal)
+    Shell->>Idle: lock action starts hasp --lock, then start
     Shell->>Bars: build_bars
     Shell->>Shell: the centre, the launcher, the network panel, the OSD
     Shell->>Shell: watch the config directory and the monitor model
@@ -151,24 +151,21 @@ notification daemon for the length of a supervisor delay.
 * The lock path, from the shell's side
 
 #+name: lock-callers
-#+caption: Four ways in, one path out: everything that locks asks the same function, which is why the policy lives in one place.
+#+caption: Four ways in, one program out: whelk asks the separate hasp process to take the lock.
 #+begin_src mermaid
 flowchart LR
     K1["whelk --lock"] --> L["the shell lock request"]
     K2["shell:lock<br/>in the shell menu"] --> L
-    K3["logind's Lock signal<br/>loginctl lock-session"] --> L
+    K3["hasp --watch<br/>logind's Lock signal"] --> L
     K4["the idle manager's timer"] --> L
-    L --> M["the locker, ready at startup<br/>PAM and logind before any --lock"]
-    M --> N{"ext-session-lock-v1 present?"}
-    N -->|yes| O["the compositor owns the lock"]
-    N -->|no| P["an overlay per output, fail-closed"]
+    L --> M["hasp --lock<br/>a separate process"]
     M --> Q["clear-on-lock, if the clipboard asked for it"]
 #+end_src
 
-The locker is initialised during startup, not on the first lock: a lock request
-that arrives while PAM is still being located is a lock request that could fail
-open.  [[file:lock-screen.org][The lock screen]] is the full story, including what each failure
-message means.
+The watcher starts with the shell, but the lock policy lives in hasp.  Whelk's
+startup neither links PAM nor initialises a locker; a missing hasp is reported
+when a lock is requested.  [[file:lock-screen.org][The lock screen]] describes the runtime
+contract and the =HASP_BIN= lookup.
 
 * Shutdown
 

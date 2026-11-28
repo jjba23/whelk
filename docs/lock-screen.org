@@ -2,251 +2,84 @@
 #+subtitle: whelk documentation
 #+options: toc:nil num:nil
 
-The lock screen, the two ways it can be presented, and what every failure message means.
+How whelk reaches the separate hasp lock screen, and what happens when it is not
+installed.
 
 #+begin_quote
-The lock screen and its authentication are their own project, =hasp= (Rust,
-GTK4 and Guile Scheme).  This page stays with whelk because the shell is
-what asks for the lock, but the surfaces, PAM conversation, retry policy,
-logind triggers and =packaging/pam/hasp-lock= now live in that project.
+The lock screen, its surfaces, PAM conversation, retry policy, logind watcher
+and Scheme theme are the separate [[https://github.com/jjba23/hasp][hasp]] project.
+Whelk owns only the request and the idle timer that reaches it.  There is no
+lock-screen code, PAM linkage or PAM build dependency in this repository.
 #+end_quote
 
-#+name: lock-path
-#+caption: One way in, one way out.  The compositor path is the hardened one; the fallback keeps the session locked where no protocol exists.
-#+begin_src mermaid
-flowchart TD
-    A["whelk --lock<br/>shell:lock<br/>logind's Lock signal<br/>the idle timer, suspend, a VT switch"] --> P{"a display, a presentation path<br/>and a password stack?"}
-    P -->|no| X["log why, exit<br/>the session stays unlocked"]
-    P -->|yes| B{"compositor implements<br/>ext-session-lock-v1?"}
-    B -->|yes| C["GtkSessionLockInstance<br/>the compositor owns the surfaces"]
-    B -->|no| D["one overlay per output<br/>keyboard exclusive on the primary"]
-    C --> R{"a surface on screen<br/>within two seconds?"}
-    D --> R
-    R -->|no| X2["release it, exit 75<br/>the shell retries once on the CPU renderer"]
-    R -->|yes| E["every output locked"]
-    E --> F["a password is submitted"]
-    F --> G["PAM on a worker thread<br/>the session user, never a typed name"]
-    G -->|success| H["unlock, reset the retry count"]
-    G -->|"wrong password"| I["stay locked<br/>wait 1 s, doubling to 30 s"]
-    G -->|"unavailable or a failed account check"| J["stay locked<br/>LOCK_AUTH_UNAVAILABLE"]
-    I --> F
-    J --> F
+* The runtime contract
+
+Whelk never links hasp.  It starts the program, so the two projects can be
+built, packaged, upgraded and tested independently.
+
+| Whelk action       | Program                    | When |
+|--------------------+----------------------------+------|
+| a lock request     | =hasp --lock=               | =--lock=, the shell menu, logind triggers and the idle timer |
+| logind following   | =hasp --watch=              | once, when the shell starts |
+| =--check-lock=     | =hasp --check=              | the diagnostic command, then exit |
+
+The lock itself is a separate =hasp --lock-now= process.  Whelk does not keep a
+lock surface in its own process, so a shell exit cannot take an active lock
+screen with it.
+
+* Finding hasp
+
+The program is chosen in this order:
+
+1. =HASP_BIN=, when set;
+2. a sibling =hasp= beside the running =whelk= binary;
+3. =hasp= on =$PATH=.
+
+A packaged whelk should recommend or depend on hasp rather than build it in.
+The Nix expression takes an optional =hasp= argument and adds it to the
+wrapper's =PATH= when supplied; the Guix and distribution packages leave it as
+a runtime recommendation.
+
+Without hasp the shell still starts and every non-lock feature works.  A lock
+action prints:
+
+#+begin_src text
+whelk: hasp could not be started: No such file or directory (os error 2); install hasp or set HASP_BIN
 #+end_src
 
-=whelk --lock= locks every output; =shell:lock= in the shell menu and
-logind's =Lock= signal (which is what =loginctl lock-session= sends) reach the
-same code.  Before it builds a surface, whelk checks that it can both cover the
-session and let the owner back in: a display, either
-=ext-session-lock-v1= or layer shell, and a password path -- a PAM stack it can
-start, or the host's setuid =unix_chkpwd= where no administrator policy
-exists.  A machine missing one of those would present a lock screen no password
-can end, so hasp logs =hasp-lock: not locking: <reason>= and exits with
-failure instead, leaving the session exactly as it was.  A suspend's sleep delay
-is released at the same moment rather than at its ten-second timeout.  On a
-machine that passes the check, every later failure still leaves the session
-locked (the fail-closed rules below), with one exception: a lock that never
-reaches the screen is not a lock the owner can end, so it is released.  That
-case is described in [[#lock-present]].
+and =--check-lock= exits with the same explanation.  This is a missing optional
+program, not a broken shell.
 
-* A lock has to be seen, not just requested
-:PROPERTIES:
-:CUSTOM_ID: lock-present
-:END:
+* Configuration
 
-Asking a compositor for a session lock and getting it is not the same as having
-a lock screen.  =ext-session-lock-v1= lets the compositor keep the session
-locked even when the client has not presented a surface, drawing its own
-background where the lock screen should be; on niri that background is solid
-red.  When that happens there is no password field, no keybinding and no way to
-unlock: the session is worse off than if it had never locked.
+Hasp owns its own configuration:
 
-So hasp counts a lock as real only when one of its windows has actually
-mapped.  If no surface is on screen two seconds after the lock was requested,
-the locker releases the compositor lock itself, removes its windows and exits
-with status 75.  The shell then retries once with GTK's CPU renderer
-(=GSK_RENDERER=cairo=), which is enough for a static lock screen and does not
-depend on the GPU buffer allocation the default renderer needs.  If that retry
-also cannot present, the session is left unlocked rather than covered.
+- =$XDG_CONFIG_HOME/hasp/theme.scm= (or =~/.config/hasp/theme.scm=) is its
+  Scheme theme;
+- =HASP_SCHEME_DIR= points a development or staged install at the module tree;
+- =HASP_LOCK_STRICT=, =HASP_LOCK_STATE_FILE= and the other =HASP_*= variables
+  are documented in hasp's README.
 
-The locker also leaves a marker in =$XDG_RUNTIME_DIR/hasp/lock-live= while a
-surface is up.  The shell watches its lock process; if it dies without removing
-the marker -- a crash, the OOM killer, a driver failure on resume -- the shell
-starts a fresh locker, which takes the session lock over and presents again.
-The restart is bounded to three attempts per lock request, so a locker that
-keeps dying is not restarted forever.  Only a clean unlock removes the marker
-before exit; a lock request that never took the session never creates it.
+Whelk does not read, rewrite or validate those files.
 
-On a Wayland compositor that implements =ext-session-lock-v1= --
-niri, Sway, Hyprland, River and other compositors that implement it -- hasp asks
-the compositor for a session lock through =gtk4-layer-shell='s
-=GtkSessionLockInstance=.  The compositor owns the lock surfaces: another
-client cannot put a window above them, and if the hasp process dies while the
-lock is up, the compositor keeps the session locked.  This is the hardened
-path; it needs =gtk4-layer-shell= 1.2 or newer.
+* Logind and the parent-death signal
 
-On a compositor without the protocol -- GNOME and KDE Wayland, and older
-compositors -- hasp falls back to one overlay layer surface per output, with
-the keyboard taken exclusively on the primary output.  The fallback is still
-fail-closed, but it is a user-space overlay: a client the compositor allows
-above the overlay layer, or a process that can kill hasp, is outside whelk's
-control.  On X11 the fallback is ordinary fullscreen windows, and a window
-manager that lets another window above them is likewise outside whelk's
-control.  The fallback is a compatibility path, not a claim of compositor
-enforcement.
+Whelk starts one =hasp --watch= process at shell startup.  The watcher follows
+logind's =Lock=, =PrepareForSleep(true)= and session =Active=false= signals.
+Whelk asks Linux to terminate that watcher when the shell exits, so a restart
+does not leave a second watcher behind.  A lock screen already started by the
+watcher is a separate process and is deliberately not tied to the shell's
+lifetime.
 
-There is no close button, no Escape and no click-outside: the only thing that
-removes the lock is a successful PAM authentication for the session user.
+If logind has no session for the process, hasp reports that once and keeps
+running; a lock can still be requested explicitly.
 
-The security properties are deliberate:
+* Where the policy lives
 
-- fail closed once it has locked -- a conversation error or a failed account
-check leaves the session locked; the preflight above refuses to lock at all
-when no password could be checked;
-- no username field -- PAM is asked about =g_get_user_name()=, never about a
-name typed at the lock screen;
-- one attempt at a time, on a worker thread; the password is wiped as soon as
-PAM has seen it, and failures double the wait from one second to a 30-second
-cap;
-- logind's =Lock= signal locks the session, and =clear-on-lock= clears
-  unpinned clipboard entries at the same moment;
-- =PrepareForSleep= and a VT switch (=Active=false=) also request the lock, so
-  suspend and lid close do not need a second lock daemon; whelk's idle manager
-  is the one owner of =IdleHint= and of the delay before it locks;
-- a failed-attempt count survives a crash or restart in
-  =$XDG_RUNTIME_DIR/hasp/lock-failures= (mode 0600), so restarting the shell
-  does not reset the retry delay;
-- =SIGTERM=, =SIGINT= and =SIGHUP= do not unlock the protocol session; only
-  PAM success, or the compositor ending the lock, releases it;
-- no command-line or D-Bus unlock path exists.
-
-
-hasp loads PAM at run time instead of linking it.  The library that answers
-has to be the one the running system installed: it owns the module directory
-(=/usr/lib64/security=, =/usr/lib/x86_64-linux-gnu/security= and their
-relatives) and it knows the helper those modules exec.  A libpam from a package
-manager's private store does not, and on a distribution that keeps PAM in
-=/usr= its =pam_unix= cannot run the host's setuid =unix_chkpwd=: every password
-comes back as =PAM_AUTHINFO_UNAVAIL=, which the lock screen reports as
-"Authentication is unavailable".  So the host's library is tried first and the
-build's own store path is the last resort, which is what a NixOS or Guix System
-image needs.
-
-A store-built hasp can load its own libpam and still be unable to use it: the
-store's library reads the store's =etc/pam.d= (where =login= does not exist) and
-loads the store's =pam_unix=, whose =unix_chkpwd= is not setuid.  A distribution
-host that has its own =libpam= cannot load it into a store process on its own:
-the host library names =libaudit.so.1= and =libeconf.so.0=, which the store's
-loader does not search for.  Before giving up, whelk loads exactly those
-objects by absolute path -- only from fixed distribution directories, never
-from the environment -- with =RTLD_GLOBAL=, and retries.  The host's libpam then
-loads with the host's module directory and =pam.d=, so a store build applies
-the same policy a distribution build does.
-
-If even that does not work, hasp stays locked rather than
-substituting a weaker check: a =hasp-lock= or =login= service file is an
-administrator's policy, and PAM's answer for it is final.  The host's setuid
-=unix_chkpwd= is a last resort for the one case where no administrator policy
-exists at all: a machine with only the =common-*= fragments, where whelk wrote
-its own minimal =pam_unix= service.  It is never consulted when a service file
-exists, it is only trusted as a root-owned setuid regular file that group and
-others cannot write, and its password goes over stdin, never a command line.
-
-=whelk --check-lock= (which prints hasp's report) prints the
-same decision without asking for a password: the presentation path, the
-candidate list, the library that loads, the service that would answer, whether
-a helper was found, whether strict mode is on, and whether the helper would be
-allowed to run.  It begins with =presentation:= -- =ext-session-lock-v1=, the
-layer-shell fallback, or the reason neither exists -- and ends with
-=authentication preflight:=, the answer the lock screen itself would reach
-before covering the session.
-
-* Keeping it strictly fail-closed
-:PROPERTIES:
-:CUSTOM_ID: lock-strict
-:END:
-
-Set =HASP_LOCK_STRICT=1= in the shell's environment (any spelling of =1=,
-=true=, =yes= or =on= works) to refuse the =unix_chkpwd= fallback entirely.  The
-lock screen then authenticates through PAM or not at all.  This is the mode for
-a machine whose PAM stack is complete: it removes the fallback the store-built
-case may still need, and every failure stays a locked screen.
-
-There is deliberately no environment variable, command-line flag or D-Bus call
-that unlocks without a password; strict mode narrows what may authenticate, it
-never widens it.
-
-The service is chosen the same way.  =/etc/pam.d/hasp-lock= comes first and is
-authoritative: if it refuses, hasp stays locked instead of asking =login=.
-Then =/etc/pam.d/login=, the stack lock screens conventionally use.  Then a
-per-user =pam_unix= service in =$XDG_RUNTIME_DIR/hasp/pam.d=, because a machine
-can ship only the =common-*= fragments and neither =login= nor =other= -- that
-is the host this path was debugged on -- and =pam_unix= is the portable
-local-account stack.  The runtime directory is required: hasp will not put a
-PAM service in =/tmp=, where another user could write it.  A missing runtime
-directory leaves the session locked with the same message.
-
-hasp's =packaging/pam/hasp-lock= is a reviewed stack for a machine that wants
-=pam_faillock= throttling and an explicit account check; hasp's own retry delay
-still applies without it.  Review it against the distribution's own PAM policy
-before installing it.  PAM headers are a build requirement: a build without them
-could only ship a lock screen that never authenticates, so the build refuses.
-
-* If it says authentication is unavailable
-:PROPERTIES:
-:CUSTOM_ID: lock-auth-troubleshooting
-:END:
-
-"Authentication is unavailable. The screen stays locked." is one result --
-=LOCK_AUTH_UNAVAILABLE= -- and three different causes.  The locker logs which
-one, on stdout, so a session started from a terminal, a user unit or the
-journal keeps it:
-
-#+begin_src sh
-  journalctl --user -b | grep '\[C:Locker\]'
-#+end_src
-
-- *=no PAM library found; the lock screen cannot authenticate= -- none of the
-  candidates in the Installation page could be opened.  Install the
-  distribution's PAM library, or point =ldd= at what is missing.  Nothing about
-  the build changes this: the library is a run-time dependency by design.
-- *=authentication library: <path>= followed by =PAM refused authentication
-  (status 9)= -- PAM answered =PAM_AUTHINFO_UNAVAIL=: the library that answered
-  cannot reach the credential store.  That is the signature of a store-built
-  libpam on a host whose PAM lives in =/usr=, and of a =pam_unix= whose
-  =unix_chkpwd= is not setuid.  The log line names the library, so the fix is
-  to make the host's copy reachable (usually: install the distribution's PAM
-  package, or make sure =/usr/lib64/libpam.so.0= exists).
-- *=no PAM service file and no per-user PAM directory= -- the host has neither
-  =/etc/pam.d/hasp-lock= nor =/etc/pam.d/login=, and
-  =$XDG_RUNTIME_DIR= is unset, so the per-user stack cannot be written.  A
-  session without =XDG_RUNTIME_DIR= has no secure place for a service; whelk
-  will not use =/tmp=.
-- *=an administrator's PAM service is authoritative; not asking unix_chkpwd= --
-  the loaded library could not read a =hasp-lock= or =login= service file, and
-  the screen stayed locked instead of substituting the weaker check.  Install
-  the distribution's PAM package, or run a build that links the host's
-  libraries (the =build-host= directory).
-- *=strict lock mode; not asking unix_chkpwd= -- =HASP_LOCK_STRICT= is set and
-  PAM could not answer.  That is the mode working as documented.
-- *=no trustworthy unix_chkpwd= -- no administrator service file exists, the
-  private stack could not answer, and there is no helper to fall back to.  A
-  machine without =/usr/sbin/unix_chkpwd= should install the distribution's PAM
-  package.
-
-Two more lines say which stack answered: =authenticating with PAM service
-hasp-lock=, =... service login=, or =authenticating with the per-user PAM stack
-<dir>=.  A =hasp-lock= file that exists is never bypassed, so a broken local
-policy shows up as a refusal rather than a fallback to =login=.
-
-The status mapping is the one hasp's locker documents: =PAM_AUTH_ERR= (7),
-=PAM_USER_UNKNOWN= (10), =PAM_MAXTRIES= (11) and =PAM_NEW_AUTHTOK_REQD= (12)
-are a wrong password, and ask for another one after the retry delay; everything
-else is =LOCK_AUTH_UNAVAILABLE= and leaves the screen locked.
-
-The fallback is deliberately kept so a session without =ext-session-lock-v1=
-still locks rather than silently doing nothing.  It is weaker than the
-compositor-enforced path, and the hardened path is selected whenever the
-compositor advertises the protocol.
+The fail-closed presentation policy, the PAM service choice, the retry delay,
+the password handling and the lock screen's own diagnostics are hasp's.
+[[https://github.com/jjba23/hasp][That project's README and `--check` output]] are the
+reference; whelk's =--check-lock= is only a pass-through.
 
 ------------------
 

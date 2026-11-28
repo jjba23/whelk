@@ -32,6 +32,7 @@
   ;; caller.  The development tree names its modules explicitly.
   (time-machine-program-shell
    (list "env" "WHELK_SCHEME_DIR=./scheme"
+         "BIBELOT_SCHEME_DIR=./rust/vendor/bibelot/scheme"
          "cargo" "run" "-p" "whelk-rs" "--release")
    #:verbose? #t))
 

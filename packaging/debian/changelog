@@ -1,10 +1,13 @@
-whelk (0.53.1-1) unstable; urgency=medium
+whelk (0.54.0-1) unstable; urgency=medium
 
-  * Pin the Guix channel that carries guile-dokgen 0.12.0, so the published API
-    reference folds the source behind each definition into a panel a reader
-    opens and reads on a quieter page with translucent surfaces.
+  * Make the lock screen an optional runtime program, hasp, instead of a
+    linked dependency.  The PAM conversation, lock surfaces and retry policy
+    now belong to hasp; whelk starts hasp --lock, --watch and --check.
+  * Carry bibelot as a pinned source snapshot under rust/vendor and install
+    both Scheme modules, so whelk builds without a sibling checkout.
+  * Recommend hasp at run time and stop depending on PAM.
 
- -- Josep Bigorra <jjbigorra@gmail.com>  Thu, 26 Nov 2026 12:00:00 +0100
+ -- Josep Bigorra <jjbigorra@gmail.com>  Sat, 28 Nov 2026 12:00:00 +0100
 
 whelk (0.53.0-1) unstable; urgency=medium
 

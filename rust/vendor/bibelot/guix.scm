@@ -9,6 +9,7 @@
              (guix build-system cargo)
              ((guix licenses)
               #:prefix license:)
+             (gnu packages freedesktop)
              (gnu packages glib)
              (gnu packages gtk)
              (gnu packages guile)

@@ -10,7 +10,7 @@
 //! program.  This keeps the two projects independently buildable and lets a
 //! distribution package each on its own schedule.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::OnceLock;
 
@@ -36,7 +36,7 @@ fn binary() -> PathBuf {
     PathBuf::from("hasp")
 }
 
-fn missing(binary: &PathBuf, error: std::io::Error) -> String {
+fn missing(binary: &Path, error: std::io::Error) -> String {
     format!(
         "{} could not be started: {error}; install hasp or set HASP_BIN",
         binary.display()

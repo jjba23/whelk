@@ -77,7 +77,7 @@ with no login manager is ended by the compositor itself.
 | Global menu            | =org.gtk.Menus=, DBusMenu, AT-SPI, or =_GTK_MENUBAR_OBJECT_PATH= on X11 | the shell's own menus; other applications show none     |
 | Notifications          | =org.freedesktop.Notifications= on the session bus          | the daemon still starts and takes the name               |
 | Clipboard history      | =wl-paste --watch= and =wl-copy= (wl-clipboard)              | the history reports =Unavailable= and stays readable     |
-| Idle timer, lock       | the shell's own clock; PAM for the password check           | works; the logind hint is not published                  |
+| Idle timer, lock       | the shell's own clock; the separate hasp program            | the timer works; hasp reports itself missing             |
 | Inhibitor bar          | =systemd-inhibit= or =elogind-inhibit=                      | the module hides                                         |
 | Audio                  | =wpctl= (PipeWire) or =pactl= (PulseAudio)                  | the module hides                                         |
 | Backlight              | =/sys/class/backlight=, writable by the user or the seat    | the module hides; needs the =video= group or a udev rule |
@@ -107,8 +107,8 @@ provide the optional layers.
 - *Build and run*: =gtk4=, =gtk4-layer-shell=, =guile=, =wl-clipboard=,
   =wtype=, =curl=, =cava=; =brightnessctl= for the backlight row, =pipewire= and
   =wireplumber= (or =pulseaudio=) for audio, =NetworkManager= for the network
-  panel, =bluez= for Bluetooth, and =linux-pam= for the lock screen's password
-  check.
+  panel, and =bluez= for Bluetooth.  The lock screen is the separate =hasp=
+  program; install it for lock actions and logind-triggered locking.
 - *Installing*: =cargo xtask install --prefix=/usr= as described in
   [[file:installation.org][Installation]], or the =xbps-src= template in
   =packaging/void/= (see [[file:packaging.org][Packaging]]).
@@ -127,7 +127,7 @@ shell:
   =whelk --status --json= is the same report for a script.
 - =whelk --check-config= -- the settings file parses and every module name is
   one the shell has.
-- =whelk --check-lock= -- which PAM service the lock screen would use, and why.
+- =whelk --check-lock= -- hasp's report: which PAM service it would use, and why.
 - =whelk --idle-status= -- the idle decision: the timer, whelk's own inhibitor,
   do-not-disturb, and the system's inhibitor table from =systemd-inhibit= or
   =elogind-inhibit=.

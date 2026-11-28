@@ -26,12 +26,14 @@ that turns an alist into a typed struct.
 #+end_src
 
 =maak run= starts the shell inside the same pinned environment and sets
-=WHELK_SCHEME_DIR=./scheme=, because a packaged whelk deliberately does not
-search the current directory for Scheme modules.  =maak test= runs the three
+=WHELK_SCHEME_DIR=./scheme= and
+=BIBELOT_SCHEME_DIR=./rust/vendor/bibelot/scheme=, because a packaged whelk
+deliberately does not search the current directory for Scheme modules.  =maak test= runs the three
 commands above there through =scripts/guix-test.sh=, and =maak clippy= is the
 lint-only half.  A direct Cargo build is fine when the host
 already has Rust 1.92 or newer, GTK 4.18 or newer, =gtk4-layer-shell=, Guile
-3.0 and Linux-PAM development files.
+3.0 development files.  The lock screen is the separate =hasp= program and is
+not a build dependency.
 
 * The maak tasks
 
@@ -152,7 +154,7 @@ Configuration, files, process launches and D-Bus replies are untrusted.  Return
 =Result= from their boundary and turn the failure into a message at the caller.
 =expect= is reserved for a compile-time invariant or test setup; if a value can
 come from a user, a file or a protocol, it needs an error path.  The refactors
-in 0.39.2 and 0.39.3 removed production panics from the PAM conversation, the
+in 0.39.2 and 0.39.3 removed production panics from the former locker, the
 config loader, menu paths and page construction for exactly this reason.
 
 **Make invalid states unrepresentable**
@@ -229,7 +231,7 @@ module, and test its model and geometry before its pixels.
   whelk --check-config          # load the config, print the bar/wallpaper policy
   whelk --print-css             # the CSS each configured bar would wear
   whelk --status                # session, logind, tools, each module's blank reason
-  whelk --check-lock            # authentication candidates and fallback policy
+  whelk --check-lock            # hasp's authentication candidates and policy
   whelk --idle-status           # why the idle timer will or will not lock
   WHELK_NO_SUPERVISE=1 whelk    # run without the restart supervisor
   G_MESSAGES_DEBUG=all whelk    # GTK/GLib diagnostics

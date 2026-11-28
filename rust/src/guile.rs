@@ -1160,28 +1160,6 @@ pub fn scheme_string_literal(value: &str) -> String {
     escaped
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{is_preference_key, scheme_string_literal};
-
-    #[test]
-    fn literals_are_escaped() {
-        assert_eq!(scheme_string_literal("a\"b"), "\"a\\\"b\"");
-        assert_eq!(scheme_string_literal("a\\b"), "\"a\\\\b\"");
-    }
-
-    #[test]
-    fn preference_keys_cannot_escape_their_symbol() {
-        for key in ["theme", "bar-position", "clock-24h?", "x1"] {
-            assert!(is_preference_key(key), "{key}");
-        }
-
-        for key in ["", "Theme", "a b", "a)b", "a'b", "a\"b", "ä"] {
-            assert!(!is_preference_key(key), "{key}");
-        }
-    }
-}
-
 /// Convert one of the shell's Scheme values into the widget project's copy.
 fn widget_value(value: &SchemeValue) -> bibelot::widgets::SchemeValue {
     use bibelot::widgets::SchemeValue as Widget;
@@ -1226,4 +1204,26 @@ fn theme_entries(entries: &[(String, SchemeValue)]) -> Vec<(String, bibelot::gui
             (key.clone(), value)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_preference_key, scheme_string_literal};
+
+    #[test]
+    fn literals_are_escaped() {
+        assert_eq!(scheme_string_literal("a\"b"), "\"a\\\"b\"");
+        assert_eq!(scheme_string_literal("a\\b"), "\"a\\\\b\"");
+    }
+
+    #[test]
+    fn preference_keys_cannot_escape_their_symbol() {
+        for key in ["theme", "bar-position", "clock-24h?", "x1"] {
+            assert!(is_preference_key(key), "{key}");
+        }
+
+        for key in ["", "Theme", "a b", "a)b", "a'b", "a\"b", "ä"] {
+            assert!(!is_preference_key(key), "{key}");
+        }
+    }
 }

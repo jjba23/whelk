@@ -386,15 +386,17 @@ binary, with the same configuration language, data files and application id.
   keeps the previous widget.  A module configured without `#:update` says so in
   the bar instead of polling.
 The desktop widgets — their catalogue, readings, placement state and the GTK4
-cards — live in the separate **bibelot** crate (`../../bibelot`).  Whelk keeps
+cards — live in the separate **bibelot** project.  A release carries a pinned
+source snapshot at `rust/vendor/bibelot`, so the host needs no sibling
+checkout.  Whelk keeps
 the `(whelk state)` record language and `Guile::load_widgets`, maps the first
 bar's palette and frost into `bibelot::Skin`, and hands the cards to
 `bibelot::Widgets` from `src/ui.rs`.  Their tests and internals are documented
 in that project.  An installed shell needs bibelot's `(bibelot theme)` module
 under `share/guile/site/3.0/bibelot`; without it the cards use the built-in
 theme.  A user override is read from `$XDG_CONFIG_HOME/bibelot/theme.scm`, or
-from the path in `BIBELOT_THEME`.  `cargo xtask install` and the Nix expression install whelk's own
-modules only.
+from the path in `BIBELOT_THEME`.  `cargo xtask install` and the Nix
+expression install both whelk's and bibelot's Scheme modules.
 
 - `src/ui.rs` — a GTK4 top bar per selected monitor, whose edge, layer, margins,
   thickness, clock format and generated skin come from its Scheme bar. Every
@@ -634,13 +636,12 @@ writes the Git source archive.  The binary finds the Scheme modules beside its
 own prefix as well as in `/usr/share/guile/site/3.0`.  Use `--no-build` to stage
 an existing target, and `--debug` to stage the debug profile.
 
-`--check-lock` prints hasp's diagnosis without a password: the library
-candidates, the one that loads, the service stack that would answer, the theme
-it reads from Scheme, and whether this machine has a setuid helper for the
-store-built case.  `--lock` asks the running shell to show the lock; the shell
-starts the separate `hasp --lock-now` process itself, so a logind trigger and a
-keybinding do not forward into each other.  Only a successful authentication
-for the session user removes it.
+`--check-lock` runs the separate `hasp --check` program and prints its
+diagnosis without a password.  `--lock` asks the running shell to start
+`hasp --lock`; the lock itself is a separate `hasp --lock-now` process, so a
+logind trigger and a keybinding do not forward into each other.  WheLK does not
+link hasp: a machine without it still runs the shell, and the lock action says
+how to install it.
 
 `--check-config` loads the real settings file through Guile, prints the
 wallpaper policy, walks the collection and resolves the current file. A missing
@@ -664,7 +665,8 @@ On Wayland it uses `zwlr_layer_shell_v1`'s background layer; on Broadway or X11
 it falls back to an ordinary window for development and smoke tests.
 
 A build that is not installed finds its modules through `WHELK_SCHEME_DIR`: set
-it to the checkout's `scheme/` directory. Installed builds resolve
+it to the checkout's `scheme/` directory, and set `BIBELOT_SCHEME_DIR` to
+`rust/vendor/bibelot/scheme` for a release build. Installed builds resolve
 `PREFIX/share/guile/site/3.0` beside the binary and `/usr/share/guile/site/3.0`;
 the working directory is deliberately not searched. If another `whelk` is
 already running, use `dbus-run-session -- cargo run` for an isolated smoke test.
@@ -687,8 +689,9 @@ instance.
 
 The lock screen is its own project, `hasp`, and the one place where the
 request and the process are split.  Public `--lock` is a request to the shell,
-which starts `hasp --lock-now` as a separate GTK application.  That keeps the
-lock process from forwarding back into the shell that just asked for it.
+which starts `hasp --lock` as a separate GTK application.  That keeps the lock
+process from forwarding back into the shell that just asked for it, and keeps
+the lock dependency out of the shell's Cargo graph.
 
 ## Tests
 
@@ -816,7 +819,7 @@ The shell is Rust end to end: the bar and its twenty-six module kinds, the
 launcher, clipboard, notification service and centre, the network panel, tray,
 global menu, idle/inhibit manager, night light, wallpaper engine and picker,
 desktop widgets, settings window, command line, supervisor and signal handling.
-The lock screen and authentication are hasp, a sibling Rust + Guile project
-linked as a path dependency.  The Guile modules in `scheme/whelk` remain the configuration
+The lock screen and authentication are hasp, a separate Rust + Guile program
+started at run time, not a linked dependency.  The Guile modules in `scheme/whelk` remain the configuration
 language and are installed with the binary; the Rust tests and the Guile suite
 run under `cargo test --workspace --locked`.

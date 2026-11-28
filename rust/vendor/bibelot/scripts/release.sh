@@ -125,7 +125,7 @@ verify() {
   fi
 
   if command -v guix >/dev/null 2>&1; then
-    guix build -f guix.scm
+    guix time-machine --channels=channels.scm -- build -f guix.scm
   else
     printf 'release: guix not found; skipping the Guix build\n' >&2
   fi

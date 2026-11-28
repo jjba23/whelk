@@ -80,7 +80,7 @@ fn append_material(output: &mut String, bar: &Skin, selector: &str, root_class: 
         let _ = writeln!(output, "  background-color: {background};");
     }
 
-    append_effects(output, bar, &frost);
+    append_effects(output, bar, frost);
 
     let border = bar
         .border_color
@@ -103,7 +103,7 @@ fn append_material(output: &mut String, bar: &Skin, selector: &str, root_class: 
         let _ = writeln!(output, "  font-size: {font_size};");
     }
 
-    append_shadow(output, bar, &frost);
+    append_shadow(output, bar, frost);
     output.push_str("}\n");
 }
 

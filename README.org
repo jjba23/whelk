@@ -229,9 +229,11 @@ click, and the command line a keybinding uses to open a surface.
 | Nix                      | =nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix {}'= |
 | from source              | =cargo build -p whelk-rs --release=, then =cargo xtask install=       |
 | a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build= or =xbps-src pkg whelk= |
+| the optional lock screen  | install [[https://github.com/jjba23/hasp][hasp]] separately; whelk finds it on =PATH= or through =HASP_BIN= |
 
-[[file:docs/installation.org][Installation]] has the requirements, what the binary links (and why PAM is not on
-that list), the run-time tools whelk asks for, and how to stop a running shell.
+[[file:docs/installation.org][Installation]] has the requirements, the separate hasp program that provides
+locking (and why PAM is not in whelk), the run-time tools whelk asks for, and
+how to stop a running shell.
 
 * Documentation
 :PROPERTIES:
@@ -260,7 +262,7 @@ deliberately is not.
 | [[file:docs/notifications.org][Notifications]]                              | the daemon, toasts, the centre, do-not-disturb             |
 | [[file:docs/network.org][The network panel]]                          | Wi-Fi and Bluetooth through nmcli and bluetoothctl         |
 | [[file:docs/tray.org][The tray]]                                   | StatusNotifierItems and their own menus                    |
-| [[file:docs/lock-screen.org][The lock screen]]                            | the session lock, the fallback, PAM, every failure message |
+| [[file:docs/lock-screen.org][The lock screen]]                            | the optional hasp program, its lookup and the shell's side of the contract |
 | [[file:docs/idle.org][Idle, inhibitors, DND]]                      | the one idle timer and why the screen blanked              |
 | [[file:docs/sessions.org][Sessions]]                                  | niri, sway, Hyprland, river, X11: what each one can do     |
 | [[file:docs/parity.org][Parity with Waybar]]                        | the reference bar, module by module                        |

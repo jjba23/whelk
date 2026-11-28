@@ -7,7 +7,7 @@ be looked at and picked up, not to hold the desk together.  These are the cards
 that float over a Wayland desktop -- a clock, the weather, a note -- and the
 machinery that keeps them placed, refreshed and skinned.
 
-This is the widget engine split out of [[https://github.com/jjbigorra/whelk][whelk]].  Whelk remains the host: it
+This is the widget engine split out of [[https://github.com/jjba23/whelk][whelk]].  Whelk remains the host: it
 owns the settings language, the application and the first bar's palette.  The
 cards, their readings, their placement file and their own Scheme theme live
 here.
@@ -54,6 +54,9 @@ is built by its host.  `default.nix`, `guix.scm` and `manifest.scm` provide the
 standalone Nix package, Guix package and development shell.  WheLK carries a
 pinned source snapshot of this crate under `rust/vendor/bibelot`, so the host
 can build offline without a sibling checkout.
+
+The Guix package needs Rust 1.92, so build it with the pinned channel:
+`guix time-machine --channels=channels.scm -- build -f guix.scm`.
 
 ## The host contract
 

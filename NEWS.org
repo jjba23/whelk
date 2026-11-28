@@ -9,6 +9,30 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+** v0.54.0 (2026-11-28)
+
+*** Added
+
+- *The lock screen and the widgets are now independent projects.*  WheLK
+  starts the separate =hasp= program for =--lock=, =--check-lock= and logind
+  watching instead of linking it, so hasp can be built, installed and
+  upgraded on its own.  A machine without hasp still runs the shell and the
+  lock action says how to install it.
+- *Bibelot is carried as a release snapshot.*  The widget engine lives in its
+  own =bibelot= project, and whelk vendors a pinned copy under
+  =rust/vendor/bibelot= so a release tarball builds offline with no sibling
+  checkout.  =cargo xtask install= and the Nix package now install both
+  Scheme modules.
+
+*** Changed
+
+- WheLK no longer links or loads Linux-PAM; the PAM conversation, lock
+  surfaces and retry policy belong to hasp.  Distribution recipes now
+  recommend hasp instead of depending on PAM.
+- The lock and bibelot configuration stay independent: hasp reads its own
+  theme, bibelot resolves =BIBELOT_THEME= and its XDG file, and whelk only
+  passes the paths through.
+
 *[Released]
 
 ** v0.53.1 (2026-11-26)

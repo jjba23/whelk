@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.53.1
+Version:        0.54.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -78,6 +78,11 @@ xvfb-run -a cargo test --workspace --locked
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 28 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.54.0
+- The lock screen is the optional separate hasp program, started at run time;
+  whelk no longer links or loads PAM.  Bibelot is carried as a pinned source
+  snapshot and both Scheme modules are installed.
+
 * Sat Nov 14 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.21.1
 - The lock screen selects the login PAM stack when the optional whelk-lock
   service is absent, so a missing service cannot make PAM's other/pam_deny

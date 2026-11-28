@@ -60,6 +60,11 @@ binary="$tmp/dest/usr/bin/whelk"
   exit 1
 }
 
+[[ -f "$tmp/dest/usr/share/guile/site/3.0/bibelot/theme.scm" ]] || {
+  printf 'release-smoke: installed (bibelot theme) module is missing\n' >&2
+  exit 1
+}
+
 actual=$(timeout 10 "$binary" --version 2>&1)
 expected="whelk $version"
 [[ "$actual" == "$expected" ]] || {
