@@ -9,6 +9,25 @@ This project adheres to [[https://semver.org/spec/v2.0.0.html][Semantic Versioni
 
 *[Unreleased]
 
+** v0.55.0 (2026-11-28)
+
+*** Added
+
+- *The bar and the launcher are independent projects.*  =whelk-bar= owns the
+  bar surface, placement, priority fold, auto-hide, keyboard path and module
+  lifecycle; =whelk-launcher= owns the searchable card, its modes, data,
+  ranking, geometry and key map.  Each is a library with a small host contract,
+  and neither imports whelk.
+
+*** Changed
+
+- WheLK is the host: it supplies modules and their readings to the bar, and
+  clipboard history, focused menus, a stylesheet and the shell actions to the
+  launcher.  Both projects are vendored as pinned release snapshots under
+  =rust/vendor=, so a release tarball still builds offline.
+- The launcher's four geometry values moved from =BarSettings= to the
+  launcher's own =LauncherSettings=, and its palette is a =LauncherStyle=.
+
 ** v0.54.0 (2026-11-28)
 
 *** Added

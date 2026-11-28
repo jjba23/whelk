@@ -11,7 +11,7 @@
 //! windows own their modules, so destroying a window stops its timers and
 //! cancels its in-flight commands through the shared module host.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
@@ -19,10 +19,9 @@ use std::time::Duration;
 use gtk::gio::prelude::ApplicationCommandLineExt;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use crate::about;
-use crate::bar::{BarSettings, Edge as BarEdge, Layer as BarLayer, ModuleSpec};
+use crate::bar::{BarSettings, ModuleSpec};
 use crate::barfactory::{self, ModuleContext};
 use crate::barmonitors::{BarPlacement, DEFAULT_MONITOR, plan_bars};
 use crate::cli::{FORWARDED_OPTIONS, Request, Requests};
@@ -32,6 +31,7 @@ use crate::config::{ConfigLoader, LoadedConfig};
 use crate::desktopmenu::{self, DesktopCommand, DesktopMenu, DesktopMenuState};
 use crate::frost;
 use crate::idle::Idle;
+use crate::launcherhost::{WhelkLauncherHost, launcher_style};
 use crate::launcherpanel::Launcher;
 use crate::menuapps::MenuSources;
 use crate::networkpanel::NetworkPanel;
@@ -525,7 +525,7 @@ struct Shell {
     loaded: LoadedConfig,
     config_label: String,
     session: Session,
-    bars: Vec<BarWindow>,
+    bars: Vec<whelk_bar::surface::BarWindow>,
     widgets: Widgets,
     config_watch: Option<(gtk::gio::FileMonitor, gtk::glib::SignalHandlerId)>,
     monitor_watch: Option<(gtk::gio::ListModel, gtk::glib::SignalHandlerId)>,
@@ -582,7 +582,9 @@ impl Shell {
         let osd_style = loaded.bars.first().cloned().unwrap_or_default();
         let center = NotificationCenter::new(application, &notifications, &osd_style);
         let network = NetworkPanel::new(application, &osd_style);
-        let launcher = Launcher::new(application, &osd_style, Some(clipboard.clone()));
+        let launcher_skin = launcher_style(&osd_style, loaded.launcher);
+        let launcher_host = Rc::new(WhelkLauncherHost::new(Some(clipboard.clone())));
+        let launcher = Launcher::new(application, &launcher_skin, launcher_host);
         let osd = Osd::new(application, &osd_style);
 
         NotificationCenter::install(Some(center.clone()));
@@ -773,15 +775,20 @@ impl Shell {
                 .map(String::as_str)
                 .unwrap_or("whelk-main");
 
-            self.bars.push(build_bar_window(
+            let host = Rc::new(WhelkBarHost {
+                bar: bar_settings.clone(),
+                session: self.session,
+                shell_menu: Rc::new(self.loaded.menu.clone()),
+                menu_sources: Rc::clone(&self.loaded.menu_sources),
+            });
+
+            self.bars.push(whelk_bar::surface::build(
                 &application,
                 bar_settings,
                 monitor,
                 widget_id,
                 &self.config_label,
-                &self.loaded.menu,
-                &self.loaded.menu_sources,
-                self.session,
+                host,
             ));
             built += 1;
         }
@@ -813,6 +820,7 @@ impl Shell {
     fn preferences_snapshot(&mut self) -> Snapshot {
         Snapshot {
             bar: self.loaded.bars.first().cloned().unwrap_or_default(),
+            launcher: self.loaded.launcher,
             night_light: self.loader.night_light().unwrap_or_default(),
             themes: self.loader.theme_names(),
         }
@@ -848,7 +856,7 @@ impl Shell {
                 }
 
                 if let Some(launcher) = self.launcher.as_ref() {
-                    launcher.set_style(&style);
+                    launcher.set_style(&launcher_style(&style, self.loaded.launcher));
                 }
 
                 if let Some(osd) = self.osd.as_ref() {
@@ -1052,248 +1060,28 @@ impl Drop for Shell {
     }
 }
 
-struct BarWindow {
-    window: gtk::ApplicationWindow,
-    clock_timer: Option<ClockTimer>,
-    css: Option<gtk::CssProvider>,
-}
-
-struct ClockTimer {
-    source: Rc<RefCell<Option<gtk::glib::SourceId>>>,
-    alive: Rc<Cell<bool>>,
-}
-
-impl Drop for ClockTimer {
-    fn drop(&mut self) {
-        self.alive.set(false);
-
-        if let Some(source) = self.source.borrow_mut().take() {
-            sources::remove(source);
-        }
-    }
-}
-
-impl Drop for BarWindow {
-    fn drop(&mut self) {
-        drop(self.clock_timer.take());
-
-        if let Some(css) = self.css.take()
-            && let Some(display) = gtk::gdk::Display::default()
-        {
-            gtk::style_context_remove_provider_for_display(&display, &css);
-        }
-
-        // A strip and a hide timer belong to this window, not to the next one
-        // a reload builds.
-        crate::autohide::forget(&self.window);
-
-        // Detach the CenterBox explicitly so the module roots receive their
-        // destroy signal before the window itself goes away.
-        self.window.set_child(None::<&gtk::Widget>);
-        self.window.destroy();
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_bar_window(
-    application: &gtk::Application,
-    bar_settings: &BarSettings,
-    monitor: Option<&gtk::gdk::Monitor>,
-    widget_id: &str,
-    config_label: &str,
-    shell_menu: &[MenuEntry],
-    menu_sources: &Rc<MenuSources>,
+struct WhelkBarHost {
+    bar: BarSettings,
     session: Session,
-) -> BarWindow {
-    let vertical = bar_settings.is_vertical();
-    let orientation = if vertical {
-        gtk::Orientation::Vertical
-    } else {
-        gtk::Orientation::Horizontal
-    };
-    let window = gtk::ApplicationWindow::builder()
-        .application(application)
-        .title("whelk")
-        .build();
+    shell_menu: Rc<Vec<MenuEntry>>,
+    menu_sources: Rc<MenuSources>,
+}
 
-    window.set_widget_name(widget_id);
-    window.add_css_class("whelk-surface");
-    window.set_decorated(false);
-    // A layer surface is sized by the compositor -- an exclusive zone, a scale
-    // change or a margin all shrink or grow it -- and a non-resizable window
-    // ignores those configure events, laying out at its first size instead.
-    window.set_resizable(true);
+impl whelk_bar::surface::BarHost for WhelkBarHost {
+    fn module(&self, spec: &ModuleSpec) -> Option<gtk::Box> {
+        let mut context = ModuleContext::from_bar(&self.bar, self.session);
 
-    let bar = gtk::CenterBox::new();
-    bar.add_css_class("whelk-bar");
-    bar.set_orientation(orientation);
-    // The configured thickness is a height for a horizontal bar and a width
-    // for a vertical one.  A vertical bar asks for at least that width and lets
-    // its widest reading widen it; the surface's exclusive zone is measured
-    // from the same content below.
-    bar.set_size_request(
-        if vertical {
-            bar_settings.height.max(1)
-        } else {
-            -1
-        },
-        if vertical {
-            -1
-        } else {
-            bar_settings.height.max(1)
-        },
-    );
-    // The name label that used to open the left row is gone; the settings file
-    // it named is still a hover away, on the bar's own gaps.
-    bar.set_tooltip_text(Some(config_label));
-
-    let spacing = bar_settings.spacing.max(0);
-    let start = gtk::Box::new(orientation, spacing);
-    let center = gtk::Box::new(orientation, spacing);
-    let end = gtk::Box::new(orientation, spacing);
-
-    start.add_css_class("whelk-start");
-    center.add_css_class("whelk-center");
-    end.add_css_class("whelk-end");
-
-    if vertical {
-        // A vertical CenterBox stretches each section across the bar's width
-        // by default.  Centring the section keeps a short reading in a narrow
-        // column instead of giving it the widest reading's width and leaving
-        // an empty gutter on one side.
-        start.set_halign(gtk::Align::Center);
-        center.set_halign(gtk::Align::Center);
-        end.set_halign(gtk::Align::Center);
+        context.shell_menu = Rc::clone(&self.shell_menu);
+        context.menu_sources = Rc::clone(&self.menu_sources);
+        barfactory::build(spec, &context)
     }
 
-    let mut context = ModuleContext::from_bar(bar_settings, session);
-
-    context.shell_menu = Rc::new(shell_menu.to_vec());
-    context.menu_sources = Rc::clone(menu_sources);
-
-    append_modules(&start, &bar_settings.left, &context);
-    append_modules(&center, &bar_settings.center, &context);
-
-    let mut readings = append_modules(&end, &bar_settings.right, &context);
-
-    // A clock module is itself one of the readings now.  Only a configuration
-    // without one needs the bootstrap clock, so a configured clock is not
-    // duplicated in the right half.
-    let configured_clock = bar_settings.module("clock").is_some()
-        || bar_settings
-            .overflow
-            .iter()
-            .any(|module| module.kind == "clock");
-    let clock_timer = if !configured_clock {
-        let clock = gtk::Label::new(None);
-        let clock_format = bar_settings
-            .clock_format()
-            .unwrap_or_else(|| "%H:%M".to_owned());
-        let weak_clock = clock.downgrade();
-        let source = Rc::new(RefCell::new(None));
-        let alive = Rc::new(Cell::new(true));
-        let callback_source = source.clone();
-        let callback_alive = alive.clone();
-        let timer_format = clock_format.clone();
-
-        let timer = gtk::glib::timeout_add_seconds_local(1, move || {
-            if !callback_alive.get() {
-                return gtk::glib::ControlFlow::Break;
-            }
-
-            let Some(clock) = weak_clock.upgrade() else {
-                *callback_source.borrow_mut() = None;
-
-                return gtk::glib::ControlFlow::Break;
-            };
-
-            update_clock(&clock, &timer_format);
-
-            gtk::glib::ControlFlow::Continue
-        });
-
-        *source.borrow_mut() = Some(timer);
-
-        clock.add_css_class("whelk-clock");
-        // The bootstrap clock is a reading like any other, so it takes the same
-        // inset and the same hover shape as the configured modules beside it.
-        clock.add_css_class("whelk-module");
-        update_clock(&clock, &clock_format);
-        end.append(&clock);
-        // The only clock a configuration without a clock module gets: it must
-        // not be the reading that folds.
-        readings.push((
-            clock.clone().upcast::<gtk::Widget>(),
-            crate::bar::KEEP_PRIORITY,
-        ));
-
-        Some(ClockTimer { source, alive })
-    } else {
-        None
-    };
-
-    let overflow = append_overflow(&end, bar_settings, &context, vertical);
-    let more = build_folded_shelf(&end, vertical);
-
-    bar.set_start_widget(Some(&start));
-    bar.set_center_widget(Some(&center));
-    bar.set_end_widget(Some(&end));
-    window.set_child(Some(&bar));
-    build_bar_context_menu(application, &bar, &start, &center, &end);
-
-    let css = install_css(bar_settings, widget_id);
-
-    if layer_shell_available() {
-        configure_layer_shell(&window, bar_settings, &bar, monitor);
-    } else {
-        // Broadway and a plain X11 test display have no layer shell.  A normal
-        // window is still a useful smoke test for the widget tree.
-        window.set_default_size(
-            if vertical {
-                bar_settings.height.max(32)
-            } else {
-                720
-            },
-            if vertical {
-                720
-            } else {
-                bar_settings.height.max(32)
-            },
-        );
+    fn css(&self, bar: &BarSettings, widget_id: &str) -> String {
+        style::css(widget_id, bar, "whelk-bar", bar.css.as_deref())
     }
 
-    if bar_settings.keyboard {
-        crate::a11y::install_keyboard_navigation(
-            &window,
-            &[start.clone(), center.clone(), end.clone()],
-        );
-    }
-
-    fold_after_map(
-        FoldState {
-            bar: bar.clone(),
-            start: start.clone(),
-            center: center.clone(),
-            end: end.clone(),
-            overflow,
-            more,
-            readings,
-            spacing: bar_settings.spacing,
-            padding: bar_settings.padding,
-            vertical,
-        },
-        &window,
-    );
-    window.present();
-
-    // An auto-hiding bar is hidden here, with a strip at the edge that brings
-    // it back; `#:auto-hide? #f` leaves this doing nothing.
-    crate::autohide::install(&window, bar_settings, monitor);
-
-    BarWindow {
-        window,
-        clock_timer,
-        css,
+    fn save_overflow(&self, expanded: bool) {
+        save_shelf_state(expanded);
     }
 }
 
@@ -1589,619 +1377,10 @@ fn idle() -> Option<Idle> {
     IDLE.with(|slot| slot.borrow().clone())
 }
 
-fn configure_layer_shell(
-    window: &gtk::ApplicationWindow,
-    bar: &BarSettings,
-    content: &gtk::CenterBox,
-    monitor: Option<&gtk::gdk::Monitor>,
-) {
-    window.init_layer_shell();
-    window.set_layer(layer_for(bar.layer));
-    window.set_namespace(Some("whelk-rust"));
-
-    let edge = edge_for(bar.edge);
-
-    window.set_anchor(edge, true);
-
-    match bar.edge {
-        BarEdge::Top | BarEdge::Bottom => {
-            window.set_anchor(Edge::Left, true);
-            window.set_anchor(Edge::Right, true);
-        }
-        BarEdge::Left | BarEdge::Right => {
-            window.set_anchor(Edge::Top, true);
-            window.set_anchor(Edge::Bottom, true);
-        }
-    }
-
-    window.set_margin(Edge::Top, bar.margin_top);
-    window.set_margin(Edge::Right, bar.margin_right);
-    window.set_margin(Edge::Bottom, bar.margin_bottom);
-    window.set_margin(Edge::Left, bar.margin_left);
-    // A horizontal bar reserves its height; a vertical one reserves the width
-    // its readings actually need, which may be more than `#:height`.
-    window.set_exclusive_zone(if bar.exclusive {
-        bar_thickness(bar, content)
-    } else {
-        -1
-    });
-    // A bar is not a keyboard surface unless its configuration asks for one:
-    // on-demand keeps the compositor's focus on the window the reader is in
-    // until they click the bar.
-    window.set_keyboard_mode(if bar.keyboard {
-        KeyboardMode::OnDemand
-    } else {
-        KeyboardMode::None
-    });
-
-    if let Some(monitor) = monitor {
-        window.set_monitor(Some(monitor));
-    }
-
-    // A GTK window does not take its size from the compositor's configure: a
-    // layer client asks for one.  Without this, an anchored surface is only as
-    // large as its content -- a bar as wide as its modules -- while the
-    // compositor happily anchors that small window.
-    apply_surface_size(window, bar, content, monitor);
-}
-
-/// The cross-axis pixels one bar occupies: its configured height on a
-/// horizontal bar, or the width its widest reading asks for on a vertical one.
-fn bar_thickness(bar: &BarSettings, content: &gtk::CenterBox) -> i32 {
-    if !bar.is_vertical() {
-        return bar.height.max(1);
-    }
-
-    let (_, natural, _, _) = content.measure(gtk::Orientation::Horizontal, -1);
-
-    natural.max(bar.height).max(1)
-}
-
-/// Ask for the size the anchors imply: a horizontal bar spans its output's
-/// width, a vertical one its height, and the other axis is the thickness the
-/// bar paints.
-fn apply_surface_size(
-    window: &gtk::ApplicationWindow,
-    bar: &BarSettings,
-    content: &gtk::CenterBox,
-    monitor: Option<&gtk::gdk::Monitor>,
-) {
-    let fallback = gtk::gdk::Display::default()
-        .and_then(|display| display.monitors().item(0))
-        .and_downcast::<gtk::gdk::Monitor>();
-    let Some(monitor) = monitor.or(fallback.as_ref()) else {
-        return;
-    };
-    let geometry = monitor.geometry();
-
-    let (width, height) = match bar.edge {
-        BarEdge::Top | BarEdge::Bottom => {
-            (geometry.width() - bar.margin_left - bar.margin_right, -1)
-        }
-        BarEdge::Left | BarEdge::Right => (
-            bar_thickness(bar, content),
-            geometry.height() - bar.margin_top - bar.margin_bottom,
-        ),
-    };
-
-    window.set_default_size(width.max(1), if height < 0 { -1 } else { height.max(1) });
-}
-
-pub(crate) fn edge_for(edge: BarEdge) -> Edge {
-    match edge {
-        BarEdge::Top => Edge::Top,
-        BarEdge::Bottom => Edge::Bottom,
-        BarEdge::Left => Edge::Left,
-        BarEdge::Right => Edge::Right,
-    }
-}
-
-pub(crate) fn layer_for(layer: BarLayer) -> Layer {
-    match layer {
-        BarLayer::Background => Layer::Background,
-        BarLayer::Bottom => Layer::Bottom,
-        BarLayer::Top => Layer::Top,
-        BarLayer::Overlay => Layer::Overlay,
-    }
-}
-
 pub(crate) fn layer_shell_available() -> bool {
-    // gtk4-layer-shell is about the Wayland protocol, not merely the library.
-    // On Broadway or X11, init_layer_shell() asserts; keep those backends on
-    // the ordinary-window path.
-    let Some(display) = gtk::gdk::Display::default() else {
-        return false;
-    };
-
-    // Check the backend first: gtk_layer_is_supported() itself asserts on a
-    // non-Wayland display instead of quietly answering false.
-    display.backend().is_wayland() && gtk4_layer_shell::is_supported()
+    whelk_bar::surface::layer_shell_available()
 }
 
-/// Build one row, and return what it holds: the widgets in row order with the
-/// priority each one declared, which is what the fold reads.
-fn append_modules(
-    section: &gtk::Box,
-    modules: &[ModuleSpec],
-    context: &ModuleContext,
-) -> Vec<(gtk::Widget, i32)> {
-    let mut readings = Vec::new();
-
-    for module in modules {
-        if let Some(widget) = barfactory::build(module, context) {
-            section.append(&widget);
-            readings.push((
-                widget.upcast::<gtk::Widget>(),
-                crate::bar::module_priority(module),
-            ));
-        }
-    }
-
-    readings
-}
-
-/// The configured overflow row: built with the bar so its modules have already
-/// started, but hidden behind the chevron until it is opened.  This is the
-/// Rust equivalent of C's inline `#:overflow` area; the width-driven folded
-/// row lives in `build_folded_shelf()` beside it.
-fn append_overflow(
-    end: &gtk::Box,
-    bar_settings: &BarSettings,
-    context: &ModuleContext,
-    vertical: bool,
-) -> Option<OverflowRow> {
-    if bar_settings.overflow.is_empty() {
-        return None;
-    }
-
-    let expanded = bar_settings.overflow_expanded;
-    let orientation = if vertical {
-        gtk::Orientation::Vertical
-    } else {
-        gtk::Orientation::Horizontal
-    };
-    let overflow = gtk::Box::new(orientation, bar_settings.spacing.max(0));
-    overflow.add_css_class("whelk-overflow");
-
-    if vertical {
-        overflow.set_halign(gtk::Align::Center);
-    } else {
-        overflow.set_valign(gtk::Align::Center);
-    }
-
-    append_modules(&overflow, &bar_settings.overflow, context);
-
-    let (closed_icon, open_icon) = if vertical {
-        ("pan-up-symbolic", "pan-down-symbolic")
-    } else {
-        ("pan-start-symbolic", "pan-end-symbolic")
-    };
-    let toggle = gtk::ToggleButton::new();
-    let icon = gtk::Image::from_icon_name(closed_icon);
-
-    icon.set_pixel_size(16);
-    toggle.set_child(Some(&icon));
-    toggle.add_css_class("flat");
-    toggle.add_css_class("whelk-overflow-toggle");
-
-    if vertical {
-        toggle.set_halign(gtk::Align::Center);
-    } else {
-        toggle.set_valign(gtk::Align::Center);
-    }
-
-    toggle.set_active(expanded);
-    overflow.set_visible(expanded);
-    icon.set_icon_name(Some(if expanded { open_icon } else { closed_icon }));
-    toggle.set_tooltip_text(Some(if expanded {
-        "Extra items · click to hide"
-    } else {
-        "Extra items · click to show"
-    }));
-
-    let overflow_for_toggle = overflow.clone();
-    let icon_for_toggle = icon.clone();
-
-    toggle.connect_toggled(move |button| {
-        let expanded = button.is_active();
-
-        overflow_for_toggle.set_visible(expanded);
-        save_shelf_state(expanded);
-        icon_for_toggle.set_icon_name(Some(if expanded { open_icon } else { closed_icon }));
-        button.set_tooltip_text(Some(if expanded {
-            "Extra items · click to hide"
-        } else {
-            "Extra items · click to show"
-        }));
-    });
-
-    end.append(&overflow);
-    end.append(&toggle);
-
-    Some(OverflowRow {
-        shelf: overflow,
-        toggle,
-    })
-}
-
-struct OverflowRow {
-    shelf: gtk::Box,
-    toggle: gtk::ToggleButton,
-}
-
-struct FoldedShelf {
-    button: gtk::MenuButton,
-    count: gtk::Label,
-    shelf: gtk::Box,
-}
-
-/// The `+N` shelf at the end of the right row.  Its popover is built now and
-/// filled only when the first allocation proves that readings do not fit.
-fn build_folded_shelf(end: &gtk::Box, vertical: bool) -> FoldedShelf {
-    let shelf = gtk::Box::new(gtk::Orientation::Vertical, 4);
-
-    shelf.add_css_class("whelk-overflow-box");
-
-    let popover = gtk::Popover::new();
-
-    popover.set_child(Some(&shelf));
-
-    let count = gtk::Label::new(Some("+1"));
-
-    count.add_css_class("whelk-folded-count");
-
-    let button = gtk::MenuButton::new();
-
-    button.set_child(Some(&count));
-    button.add_css_class("flat");
-    button.add_css_class("whelk-overflow-more");
-    button.set_tooltip_text(Some("Readings that did not fit"));
-    button.set_popover(Some(&popover));
-    button.set_visible(false);
-
-    if vertical {
-        button.set_halign(gtk::Align::Center);
-    }
-
-    crate::barmodule::attach_exclusive_popover(&button, &popover);
-    end.append(&button);
-
-    FoldedShelf {
-        button,
-        count,
-        shelf,
-    }
-}
-
-struct FoldState {
-    bar: gtk::CenterBox,
-    start: gtk::Box,
-    center: gtk::Box,
-    end: gtk::Box,
-    overflow: Option<OverflowRow>,
-    more: FoldedShelf,
-    /// The right row as it was built: in row order, with each reading's claim.
-    readings: Vec<(gtk::Widget, i32)>,
-    spacing: i32,
-    padding: i32,
-    vertical: bool,
-}
-
-/// Fold the right row, and fold it again whenever the bar is handed a new size.
-///
-/// The C bar folded once, from an idle after the surface was presented, which
-/// left a row folded to a width it no longer had: a scale change, a rotation or
-/// a font that grows all re-lay the bar out, and the fold has to re-answer.  A
-/// headless build has no surface and keeps the row whole, exactly as the
-/// `root_width <= 1` guard does.
-fn fold_after_map(state: FoldState, window: &gtk::ApplicationWindow) {
-    let state = Rc::new(state);
-    let armed = Rc::new(Cell::new(false));
-
-    let map_state = Rc::clone(&state);
-
-    window.connect_map(move |_| {
-        if armed.replace(true) {
-            return;
-        }
-
-        let state = Rc::clone(&map_state);
-
-        // A short timeout rather than an idle: the row's real allocation is
-        // what the first fold needs, and map alone does not have it yet.
-        gtk::glib::timeout_add_local_once(Duration::from_millis(100), move || {
-            collapse_end(&state);
-        });
-    });
-
-    // `GdkSurface:width` (or height, for a vertical bar) is the allocation the
-    // compositor gave the surface, which is what a fold has to fit into.
-    if let Some(surface) = window.surface() {
-        let state = Rc::clone(&state);
-
-        if state.vertical {
-            surface.connect_height_notify(move |_| {
-                collapse_end(&state);
-            });
-        } else {
-            surface.connect_width_notify(move |_| {
-                collapse_end(&state);
-            });
-        }
-    }
-}
-
-fn widget_extent(widget: &gtk::Widget, vertical: bool) -> i32 {
-    if !widget.is_visible() {
-        return 0;
-    }
-
-    let (extent, axis) = if vertical {
-        (widget.height(), gtk::Orientation::Vertical)
-    } else {
-        (widget.width(), gtk::Orientation::Horizontal)
-    };
-
-    if extent > 0 {
-        return extent;
-    }
-
-    let (_, natural, _, _) = widget.measure(axis, -1);
-
-    natural.max(0)
-}
-
-fn reading_extent(widget: &gtk::Widget, vertical: bool) -> i32 {
-    let extent = widget_extent(widget, vertical);
-
-    if extent > 0 { extent } else { 24 }
-}
-
-fn collapse_end(state: &FoldState) {
-    let root_extent = if state.vertical {
-        state.bar.height()
-    } else {
-        state.bar.width()
-    };
-
-    // No allocation yet: leave the row alone rather than hiding everything.
-    if root_extent <= 1 || state.readings.is_empty() {
-        return;
-    }
-
-    let mut used_by_others = widget_extent(state.start.upcast_ref::<gtk::Widget>(), state.vertical)
-        + widget_extent(state.center.upcast_ref::<gtk::Widget>(), state.vertical)
-        + 2 * state.padding.max(0);
-
-    if let Some(overflow) = &state.overflow {
-        used_by_others += widget_extent(overflow.shelf.upcast_ref::<gtk::Widget>(), state.vertical)
-            + widget_extent(overflow.toggle.upcast_ref::<gtk::Widget>(), state.vertical);
-    }
-
-    let available = (root_extent - used_by_others - 16).max(0);
-    let readings: Vec<crate::bar::Reading> = state
-        .readings
-        .iter()
-        .map(|(widget, priority)| crate::bar::Reading {
-            width: reading_extent(widget, state.vertical),
-            priority: *priority,
-        })
-        .collect();
-    let kept = crate::bar::fold_visible(&readings, available, state.spacing);
-
-    // Re-answer from the whole row every time: a widget the last fold moved to
-    // the shelf has to be a candidate again once the bar is wider.
-    while let Some(child) = state.more.shelf.first_child() {
-        state.more.shelf.remove(&child);
-    }
-
-    let row = state.end.clone().upcast::<gtk::Widget>();
-
-    for (widget, _) in &state.readings {
-        if widget.parent().as_ref() == Some(&row) {
-            state.end.remove(widget);
-        }
-    }
-
-    // Prepending in reverse puts the kept readings back at the head of the row,
-    // in their configured order and ahead of the overflow and `+N` controls.
-    for index in kept.iter().rev() {
-        if let Some((widget, _)) = state.readings.get(*index) {
-            state.end.prepend(widget);
-        }
-    }
-
-    for (index, (widget, _)) in state.readings.iter().enumerate() {
-        if !kept.contains(&index) {
-            state.more.shelf.append(widget);
-        }
-    }
-
-    let folded = state.readings.len() - kept.len();
-
-    if folded > 0 {
-        state.more.count.set_text(&format!("+{folded}"));
-        state.more.button.set_tooltip_text(Some(&format!(
-            "{folded} reading{} did not fit · click to see {}",
-            if folded == 1 { "" } else { "s" },
-            if folded == 1 { "it" } else { "them" }
-        )));
-    }
-
-    state.more.button.set_visible(folded > 0);
-}
-
-/// The C bar's own right-click menu: a way into the settings window and a
-/// reload without remembering a socket command.  Modules keep their own right
-/// clicks; only the bar's gaps, padding and three groups open this menu.
-fn build_bar_context_menu(
-    application: &gtk::Application,
-    bar: &gtk::CenterBox,
-    start: &gtk::Box,
-    center: &gtk::Box,
-    end: &gtk::Box,
-) {
-    let popover = gtk::Popover::new();
-
-    popover.set_autohide(true);
-    popover.set_has_arrow(false);
-    popover.set_parent(bar);
-    crate::barmodule::watch_popover(&popover);
-
-    let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
-
-    menu.add_css_class("whelk-bar-menu");
-
-    let heading = gtk::Label::new(Some("whelk"));
-
-    heading.add_css_class("whelk-bar-menu-heading");
-    heading.set_xalign(0.0);
-    heading.set_margin_start(8);
-    heading.set_margin_end(8);
-    heading.set_margin_top(4);
-    heading.set_margin_bottom(4);
-
-    let edit = gtk::Button::with_label("Edit settings…");
-
-    edit.add_css_class("flat");
-    edit.set_halign(gtk::Align::Start);
-
-    let reload = gtk::Button::with_label("Reload settings");
-
-    reload.add_css_class("flat");
-    reload.set_halign(gtk::Align::Start);
-
-    menu.append(&heading);
-    menu.append(&edit);
-    menu.append(&reload);
-    popover.set_child(Some(&menu));
-
-    let application_for_edit = application.clone();
-    let popover_for_edit = popover.clone();
-
-    edit.connect_clicked(move |_| {
-        application_for_edit.activate_action("settings", None);
-        popover_for_edit.popdown();
-    });
-
-    let application_for_reload = application.clone();
-    let popover_for_reload = popover.clone();
-
-    reload.connect_clicked(move |_| {
-        application_for_reload.activate_action("reload", None);
-        popover_for_reload.popdown();
-    });
-
-    let gesture = gtk::GestureClick::new();
-
-    gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
-
-    let bar_for_pick = bar.clone();
-    let start = start.clone().upcast::<gtk::Widget>();
-    let center = center.clone().upcast::<gtk::Widget>();
-    let end = end.clone().upcast::<gtk::Widget>();
-
-    gesture.connect_pressed(move |_, _, x, y| {
-        let root = bar_for_pick.clone().upcast::<gtk::Widget>();
-        let target = bar_for_pick.pick(x, y, gtk::PickFlags::DEFAULT);
-        let structural = target.as_ref().is_some_and(|target| {
-            target == &root || target == &start || target == &center || target == &end
-        });
-
-        if !structural {
-            return;
-        }
-
-        // The bar's own menu is one more grabbing popup: the module menus and
-        // the start menu go first, or GDK refuses to map this one.
-        crate::barmodule::close_popovers(Some(&popover));
-        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        popover.popup();
-    });
-    bar.add_controller(gesture);
-}
-
-fn update_clock(label: &gtk::Label, format: &str) {
-    let text = gtk::glib::DateTime::now_local()
-        .and_then(|now| now.format(format))
-        .map(|formatted| formatted.to_string())
-        .unwrap_or_else(|_| "--:--".to_owned());
-
-    label.set_text(&text);
-}
-
-fn install_css(bar: &BarSettings, widget_id: &str) -> Option<gtk::CssProvider> {
-    let display = gtk::gdk::Display::default()?;
-    let base = "
-        .whelk-surface {
-            background-color: transparent;
-        }
-        .whelk-clock {
-            font-weight: 700;
-        }
-        .whelk-bar-menu {
-            padding: 4px;
-        }
-        .whelk-bar-menu-heading {
-            font-weight: 700;
-            opacity: 0.7;
-        }
-        .whelk-overflow-box {
-            padding: 6px;
-        }
-        .whelk-module {
-            border-radius: 6px;
-            transition: background-color 120ms ease-in-out;
-        }
-        .whelk-module:hover {
-            background-color: alpha(currentColor, 0.10);
-        }
-        .whelk-label {
-            font-feature-settings: \"tnum\";
-        }
-        .whelk-battery.warning {
-            color: #ffb340;
-        }
-        .whelk-battery.critical {
-            color: #ff5f56;
-            font-weight: bold;
-        }
-        .whelk-wifi.off, .whelk-bluetooth.off {
-            opacity: 0.55;
-        }
-        .whelk-window {
-            font-weight: 600;
-        }
-        .whelk-workspace.inactive {
-            opacity: 0.62;
-        }
-        .whelk-workspace.empty {
-            opacity: 0.38;
-        }
-        .whelk-media-controls button {
-            color: inherit;
-            padding: 0 3px;
-            min-width: 20px;
-            min-height: 20px;
-            font-size: 14px;
-        }
-        ";
-    let generated = style::css(widget_id, bar, "whelk-bar", bar.css.as_deref());
-    let css = gtk::CssProvider::new();
-
-    css.load_from_string(&format!("{base}\n{generated}"));
-
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &css,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
-
-    Some(css)
-}
-
-/// The host half of a card's skin: the first bar's palette and material, plus
-/// the frosted-glass finish in force.
 fn card_skin(style: &BarSettings) -> bibelot::Skin {
     let frost = crate::frost::current();
 

@@ -40,10 +40,6 @@ fn defaults_match_the_c_bar_config() {
     assert!(!bar.auto_hide);
     assert_eq!(bar.auto_hide_delay_ms, 900);
     assert!(!bar.keyboard);
-    assert_eq!(bar.launcher_width, 660);
-    assert_eq!(bar.launcher_height, 640);
-    assert_eq!(bar.launcher_icon_size, 24);
-    assert_eq!(bar.launcher_font_scale, 100);
     assert!(bar.left.is_empty());
     assert!(bar.right.is_empty());
 }
@@ -147,10 +143,6 @@ fn the_scheme_alist_becomes_a_typed_bar() {
     assert_eq!(bar.shine, 1.0);
     assert_eq!(bar.reflection, 0.0);
     assert_eq!(bar.flare, 0.25);
-    assert_eq!(bar.launcher_width, 700);
-    assert_eq!(bar.launcher_height, 650);
-    assert_eq!(bar.launcher_icon_size, 32);
-    assert_eq!(bar.launcher_font_scale, 90);
     assert!(bar.overflow_expanded);
     assert_eq!(bar.left[0].kind, "start");
     assert_eq!(bar.left[0].text("icon").as_deref(), Some("\u{f303}"));

@@ -16,6 +16,12 @@ An installed shell needs both Scheme modules, =whelk= and =bibelot=, under
 both.  Without =bibelot= the cards fall back to the built-in default theme and
 the shell still starts.
 
+The bar and the launcher are the separate =whelk-bar= and =whelk-launcher=
+projects.  Both are libraries, not programs: WheLK carries pinned snapshots at
+=rust/vendor/whelk-bar= and =rust/vendor/whelk-launcher= and implements their
+host contracts.  They install no files of their own in a whelk package; the
+shell binary is the only artifact, and the two crates compile into it.
+
 =hasp=, the separate lock-screen project, is an optional *program*, not a
 build dependency.  WheLK starts =hasp --lock=, =hasp --watch= and
 =hasp --check= when those actions are used, finding it through =HASP_BIN=, a
@@ -74,6 +80,9 @@ release script keeps in agreement (see [[file:releasing.org][Releasing]]).
   them under the same prefix as the binary.
 - WheLK does not link or load =libpam=.  Do not add a PAM build dependency to
   the whelk package; PAM belongs to the separate hasp package.
+- =whelk-bar= and =whelk-launcher= are vendored path dependencies.  Do not
+  add them as runtime programs, and do not expect a separate binary or Scheme
+  module for either one.
 - =hasp= is a runtime recommendation, not a build requirement.  A package that
   installs it gets working lock actions and logind triggers; one that does not
   still installs a shell that starts and reports the missing program.

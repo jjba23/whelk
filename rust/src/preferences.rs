@@ -31,6 +31,7 @@ use crate::nightlight;
 use crate::settings::SchemeValue;
 use crate::sources;
 use crate::style;
+use whelk_launcher::style::LauncherSettings;
 
 /// Typing in a field settles for this long before the value is written, so a
 /// slider drag or a sentence does not become one preference write per keystroke.
@@ -271,6 +272,7 @@ pub struct Callbacks {
 #[derive(Clone)]
 pub struct Snapshot {
     pub bar: BarSettings,
+    pub launcher: LauncherSettings,
     pub night_light: nightlight::Config,
     pub themes: Vec<String>,
 }
@@ -281,6 +283,7 @@ impl Snapshot {
     pub fn fallback() -> Self {
         Self {
             bar: BarSettings::default(),
+            launcher: LauncherSettings::default(),
             night_light: nightlight::Config::default(),
             themes: Vec::new(),
         }
@@ -1576,7 +1579,7 @@ fn build_modules_page(state: &Rc<State>, stack: &gtk::Stack) {
 
 fn build_launcher_page(state: &Rc<State>, stack: &gtk::Stack) {
     let body = page(stack, "keys", "Launcher");
-    let bar = state.snapshot.borrow().bar.clone();
+    let launcher = state.snapshot.borrow().launcher;
     let appearance = card_new(
         "Window and zoom",
         "The card's starting size and how large its icons and text are.",
@@ -1589,7 +1592,7 @@ fn build_launcher_page(state: &Rc<State>, stack: &gtk::Stack) {
         "Width",
         Some("Pixels."),
         "launcher-width",
-        i64::from(bar.launcher_width),
+        i64::from(launcher.width),
         (360, 1600),
     );
     row_spin(
@@ -1598,7 +1601,7 @@ fn build_launcher_page(state: &Rc<State>, stack: &gtk::Stack) {
         "Height",
         Some("Pixels."),
         "launcher-height",
-        i64::from(bar.launcher_height),
+        i64::from(launcher.height),
         (300, 1200),
     );
     row_spin(
@@ -1607,7 +1610,7 @@ fn build_launcher_page(state: &Rc<State>, stack: &gtk::Stack) {
         "Icon size",
         Some("Pixels per launcher icon."),
         "launcher-icon-size",
-        i64::from(bar.launcher_icon_size),
+        i64::from(launcher.icon_size),
         (16, 64),
     );
     row_spin(
@@ -1616,7 +1619,7 @@ fn build_launcher_page(state: &Rc<State>, stack: &gtk::Stack) {
         "Text size",
         Some("Percent of the bar's configured font size."),
         "launcher-font-scale",
-        i64::from(bar.launcher_font_scale),
+        i64::from(launcher.font_scale),
         (75, 200),
     );
     card_note(

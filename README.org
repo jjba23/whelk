@@ -231,6 +231,13 @@ click, and the command line a keybinding uses to open a surface.
 | a distribution package   | =maak deb-build=, =maak arch-build=, =maak rpm-build= or =xbps-src pkg whelk= |
 | the optional lock screen  | install [[https://github.com/jjba23/hasp][hasp]] separately; whelk finds it on =PATH= or through =HASP_BIN= |
 
+The bar surface and the launcher are separate projects too:
+[[https://github.com/jjba23/whelk-bar][whelk-bar]] and
+[[https://github.com/jjba23/whelk-launcher][whelk-launcher]].  WheLK carries pinned
+release snapshots of both under =rust/vendor= and supplies their host side --
+module widgets and readings for the bar; clipboard history, focused menus and
+the shell actions for the launcher.  Neither project imports whelk.
+
 [[file:docs/installation.org][Installation]] has the requirements, the separate hasp program that provides
 locking (and why PAM is not in whelk), the run-time tools whelk asks for, and
 how to stop a running shell.

@@ -9,7 +9,7 @@ same kind of object, built by the same code, in the same language.
 This document is not a changelog and it is not a promise list. It is the
 direction the code is already leaning in, written down so that a contributor can
 tell which pull request is on the path and which one is a detour. This revision
-is current at whelk 0.53.0 (November 2026).
+is current at whelk 0.55.0 (November 2026).
 
 ## Where whelk is today
 
@@ -39,6 +39,14 @@ shell and the Meson tree are gone, the crate graph is vendored under
 remaining avoidable panics from configuration, PAM, menus and page construction.
 A release is not only a set of features; it is also a smaller surface for the
 next contributor to audit.
+
+The 0.55 line pulled the two largest surfaces out into their own projects.  The
+bar (`whelk-bar`) owns its layer surfaces, placement, priority fold, auto-hide,
+keyboard path and module lifecycle; it asks its host for one widget per module
+and a stylesheet.  The launcher (`whelk-launcher`) owns its card, modes, data,
+ranking and key map; it asks its host for clipboard history, focused menus, a
+stylesheet and the shell actions.  Both are libraries with no dependency on
+WheLK, and WheLK vendors pinned snapshots so a release still builds offline.
 
 The load-bearing shapes are:
 

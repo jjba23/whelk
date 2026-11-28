@@ -1,0 +1,30 @@
+# whelk-launcher -- a launcher overlay for GTK4 Wayland shells
+#
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+[package]
+name = "whelk-launcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+description = "A searchable launcher overlay for GTK4 Wayland shells, split out of WheLK"
+publish = false
+
+[lib]
+name = "whelk_launcher"
+path = "src/lib.rs"
+
+[dependencies]
+gtk4 = { version = "0.11.5", features = ["v4_18"] }
+gio = { version = "0.22", features = ["v2_80"] }
+gtk4-layer-shell = "0.8.1"
+gdk-pixbuf = "0.22"
+libc = "0.2"
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

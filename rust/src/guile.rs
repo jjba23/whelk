@@ -31,6 +31,7 @@ use crate::nightlight::Config as NightLightConfig;
 use crate::settings::{ClipboardSettings, SchemeValue, WallpaperSettings};
 use crate::startmenu::MenuEntry;
 use bibelot::WidgetConfig;
+use whelk_launcher::style::LauncherSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuileError {
@@ -219,6 +220,50 @@ impl Guile {
                 _ => None,
             })
             .collect())
+    }
+
+    /// Read the launcher's four geometry values from the first bar's alist.
+    pub fn load_launcher(&self, config_path: &Path) -> Result<LauncherSettings, GuileError> {
+        self.load_config(config_path)?;
+
+        let path_text = config_path.to_str().ok_or_else(|| {
+            GuileError::Evaluation(format!(
+                "settings path is not valid UTF-8: {}",
+                config_path.display()
+            ))
+        })?;
+        let path = self.scheme_string(path_text)?;
+        let _path_root = Root::new(path);
+
+        let alist = self.catch(|| {
+            let procedure = sys::public_ref(c"whelk state", c"shell-bars->alists");
+
+            Ok(sys::call_1(procedure, path))
+        })?;
+        let _alist_root = Root::new(alist);
+        let value = self.scheme_value(alist)?;
+        let SchemeValue::List(values) = value else {
+            return Ok(LauncherSettings::default());
+        };
+        let Some(SchemeValue::Alist(entries)) = values.into_iter().next() else {
+            return Ok(LauncherSettings::default());
+        };
+        let mut settings = LauncherSettings::default();
+
+        if let Some(SchemeValue::Integer(width)) = value_at(&entries, "launcher-width") {
+            settings.width = *width as i32;
+        }
+        if let Some(SchemeValue::Integer(height)) = value_at(&entries, "launcher-height") {
+            settings.height = *height as i32;
+        }
+        if let Some(SchemeValue::Integer(size)) = value_at(&entries, "launcher-icon-size") {
+            settings.icon_size = *size as i32;
+        }
+        if let Some(SchemeValue::Integer(scale)) = value_at(&entries, "launcher-font-scale") {
+            settings.font_scale = *scale as i32;
+        }
+
+        Ok(settings)
     }
 
     /// Read the configured desktop widgets, `(shell-widgets->alists)`: each
@@ -1204,6 +1249,12 @@ fn theme_entries(entries: &[(String, SchemeValue)]) -> Vec<(String, bibelot::gui
             (key.clone(), value)
         })
         .collect()
+}
+
+fn value_at<'a>(alist: &'a [(String, SchemeValue)], key: &str) -> Option<&'a SchemeValue> {
+    alist
+        .iter()
+        .find_map(|(candidate, value)| (candidate == key).then_some(value))
 }
 
 #[cfg(test)]

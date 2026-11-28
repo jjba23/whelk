@@ -59,6 +59,7 @@ pub mod keyboardbar;
 pub mod languagebar;
 pub mod launcher;
 pub mod launcherdata;
+pub mod launcherhost;
 pub mod launcherkeys;
 pub mod launcherpanel;
 pub mod level;

@@ -26,10 +26,12 @@ flowchart TD
 
     subgraph shell["Rust - what the shell runs"]
         APP["main.rs, supervisor.rs, signals.rs<br/>process, single instance, shutdown"]
-        UI["ui.rs<br/>bar set, reload, hotplug, idle"]
-        BAR["bar.rs, barfactory.rs<br/>typed bars and modules"]
+        UI["ui.rs<br/>bar host, reload, hotplug, idle"]
+        BAR["whelk-bar<br/>surfaces, placement, fold, module host"]
+        LAUNCH["whelk-launcher<br/>card, modes, data, ranking"]
+        BARFACTORY["barfactory.rs, *bar.rs<br/>the host's module widgets"]
         MODULES["*bar.rs<br/>one reading per module"]
-        SURFACES["launcherpanel.rs, notificationcenter.rs,<br/>networkpanel.rs, bibelot cards"]
+        SURFACES["notificationcenter.rs, networkpanel.rs,<br/>bibelot cards"]
         POLICY["settings.rs, wallpaper.rs, format.rs,<br/>session.rs, workspaces.rs, ..."]
         STYLE["style.rs<br/>the generated skin"]
     end
@@ -48,7 +50,9 @@ flowchart TD
     CFG --> APP
     APP --> UI
     UI --> BAR
-    BAR --> MODULES
+    BAR --> BARFACTORY
+    BARFACTORY --> MODULES
+    UI --> LAUNCH
     UI --> SURFACES
     BAR --> STYLE
     MODULES --> POLICY
@@ -77,12 +81,14 @@ flowchart TD
   rust/src/posix.rs       the audited signal, kill and getpid calls
   rust/src/ui.rs          one bar set, its reload and monitor model, the idle
                           manager, notifications and the shell actions
-  rust/src/bar.rs         a bar = edge, layer, modules and generated skin
+  whelk-bar               a bar = edge, layer, modules, fold, auto-hide, host
+  rust/src/barfactory.rs  the host's table from module kind to widget
   rust/src/*bar.rs        one reading per module
   rust/src/style.rs       the generated skin every surface wears
        |
-  rust/src/launcherpanel.rs, notificationcenter.rs, networkpanel.rs,
-  wallpaperpicker.rs      the independently presented surfaces
+  whelk-launcher          the launcher card, its data and host boundary
+  rust/src/notificationcenter.rs, networkpanel.rs, wallpaperpicker.rs
+                          the independently presented surfaces
   bibelot::Widgets        the desktop cards, vendored as a pinned snapshot
 #+end_src
 
@@ -95,8 +101,9 @@ flowchart TD
   =barfactory.rs=; its reading and widget live in the matching =*bar.rs= file.
   A module reports through the shared =barmodule.rs= host, so its timer,
   cancellation, deadline and mouse options are the same as every other kind.
-- *A bar is configuration, a surface is not a bar.*  =ui.rs= turns a typed
-  =BarSettings= into one layer-shell surface per selected output.  Launchers,
+- *A bar is a small library with a host.*  =whelk-bar= turns a typed
+  =BarSettings= into one layer-shell surface per selected output; =ui.rs=
+  supplies the module widgets and the shell's stylesheet.  Launchers,
   panels and notifications use the same surface vocabulary without pretending
   to be a bar; the lock screen is hasp's, in another process.
 - *CSS is structure plus skin.*  =resources/css/whelk.css= is no longer a

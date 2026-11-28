@@ -22,11 +22,13 @@ use crate::settings::{ClipboardSettings, WallpaperSettings};
 use crate::shortcutmaps::ShortcutMaps;
 use crate::startmenu::MenuEntry;
 use bibelot::WidgetConfig;
+use whelk_launcher::style::LauncherSettings;
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
     pub wallpaper: WallpaperSettings,
     pub bars: Vec<BarSettings>,
+    pub launcher: LauncherSettings,
     pub idle_lock_after: i32,
     pub clipboard: ClipboardSettings,
     /// The frosted-glass finish every surface is painted with.
@@ -49,6 +51,7 @@ impl LoadedConfig {
         Self {
             wallpaper: WallpaperSettings::default(),
             bars: vec![BarSettings::default()],
+            launcher: LauncherSettings::default(),
             idle_lock_after: 0,
             clipboard: ClipboardSettings::default(),
             frost: Frost::default(),
@@ -114,6 +117,10 @@ impl ConfigLoader {
             bars.push(BarSettings::default());
         }
 
+        let launcher = guile
+            .load_launcher(&self.path)
+            .map_err(|error| format!("launcher settings could not be loaded: {error}"))?;
+
         let idle_lock_after = guile
             .load_idle_lock_after(&self.path)
             .map_err(|error| format!("idle settings could not be loaded: {error}"))?;
@@ -177,6 +184,7 @@ impl ConfigLoader {
         Ok(LoadedConfig {
             wallpaper,
             bars,
+            launcher,
             idle_lock_after,
             clipboard,
             frost,

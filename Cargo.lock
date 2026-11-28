@@ -905,8 +905,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "whelk-bar"
+version = "0.1.0"
+dependencies = [
+ "gio",
+ "gtk4",
+ "gtk4-layer-shell",
+ "libc",
+ "pkg-config",
+ "tempfile",
+]
+
+[[package]]
+name = "whelk-launcher"
+version = "0.1.0"
+dependencies = [
+ "gdk-pixbuf",
+ "gio",
+ "gtk4",
+ "gtk4-layer-shell",
+ "libc",
+ "pkg-config",
+ "tempfile",
+]
+
+[[package]]
 name = "whelk-rs"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bibelot",
  "gdk-pixbuf",
@@ -919,6 +944,8 @@ dependencies = [
  "wayland-client",
  "wayland-protocols-wlr",
  "wayland-scanner",
+ "whelk-bar",
+ "whelk-launcher",
  "x11rb",
 ]
 
@@ -971,4 +998,4 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.54.0"
+version = "0.55.0"

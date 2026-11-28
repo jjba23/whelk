@@ -90,15 +90,7 @@ pub fn solid(color: Option<&str>) -> Option<String> {
 /// stand twice that apart.  At the default spacing of 6 a module is inset 3px
 /// and two neighbouring ones are 12px from text to text -- the proportion the
 /// menu bar uses.
-pub fn module_padding(spacing: i32) -> i32 {
-    (spacing / 2).clamp(2, 12)
-}
-
-/// The gap between an icon and its label inside one module.  A hair tighter
-/// than the padding, so a reading reads as one thing rather than two.
-pub fn module_inner_spacing(spacing: i32) -> i32 {
-    (spacing * 2 / 3).max(2)
-}
+pub use whelk_bar::style::{module_inner_spacing, module_padding};
 
 /// Generate one bar's skin, scoped to `widget_id`.
 pub fn css(

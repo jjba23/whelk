@@ -16,7 +16,7 @@
 #
 
 Name:           whelk
-Version:        0.54.0
+Version:        0.55.0
 Release:        0
 Summary:        Wayland shell with bars, a launcher and notifications, in Guile Scheme
 License:        MIT
@@ -78,6 +78,10 @@ xvfb-run -a cargo test --workspace --locked
 %{_datadir}/guile/site/3.0/whelk
 
 %changelog
+* Sat Nov 28 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.55.0
+- Split the bar and launcher into the separate whelk-bar and whelk-launcher
+  projects, carried as pinned source snapshots; whelk remains their host.
+
 * Sat Nov 28 2026 Josep Bigorra <jjbigorra@gmail.com> - 0.54.0
 - The lock screen is the optional separate hasp program, started at run time;
   whelk no longer links or loads PAM.  Bibelot is carried as a pinned source

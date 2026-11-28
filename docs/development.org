@@ -90,7 +90,7 @@ that can answer its question.
 | Widget-backed models | =bar.rs=, =barmodules.rs=, =menusearch.rs=, =networkpanel.rs= | readings, menu trees and panel data without a compositor |
 | Shell + Guile | =config.rs=, =scheme.rs= and the custom-harness test in =tests/guile.rs= | the real Scheme modules, one Guile handle and repeated loads |
 
-The full suite is 560 tests; =tests/guile.rs= runs its own harness outside
+The full suite is 538 tests; =tests/guile.rs= runs its own harness outside
 libtest and is not part of that number.  Most of it is ordinary Cargo:
 
 #+begin_src sh
@@ -99,7 +99,8 @@ libtest and is not part of that number.  Most of it is ordinary Cargo:
   cargo test --workspace --locked --offline pure_module_name
 #+end_src
 
-=--offline= works because =rust/vendor= contains the crate graph and
+=--offline= works because =rust/vendor= contains the crate graph -- including
+the pinned =bibelot=, =whelk-bar= and =whelk-launcher= source snapshots -- and
 =.cargo/config.toml= points Cargo at it.  Use the flag in this checkout rather
 than reaching for a network fetch.
 
